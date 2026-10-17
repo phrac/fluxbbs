@@ -106,7 +106,6 @@ Things that trip tests up:
 
 ## Next
 
-Doors (`DOORS.PAS`): drop files (DOOR.SYS, DORINFO1.DEF, CHAIN.TXT) and
-running a door with the caller's connection as stdin/stdout, or a virtual
-FOSSIL for DOS doors under DOSBox/dosemu. Then the rest of the README's
-"What's left to port" table.
+The rest of the README's "What's left to port" table (doors are done:
+`doors.rs`, native on a pty, DOS under DOSBox). IPL scripting or QWK are
+the big ones.

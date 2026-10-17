@@ -24,6 +24,7 @@ pub struct Config {
     pub messages: Messages,
     pub files: Files,
     pub nuv: Nuv,
+    pub dos: Dos,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -147,6 +148,8 @@ pub struct Paths {
     pub theme_dir: PathBuf,
     /// Scratch space for uploads in progress.
     pub temp: PathBuf,
+    /// Door drop files, a directory per node (`pathDoor`).
+    pub doors: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -155,6 +158,33 @@ pub enum CharsetPref {
     Auto,
     Cp437,
     Utf8,
+}
+
+/// DOS doors: door commands naming a .BAT, .COM or .EXE run under DOSBox,
+/// with COM1 wired to the caller.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Dos {
+    /// Runs the emulator (through `sh -c`); %C is the config written for
+    /// each door.
+    pub emulator: String,
+    /// Mounted as C:, on the PATH: the doors and their batch files.
+    pub drive: PathBuf,
+    /// DOS commands run before each door, e.g. a FOSSIL driver.
+    pub setup: Vec<String>,
+    /// Extra lines for the emulator's config (`[cpu]`, `cycles=max`).
+    pub config: Vec<String>,
+}
+
+impl Default for Dos {
+    fn default() -> Self {
+        Self {
+            emulator: "dosbox-staging -noprimaryconf -nolocalconf -conf %C".into(),
+            drive: "doors/dos".into(),
+            setup: Vec::new(),
+            config: Vec::new(),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -450,6 +480,7 @@ impl Default for Paths {
             themes: "themes.toml".into(),
             theme_dir: "themes".into(),
             temp: "data/temp".into(),
+            doors: "data/doors".into(),
         }
     }
 }

@@ -124,6 +124,17 @@ advance_bar_on_flag = true
 max_upload_bytes = 104857600
 transfer_cps = 500000
 
+# DOS doors: a door command naming a .BAT, .COM or .EXE runs under DOSBox
+# (window hidden), with COM1 wired to the caller. `drive` is C: and on the
+# PATH; the node's drop directory is D: and the current drive. `setup`
+# runs before each door (e.g. a FOSSIL driver), `config` adds dosbox.conf
+# lines (e.g. "[cpu]", "cycles=max").
+[dos]
+emulator = "dosbox-staging -noprimaryconf -nolocalconf -conf %C"
+drive = "doors/dos"
+setup = []
+config = []
+
 [[colors]]
 fore = 12
 back = 0

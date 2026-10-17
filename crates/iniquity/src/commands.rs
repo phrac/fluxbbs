@@ -12,7 +12,7 @@ use crate::session::Session;
 /// Commands the original had that aren't ported yet. They report that,
 /// rather than "invalid command", so stock menus degrade honestly.
 const NOT_YET: &[&str] = &[
-    "D0", "D1", "D2", "D3", "DZ", "E+", "E-", "E/", "E\\", "F#",
+    "E+", "E-", "E/", "E\\", "F#",
     "M#", "QD", "QU", "TP", "TS", "CP", ">C", "!D", "!W", "!E", "!I",
     "!V", "-X",
 ];
@@ -217,6 +217,7 @@ impl Session {
             "*I" if self.is_sysop() => self.infoform_editor().await?,
             "*T" if self.is_sysop() => self.theme_editor().await?,
             "UT" => self.choose_theme().await?,
+            "D0" | "D1" | "D2" | "D3" | "D4" | "DZ" => self.door_execute(param, code.chars().nth(1).unwrap()).await?,
             "IN" => self.infoforms(false).await?,
             "IM" => self.infoforms(true).await?,
             "NV" => self.nuv_vote(param.to_ascii_uppercase().contains('S')).await?,

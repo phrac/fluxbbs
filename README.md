@@ -64,6 +64,9 @@ Neither is in git.
 - Infoforms (questionnaires, mandatory or not) and new user voting.
 - Screen themes (the original's text libraries): directories of screens
   that replace the stock ones; callers pick theirs with `UT`.
+- Doors, native and DOS (under DOSBox): `D1` DORINFO1.DEF, `D2` DOOR.SYS,
+  `D3` CHAIN.TXT, `D4` DOOR32.SYS, `DZ` DOOR.SYS and DORINFO1.DEF, `D0`
+  none. See [Doors](#doors).
 
 **SysOp tools** (the `*` commands on the SysOp menu)
 - `*C` system configuration, written back to `iniquity.toml` keeping its
@@ -86,7 +89,6 @@ libraries (unpacked into themes).
 
 | Feature | Original | Commands | Notes |
 |---|---|---|---|
-| Doors | DOORS.PAS | `D0`–`D3`, `DZ` | Drop files (DOOR.SYS, DORINFO1.DEF, CHAIN.TXT), running the door with the caller's connection as its stdin/stdout (or a virtual FOSSIL for DOS doors under DOSBox/dosemu). **Next.** |
 | IPL scripting | IPLC.PAS, IPLI.PAS, IPLX.PAS | `-X` | Iniquity's own scripting language: compiler and interpreter. Port it so `.IPS` mods run, or offer Rhai/Lua instead. |
 | QWK offline mail | QWKMAIL.PAS | `QD`, `QU` | Packet download and REP upload. |
 | Paging the SysOp / SysOp chat | CHATMODE.PAS | `CP`, `>C` | The original split-screen chat assumed a local console; here it would page a SysOp who is logged in on another node, then chat. |
@@ -128,6 +130,50 @@ web or terminal SysOp dashboard could replace the local console later.
 Files that don't exist yet use built-in defaults; the editors create
 them. Most changes apply at once; SSH, telnet and path settings need a
 restart.
+
+## Doors
+
+A door is a menu command `D0`–`D4` or `DZ` whose parameter is a shell
+command. The letter picks the drop file, written to `data/doors/nodeN/`
+(`[paths] doors`), which is also where the door runs:
+
+    [[command]]
+    keys = "1"
+    command = "D2"
+    param = "/opt/doors/mygame/start.sh %PN %ND"
+
+The door gets a pseudo-terminal (80 columns, the caller's rows, their
+`TERM`) wired to the caller, so curses programs work. Its output is
+taken as CP437 and translated for UTF-8 callers. If the caller hangs up,
+or their time runs out, the door's process group gets SIGHUP, then
+SIGKILL.
+
+The parameter can use `%PN` (the node's drop directory), `%PD`, `%PT`,
+`%PM` (data, text and menu directories), `%BR`/`%BP` (baud, always
+38400), `%CP` (COM port, 1) and any MCI code (`%UN`, `%ND`, `%TL`...).
+Every value goes in shell-quoted, so don't put quotes around codes.
+
+**DOS doors.** A command whose program ends in `.BAT`, `.COM` or `.EXE`
+(the stock menus' `LORD.BAT`, say) runs under DOSBox (`[dos]` in
+`iniquity.toml`; dosbox-staging by default). Its COM1 is a null modem
+back to the BBS, so doors that drive the UART themselves just work; for
+FOSSIL doors put a FOSSIL driver (BNU, X00) on the DOS drive and in
+`setup`. The DOS drive, `doors/dos`, is C: and on the PATH, and holds the
+doors and their batch files, as `pathDoor` did; the node's drop
+directory is D:, the current drive, so `LORD.BAT` finds DOOR.SYS where
+the original left it. In DOS commands `%PN` is `D:\`, and values lose
+the characters DOS would act on (`<>|"%`). DOSBox's own output goes to
+`dosbox.log` in the drop directory.
+
+DOSBox doesn't drop carrier when its socket closes, so when a caller
+hangs up or runs out of time in a DOS door, DOSBox is stopped (TERM,
+then KILL after 3 seconds) rather than the door noticing: a turn in
+progress may not be saved.
+
+Changes from the original: each node gets its own drop directory; the
+DOOR.SYS password line is empty; CHAIN.TXT has real times and transfer
+totals, and points its directories at the drop directory; DOOR32.SYS
+(`D4`) is new.
 
 ## Importing an existing Iniquity install
 

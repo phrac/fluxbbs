@@ -4,3 +4,4 @@ files/
 __pycache__/
 *.raw
 original/stock/
+doors/
