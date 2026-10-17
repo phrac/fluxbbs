@@ -29,6 +29,7 @@ mod ssh;
 mod sysop;
 mod strings;
 mod sysdata;
+mod sysmisc;
 mod user;
 mod useredit;
 mod users;
@@ -50,7 +51,8 @@ use users::UserStore;
 /// State shared by every session.
 pub struct BbsState {
     pub config: Config,
-    pub strings: Strings,
+    /// Swapped whole by the string editor.
+    strings: std::sync::RwLock<Arc<Strings>>,
     pub users: UserStore,
     /// Swapped whole by the SysOp's message area and conference editors.
     areas: std::sync::RwLock<Arc<MsgAreas>>,
@@ -68,6 +70,18 @@ pub struct BbsState {
 }
 
 impl BbsState {
+    pub fn strings(&self) -> Arc<Strings> {
+        self.strings.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Save the strings that differ from stock to strings.toml and start
+    /// using them.
+    pub fn set_strings(&self, new: Strings) -> anyhow::Result<()> {
+        write_atomic(&self.config.resolve(&self.config.paths.strings), &strings::to_toml(&new.overrides()))?;
+        *self.strings.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        Ok(())
+    }
+
     /// The message areas as they are now.
     pub fn areas(&self) -> Arc<MsgAreas> {
         self.areas.read().unwrap_or_else(|e| e.into_inner()).clone()
@@ -178,7 +192,7 @@ async fn main() -> anyhow::Result<()> {
     let nodes = Nodes::new(config.bbs.max_nodes);
     let state = Arc::new(BbsState {
         config,
-        strings,
+        strings: std::sync::RwLock::new(Arc::new(strings)),
         users,
         areas: std::sync::RwLock::new(Arc::new(areas)),
         msgs,

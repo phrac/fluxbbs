@@ -111,7 +111,7 @@ pub struct AutoMsg {
     pub lines: Vec<String>,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone, PartialEq, Default)]
 pub struct Bbs {
     pub id: u32,
     pub name: String,
@@ -127,6 +127,16 @@ pub struct Bbs {
 
 pub struct SysData {
     db: Mutex<Connection>,
+}
+
+fn history_sum(db: &Connection) -> rusqlite::Result<Counts> {
+    db.query_row(
+        "SELECT COALESCE(SUM(calls),0) calls, COALESCE(SUM(new_users),0) new_users, COALESCE(SUM(posts),0) posts,
+                COALESCE(SUM(email),0) email, COALESCE(SUM(uploads),0) uploads, COALESCE(SUM(downloads),0) downloads,
+                COALESCE(SUM(upload_kb),0) upload_kb, COALESCE(SUM(download_kb),0) download_kb FROM history",
+        [],
+        counts,
+    )
 }
 
 fn counts(r: &rusqlite::Row) -> rusqlite::Result<Counts> {
@@ -191,13 +201,7 @@ impl SysData {
     /// All-time totals: imported base plus our history.
     pub fn totals(&self) -> anyhow::Result<Counts> {
         let db = self.db.lock().unwrap();
-        let sum = db.query_row(
-            "SELECT COALESCE(SUM(calls),0) calls, COALESCE(SUM(new_users),0) new_users, COALESCE(SUM(posts),0) posts,
-                    COALESCE(SUM(email),0) email, COALESCE(SUM(uploads),0) uploads, COALESCE(SUM(downloads),0) downloads,
-                    COALESCE(SUM(upload_kb),0) upload_kb, COALESCE(SUM(download_kb),0) download_kb FROM history",
-            [],
-            counts,
-        )?;
+        let sum = history_sum(&db)?;
         let base = db
             .query_row("SELECT *, 0 AS new_users FROM totals_base WHERE id = 1", [], counts)
             .optional()?
@@ -227,6 +231,35 @@ impl SysData {
             ],
         )?;
         Ok(())
+    }
+
+    /// The first day the BBS was online (`FirstDay`).
+    pub fn first_day(&self) -> anyhow::Result<Option<NaiveDate>> {
+        let db = self.db.lock().unwrap();
+        let base: Option<Option<NaiveDate>> = db.query_row("SELECT first_day FROM totals_base WHERE id = 1", [], |r| r.get(0)).optional()?;
+        match base.flatten() {
+            Some(d) => Ok(Some(d)),
+            None => Ok(db.query_row("SELECT MIN(date) FROM history", [], |r| r.get(0))?),
+        }
+    }
+
+    /// The stats editor: make the all-time totals come to `want`. The
+    /// daily history can't be undone, so a total can't go below what it
+    /// already counts; returns the totals as they end up.
+    pub fn set_totals(&self, first_day: Option<NaiveDate>, want: &Counts) -> anyhow::Result<Counts> {
+        let sum = history_sum(&self.db.lock().unwrap())?;
+        let base = Counts {
+            calls: want.calls.saturating_sub(sum.calls),
+            new_users: 0,
+            posts: want.posts.saturating_sub(sum.posts),
+            email: want.email.saturating_sub(sum.email),
+            uploads: want.uploads.saturating_sub(sum.uploads),
+            downloads: want.downloads.saturating_sub(sum.downloads),
+            upload_kb: want.upload_kb.saturating_sub(sum.upload_kb),
+            download_kb: want.download_kb.saturating_sub(sum.download_kb),
+        };
+        self.set_base(first_day, &base)?;
+        self.totals()
     }
 
     pub fn set_day(&self, day: NaiveDate, c: &Counts) -> anyhow::Result<()> {
@@ -343,6 +376,16 @@ impl SysData {
             "INSERT INTO bbslist (name, address, sysop, speed, software, storage, info, who_added)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
             params![b.name, b.address, b.sysop, b.speed, b.software, b.storage, b.info, b.who_added],
+        )?;
+        Ok(())
+    }
+
+    pub fn update_bbs(&self, b: &Bbs) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute(
+            "UPDATE bbslist SET name = ?2, address = ?3, sysop = ?4, speed = ?5, software = ?6, storage = ?7,
+                info = ?8, who_added = ?9 WHERE id = ?1",
+            params![b.id, b.name, b.address, b.sysop, b.speed, b.software, b.storage, b.info, b.who_added],
         )?;
         Ok(())
     }

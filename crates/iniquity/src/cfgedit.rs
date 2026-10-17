@@ -318,9 +318,24 @@ impl Session {
         }
         let (x, y, len) = (f.items[i].vx, f.items[i].y, f.items[i].len);
         let max = if field.max == 0 { len } else { field.max };
-        let mut s: String = f.items[i].value.chars().take(max).collect();
-        let width = len.max(1);
-        let result = loop {
+        let value = f.items[i].value.clone();
+        let result = self.edit_line(x, y, len.max(1), &value, Field { max, ..field }).await?;
+        if !info.is_empty() {
+            self.cfg_info(f, "");
+        }
+        if let Some(v) = &result {
+            f.items[i].value = v.clone();
+        }
+        self.cfg_draw_value(f, i);
+        Ok(result)
+    }
+
+    /// Edit a line of text in place, `width` columns wide (the text
+    /// scrolls if it's longer). Enter keeps it, Esc gives None.
+    pub async fn edit_line(&mut self, x: u16, y: u16, width: usize, initial: &str, field: Field) -> io::Result<Option<String>> {
+        let max = if field.max == 0 { width } else { field.max };
+        let mut s: String = initial.chars().take(max).collect();
+        loop {
             // Show the tail when the text is wider than the field.
             let skip = s.chars().count().saturating_sub(width - 1);
             let visible: String = s.chars().skip(skip).collect();
@@ -329,8 +344,8 @@ impl Session {
             self.write(&format!("{visible:<width$}"));
             self.screen.goto(x + visible.chars().count() as u16, y);
             match self.read_key().await? {
-                Key::Enter => break Some(s.trim_end().to_string()),
-                Key::Esc => break None,
+                Key::Enter => return Ok(Some(s.trim_end().to_string())),
+                Key::Esc => return Ok(None),
                 Key::Backspace => {
                     s.pop();
                 }
@@ -341,17 +356,12 @@ impl Session {
                         s.push(c);
                     }
                 }
+                Key::Char(c @ 0x80..=0xFF) if s.chars().count() < max && field.allowed.is_empty() => {
+                    s.push(iniquity_term::cp437::TO_UNICODE[c as usize]);
+                }
                 _ => {}
             }
-        };
-        if !info.is_empty() {
-            self.cfg_info(f, "");
         }
-        if let Some(v) = &result {
-            f.items[i].value = v.clone();
-        }
-        self.cfg_draw_value(f, i);
-        Ok(result)
     }
 
     /// A number field, clamped to `min..=max`. None if aborted.
@@ -513,10 +523,11 @@ impl Session {
 
     /// `cfgPrompt`: a command line under a list, e.g.
     /// `-- [I]nsert [D]elete [Esc]Quit ∙ Command: `. Returns the key picked
-    /// (upper-cased), or None for Esc.
+    /// (upper-cased), or None for Esc. Keys with an empty label work but
+    /// aren't shown (`[1]-5 Edit` covers 2 to 5).
     pub async fn cfg_list_prompt(&mut self, cmds: &[(&str, &str)]) -> io::Result<Option<char>> {
         let mut s = String::from("|U2-- ");
-        for (k, rest) in cmds {
+        for (k, rest) in cmds.iter().filter(|(_, rest)| !rest.is_empty()) {
             s.push_str(&format!("|U2[|U3{k}|U2]|U1{rest} "));
         }
         s.push_str("|U2∙ |U4Command|U5: |U6");

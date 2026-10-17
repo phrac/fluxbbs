@@ -85,7 +85,8 @@ editor.
     (`*@` `*!`), download any file (`*>`), protocols (`*X`), archivers
     (`*Z`), message areas (`*A`) and packing them (`*P`); `useredit.rs`
     the user (`*U`) and access level (`*L`) editors; `extprog.rs` the
-    protocol, archiver and level lists
+    protocol, archiver and level lists; `sysmisc.rs` the BBS list (`*B`),
+    statistics (`*H`) and string (`*E`) editors
   - `users.rs` user database, `import.rs` legacy import
 - `menus/`, `text/`, `iniquity.toml`: the stock r5 setup, imported.
 - `crates/iniquity/assets/strings.toml`: the stock prompt strings, built in;
@@ -115,8 +116,8 @@ Commands: `?= ?+ ?/ ?% ?B ?E ?F ?I ?L ?N ?Y ?S ?T ?U`,
 `-^ -/ -\ -= -? -C -D -E -F -K -L -P -R -S -W`, the `|` cursor commands,
 `>A >H >L`, `HC HI HM`, `MA MC MJ MN MM MP MR MS MZ M[ M]`, `EE ER EC *R`,
 `FA FB FC FD FF FI FJ FL FN FS FT FU FV FZ F+ F[ F] *%`, `AR AS AW`,
-`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y *U *@ *! *> *X *Z *A *P *L`.
+`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y *U *@ *! *> *X *Z *A *P *L *B *H *E`.
 
 Other commands from the original say "not available yet". Next: the
-rest of the SysOp editors (system config, strings, menus, BBS list, stats), infoforms and new-user voting,
+rest of the SysOp editors (menus, system config), infoforms and new-user voting,
 multinode chat and messages.

@@ -158,8 +158,8 @@ impl Session {
         }
     }
 
-    pub fn strings(&self) -> &Strings {
-        &self.state.strings
+    pub fn strings(&self) -> Arc<Strings> {
+        self.state.strings()
     }
 
     pub fn emulation_name(&self) -> &'static str {

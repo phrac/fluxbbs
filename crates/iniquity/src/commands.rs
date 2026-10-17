@@ -209,6 +209,9 @@ impl Session {
             "*A" if self.is_sysop() => self.msg_area_editor().await?,
             "*P" if self.is_sysop() => self.pack_msg_areas(param).await?,
             "*L" if self.is_sysop() => self.level_editor().await?,
+            "*B" if self.is_sysop() => self.bbs_list_editor().await?,
+            "*H" if self.is_sysop() => self.stat_editor().await?,
+            "*E" if self.is_sysop() => self.string_editor().await?,
 
             // -- automessage, BBS list, callers
             "AS" => self.show_automsg().await?,
