@@ -69,7 +69,8 @@ editor.
   checked byte-for-byte against a stock install (`INIQUITY_STOCK=dir
   cargo test -p iniquity-legacy`).
 - `crates/iniquity`: the server.
-  - `ssh.rs` and `telnet.rs` transports, `session.rs` output and display engine,
+  - `ssh.rs` and `telnet.rs` transports, `guard.rs` connection limits
+    and bans, `challenge.rs` the bot check, `session.rs` output and display engine,
     `input.rs` keys/line input/yes-no
   - `logon.rs` matrix, login, new-user application
   - `messages.rs` areas, reader, posting, scans, email; `editor.rs` the
@@ -129,6 +130,27 @@ Commands: `?= ?+ ?/ ?% ?B ?E ?F ?I ?L ?N ?Y ?S ?T ?U`,
 
 Other commands from the original say "not available yet". Next:
 doors.
+
+## Keeping bots out
+
+`[security]` in iniquity.toml (or the Security section of `*C`):
+
+- **Bot check**: every caller, over SSH or telnet, first presses a random
+  combination of keys shown on screen (3 keys, 30 seconds, 3 goes by
+  default). The keys are drawn out of order with cursor moves, so a
+  script reading the byte stream doesn't see them in sequence.
+- **Limits per address**: 2 connections at once and 6 new ones a minute.
+- **Bans**: 3 failed bot checks or passwords ban the address for 15
+  minutes; each later ban doubles, up to a day. Banned addresses are
+  dropped before the telnet negotiation or SSH login. Bans are kept in
+  memory, so a restart clears them.
+- **Idle callers** get 60 seconds to log in.
+- `allow` and `deny` take addresses, prefixes (`10.0.`) or ranges
+  (`192.168.1.0/24`). Put your own address in `allow` so a mistyped
+  password can't lock you out.
+
+New users start at access level A until voted in (new user voting) or
+validated with `*U`.
 
 ## Infoforms and new user voting
 

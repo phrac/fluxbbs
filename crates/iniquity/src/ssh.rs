@@ -115,17 +115,32 @@ fn dims(cols: u32, rows: u32) -> (u16, u16) {
     (clamp(cols, 80), clamp(rows, 25))
 }
 
+impl Connection {
+    /// Every login is accepted (the BBS asks for its own), except from
+    /// addresses that are banned or denied.
+    fn auth(&self) -> Auth {
+        let blocked = self.peer.and_then(|p| self.state.guard.blocked(&self.state.config().security, p.ip()));
+        match blocked {
+            Some(why) => {
+                tracing::info!("{}: ssh refused: {why}", self.peer.map_or("?".into(), |p| p.to_string()));
+                Auth::Reject { proceed_with_methods: None, partial_success: false }
+            }
+            None => Auth::Accept,
+        }
+    }
+}
+
 impl russh::server::Handler for Connection {
     type Error = anyhow::Error;
 
     async fn auth_none(&mut self, user: &str) -> Result<Auth, Self::Error> {
         self.user = user.to_string();
-        Ok(Auth::Accept)
+        Ok(self.auth())
     }
 
     async fn auth_password(&mut self, user: &str, _password: &str) -> Result<Auth, Self::Error> {
         self.user = user.to_string();
-        Ok(Auth::Accept)
+        Ok(self.auth())
     }
 
     async fn channel_open_session(

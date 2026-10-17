@@ -14,6 +14,7 @@ pub struct Config {
     pub bbs: Bbs,
     pub ssh: Ssh,
     pub telnet: Telnet,
+    pub security: Security,
     pub paths: Paths,
     pub terminal: Terminal,
     pub acs: Acs,
@@ -60,6 +61,51 @@ pub struct Ssh {
     /// Also offer older algorithms (ECDH P-256, DH group 14, AES-CBC,
     /// HMAC-SHA1) after the modern ones. Needed by SyncTERM.
     pub legacy_algorithms: bool,
+}
+
+/// Keeping bots out (see guard.rs and challenge.rs).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Security {
+    /// Ask every caller to press a random key combination first.
+    pub challenge: bool,
+    /// How many keys, how long they have, and how many goes.
+    pub challenge_keys: u8,
+    pub challenge_seconds: u16,
+    pub challenge_tries: u8,
+    /// Connections from one address at once, and new ones per minute
+    /// (0 = no limit).
+    pub max_per_ip: u32,
+    pub max_per_minute: u32,
+    /// Failed challenges or passwords before a ban (0 = never ban).
+    pub fail_limit: u32,
+    /// First ban length; each later ban for the same address doubles it
+    /// (up to a day).
+    pub ban_minutes: u32,
+    /// Idle limit before logging in (after, `bbs.inactivity_seconds`).
+    pub prelogin_idle_seconds: u64,
+    /// Addresses never limited or challenged, and ones always refused:
+    /// `1.2.3.4`, `10.0.` (a prefix) or `192.168.1.0/24`.
+    pub allow: Vec<String>,
+    pub deny: Vec<String>,
+}
+
+impl Default for Security {
+    fn default() -> Self {
+        Self {
+            challenge: true,
+            challenge_keys: 3,
+            challenge_seconds: 30,
+            challenge_tries: 3,
+            max_per_ip: 2,
+            max_per_minute: 6,
+            fail_limit: 3,
+            ban_minutes: 15,
+            prelogin_idle_seconds: 60,
+            allow: Vec::new(),
+            deny: Vec::new(),
+        }
+    }
 }
 
 /// Plain telnet, for clients and directories that don't do SSH.

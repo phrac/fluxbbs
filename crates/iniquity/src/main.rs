@@ -6,9 +6,11 @@
 mod acs;
 mod commands;
 mod cfgedit;
+mod challenge;
 mod config;
 mod engine;
 mod extprog;
+mod guard;
 mod import;
 mod infoform;
 mod input;
@@ -78,6 +80,8 @@ pub struct BbsState {
     /// Serialises appends to shared text files (`?T`).
     pub text_lock: std::sync::Mutex<()>,
     pub nodes: Arc<Nodes>,
+    /// Connection limits, failure counts and bans.
+    pub guard: Arc<guard::Guard>,
 }
 
 impl BbsState {
@@ -240,7 +244,20 @@ async fn main() -> anyhow::Result<()> {
         sys,
         text_lock: std::sync::Mutex::new(()),
         nodes,
+        guard: guard::Guard::new(),
     });
+
+    // Forget idle addresses now and then.
+    {
+        let state = state.clone();
+        tokio::spawn(async move {
+            let mut tick = tokio::time::interval(std::time::Duration::from_secs(600));
+            loop {
+                tick.tick().await;
+                state.guard.tidy();
+            }
+        });
+    }
 
     let telnet = {
         let state = state.clone();

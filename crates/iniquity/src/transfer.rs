@@ -138,7 +138,7 @@ impl Session {
     }
 
     /// Bytes the session had already read, for the protocol to see first.
-    fn take_pending_input(&mut self) -> Vec<u8> {
+    pub(crate) fn take_pending_input(&mut self) -> Vec<u8> {
         self.input.drain(..).collect()
     }
 

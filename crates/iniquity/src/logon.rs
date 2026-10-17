@@ -15,6 +15,10 @@ impl Session {
     /// A whole call: prelogon, logon (via the matrix menu or directly),
     /// then the menu loop until hang-up.
     pub async fn call(&mut self) -> io::Result<()> {
+        if !self.bot_check().await? {
+            self.record_failure("failed the bot check");
+            return self.flush().await;
+        }
         self.logon_init().await?;
         if self.state.config().logon.matrix {
             self.menu.current = "MATRIX".into();
@@ -136,6 +140,9 @@ impl Session {
                     ok = user.check_password(&pw);
                     if !ok {
                         tracing::info!("{}: wrong password", user.handle);
+                        if self.record_failure("wrong password") {
+                            self.hangup = true;
+                        }
                     }
                     let prelogon = std::mem::replace(&mut self.user, user);
                     let sys_pw = self.state.config().logon.system_password.clone();
@@ -150,6 +157,9 @@ impl Session {
                     }
                     if ok {
                         self.logged_in = true;
+                        if let Some(addr) = self.caller.remote {
+                            self.state.guard.success(addr.ip());
+                        }
                     } else {
                         self.user = prelogon;
                         self.say_line("LoginError").await?;
@@ -161,6 +171,20 @@ impl Session {
             if ok || self.hangup || (tries > 0 && attempt >= tries) {
                 return Ok(ok && !self.hangup);
             }
+        }
+    }
+
+    /// Count a failed bot check or password against the caller's address.
+    /// True if it earned a ban (the caller should be cut off).
+    fn record_failure(&self, what: &str) -> bool {
+        let Some(addr) = self.caller.remote else { return false };
+        tracing::warn!("{addr}: {what}");
+        match self.state.guard.failure(&self.state.config().security, addr.ip()) {
+            Some(len) => {
+                tracing::warn!("{}: banned for {} minutes", addr.ip(), len.as_secs() / 60);
+                true
+            }
+            None => false,
         }
     }
 

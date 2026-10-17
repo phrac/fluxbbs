@@ -97,6 +97,19 @@ pub(crate) struct DisplayState {
 
 pub async fn run(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Caller) {
     let who = caller.remote.map_or("?".into(), |a| a.to_string());
+    // Connection limits and bans, before a node is taken.
+    let _ticket = match caller.remote {
+        Some(addr) => match state.guard.admit(&state.config().security, addr.ip()) {
+            Ok(t) => Some(t),
+            Err(why) => {
+                tracing::info!("{who}: refused via {}: {why}", caller.transport);
+                let _ = io.write_all(b"\r\nToo many connections from your address; try again later.\r\n").await;
+                let _ = io.flush().await;
+                return;
+            }
+        },
+        None => None,
+    };
     let Some(node) = state.nodes.acquire(caller.transport) else {
         tracing::info!("{who}: all nodes busy");
         let _ = io.write_all(b"\r\nAll nodes are busy, try again later.\r\n").await;

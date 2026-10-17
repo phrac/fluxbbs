@@ -49,15 +49,6 @@ off = "|B0Do more strings.."
 
 [[command]]
 keys = "FIRSTCMD"
-command = "-="
-param = "B"
-acs = "!k902"
-desc = "autovalidate long dist call"
-on = "|B1autovalidate long dist call"
-off = "|B0autovalidate long dist call"
-
-[[command]]
-keys = "FIRSTCMD"
 command = "-L"
 param = "|lf|08y|04o|12u |08h|04av|12e |08b|04ee|12n |08v|04alidate|12d|08|lf"
 acs = "!k902"

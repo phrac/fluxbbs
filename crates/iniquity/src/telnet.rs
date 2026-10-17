@@ -290,6 +290,12 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     tracing::info!("telnet listening on {listen}");
     loop {
         let (sock, peer) = listener.accept().await?;
+        // Banned and denied addresses are dropped before any negotiation.
+        if let Some(why) = state.guard.blocked(&state.config().security, peer.ip()) {
+            tracing::info!("{peer}: telnet refused: {why}");
+            drop(sock);
+            continue;
+        }
         let state = state.clone();
         tokio::spawn(async move {
             if let Err(e) = connection(state, sock, peer).await {
