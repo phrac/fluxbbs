@@ -475,6 +475,14 @@ pub struct Level {
     pub note: String,
     pub uldl_ratio: u16,
     pub kb_ratio: u16,
+    /// Time bank: most minutes that can be kept, put in a day, taken out
+    /// a day; and the same for download kilobytes. 0 closes that side.
+    pub bank_time_max: u16,
+    pub bank_time_deposit: u16,
+    pub bank_time_withdraw: u16,
+    pub bank_kb_max: u16,
+    pub bank_kb_deposit: u16,
+    pub bank_kb_withdraw: u16,
 }
 
 impl Default for Bbs {
@@ -612,6 +620,12 @@ impl Default for Level {
             note: String::new(),
             uldl_ratio: 0,
             kb_ratio: 0,
+            bank_time_max: 60,
+            bank_time_deposit: 30,
+            bank_time_withdraw: 30,
+            bank_kb_max: 1000,
+            bank_kb_deposit: 500,
+            bank_kb_withdraw: 500,
         }
     }
 }
@@ -630,6 +644,7 @@ pub fn default_levels() -> BTreeMap<String, Level> {
         note: note.into(),
         uldl_ratio,
         kb_ratio,
+        ..Level::default()
     };
     BTreeMap::from([
         ("A".into(), l("New user access level", 25, 25, 0, 20, 5, 100, "New user access", 1, 10)),

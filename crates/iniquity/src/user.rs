@@ -74,6 +74,14 @@ pub struct User {
     /// Fingerprint of the last REP packet's replies (`lastQwkDate`), so
     /// the same packet isn't posted twice.
     pub last_rep: String,
+    /// Time bank: minutes and kilobytes saved, and what went in and out
+    /// today (reset each day, as the download counters are).
+    pub bank_time: u32,
+    pub bank_kb: u32,
+    pub bank_time_in: u32,
+    pub bank_time_out: u32,
+    pub bank_kb_in: u32,
+    pub bank_kb_out: u32,
 }
 
 impl Default for User {
@@ -135,6 +143,12 @@ impl Default for User {
             file_scan: None,
             theme: String::new(),
             last_rep: String::new(),
+            bank_time: 0,
+            bank_kb: 0,
+            bank_time_in: 0,
+            bank_time_out: 0,
+            bank_kb_in: 0,
+            bank_kb_out: 0,
         }
     }
 }
@@ -177,6 +191,12 @@ impl User {
     /// Age in whole years, if the birth date is known.
     pub fn age(&self, today: NaiveDate) -> Option<u32> {
         self.birth_date.and_then(|b| today.years_since(b))
+    }
+
+    /// Kilobytes the user may download today: the daily limit, less what
+    /// they banked today, plus what they took out of the bank.
+    pub fn dl_kb_allowance(&self) -> u64 {
+        (self.limit_dl_kb as u64 + self.bank_kb_out as u64).saturating_sub(self.bank_kb_in as u64)
     }
 
     /// Area code from a "(xxx)xxx-xxxx" phone number.

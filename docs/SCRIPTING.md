@@ -84,7 +84,8 @@ without files.
 `total_calls`, `calls_today`, `first_call`, `last_call`, `time_today`,
 `time_per_day`, `posts`, `email`, `uploads`, `downloads`, `upload_kb`,
 `download_kb`, `file_points`, `cur_msg_area`, `cur_file_area`,
-`conf_msg`, `conf_file`, `autosig` (a list of lines) and `theme`.
+`conf_msg`, `conf_file`, `autosig` (a list of lines), `theme`, and
+`bank_time` and `bank_kb` (the time bank).
 
 `bbs.saveuser` changes any of them except `id`, `handle` and the call,
 post and transfer counters; a bad value (`sl = 300`, `sex = "X"`) is an

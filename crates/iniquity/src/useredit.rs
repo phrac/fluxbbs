@@ -108,6 +108,10 @@ fn shown(kind: &Kind, u: &User) -> String {
     }
 }
 
+fn bank_shown(u: &User) -> String {
+    format!("{}m/{}k", u.bank_time, u.bank_kb)
+}
+
 fn handle_shown(u: &User) -> String {
     if u.deleted { "[Deleted]".into() } else { u.handle.clone() }
 }
@@ -144,7 +148,7 @@ pub fn next_level(levels: impl Fn(char) -> bool, cur: char, up: bool) -> Option<
 /// A level's number fields: key, label, width, suffix, help, accessor.
 type LevelNum = (char, &'static str, usize, &'static str, &'static str, fn(&mut Level) -> &mut u16);
 
-const LEVEL_NUMS: [LevelNum; 7] = [
+const LEVEL_NUMS: [LevelNum; 13] = [
     ('E', "Time limit", 5, "", "Daily time limit (minutes) for users at this access level.", |l| &mut l.time_limit),
     ('F', "Post/call ratio", 6, "%", "Default post/call ratio for users with this access.", |l| &mut l.post_call),
     ('G', "File points", 5, "", "File points for users at this access level.", |l| &mut l.file_points),
@@ -152,6 +156,12 @@ const LEVEL_NUMS: [LevelNum; 7] = [
     ('I', "Download kb limit", 7, "kb", "Allowed number of downloaded kilobytes per day at this level (0: no limit).", |l| &mut l.limit_dl_kb),
     ('J', "UL/DL ratio", 5, "", "Allowed number of downloads for each file uploaded (0: no ratio).", |l| &mut l.uldl_ratio),
     ('K', "UL/DL kb ratio", 5, "", "Allowed number of downloadable kilobytes for every kb uploaded (0: no ratio).", |l| &mut l.kb_ratio),
+    ('L', "Max time in bank", 5, "", "Most minutes a user can keep in the time bank (0: closed).", |l| &mut l.bank_time_max),
+    ('M', "Max time deposit", 5, "", "Most minutes a user can put in the time bank in one day.", |l| &mut l.bank_time_deposit),
+    ('N', "Max time withdrawal", 5, "", "Most minutes a user can take out of the time bank in one day.", |l| &mut l.bank_time_withdraw),
+    ('O', "Max kb in bank", 7, "kb", "Most download kilobytes a user can keep in the time bank (0: closed).", |l| &mut l.bank_kb_max),
+    ('P', "Max kb deposit", 7, "kb", "Most kilobytes a user can put in the time bank in one day.", |l| &mut l.bank_kb_deposit),
+    ('Q', "Max kb withdrawal", 7, "kb", "Most kilobytes a user can take out of the time bank in one day.", |l| &mut l.bank_kb_withdraw),
 ];
 
 impl Session {
@@ -286,6 +296,7 @@ impl Session {
                 f.item_xy(A1.0, 6, A1.1, '=', "User flags", 28, flags_text(&u.flags), "User's flags.");
                 f.item_xy(B2.0, 7, B2.1, 'J', "Gender", 6, GENDERS[(u.sex == 'F') as usize], "User's sex.");
                 f.item_xy(B1.0, 8, B1.1, 'L', "Level ID", 1, u.level.to_string(), "User's access level (A-Z).");
+                f.item_xy(B3.0, 17, B3.1, '^', "Time bank", 12, bank_shown(&u), "Minutes and kilobytes in the user's time bank.");
                 for s in &fields {
                     f.item_xy(s.x, s.y, s.vx, s.key, s.label, s.len, shown(&s.kind, &u), s.info);
                 }
@@ -401,6 +412,15 @@ impl Session {
                         '*' => {
                             u.deleted = !u.deleted;
                             break;
+                        }
+                        '^' => {
+                            for (q, kb) in [("Minutes in the time bank: ", false), ("Kbytes in the time bank: ", true)] {
+                                let v = self.cfg_read_info(&mut f, q, 5).await?;
+                                if let Ok(n) = v.trim().parse::<u32>() {
+                                    if kb { u.bank_kb = n } else { u.bank_time = n }
+                                }
+                            }
+                            self.cfg_set(&mut f, '^', bank_shown(&u));
                         }
                         '-' => {
                             self.palette_editor(&mut u.palette).await?;
@@ -562,7 +582,7 @@ mod tests {
     #[test]
     fn fields_have_unique_keys_and_fit() {
         let mut keys: Vec<char> = plain_fields().iter().map(|s| s.key).collect();
-        keys.extend(['/', '[', ']', 'A', 'B', '=', 'J', 'L', '-', '+', '?', '>', '*', '<', '&', '~']);
+        keys.extend(['/', '[', ']', 'A', 'B', '=', 'J', 'L', '-', '+', '?', '>', '*', '<', '&', '~', '^']);
         let n = keys.len();
         keys.sort();
         keys.dedup();

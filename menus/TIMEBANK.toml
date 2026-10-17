@@ -15,7 +15,7 @@ help = "Deposit time in time bank"
 
 [[command]]
 keys = "W"
-command = ""
+command = "!W"
 desc = "Withdraw time"
 help = "Withdraw time from time bank"
 

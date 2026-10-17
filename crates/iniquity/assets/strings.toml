@@ -342,3 +342,6 @@ QwkULaskFile = "|U5-- |U4Enter REP filename to process|U2 [|U3Enter|U2/|U1Upload
 QwkULdone = "|U2-- |U1Replies posted|U2: |U3%S1|U2, |U1refused|U2: |U3%S2|U2."
 ScriptError = "|U4The |U6%S1 |U4script didn't work|U5. |U3%S2"
 AreaNotFound = "|U4There's no area with that number|U5."
+BankAskDepositTime = "|U1Deposit how many minutes|U2?"
+BankAskWithdrawTime = "|U1Withdraw how many minutes|U2?"
+BankNoKbLimit = "|U4There's no daily download limit to bank kbytes from|U5."

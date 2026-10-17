@@ -370,8 +370,8 @@ impl Session {
             Some(fail("FaNoFilePts", vec![u.file_points.to_string(), f.points.to_string(), f.name.clone()]))
         } else if use_limit && u.today_dl + add.1 >= u.limit_dl {
             Some(fail("FaOverDLlimit", vec![u.limit_dl.to_string(), f.name.clone()]))
-        } else if use_kb_limit && u.today_dl_kb as u64 + add.2 >= u.limit_dl_kb as u64 {
-            Some(fail("FaOverDLkbLimit", vec![u.limit_dl_kb.to_string(), f.name.clone()]))
+        } else if use_kb_limit && u.today_dl_kb as u64 + add.2 >= u.dl_kb_allowance() {
+            Some(fail("FaOverDLkbLimit", vec![u.dl_kb_allowance().to_string(), f.name.clone()]))
         } else if use_ratio && u.downloads + add.1 >= u.uploads * u.uldl_ratio + u.uldl_ratio {
             Some(fail("FaULDLratioBad", vec![f.name.clone()]))
         } else if use_kb_ratio && u.download_kb + add.2 >= u.upload_kb * u.kb_ratio as u64 + u.kb_ratio as u64 {

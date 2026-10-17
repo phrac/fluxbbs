@@ -506,6 +506,8 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
                     note: l.user_note.clone(),
                     uldl_ratio: l.uldl_ratio,
                     kb_ratio: l.kb_ratio,
+                    // LEVELS.DAT in this release has no time bank.
+                    ..Level::default()
                 })
             })
             .collect()
@@ -662,6 +664,12 @@ fn convert_user(l: &LegacyUser) -> User {
         // Set from TEXTLIB.DAT once the libraries are imported.
         theme: String::new(),
         last_rep: String::new(),
+        bank_time: 0,
+        bank_kb: 0,
+        bank_time_in: 0,
+        bank_time_out: 0,
+        bank_kb_in: 0,
+        bank_kb_out: 0,
     };
     u.set_password(&l.password);
     u

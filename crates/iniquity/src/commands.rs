@@ -13,8 +13,7 @@ use crate::session::Session;
 /// rather than "invalid command", so stock menus degrade honestly.
 const NOT_YET: &[&str] = &[
     "E+", "E-", "E/", "E\\",
-    "TP", "TS", "CP", ">C", "!D", "!W", "!E", "!I",
-    "!V",
+    "TP", "TS", "CP", ">C",
 ];
 
 impl Session {
@@ -220,6 +219,11 @@ impl Session {
             "*T" if self.is_sysop() => self.theme_editor().await?,
             "UT" => self.choose_theme().await?,
             "-X" => Box::pin(self.script_command(param)).await?,
+            "!D" => self.bank_transaction(crate::timebank::Unit::Minutes, true).await?,
+            "!W" => self.bank_transaction(crate::timebank::Unit::Minutes, false).await?,
+            "!E" => self.bank_transaction(crate::timebank::Unit::Kb, true).await?,
+            "!I" => self.bank_transaction(crate::timebank::Unit::Kb, false).await?,
+            "!V" => self.bank_stats().await?,
             "QD" => self.qwk_download().await?,
             "QU" => self.qwk_upload().await?,
             "D0" | "D1" | "D2" | "D3" | "D4" | "DZ" => self.door_execute(param, code.chars().nth(1).unwrap()).await?,

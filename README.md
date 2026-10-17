@@ -63,6 +63,10 @@ Neither is in git.
 - Oneliners, the automessage, last callers, history and statistics, the
   BBS list, user configuration, user listing.
 - Infoforms (questionnaires, mandatory or not) and new user voting.
+- The time bank (`!D`/`!W` minutes, `!E`/`!I` download kilobytes, `!V`
+  the account), with per-level limits on what's kept and moved each
+  day (`*L`). The stock TIMEBANK menu's withdraw entry had no command;
+  it's `!W` now.
 - Screen themes (the original's text libraries): directories of screens
   that replace the stock ones; callers pick theirs with `UT`.
 - Scripting in Lua, in place of IPL: `-X name` and `%!name` run
@@ -98,7 +102,6 @@ libraries (unpacked into themes).
 | Feature | Original | Commands | Notes |
 |---|---|---|---|
 | Paging the SysOp / SysOp chat | CHATMODE.PAS | `CP`, `>C` | The original split-screen chat assumed a local console; here it would page a SysOp who is logged in on another node, then chat. |
-| Time bank | (MENUCMD) | `!D`, `!W`, `!E`, `!I`, `!V` | Deposit and withdraw minutes and kb. |
 | Tetris | tetris.pas | `TP`, `TS` | The built-in game and its high scores. |
 | Message attachments | ATTACH.PAS | | Files attached to messages and email. |
 | Message tags | EMAIL.PAS | `E+`, `E-`, `E/`, `E\` | Tagging messages and email while reading. |

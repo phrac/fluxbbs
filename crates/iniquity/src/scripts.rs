@@ -173,6 +173,8 @@ pub fn user_fields(u: &User) -> Vec<(&'static str, Field)> {
         ("conf_file", n(u.conf_file)),
         ("autosig", Field::List(u.autosig.clone())),
         ("theme", s(&u.theme)),
+        ("bank_time", n(u.bank_time)),
+        ("bank_kb", n(u.bank_kb)),
     ]
 }
 
@@ -252,6 +254,8 @@ pub fn set_user_field(u: &mut User, name: &str, v: Field) -> Result<(), String> 
         "page_length" => u.page_length = want_num(name, v, 200.0)?.max(1.0) as u16,
         "time_today" => u.time_today = want_num(name, v, 65_535.0)? as u32,
         "file_points" => u.file_points = want_num(name, v, 1e9)? as u32,
+        "bank_time" => u.bank_time = want_num(name, v, 1e9)? as u32,
+        "bank_kb" => u.bank_kb = want_num(name, v, 1e9)? as u32,
         "cur_msg_area" => u.cur_msg_area = want_num(name, v, 1e9)? as u32,
         "cur_file_area" => u.cur_file_area = want_num(name, v, 1e9)? as u32,
         "conf_msg" => u.conf_msg = want_num(name, v, 1e9)? as u32,

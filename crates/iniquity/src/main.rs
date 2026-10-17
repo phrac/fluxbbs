@@ -37,6 +37,7 @@ mod ssh;
 mod sysop;
 mod telnet;
 mod themes;
+mod timebank;
 mod strings;
 mod sysconfig;
 mod sysdata;

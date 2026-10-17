@@ -199,6 +199,10 @@ impl Session {
         if new_day {
             u.today_dl = 0;
             u.today_dl_kb = 0;
+            u.bank_time_in = 0;
+            u.bank_time_out = 0;
+            u.bank_kb_in = 0;
+            u.bank_kb_out = 0;
             u.calls_today = 1;
         } else {
             u.calls_today += 1;

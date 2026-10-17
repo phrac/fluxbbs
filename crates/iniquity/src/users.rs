@@ -70,7 +70,13 @@ CREATE TABLE IF NOT EXISTS users (
     vote_no       INTEGER NOT NULL,
     file_scan     TEXT,
     theme         TEXT NOT NULL DEFAULT '',
-    last_rep      TEXT NOT NULL DEFAULT ''
+    last_rep      TEXT NOT NULL DEFAULT '',
+    bank_time     INTEGER NOT NULL DEFAULT 0,
+    bank_kb       INTEGER NOT NULL DEFAULT 0,
+    bank_time_in  INTEGER NOT NULL DEFAULT 0,
+    bank_time_out INTEGER NOT NULL DEFAULT 0,
+    bank_kb_in    INTEGER NOT NULL DEFAULT 0,
+    bank_kb_out   INTEGER NOT NULL DEFAULT 0
 );
 CREATE INDEX IF NOT EXISTS users_real_name ON users(real_name);
 ";
@@ -84,7 +90,8 @@ const COLUMNS: &[&str] = &[
     "email", "uploads", "downloads", "upload_kb", "download_kb", "file_points", "post_call",
     "limit_dl", "limit_dl_kb", "today_dl", "today_dl_kb", "uldl_ratio", "kb_ratio",
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
-    "file_scan", "theme", "last_rep",
+    "file_scan", "theme", "last_rep", "bank_time", "bank_kb", "bank_time_in", "bank_time_out",
+    "bank_kb_in", "bank_kb_out",
 ];
 
 /// Add columns newer than the database (`ALTER TABLE`, since SQLite
@@ -102,6 +109,11 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     }
     if !have.iter().any(|c| c == "last_rep") {
         db.execute("ALTER TABLE users ADD COLUMN last_rep TEXT NOT NULL DEFAULT ''", [])?;
+    }
+    for col in ["bank_time", "bank_kb", "bank_time_in", "bank_time_out", "bank_kb_in", "bank_kb_out"] {
+        if !have.iter().any(|c| c == col) {
+            db.execute(&format!("ALTER TABLE users ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"), [])?;
+        }
     }
     Ok(())
 }
@@ -182,6 +194,12 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         file_scan: r.get("file_scan")?,
         theme: r.get("theme")?,
         last_rep: r.get("last_rep")?,
+        bank_time: r.get("bank_time")?,
+        bank_kb: r.get("bank_kb")?,
+        bank_time_in: r.get("bank_time_in")?,
+        bank_time_out: r.get("bank_time_out")?,
+        bank_kb_in: r.get("bank_kb_in")?,
+        bank_kb_out: r.get("bank_kb_out")?,
     })
 }
 
@@ -204,6 +222,12 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.autosig.join("\n")), Box::new(u.vote_yes), Box::new(u.vote_no), Box::new(u.file_scan),
         Box::new(u.theme.clone()),
         Box::new(u.last_rep.clone()),
+        Box::new(u.bank_time),
+        Box::new(u.bank_kb),
+        Box::new(u.bank_time_in),
+        Box::new(u.bank_time_out),
+        Box::new(u.bank_kb_in),
+        Box::new(u.bank_kb_out),
     ]
 }
 
