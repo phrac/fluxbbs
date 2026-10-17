@@ -206,6 +206,8 @@ impl Session {
             "*>" if self.is_sysop() => self.download_any(param).await?,
             "*X" if self.is_sysop() => self.protocol_editor().await?,
             "*Z" if self.is_sysop() => self.archiver_editor().await?,
+            "*A" if self.is_sysop() => self.msg_area_editor().await?,
+            "*P" if self.is_sysop() => self.pack_msg_areas(param).await?,
 
             // -- automessage, BBS list, callers
             "AS" => self.show_automsg().await?,

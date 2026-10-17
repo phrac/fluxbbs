@@ -63,6 +63,13 @@ pub struct MsgArea {
     pub anonymous: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub qwk_name: String,
+    /// `*P` keeps at most this many messages (0: no limit).
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub max_msgs: u32,
+}
+
+fn is_zero(n: &u32) -> bool {
+    *n == 0
 }
 
 impl MsgArea {
@@ -81,6 +88,7 @@ impl MsgArea {
             mandatory: false,
             anonymous: true,
             qwk_name: String::new(),
+            max_msgs: 0,
         }
     }
 }

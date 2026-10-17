@@ -185,6 +185,64 @@ impl MsgBase {
         Ok(())
     }
 
+    /// An area's storage key changed: move its messages and lastreads.
+    pub fn rename_area(&self, from: &str, to: &str) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        tx.execute("UPDATE messages SET area = ?2 WHERE area = ?1", params![from, to])?;
+        tx.execute("UPDATE lastread SET area = ?2 WHERE area = ?1", params![from, to])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Forget an area's messages and lastreads.
+    pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        let n = tx.execute("DELETE FROM messages WHERE area = ?1", [area])?;
+        tx.execute("DELETE FROM lastread WHERE area = ?1", [area])?;
+        tx.commit()?;
+        Ok(n as u32)
+    }
+
+    /// `maPackArea`: drop deleted messages, and the oldest beyond `max`
+    /// (0: no limit), then number the rest from 1. Each user's lastread
+    /// moves with the messages they had read. Returns how many went.
+    pub fn pack(&self, area: &str, max: u32) -> anyhow::Result<u32> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        let rows: Vec<(i64, u32, bool)> = {
+            let mut stmt = tx.prepare("SELECT id, num, deleted FROM messages WHERE area = ?1 ORDER BY num")?;
+            stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?
+        };
+        let mut keep: Vec<(i64, u32)> = rows.iter().filter(|r| !r.2).map(|r| (r.0, r.1)).collect();
+        if max > 0 && keep.len() > max as usize {
+            keep.drain(..keep.len() - max as usize);
+        }
+        let gone = (rows.len() - keep.len()) as u32;
+        if gone == 0 && keep.iter().enumerate().all(|(i, k)| k.1 == i as u32 + 1) {
+            return Ok(0);
+        }
+        let kept_nums: Vec<u32> = keep.iter().map(|k| k.1).collect();
+        for (id, _, _) in rows.iter().filter(|r| !keep.iter().any(|k| k.0 == r.0)) {
+            tx.execute("DELETE FROM messages WHERE id = ?1", [id])?;
+        }
+        tx.execute("UPDATE messages SET num = -num WHERE area = ?1", [area])?;
+        for (i, (id, _)) in keep.iter().enumerate() {
+            tx.execute("UPDATE messages SET num = ?2 WHERE id = ?1", params![id, i as u32 + 1])?;
+        }
+        let reads: Vec<(u32, u32)> = {
+            let mut stmt = tx.prepare("SELECT user_id, num FROM lastread WHERE area = ?1")?;
+            stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?
+        };
+        for (user, last) in reads {
+            let now = kept_nums.iter().filter(|&&n| n <= last).count() as u32;
+            tx.execute("UPDATE lastread SET num = ?3 WHERE user_id = ?1 AND area = ?2", params![user, area, now])?;
+        }
+        tx.commit()?;
+        Ok(gone)
+    }
+
     /// Highest message read in an area by a user.
     pub fn lastread(&self, user: u32, area: &str) -> anyhow::Result<u32> {
         let db = self.db.lock().unwrap();
@@ -253,6 +311,28 @@ mod tests {
             sig_pos: 0,
             lines: text.split('\n').map(String::from).collect(),
         }
+    }
+
+    #[test]
+    fn packing() {
+        let mb = MsgBase::open_memory().unwrap();
+        for i in 1..=6 {
+            let mut m = msg("GEN", "All", &format!("#{i}"));
+            m.deleted = i == 2 || i == 5;
+            mb.add(&mut m).unwrap();
+        }
+        mb.set_lastread(7, "GEN", 4).unwrap();
+        mb.set_lastread(8, "GEN", 6).unwrap();
+        // 2 and 5 are deleted; a max of 3 drops #1 as well.
+        assert_eq!(mb.pack("GEN", 3).unwrap(), 3);
+        let left: Vec<(u32, String)> = mb.all("GEN").unwrap().into_iter().map(|m| (m.num, m.lines[0].clone())).collect();
+        assert_eq!(left, [(1, "#3".to_string()), (2, "#4".into()), (3, "#6".into())]);
+        assert_eq!(mb.lastread(7, "GEN").unwrap(), 2, "had read up to #4");
+        assert_eq!(mb.lastread(8, "GEN").unwrap(), 3);
+        assert_eq!(mb.pack("GEN", 3).unwrap(), 0, "nothing more to do");
+        mb.rename_area("GEN", "TALK").unwrap();
+        assert_eq!(mb.lastread(8, "TALK").unwrap(), 3);
+        assert_eq!(mb.delete_area("TALK").unwrap(), 3);
     }
 
     #[test]

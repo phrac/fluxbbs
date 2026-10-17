@@ -429,6 +429,7 @@ fn convert_area(a: &LegacyMsgArea) -> MsgArea {
         mandatory: a.has(flag::MANDATORY),
         anonymous: a.has(flag::ANONYMOUS),
         qwk_name: a.qwk_name.clone(),
+        max_msgs: a.max_msgs as u32,
     }
 }
 

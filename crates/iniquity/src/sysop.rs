@@ -12,7 +12,7 @@ use crate::cfgedit::{Field, Form, yes_no};
 use crate::config::Protocol;
 use crate::extprog::{Archiver, Archivers, Protocols};
 use crate::fileareas::{FileArea, FileAreas, SortBy};
-use crate::msgareas::Conf;
+use crate::msgareas::{Conf, MsgArea, MsgAreas};
 use crate::filebase::{FileRec, wildcard};
 use crate::files::{FAreaRef, commas, is_zip};
 use crate::session::Session;
@@ -26,9 +26,9 @@ fn io_err(e: anyhow::Error) -> io::Error {
     io::Error::other(e)
 }
 
-/// A storage key not used by any area: `BASE`, `BASE2`, `BASE3`...
-fn unused_key(areas: &FileAreas, base: &str) -> String {
-    let taken = |k: &str| areas.areas.iter().any(|a| a.file.eq_ignore_ascii_case(k));
+/// A storage key not in `used`: `BASE`, `BASE2`, `BASE3`...
+fn unused_key<'a>(used: impl Iterator<Item = &'a str> + Clone, base: &str) -> String {
+    let taken = |k: &str| used.clone().any(|u| u.eq_ignore_ascii_case(k));
     (1..)
         .map(|n| if n == 1 { base.to_string() } else { format!("{base}{n}") })
         .find(|k| !taken(k))
@@ -37,7 +37,7 @@ fn unused_key(areas: &FileAreas, base: &str) -> String {
 
 /// A fresh area for `*F` insert (`faReset`).
 fn new_file_area(areas: &FileAreas) -> FileArea {
-    let file = unused_key(areas, "NEWAREA");
+    let file = unused_key(areas.areas.iter().map(|a| a.file.as_str()), "NEWAREA");
     FileArea {
         name: "New Iniquity file area".into(),
         path: format!("files/{}", file.to_ascii_lowercase()).into(),
@@ -266,6 +266,238 @@ impl Session {
             }
             num = ((num as i64 - 1 + step).rem_euclid(n as i64) + 1) as u32;
         }
+    }
+
+    // ---- *A: message areas (CONFIG5) ----------------------------------------
+
+    fn save_areas(&self, areas: MsgAreas) -> io::Result<()> {
+        self.state.set_areas(areas).map_err(io_err)
+    }
+
+    /// `cfgMsgAreaEditor`: list, insert, delete, edit and move message
+    /// areas. (Email is its own area and isn't listed.)
+    pub async fn msg_area_editor(&mut self) -> io::Result<()> {
+        tracing::info!("{}: message area edit", self.user.handle);
+        loop {
+            let mut areas = (*self.state.areas()).clone();
+            self.clear_screen();
+            self.set_slot(Slot::Text);
+            self.write(" Num  Description                Key       ACS    Post   Msgs   Max");
+            self.newline();
+            self.rule().await?;
+            let mut lines = 3;
+            for (i, a) in areas.areas.iter().enumerate() {
+                let count = self.state.msgs.count(&a.file).map_err(io_err)?;
+                self.set_slot(Slot::Info);
+                self.write(&format!(
+                    " {} {} {} {} {} {} {}",
+                    resize(&(i + 1).to_string(), 4),
+                    resize(&a.name, 26),
+                    resize(&a.file, 9),
+                    resize(&a.acs, 6),
+                    resize(&a.post_acs, 6),
+                    resize(&count.to_string(), 6),
+                    if a.max_msgs == 0 { "-".to_string() } else { a.max_msgs.to_string() }
+                ));
+                self.newline();
+                lines += 1;
+                if !self.more(&mut lines).await? {
+                    break;
+                }
+            }
+            self.rule().await?;
+            let Some(cmd) = self.cfg_list_prompt(&[("I", "nsert"), ("D", "elete"), ("E", "dit"), ("M", "ove"), ("Esc", " Quit")]).await? else {
+                return Ok(());
+            };
+            match cmd {
+                'E' => {
+                    self.newline();
+                    let n = areas.areas.len() as u32;
+                    if n > 0
+                        && let Some(num) = self.cfg_ask_number("Begin edit with which message area?", 1, n).await?
+                    {
+                        self.msg_area_edit(num).await?;
+                    }
+                }
+                'D' => {
+                    self.newline();
+                    let n = areas.areas.len() as u32;
+                    if n <= 1 {
+                        self.show_line("|U0You must have at least one message area!").await?;
+                        self.prompt_key().await?;
+                        continue;
+                    }
+                    let Some(which) = self.cfg_ask_number("Delete which message area?", 1, n).await? else { continue };
+                    let gone = areas.areas.remove(which as usize - 1);
+                    let shared = areas.areas.iter().any(|a| a.file.eq_ignore_ascii_case(&gone.file)) || areas.email.file.eq_ignore_ascii_case(&gone.file);
+                    let msgs = self.state.msgs.count(&gone.file).map_err(io_err)?;
+                    self.save_areas(areas)?;
+                    tracing::info!("{}: deleted message area {which} ({})", self.user.handle, gone.name);
+                    if msgs > 0 && !shared {
+                        self.show(&format!("|U1Delete this area's {msgs} messages? ")).await?;
+                        if self.yes_no(false).await? {
+                            self.state.msgs.delete_area(&gone.file).map_err(io_err)?;
+                        }
+                    }
+                }
+                _ => {
+                    let fresh = |list: &[MsgArea]| {
+                        let used = list.iter().map(|a| a.file.as_str()).chain(std::iter::once(areas.email.file.as_str()));
+                        MsgArea::new("New Iniquity Message Area", &unused_key(used, "NEWAREA"))
+                    };
+                    let mut list = areas.areas.clone();
+                    if self.list_change(&mut list, cmd, "message area", fresh).await? {
+                        areas.areas = list;
+                        self.save_areas(areas)?;
+                    }
+                }
+            }
+        }
+    }
+
+    /// `cfgEditMsgArea`.
+    async fn msg_area_edit(&mut self, mut num: u32) -> io::Result<()> {
+        type Flag = (char, &'static str, &'static str, fn(&mut MsgArea) -> &mut bool);
+        let flags: [Flag; 5] = [
+            ('1', "Unhidden", "Display this area under any circumstances?", |a| &mut a.unhidden),
+            ('2', "Real names", "Force use of user's REAL name when posting in this area?", |a| &mut a.real_names),
+            ('3', "Private", "Allow private messages to be posted in this area?", |a| &mut a.private),
+            ('4', "Mandatory", "Force user to read all new messages in this area?", |a| &mut a.mandatory),
+            ('5', "Anonymous", "Allow anonymous messages to be posted in this area?", |a| &mut a.anonymous),
+        ];
+        loop {
+            let mut areas = (*self.state.areas()).clone();
+            let n = areas.areas.len() as u32;
+            let idx = num as usize - 1;
+            let mut a = areas.areas[idx].clone();
+            let msgs = self.state.msgs.count(&a.file).map_err(io_err)?;
+            let mut f = Form::new(&format!("{} Message Area Editor", self.state.config.bbs.name));
+            f.value_col(20);
+            f.label("Current area", 12, format!("{num} of {n}"));
+            f.item('A', "Description", 40, &a.name, "This message area's description (shown in message area lists, etc).");
+            f.item('B', "Storage key", 8, &a.file, "Name the area's messages are kept under (letters and digits).");
+            f.item('G', "Area sponsor", 36, &a.sponsor, "Creator or manager of this message area (usually the SysOp).");
+            f.item('H', "Access ACS", 20, &a.acs, "ACS required to access or read messages in this area.");
+            f.item('I', "Post ACS", 20, &a.post_acs, "ACS required to post messages in this area.");
+            f.item('J', "Max messages", 5, a.max_msgs.to_string(), "Most messages *P keeps in this area (0 = unlimited).");
+            f.item('K', "Password", 20, &a.password, "Password required to access or read messages in this area.");
+            f.item('L', "QWK name", 16, &a.qwk_name, "Shortened message area name (max 16 characters) for QWK indexing.");
+            f.label("Messages", 6, msgs.to_string());
+            // Two columns: 1 2 3 down the left, 4 and 5 beside 1 and 2.
+            for i in [0, 3, 1, 4, 2] {
+                let (key, label, info, get) = flags[i];
+                let v = yes_no(*get(&mut a));
+                if i < 3 { f.item(key, label, 3, v, info) } else { f.item_beside(40, key, label, 3, v, info) }
+            }
+            f.item('[', "Previous area", 0, "", "");
+            f.item(']', "Next area", 0, "", "");
+            self.cfg_draw(&f);
+            let step: i64 = loop {
+                let Some(key) = self.cfg_command(&mut f).await? else { break 0 };
+                match key {
+                    'A' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {
+                            a.name = v;
+                        }
+                    }
+                    'B' => {
+                        let Some(v) = self.cfg_text(&mut f, key, Field::KEY).await? else { continue };
+                        let clash = areas.areas.iter().enumerate().any(|(i, o)| i != idx && o.file.eq_ignore_ascii_case(&v))
+                            || areas.email.file.eq_ignore_ascii_case(&v);
+                        if v.is_empty() || v.eq_ignore_ascii_case(&a.file) {
+                            self.cfg_set(&mut f, key, &a.file);
+                        } else if clash {
+                            self.cfg_info(&mut f, "Another area already uses that key.");
+                            self.cfg_set(&mut f, key, &a.file);
+                        } else {
+                            self.state.msgs.rename_area(&a.file, &v).map_err(io_err)?;
+                            if a.qwk_name.eq_ignore_ascii_case(&a.file) {
+                                a.qwk_name = v.clone();
+                                self.cfg_set(&mut f, 'L', &a.qwk_name);
+                            }
+                            a.file = v;
+                            // Save now: the messages already moved.
+                            areas.areas[idx] = a.clone();
+                            self.save_areas(areas.clone())?;
+                        }
+                    }
+                    'G' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {
+                            a.sponsor = v;
+                        }
+                    }
+                    'H' | 'I' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::LOWER).await? {
+                            *if key == 'H' { &mut a.acs } else { &mut a.post_acs } = v;
+                        }
+                    }
+                    'J' => {
+                        if let Some(v) = self.cfg_number(&mut f, key, 0, 99_999).await? {
+                            a.max_msgs = v as u32;
+                        }
+                    }
+                    'K' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::UPPER).await? {
+                            a.password = v;
+                        }
+                    }
+                    'L' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {
+                            a.qwk_name = v;
+                        }
+                    }
+                    '[' => break -1,
+                    ']' => break 1,
+                    k => {
+                        if let Some((_, _, _, get)) = flags.iter().find(|fl| fl.0 == k) {
+                            let cur = *get(&mut a);
+                            *get(&mut a) = self.cfg_bool(&mut f, k, cur).await?;
+                        }
+                    }
+                }
+            };
+            if areas.areas[idx] != a {
+                areas.areas[idx] = a;
+                self.save_areas(areas)?;
+            }
+            if step == 0 {
+                self.screen.goto(1, self.screen.rows());
+                self.newline();
+                return Ok(());
+            }
+            num = ((num as i64 - 1 + step).rem_euclid(n as i64) + 1) as u32;
+        }
+    }
+
+    /// `maPackAreaAsk` (`*P`): pack one area, or all (`A` as the
+    /// parameter, or answering yes).
+    pub async fn pack_msg_areas(&mut self, param: &str) -> io::Result<()> {
+        self.newline();
+        let param = param.trim().to_ascii_uppercase();
+        let areas = self.state.areas();
+        let which: Vec<u32> = if param.starts_with('A') || param == "PACK" {
+            (1..=areas.areas.len() as u32).collect()
+        } else if let Ok(n) = param.parse::<u32>() {
+            vec![n]
+        } else {
+            self.say("MsgPackAskAll").await?;
+            let all = self.yes_no(true).await?;
+            self.newline();
+            if all { (1..=areas.areas.len() as u32).collect() } else { vec![self.user.cur_msg_area] }
+        };
+        let mut total = 0;
+        for n in which {
+            let Some(a) = areas.get(n).cloned() else { continue };
+            let count = self.state.msgs.count(&a.file).map_err(io_err)?;
+            let s = self.strings().fmt("MsgPackStart", &[&a.name, &count.to_string()]);
+            self.show(&s).await?;
+            self.flush().await?;
+            total += self.state.msgs.pack(&a.file, a.max_msgs).map_err(io_err)?;
+            let s = self.strings().fmt("MsgPackEnd", &[&a.name, &count.to_string()]);
+            self.show_line(&s).await?;
+        }
+        tracing::info!("{}: packed message areas, {total} messages removed", self.user.handle);
+        Ok(())
     }
 
     // ---- *F: file areas (CONFIG9) -------------------------------------------
