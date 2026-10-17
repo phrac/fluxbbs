@@ -1,48 +1,179 @@
-# Iniquity (Rust)
+# Iniquity BBS, in Rust
 
-A port of the Iniquity BBS (Mike Fricker and the Iniquity Development
-Team, 1995-97, Turbo Pascal) to Rust, with SSH in place of modems and
-FOSSIL drivers. It runs the stock 1.00a26r5 screens, menus and strings.
+A port of **Iniquity** (Mike Fricker and the Iniquity Development Team,
+1995–97, Turbo Pascal, version 1.00a26r5) to Rust, for running a BBS on
+today's internet. Modems and FOSSIL drivers are replaced by SSH and
+telnet, the `.DAT` files by SQLite and TOML, and everything runs in one
+async process. The stock screens, menus, prompt strings and behaviour
+are kept, so an existing Iniquity board can be imported and look the
+same.
 
-    cargo run                                # serves iniquity.toml on :2222
+## Quick start
+
+    cargo run --release                      # serves iniquity.toml
     ssh -p 2222 anyname@localhost            # UTF-8 terminal
-    syncterm ssh://anyname@localhost:2222    # raw CP437
+    syncterm ssh://anyname@localhost:2222    # CP437 BBS terminal
     syncterm telnet://localhost:2323         # plain telnet (unencrypted)
 
-The stock SysOp account is `SysOp` / `SYSOP`, with system password
-`SYSTEM` (asked of SL 250+). Type `new` at the login prompt, or pick
-"apply as new" on the matrix, to create an account.
+Every caller first passes a short bot check (press the keys shown). The
+stock SysOp account is `SysOp` / `SYSOP`, with system password `SYSTEM`
+(asked of SL 250+). New callers pick "apply as new" on the matrix menu
+or type `new` at the login prompt.
+
+SSH host keys (Ed25519, ECDSA and RSA) are made in `data/` on first run.
+The database is `data/iniquity.db`; uploaded files live under `files/`.
+Neither is in git.
+
+## What's done
+
+**Connections**
+- SSH (russh), including the older algorithms SyncTERM's cryptlib needs.
+- Telnet: binary, server echo, window size (NAWS) and terminal type;
+  Zmodem works over it.
+- CP437 for BBS terminals, UTF-8 (with DOS wrap and clear behaviour)
+  for everything else; aixterm bright colours and iCE backgrounds; 256
+  and 24-bit colour art passes through.
+- Nodes, with who's online, node messages, broadcasts and multinode chat.
+
+**Keeping bots out**
+- Key-combination bot check before anything else, on SSH and telnet.
+- Per-address connection limits, bans for repeated failures (doubling,
+  up to a day), allow and deny lists, a short idle limit before login.
+
+**The board**
+- Display engine: `|XX` colours and controls, `%XX` MCI codes, `@`/`&`
+  positioning, `{`/`}` limits and padding, `~XX` fields, repeat screens
+  (TOP/MID/HIL/BOT), random and day-of-week screen variants.
+- Menu engine: hot keys, `/` and `//` commands, FIRSTCMD, stacked
+  commands, gosub/return, generic and lightbar menus, ACS expressions,
+  passwords, fallbacks, command help.
+- Logon: the matrix menu, login, system password, new-user application
+  (each personal question can be switched off; handles kept as typed),
+  access levels and daily limits.
+- Messages: areas and conferences, the reader, posting and replying,
+  quoting, the full-screen editor, newscans and mandatory messages,
+  email, auto-signatures.
+- Files: areas and conferences, the lightbar file lister, downloads
+  (single and batch, with points, ratios and daily limits), uploads
+  (blind or named, with FILE_ID.DIZ import), search and newscan, archive
+  viewing, local upload. Zmodem built in; other protocols and archivers
+  (RAR, 7Z, LHA via bsdtar/7-Zip) are external programs.
+- Oneliners, the automessage, last callers, history and statistics, the
+  BBS list, user configuration, user listing.
+- Infoforms (questionnaires, mandatory or not) and new user voting.
+
+**SysOp tools** (the `*` commands on the SysOp menu)
+- `*C` system configuration, written back to `iniquity.toml` keeping its
+  comments; `*E` prompt strings; `*#` menus; `*L` access levels.
+- `*U` users (with colours, preferences, auto-signature, infoforms).
+- `*F` file areas, `*Y` files (validate, move, extract/apply DIZ), `*S`
+  sort areas, `*>` download any file, `*%` local upload.
+- `*A` message areas, `*P` pack them, `*@`/`*!` conferences, `*R` all
+  email.
+- `*X` protocols, `*Z` archivers, `*B` BBS list, `*H` statistics, `*I`
+  infoforms.
+
+**Importing** an existing install: users (passwords re-hashed with
+argon2), message bases, file records and descriptions, areas,
+conferences, levels, strings, menus, text files, statistics, history,
+callers, BBS list, infoforms and their answers, new user votes.
+
+## What's left to port
+
+| Feature | Original | Commands | Notes |
+|---|---|---|---|
+| Doors | DOORS.PAS | `D0`–`D3`, `DZ` | Drop files (DOOR.SYS, DORINFO1.DEF, CHAIN.TXT), running the door with the caller's connection as its stdin/stdout (or a virtual FOSSIL for DOS doors under DOSBox/dosemu). **Next.** |
+| IPL scripting | IPLC.PAS, IPLI.PAS, IPLX.PAS | `-X` | Iniquity's own scripting language: compiler and interpreter. Port it so `.IPS` mods run, or offer Rhai/Lua instead. |
+| QWK offline mail | QWKMAIL.PAS | `QD`, `QU` | Packet download and REP upload. |
+| Paging the SysOp / SysOp chat | CHATMODE.PAS | `CP`, `>C` | The original split-screen chat assumed a local console; here it would page a SysOp who is logged in on another node, then chat. |
+| Time bank | (MENUCMD) | `!D`, `!W`, `!E`, `!I`, `!V` | Deposit and withdraw minutes and kb. |
+| Tetris | tetris.pas | `TP`, `TS` | The built-in game and its high scores. |
+| Message attachments | ATTACH.PAS | | Files attached to messages and email. |
+| Jump to area by number | MSGAREA/FILEAREA | `M#`, `F#` | |
+| Message tags | EMAIL.PAS | `E+`, `E-`, `E/`, `E\` | Tagging messages and email while reading. |
+| Events | EVENTS.PAS | `*V` | Scheduled jobs (packing, maintenance). |
+| Text file libraries | INIQLIB.PAS | `*T` | Browsable collections of text files. |
+| Echomail / netmail | echomail.pas, INIQMAIL.PAS | | FidoNet-style networking; would need a mailer/tosser bridge today. |
+| File area packing | FILEPACK.PAS | | Removing records of missing files. |
+
+Smaller gaps:
+- Bans are kept in memory and cleared by a restart.
+- Wrong-password and bot-check failures aren't shown to the SysOp
+  anywhere but the log.
+
+**Not planned:** modem setup (`*M`), MicroDOS (`*D`, a shell on the host),
+the local console and wait-for-call screen (ANSIWFCS, STATBAR,
+WAIT4CAL), and the Oblivion/Renegade converters (OBV2INIQ, REN2INIQ). A
+web or terminal SysOp dashboard could replace the local console later.
+
+## Configuration
+
+| File | What | Edited with |
+|---|---|---|
+| `iniquity.toml` | system settings, `[security]`, `[nuv]`, `[telnet]` | `*C` |
+| `levels.toml` | access levels A–Z | `*L` |
+| `msgareas.toml` | message conferences and areas | `*A`, `*@` |
+| `fileareas.toml` | file conferences and areas | `*F`, `*!` |
+| `protocols.toml` | external transfer protocols | `*X` |
+| `archivers.toml` | archivers for formats other than ZIP | `*Z` |
+| `infoforms.toml` | infoforms | `*I` |
+| `strings.toml` | prompt strings that differ from stock | `*E` |
+| `menus/*.toml` | menus | `*#` |
+| `text/` | screens (ANSI/ASCII) | your art tools; see `docs/ARTWORK.md` |
+
+Files that don't exist yet use built-in defaults; the editors create
+them. Most changes apply at once; SSH, telnet and path settings need a
+restart.
 
 ## Importing an existing Iniquity install
 
     iniquity import /path/to/old/INIQUITY [dest-dir] [--force]
 
-| from                  | to                          |
-|-----------------------|-----------------------------|
-| INIQUITY.DAT          | iniquity.toml               |
-| DATA\LEVELS.DAT       | levels.toml                 |
-| DATA\STRINGS.DAT      | strings.toml                |
-| DATA\USERS.DAT        | data/iniquity.db (SQLite)   |
+| from | to |
+|---|---|
+| INIQUITY.DAT | iniquity.toml |
+| DATA\LEVELS.DAT | levels.toml |
+| DATA\STRINGS.DAT | strings.toml |
+| DATA\USERS.DAT | data/iniquity.db |
 | DATA\MSGAREA.DAT, EMAIL.DAT, MSGCONF.DAT | msgareas.toml |
-| MSGS\*.HDR, *.DAT     | data/iniquity.db            |
-| DATA\FILEAREA.DAT, FILECONF.DAT | fileareas.toml     |
-| DATA\*.DIR, FILEDESC.DAT | data/iniquity.db         |
+| MSGS\*.HDR, *.DAT | data/iniquity.db |
+| DATA\FILEAREA.DAT, FILECONF.DAT | fileareas.toml |
+| DATA\*.DIR, FILEDESC.DAT | data/iniquity.db |
 | DATA\STATS, HISTORY, CALLERS, BBSLIST.DAT | data/iniquity.db |
-| MENU\*.MNU            | menus/*.toml                |
-| TEXT\*                | text/                       |
+| DATA\INFOFORM.DAT, INFOFORM.nnn, NUV.DAT | infoforms.toml, data/iniquity.db |
+| MENU\*.MNU | menus/*.toml |
+| TEXT\* | text/ |
 
-Passwords are re-hashed with argon2 on import. They stay case-insensitive,
-as in the original. File records are imported, but the files themselves
-must be copied into each area's new directory (the importer says where).
+Passwords stay case-insensitive, as in the original. File records are
+imported, but the files themselves must be copied into each area's new
+directory (the importer says where).
+
+## Keeping bots out
+
+`[security]` in `iniquity.toml`, or the Security section of `*C`:
+
+- **Bot check**: every caller first presses a random combination of keys
+  shown on screen (3 keys, 30 seconds, 3 goes by default). The keys are
+  drawn out of order with cursor moves, so a script reading the byte
+  stream doesn't see them in sequence. Its prompts are strings
+  (`BotCheck...`), editable with `*E`.
+- **Limits per address**: 2 connections at once and 6 new ones a minute.
+- **Bans**: 3 failed bot checks or passwords ban the address for 15
+  minutes; each later ban doubles, up to a day. Banned addresses are
+  dropped before the telnet negotiation or SSH login.
+- **Idle callers** get 60 seconds to log in.
+- `allow` and `deny` take addresses, prefixes (`10.0.`) or ranges
+  (`192.168.1.0/24`). Put your own address in `allow` so a mistyped
+  password can't lock you out.
+
+New users start at access level A until voted in or validated with `*U`.
 
 ## File transfers
 
-Zmodem is built in (via the `zmodem2` crate), so SyncTERM and other BBS
-terminals can download and upload with nothing else installed. Other
-protocols are external programs with stdin/stdout connected to the
-caller, as the original ran DSZ. They live in `protocols.toml`, edited
-on the BBS with `*X` (entries in `iniquity.toml` still work until that
-file exists):
+Zmodem is built in, so SyncTERM and other BBS terminals can upload and
+download with nothing else installed. Other protocols are external
+programs with stdin/stdout connected to the caller, as the original ran
+DSZ (`protocols.toml`):
 
     [[protocol]]
     key = "Y"
@@ -51,106 +182,10 @@ file exists):
     send = "sb %F"      # %F: the file paths
     receive = "rb"      # runs in the upload directory
 
-A SysOp can also copy files into an area's directory and add them with
-the local-upload command (`/U` on the stock file menu); descriptions are
-taken from FILE_ID.DIZ in the archives.
-
-ZIP is read natively. Other formats go through the archivers in
-`archivers.toml` (`*Z`): by default `bsdtar` lists and extracts RAR, 7Z
-and LHA/LZH, `rar`/`7z` put descriptions back, and ARJ needs 7-Zip. These
-are used for description import, the archive viewer and the file
-editor.
-
-## Layout
-
-- `crates/iniquity-term`: CP437, DOS colours, the ANSI cursor/colour model,
-  and the `|XX` / `%XX` / `@NN` display-code parser. No I/O.
-- `crates/iniquity-legacy`: readers for the Turbo Pascal data files,
-  checked byte-for-byte against a stock install (`INIQUITY_STOCK=dir
-  cargo test -p iniquity-legacy`).
-- `crates/iniquity`: the server.
-  - `ssh.rs` and `telnet.rs` transports, `guard.rs` connection limits
-    and bans, `challenge.rs` the bot check, `session.rs` output and display engine,
-    `input.rs` keys/line input/yes-no
-  - `logon.rs` matrix, login, new-user application
-  - `messages.rs` areas, reader, posting, scans, email; `editor.rs` the
-    full-screen editor; `msgbase.rs` message storage
-  - `files.rs` file areas, lister, downloads, uploads, searches;
-    `transfer.rs` Zmodem and external protocols; `filebase.rs` file records
-  - `engine.rs` menu engine, `commands.rs` menu commands, `acs.rs` access
-    conditions, `mci.rs` MCI codes
-  - `extras.rs` oneliners (`?I`/`?T`), last callers, history, the
-    automessage, the BBS list, user configuration,
-    auto-signatures; `sysdata.rs` their storage
-  - `cfgedit.rs` the SysOp editors' screen (CONFIG.PAS), `sysop.rs` the
-    editors: file areas (`*F`), files (`*Y`), sorting (`*S`), conferences
-    (`*@` `*!`), download any file (`*>`), protocols (`*X`), archivers
-    (`*Z`), message areas (`*A`) and packing them (`*P`); `useredit.rs`
-    the user (`*U`) and access level (`*L`) editors; `extprog.rs` the
-    protocol, archiver and level lists; `sysmisc.rs` the BBS list (`*B`),
-    statistics (`*H`) and string (`*E`) editors; `menuedit.rs` the menu
-    editor (`*#`); `sysconfig.rs` the system configuration editor (`*C`),
-    which writes back only the settings that changed
-  - `infoform.rs` infoforms (`IN`, `IM`, the `*I` editor) and new user
-    voting (`NV`)
-  - `nodes.rs` who's on which node, and each node's inbox;
-    `multinode.rs` node messages (`XM`), broadcasts (`XB`), multinode chat
-    (`XC`) and node status (`XS`)
-  - `users.rs` user database, `import.rs` legacy import
-- `menus/`, `text/`, `iniquity.toml`: the stock r5 setup, imported.
-- `crates/iniquity/assets/strings.toml`: the stock prompt strings, built in;
-  a `strings.toml` beside the config overrides any of them.
-
-## Terminal handling
-
-Callers whose TERM is a BBS terminal (`syncterm`, `ansi-bbs`, ...) get raw
-CP437. Everyone else gets UTF-8, with DOS behaviour emulated: hard wrap at
-column 80 and `ESC[2J` homing the cursor. Override with `[terminal] charset`.
-
-## Status
-
-Working: SSH (including SyncTERM), telnet (binary-clean, with window
-size and terminal type), nodes, display codes and text files,
-repeat screens (TOP/MID/HIL/BOT), the matrix and lightbar menus, login,
-new-user application, access levels, the menu engine (hot keys, `/` and
-`//` commands, FIRSTCMD, stacked commands, gosub/return, generic menus,
-command help), message areas and conferences, the message reader, the
-full-screen editor, newscans, email, file areas and conferences, the
-file lister, downloads (single and batch, with the original's limits and
-ratios), uploads, file search and newscan, ZIP viewing, oneliners, the
-automessage, last callers, BBS history and statistics, the BBS list,
-user configuration and auto-signatures (edit, view, delete, or upload
-an ASCII/ANSI file).
-
-Commands: `?= ?+ ?/ ?% ?B ?E ?F ?I ?L ?N ?Y ?S ?T ?U`,
-`-^ -/ -\ -= -? -C -D -E -F -K -L -P -R -S -W`, the `|` cursor commands,
-`>A >H >L`, `HC HI HM`, `MA MC MJ MN MM MP MR MS MZ M[ M]`, `EE ER EC *R`,
-`FA FB FC FD FF FI FJ FL FN FS FT FU FV FZ F+ F[ F] *%`, `AR AS AW`,
-`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y *U *@ *! *> *X *Z *A *P *L *B *H *E *# *C *I`, `IN IM NV`, `XM XB XC XS`.
-
-Other commands from the original say "not available yet". Next:
-doors.
-
-## Keeping bots out
-
-`[security]` in iniquity.toml (or the Security section of `*C`):
-
-- **Bot check**: every caller, over SSH or telnet, first presses a random
-  combination of keys shown on screen (3 keys, 30 seconds, 3 goes by
-  default). The keys are drawn out of order with cursor moves, so a
-  script reading the byte stream doesn't see them in sequence.
-- **Limits per address**: 2 connections at once and 6 new ones a minute.
-- **Bans**: 3 failed bot checks or passwords ban the address for 15
-  minutes; each later ban doubles, up to a day. Banned addresses are
-  dropped before the telnet negotiation or SSH login. Bans are kept in
-  memory, so a restart clears them.
-- **Idle callers** get 60 seconds to log in.
-- `allow` and `deny` take addresses, prefixes (`10.0.`) or ranges
-  (`192.168.1.0/24`). Put your own address in `allow` so a mistyped
-  password can't lock you out.
-
-New users start at access level A until voted in (new user voting) or
-validated with `*U`.
+ZIP is read natively. Other formats go through `archivers.toml`: by
+default `bsdtar` lists and extracts RAR, 7Z and LHA/LZH, `rar`/`7z` put
+descriptions back, and ARJ needs 7-Zip. They're used for description
+import, the archive viewer and the file editor.
 
 ## Infoforms and new user voting
 
@@ -160,12 +195,54 @@ An infoform is a text file in `text/` with input points in it (see
 `~PN` a phone number, `~NM` digits, `~FN` a filename, and a bare `*` is
 plain text too. `~NN` (two digits) sets how long answers may be, `~**`
 puts it back to 254, and `~*=` / `~*-` make them required or optional.
-List the forms with `*I` (saved to `infoforms.toml`); mandatory ones are
-filled in at logon (`IM` on the stock STARTUP menu), and callers can see
-and redo theirs with `IN`.
+Mandatory forms are filled in at logon (`IM` on the stock STARTUP menu);
+callers see and redo theirs with `IN`.
 
-With new user voting (`[nuv]` in iniquity.toml, or `*C`), users who pass
-the voter ACS vote on the users who match the candidate ACS, at logon
-(`NV` on STARTUP) or from the main menu. Voters can read the candidate's
-NUV infoforms and leave comments; enough yes votes give the candidate
-the validated level, enough no votes delete them.
+With new user voting (`[nuv]`), users who pass the voter ACS vote on the
+users who match the candidate ACS, at logon or from the main menu.
+Voters can read the candidate's NUV infoforms and leave comments; enough
+yes votes give the candidate the validated level, enough no votes delete
+them.
+
+## Terminal handling
+
+Callers whose TERM is a BBS terminal (`syncterm`, `ansi-bbs`, ...) get
+raw CP437; so do telnet clients that don't report a type. Everyone else
+gets UTF-8, with DOS behaviour emulated: hard wrap at column 80 and
+`ESC[2J` homing the cursor. Override with `[terminal] charset`.
+
+## Layout
+
+- `crates/iniquity-term`: CP437, DOS colours, the ANSI cursor/colour
+  model and the display-code parser. No I/O.
+- `crates/iniquity-legacy`: readers for the Turbo Pascal data files,
+  checked byte-for-byte against a stock install.
+- `crates/iniquity`: the server.
+  - Connections: `ssh.rs`, `telnet.rs`, `guard.rs` (limits and bans),
+    `challenge.rs` (bot check), `nodes.rs`, `session.rs` (output and the
+    display engine), `input.rs`.
+  - Board: `logon.rs`, `engine.rs` and `commands.rs` (menus), `acs.rs`,
+    `mci.rs`, `messages.rs`, `editor.rs`, `msgbase.rs`, `files.rs`,
+    `filebase.rs`, `transfer.rs`, `extras.rs`, `sysdata.rs`,
+    `infoform.rs`, `multinode.rs`, `users.rs`.
+  - SysOp: `cfgedit.rs` (the editors' screen, from CONFIG.PAS),
+    `sysop.rs`, `useredit.rs`, `sysmisc.rs`, `menuedit.rs`,
+    `sysconfig.rs`, `extprog.rs`.
+  - `import.rs`: the legacy importer.
+- `menus/`, `text/`, `*.toml`: the stock r5 setup, imported.
+- `crates/iniquity/assets/strings.toml`: the stock prompt strings, built
+  in.
+- `docs/ARTWORK.md`: checklist of screens to replace with custom art.
+- `tools/ansi2png.py`: renders an ANSI file to PNG for previews.
+
+## Development
+
+    cargo test                                        # unit tests
+    INIQUITY_STOCK=/path/to/stock/install cargo test  # plus the legacy readers
+    cargo clippy --all-targets
+
+## Credits
+
+Iniquity BBS © 1995–97 Mike Fricker and the Iniquity Development Team.
+This port reimplements its behaviour in Rust; the stock screens, menus
+and strings are the original's.
