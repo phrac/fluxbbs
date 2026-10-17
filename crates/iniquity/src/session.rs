@@ -646,15 +646,15 @@ pub fn pos_code(n: u8) -> [u8; 2] {
     [b'0' + n / 10 % 10, b'0' + n % 10]
 }
 
-/// Case-insensitive lookup, since DOS files come with any casing.
+/// Case-insensitive lookup, since DOS files come with any casing. Gives
+/// the name as it is on disk, even where the filesystem itself ignores
+/// case (macOS), so rewriting the file keeps its name.
 pub fn find_ci(dir: &Path, name: &str) -> Option<PathBuf> {
-    let exact = dir.join(name);
-    if exact.exists() {
-        return Some(exact);
-    }
-    std::fs::read_dir(dir)
-        .ok()?
-        .filter_map(Result::ok)
-        .find(|e| e.file_name().to_str().is_some_and(|f| f.eq_ignore_ascii_case(name)))
-        .map(|e| e.path())
+    let names: Vec<String> =
+        std::fs::read_dir(dir).ok()?.filter_map(Result::ok).filter_map(|e| e.file_name().into_string().ok()).collect();
+    names
+        .iter()
+        .find(|f| *f == name)
+        .or_else(|| names.iter().find(|f| f.eq_ignore_ascii_case(name)))
+        .map(|f| dir.join(f))
 }
