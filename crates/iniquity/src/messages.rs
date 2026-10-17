@@ -800,6 +800,7 @@ impl Session {
             anonymous: done.anonymous,
             replies: 0,
             sig_pos,
+            tag: if a.is_email() { self.email_tag } else { 0 },
             lines,
         };
         self.state.msgs.add(&mut m).map_err(io_err)?;
@@ -968,10 +969,14 @@ impl Session {
 
     /// Unread (undeleted) email for the caller (`%MW`).
     pub fn mail_waiting(&self) -> u32 {
-        self.state
-            .msgs
-            .mail_for(&self.state.areas().email.file, &self.user.handle, &self.user.real_name, false)
-            .map_or(0, |v| v.len() as u32)
+        self.mailbox().map_or(0, |v| v.len() as u32)
+    }
+
+    /// The caller's email: all of it, or with `E+` on, only what carries
+    /// the `E\` read tag.
+    pub(crate) fn mailbox(&self) -> anyhow::Result<Vec<Message>> {
+        let mail = self.state.msgs.mail_for(&self.state.areas().email.file, &self.user.handle, &self.user.real_name, false)?;
+        Ok(if self.use_tag { mail.into_iter().filter(|m| m.tag == self.read_tag).collect() } else { mail })
     }
 
     /// `emailReadEmail`: `ER` (all = false, ask = false), `EC` (ask first,
@@ -981,7 +986,7 @@ impl Session {
         let mut mail = if all {
             self.state.msgs.all(a.key()).map_err(io_err)?
         } else {
-            self.state.msgs.mail_for(a.key(), &self.user.handle, &self.user.real_name, false).map_err(io_err)?
+            self.mailbox().map_err(io_err)?
         };
         if mail.is_empty() {
             if !ask {

@@ -383,8 +383,7 @@ impl Session {
             let key = p.area.area.file.clone();
             let last = self.state.msgs.lastread(self.user.id, &key).map_err(io_err)?;
             let msgs: Vec<Message> = if p.conf == 0 {
-                self.state.msgs.mail_for(&key, &self.user.handle, &self.user.real_name, false).map_err(io_err)?
-                    .into_iter().filter(|m| m.num > last).collect()
+                self.mailbox().map_err(io_err)?.into_iter().filter(|m| m.num > last).collect()
             } else {
                 self.state.msgs.range(&key, last + 1, u32::MAX).map_err(io_err)?
             };
@@ -659,6 +658,7 @@ impl Session {
             anonymous: false,
             replies: 0,
             sig_pos,
+            tag: self.email_tag,
             lines,
         };
         self.state.msgs.add(&mut m)?;

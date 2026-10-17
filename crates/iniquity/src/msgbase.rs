@@ -37,6 +37,8 @@ pub struct Message {
     pub replies: u32,
     /// Line (from 1) where the auto-signature starts; 0 if none.
     pub sig_pos: u32,
+    /// Email tag (`msgTag`): set from the writer's `E/` tag.
+    pub tag: u16,
     pub lines: Vec<String>,
 }
 
@@ -73,6 +75,7 @@ CREATE TABLE IF NOT EXISTS messages (
     replies    INTEGER NOT NULL,
     sig_pos    INTEGER NOT NULL,
     body       TEXT NOT NULL,
+    tag        INTEGER NOT NULL DEFAULT 0,
     UNIQUE (area, num)
 );
 CREATE TABLE IF NOT EXISTS lastread (
@@ -107,6 +110,7 @@ fn from_row(r: &Row) -> rusqlite::Result<Message> {
         anonymous: r.get("anonymous")?,
         replies: r.get("replies")?,
         sig_pos: r.get("sig_pos")?,
+        tag: r.get("tag")?,
         lines: if body.is_empty() { Vec::new() } else { body.split('\n').map(String::from).collect() },
     })
 }
@@ -119,6 +123,11 @@ impl MsgBase {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let db = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         db.execute_batch(SCHEMA)?;
+        // Databases from before email tags.
+        let has_tag: bool = db.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('messages') WHERE name = 'tag'", [], |r| r.get(0))?;
+        if !has_tag {
+            db.execute("ALTER TABLE messages ADD COLUMN tag INTEGER NOT NULL DEFAULT 0", [])?;
+        }
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -159,12 +168,12 @@ impl MsgBase {
         db.execute(
             "INSERT INTO messages (area, num, from_id, from_alias, from_real, from_name, from_note,
                 to_id, to_alias, to_real, to_name, to_note, subject, posted, deleted, private,
-                anonymous, replies, sig_pos, body)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20)",
+                anonymous, replies, sig_pos, body, tag)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 m.area, m.num, m.from.user_id, m.from.alias, m.from.real_name, m.from.name, m.from.note,
                 m.to.user_id, m.to.alias, m.to.real_name, m.to.name, m.to.note, m.subject, m.posted,
-                m.deleted, m.private, m.anonymous, m.replies, m.sig_pos, m.lines.join("\n")
+                m.deleted, m.private, m.anonymous, m.replies, m.sig_pos, m.lines.join("\n"), m.tag
             ],
         )?;
         Ok(())
@@ -309,8 +318,30 @@ mod tests {
             anonymous: false,
             replies: 0,
             sig_pos: 0,
+            tag: 0,
             lines: text.split('\n').map(String::from).collect(),
         }
+    }
+
+    #[test]
+    fn tags_are_kept_and_old_databases_gain_them() {
+        let mb = MsgBase::open_memory().unwrap();
+        let mut m = msg("EMAIL", "phrac", "tagged");
+        m.tag = 5;
+        mb.add(&mut m).unwrap();
+        assert_eq!(mb.get("EMAIL", 1).unwrap().unwrap().tag, 5);
+        assert_eq!(mb.mail_for("EMAIL", "phrac", "", false).unwrap()[0].tag, 5);
+
+        let path = std::env::temp_dir().join(format!("iqtags{}.db", std::process::id()));
+        let _ = std::fs::remove_file(&path);
+        {
+            let db = Connection::open(&path).unwrap();
+            db.execute_batch(&SCHEMA.replace("    tag        INTEGER NOT NULL DEFAULT 0,\n", "")).unwrap();
+            db.execute("INSERT INTO messages (area, num, from_id, from_alias, from_real, from_name, from_note, to_id, to_alias, to_real, to_name, to_note, subject, posted, deleted, private, anonymous, replies, sig_pos, body) VALUES ('EMAIL', 1, 0, '', '', '', '', 0, 'x', '', 'x', '', 's', '2026-01-01T00:00:00', 0, 1, 0, 0, 0, 'old')", []).unwrap();
+        }
+        let mb = MsgBase::open(&path).unwrap();
+        assert_eq!(mb.get("EMAIL", 1).unwrap().unwrap().tag, 0);
+        std::fs::remove_file(&path).unwrap();
     }
 
     #[test]

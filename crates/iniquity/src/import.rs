@@ -553,6 +553,7 @@ fn convert_message(area: &str, num: u32, h: &LegacyMsgHeader, dat: &[u8]) -> Mes
         anonymous: h.has(status::ANONYMOUS),
         replies: h.replies as u32,
         sig_pos,
+        tag: h.tag,
         lines,
     }
 }

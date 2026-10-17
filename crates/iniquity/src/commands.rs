@@ -12,7 +12,6 @@ use crate::session::Session;
 /// Commands the original had that aren't ported yet. They report that,
 /// rather than "invalid command", so stock menus degrade honestly.
 const NOT_YET: &[&str] = &[
-    "E+", "E-", "E/", "E\\",
     "TP", "TS", "CP", ">C",
 ];
 
@@ -195,6 +194,10 @@ impl Session {
 
             // -- email
             "EE" => self.enter_email(semi(0), semi(1)).await?,
+            "E+" => self.use_tag = true,
+            "E-" => self.use_tag = false,
+            "E/" => self.email_tag = num(semi(0)),
+            "E\\" => self.read_tag = num(semi(0)),
             "ER" => self.read_email(false, false).await?,
             "EC" => self.read_email(false, true).await?,
             "*R" if self.is_sysop() => self.read_email(true, false).await?,

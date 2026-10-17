@@ -124,6 +124,8 @@ pub struct LegacyMsgHeader {
     pub subject: String,
     /// Line where the auto-signature starts (0 = none).
     pub sig_pos: u16,
+    /// Email tag (`msgTag`, set with `E/`).
+    pub tag: u16,
 }
 
 fn info(r: &mut Reader) -> LegacyMsgInfo {
@@ -163,7 +165,9 @@ impl LegacyMsgHeader {
         let subject = r.string(40);
         r.skip(2); // NetFlag
         let sig_pos = r.u16();
-        Ok(Self { from, to, pos, size, date, status, replies, subject, sig_pos })
+        r.skip(2); // incFile
+        let tag = r.u16();
+        Ok(Self { from, to, pos, size, date, status, replies, subject, sig_pos, tag })
     }
 
     pub fn parse_file(buf: &[u8]) -> Result<Vec<Self>, crate::Error> {
@@ -209,6 +213,7 @@ mod tests {
             replies: 0,
             subject: String::new(),
             sig_pos: 0,
+            tag: 0,
         };
         assert_eq!(h.lines(dat), vec!["hello", "", "world"]);
     }

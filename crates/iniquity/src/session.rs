@@ -86,6 +86,11 @@ pub struct Session {
     pub positions2: HashMap<u8, (u16, u16, Color)>,
     /// Scripts running inside scripts (`%!` in a string a script shows).
     pub(crate) script_depth: u8,
+    /// Email tags for this call: what new email is tagged with (`E/`),
+    /// and, when `use_tag` is on (`E+`), the only tag read (`E\`).
+    pub email_tag: u16,
+    pub read_tag: u16,
+    pub use_tag: bool,
 }
 
 /// Run a caller from connect to disconnect.
@@ -182,6 +187,9 @@ impl Session {
             positions: HashMap::new(),
             positions2: HashMap::new(),
             script_depth: 0,
+            email_tag: 0,
+            read_tag: 0,
+            use_tag: false,
         }
     }
 

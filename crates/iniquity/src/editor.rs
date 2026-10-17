@@ -834,6 +834,7 @@ mod tests {
             anonymous: false,
             replies: 0,
             sig_pos: 5,
+            tag: 0,
             lines: vec!["".into(), "first".into(), "|15second".into(), "".into(), "sig".into()],
         };
         assert_eq!(quote_range(&m, 11), Some((1, 2)));

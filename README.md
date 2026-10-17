@@ -54,7 +54,10 @@ Neither is in git.
   access levels and daily limits.
 - Messages: areas and conferences, the reader, posting and replying,
   quoting, the full-screen editor, newscans and mandatory messages,
-  email, auto-signatures.
+  email, auto-signatures. Email tags: `E/ n` tags the email written
+  this call, `E\ n` with `E+` shows only email tagged `n` (`E-` shows
+  it all), e.g. for a separate support mailbox; this release kept the
+  tag on messages but never used it, so this follows the manual.
 - Files: areas and conferences, the lightbar file lister, downloads
   (single and batch, with points, ratios and daily limits), uploads
   (blind or named, with FILE_ID.DIZ import), search and newscan, archive
@@ -104,7 +107,6 @@ libraries (unpacked into themes).
 | Paging the SysOp / SysOp chat | CHATMODE.PAS | `CP`, `>C` | The original split-screen chat assumed a local console; here it would page a SysOp who is logged in on another node, then chat. |
 | Tetris | tetris.pas | `TP`, `TS` | The built-in game and its high scores. |
 | Message attachments | ATTACH.PAS | | Files attached to messages and email. |
-| Message tags | EMAIL.PAS | `E+`, `E-`, `E/`, `E\` | Tagging messages and email while reading. |
 | Events | EVENTS.PAS | `*V` | Scheduled jobs (packing, maintenance). |
 | Echomail / netmail | echomail.pas, INIQMAIL.PAS | | FidoNet-style networking; would need a mailer/tosser bridge today. |
 | File area packing | FILEPACK.PAS | | Removing records of missing files. |
