@@ -251,6 +251,9 @@ gets UTF-8, with DOS behaviour emulated: hard wrap at column 80 and
   in.
 - `docs/ARTWORK.md`: checklist of screens to replace with custom art.
 - `tools/ansi2png.py`: renders an ANSI file to PNG for previews.
+- `tools/drive_ssh.py`, `tools/drive_telnet.py`: scripted callers for
+  testing a running board (see `CLAUDE.md`).
+- `CLAUDE.md`: notes for picking the work up (conventions, testing).
 
 ## Development
 
