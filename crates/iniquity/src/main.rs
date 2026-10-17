@@ -31,6 +31,7 @@ mod files;
 mod transfer;
 mod nodes;
 mod qwk;
+mod scripts;
 mod session;
 mod ssh;
 mod sysop;

@@ -106,6 +106,5 @@ Things that trip tests up:
 
 ## Next
 
-The rest of the README's "What's left to port" table. Doors and QWK
-are done; IPL scripting is the big one left (port the language, or
-offer Rhai/Lua: ask the user).
+The rest of the README's "What's left to port" table: doors, QWK and
+scripting (Lua, `scripts.rs`, in place of IPL) are done.

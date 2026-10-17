@@ -1,6 +1,6 @@
 //! System-wide records (SQLite): totals and daily history (STATS.DAT,
-//! HISTORY.DAT), the callers log (CALLERS.DAT), the automessage, and the
-//! BBS list (BBSLIST.DAT).
+//! HISTORY.DAT), the callers log (CALLERS.DAT), the automessage, the
+//! BBS list (BBSLIST.DAT), and what Lua scripts keep (`bbs.get`/`bbs.set`).
 
 use std::path::Path;
 use std::sync::Mutex;
@@ -63,6 +63,12 @@ CREATE TABLE IF NOT EXISTS bbslist (
     storage   TEXT NOT NULL,
     info      TEXT NOT NULL,
     who_added TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS script_data (
+    script    TEXT NOT NULL COLLATE NOCASE,
+    key       TEXT NOT NULL,
+    value     TEXT NOT NULL,
+    PRIMARY KEY (script, key)
 );
 ";
 
@@ -344,6 +350,29 @@ impl SysData {
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
             params![m.user_id, m.author, m.anonymous, m.title, m.posted, m.lines.join("\n")],
         )?;
+        Ok(())
+    }
+
+    // ---- script data ------------------------------------------------------
+
+    /// A value a script stored under `key`.
+    pub fn script_get(&self, script: &str, key: &str) -> anyhow::Result<Option<String>> {
+        let db = self.db.lock().unwrap();
+        Ok(db
+            .query_row("SELECT value FROM script_data WHERE script = ?1 AND key = ?2", params![script, key], |r| r.get(0))
+            .optional()?)
+    }
+
+    /// Store a script's value; `None` removes it.
+    pub fn script_set(&self, script: &str, key: &str, value: Option<&str>) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        match value {
+            Some(v) => db.execute(
+                "INSERT OR REPLACE INTO script_data (script, key, value) VALUES (?1, ?2, ?3)",
+                params![script, key, v],
+            )?,
+            None => db.execute("DELETE FROM script_data WHERE script = ?1 AND key = ?2", params![script, key])?,
+        };
         Ok(())
     }
 

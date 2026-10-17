@@ -64,6 +64,10 @@ Neither is in git.
 - Infoforms (questionnaires, mandatory or not) and new user voting.
 - Screen themes (the original's text libraries): directories of screens
   that replace the stock ones; callers pick theirs with `UT`.
+- Scripting in Lua, in place of IPL: `-X name` and `%!name` run
+  `scripts/name.lua`, with a `bbs` API for output, input, the user
+  record, menu commands and stored values. See
+  [docs/SCRIPTING.md](docs/SCRIPTING.md).
 - QWK offline mail: `QD` packs new messages (email as conference 0)
   for an offline reader, `QU` posts the replies (`[qwk]` in
   `iniquity.toml`). See [QWK](#qwk-offline-mail).
@@ -92,7 +96,6 @@ libraries (unpacked into themes).
 
 | Feature | Original | Commands | Notes |
 |---|---|---|---|
-| IPL scripting | IPLC.PAS, IPLI.PAS, IPLX.PAS | `-X` | Iniquity's own scripting language: compiler and interpreter. Port it so `.IPS` mods run, or offer Rhai/Lua instead. |
 | Paging the SysOp / SysOp chat | CHATMODE.PAS | `CP`, `>C` | The original split-screen chat assumed a local console; here it would page a SysOp who is logged in on another node, then chat. |
 | Time bank | (MENUCMD) | `!D`, `!W`, `!E`, `!I`, `!V` | Deposit and withdraw minutes and kb. |
 | Tetris | tetris.pas | `TP`, `TS` | The built-in game and its high scores. |
@@ -128,6 +131,7 @@ web or terminal SysOp dashboard could replace the local console later.
 | `strings.toml` | prompt strings that differ from stock | `*E` |
 | `menus/*.toml` | menus | `*#` |
 | `text/` | screens (ANSI/ASCII) | your art tools; see `docs/ARTWORK.md` |
+| `scripts/` | Lua scripts (`-X`, `%!`) | any editor; see `docs/SCRIPTING.md` |
 
 Files that don't exist yet use built-in defaults; the editors create
 them. Most changes apply at once; SSH, telnet and path settings need a

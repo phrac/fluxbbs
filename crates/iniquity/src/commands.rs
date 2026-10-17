@@ -14,7 +14,7 @@ use crate::session::Session;
 const NOT_YET: &[&str] = &[
     "E+", "E-", "E/", "E\\", "F#",
     "M#", "TP", "TS", "CP", ">C", "!D", "!W", "!E", "!I",
-    "!V", "-X",
+    "!V",
 ];
 
 impl Session {
@@ -217,6 +217,7 @@ impl Session {
             "*I" if self.is_sysop() => self.infoform_editor().await?,
             "*T" if self.is_sysop() => self.theme_editor().await?,
             "UT" => self.choose_theme().await?,
+            "-X" => Box::pin(self.script_command(param)).await?,
             "QD" => self.qwk_download().await?,
             "QU" => self.qwk_upload().await?,
             "D0" | "D1" | "D2" | "D3" | "D4" | "DZ" => self.door_execute(param, code.chars().nth(1).unwrap()).await?,

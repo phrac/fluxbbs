@@ -84,6 +84,8 @@ pub struct Session {
     /// `~XX` / `^NN` markers from the last displayed file: (x, y, colour).
     pub positions: HashMap<[u8; 2], (u16, u16, Color)>,
     pub positions2: HashMap<u8, (u16, u16, Color)>,
+    /// Scripts running inside scripts (`%!` in a string a script shows).
+    pub(crate) script_depth: u8,
 }
 
 /// Run a caller from connect to disconnect.
@@ -179,6 +181,7 @@ impl Session {
             new_user: false,
             positions: HashMap::new(),
             positions2: HashMap::new(),
+            script_depth: 0,
         }
     }
 
@@ -279,12 +282,16 @@ impl Session {
     }
 
     /// Display a prompt string with codes (`oStr`). Also handles the
-    /// leading `%|` (centre) and `%>` (right-justify) prefixes, and `%%FILE`
-    /// (display a text file instead).
+    /// leading `%|` (centre) and `%>` (right-justify) prefixes, `%%FILE`
+    /// (display a text file instead) and `%!SCRIPT args` (run a script).
     pub async fn show(&mut self, s: &str) -> io::Result<()> {
         if let Some(file) = s.strip_prefix("%%") {
             self.show_file(file.trim()).await?;
             return Ok(());
+        }
+        // `%!name args`: run a script instead (`iplExecute`).
+        if let Some(cmd) = s.strip_prefix("%!") {
+            return Box::pin(self.script_command(cmd)).await;
         }
         let mut bytes = cp437::encode(s);
         let align = match bytes.get(..2) {

@@ -151,6 +151,8 @@ pub struct Paths {
     pub temp: PathBuf,
     /// Door drop files, a directory per node (`pathDoor`).
     pub doors: PathBuf,
+    /// Lua scripts (`-X`, `%!`), which replace IPL modules (`pathIPLX`).
+    pub scripts: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -512,6 +514,7 @@ impl Default for Paths {
             theme_dir: "themes".into(),
             temp: "data/temp".into(),
             doors: "data/doors".into(),
+            scripts: "scripts".into(),
         }
     }
 }

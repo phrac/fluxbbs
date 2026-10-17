@@ -95,7 +95,7 @@ pub struct ReadOpts {
     /// Echo the password character instead of the text.
     pub password: bool,
     /// Accept only these characters (empty = any printable).
-    pub allowed: &'static str,
+    pub allowed: std::borrow::Cow<'static, str>,
     /// Keep asking until something is entered.
     pub required: bool,
     /// Pre-filled text.
@@ -118,8 +118,8 @@ impl ReadOpts {
         self
     }
 
-    pub fn allowed(mut self, chars: &'static str) -> Self {
-        self.allowed = chars;
+    pub fn allowed(mut self, chars: impl Into<std::borrow::Cow<'static, str>>) -> Self {
+        self.allowed = chars.into();
         self
     }
 
