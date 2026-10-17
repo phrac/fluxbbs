@@ -12,8 +12,8 @@ use crate::session::Session;
 /// Commands the original had that aren't ported yet. They report that,
 /// rather than "invalid command", so stock menus degrade honestly.
 const NOT_YET: &[&str] = &[
-    "E+", "E-", "E/", "E\\", "F#",
-    "M#", "TP", "TS", "CP", ">C", "!D", "!W", "!E", "!I",
+    "E+", "E-", "E/", "E\\",
+    "TP", "TS", "CP", ">C", "!D", "!W", "!E", "!I",
     "!V",
 ];
 
@@ -145,6 +145,7 @@ impl Session {
                     self.list_areas(true).await?;
                 }
             }
+            "M#" => self.jump_area(true, param).await?,
             "M[" => self.step_area(false).await?,
             "M]" => self.step_area(true).await?,
             "MJ" => self.select_conf(true, param).await?,
@@ -175,6 +176,7 @@ impl Session {
                     self.list_fareas(true).await?;
                 }
             }
+            "F#" => self.jump_area(false, param).await?,
             "F[" => self.step_farea(false).await?,
             "F]" => self.step_farea(true).await?,
             "FJ" => self.select_conf(false, param).await?,

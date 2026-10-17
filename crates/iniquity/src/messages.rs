@@ -125,27 +125,50 @@ impl Session {
         }
     }
 
+    /// (number shown, area number) for each area the caller sees listed:
+    /// with `compress_area_numbers`, listed areas are numbered 1, 2, 3...
+    pub(crate) fn msg_area_labels(&self) -> Vec<(u32, u32)> {
+        let compress = self.state.config().messages.compress_area_numbers;
+        let mut out = Vec::new();
+        for (i, a) in self.state.areas().areas.iter().enumerate() {
+            let n = i as u32 + 1;
+            if self.acs(&a.acs) || a.unhidden {
+                out.push((if compress { out.len() as u32 + 1 } else { n }, n));
+            }
+        }
+        out
+    }
+
+    /// `M#` / `F#`: change to the area whose listed number was typed at
+    /// the menu (the `#` key).
+    pub async fn jump_area(&mut self, msg: bool, typed: &str) -> io::Result<()> {
+        let Ok(label) = typed.trim().parse::<u32>() else { return Ok(()) };
+        let labels = if msg { self.msg_area_labels() } else { self.file_area_labels() };
+        let target = labels.iter().find(|(l, _)| *l == label).map(|&(_, n)| n);
+        let changed = match target {
+            Some(n) if msg => self.change_area(n).await?,
+            Some(n) => self.change_farea(n).await?,
+            None => false,
+        };
+        if !changed {
+            return self.say_line("AreaNotFound").await;
+        }
+        let (name, key) = if msg {
+            (self.current_area().map(|a| a.area.name).unwrap_or_default(), "MsgChangedAreas")
+        } else {
+            (self.current_farea().map(|a| a.area.name).unwrap_or_default(), "FaChangedAreas")
+        };
+        let s = self.strings().fmt(key, &[&name]);
+        self.show_line(&s).await
+    }
+
     /// `maListAreas` (`MA`, and `MC` without a number).
     pub async fn list_areas(&mut self, change: bool) -> io::Result<()> {
-        let compress = self.state.config().messages.compress_area_numbers;
         // (shown number, area number) for each listed area.
         let mut shown = Vec::new();
-        let rows: Vec<(u32, u32, MsgArea)> = {
-            let mut out = Vec::new();
-            let mut visible = 0;
-            for (i, a) in self.state.areas().areas.iter().enumerate() {
-                let n = i as u32 + 1;
-                let listed = self.acs(&a.acs) || a.unhidden;
-                if listed {
-                    visible += 1;
-                }
-                let label = if compress { visible } else { n };
-                if listed {
-                    out.push((label, n, a.clone()));
-                }
-            }
-            out
-        };
+        let areas = self.state.areas();
+        let rows: Vec<(u32, u32, MsgArea)> =
+            self.msg_area_labels().into_iter().map(|(label, n)| (label, n, areas.areas[n as usize - 1].clone())).collect();
         let mut rep = self.repeat_begin("MAREA", true).await?;
         if rep.is_none() {
             self.clear_screen();

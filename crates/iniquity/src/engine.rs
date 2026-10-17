@@ -263,12 +263,15 @@ impl Session {
         let mut slash = String::new();
         let mut has_slash = false;
         let mut has_long = false;
+        // A `#` command takes a number typed at the prompt (`M#`, `F#`).
+        let mut has_number = false;
         for c in &menu.commands {
             if !self.acs(&c.acs) {
                 continue;
             }
             let k: Vec<char> = c.keys.chars().collect();
             match k.as_slice() {
+                ['#'] => has_number = true,
                 [one] => single.push(one.to_ascii_uppercase()),
                 ['/', two] => {
                     has_slash = true;
@@ -299,6 +302,8 @@ impl Session {
                     } else if let Some(c) = c.filter(|c| single.contains(c.to_ascii_uppercase())) {
                         ss.push(c);
                         got = true;
+                    } else if let Some(c) = c.filter(|c| has_number && c.is_ascii_digit()) {
+                        ss.push(c);
                     }
                 } else if ss == "/" {
                     if key == Key::Backspace {
@@ -316,6 +321,12 @@ impl Session {
                             ss.pop();
                         }
                         Key::Char(0x18) => ss.truncate(2),
+                        // A number for `#`: digits only.
+                        Key::Char(c) if ss.starts_with(|f: char| f.is_ascii_digit()) => {
+                            if c.is_ascii_digit() && ss.len() < 5 {
+                                ss.push(c as char);
+                            }
+                        }
                         Key::Char(c @ 0x20..=0x7E) if ss.len() < 62 => ss.push(c as char),
                         _ => {}
                     }
@@ -427,8 +438,10 @@ impl Session {
         let mut visible = false;
         let mut allowed = false;
         self.menu.done = false;
+        let number = keys.chars().all(|c| c.is_ascii_digit());
         for c in &commands {
-            if !c.keys.eq_ignore_ascii_case(keys) {
+            let by_number = number && c.keys == "#";
+            if !c.keys.eq_ignore_ascii_case(keys) && !by_number {
                 continue;
             }
             exists = true;
@@ -437,7 +450,8 @@ impl Session {
                 continue;
             }
             allowed = true;
-            self.run_command(&c.command, &c.param).await?;
+            // The number typed is the `#` command's parameter.
+            self.run_command(&c.command, if by_number { keys } else { &c.param }).await?;
             if self.menu.done || self.hangup {
                 break;
             }

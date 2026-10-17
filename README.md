@@ -45,7 +45,8 @@ Neither is in git.
 - Display engine: `|XX` colours and controls, `%XX` MCI codes, `@`/`&`
   positioning, `{`/`}` limits and padding, `~XX` fields, repeat screens
   (TOP/MID/HIL/BOT), random and day-of-week screen variants.
-- Menu engine: hot keys, `/` and `//` commands, FIRSTCMD, stacked
+- Menu engine: hot keys, `/` and `//` commands, `#` (an area number
+  typed at the prompt, for `M#`/`F#`), FIRSTCMD, stacked
   commands, gosub/return, generic and lightbar menus, ACS expressions,
   passwords, fallbacks, command help.
 - Logon: the matrix menu, login, system password, new-user application
@@ -100,7 +101,6 @@ libraries (unpacked into themes).
 | Time bank | (MENUCMD) | `!D`, `!W`, `!E`, `!I`, `!V` | Deposit and withdraw minutes and kb. |
 | Tetris | tetris.pas | `TP`, `TS` | The built-in game and its high scores. |
 | Message attachments | ATTACH.PAS | | Files attached to messages and email. |
-| Jump to area by number | MSGAREA/FILEAREA | `M#`, `F#` | |
 | Message tags | EMAIL.PAS | `E+`, `E-`, `E/`, `E\` | Tagging messages and email while reading. |
 | Events | EVENTS.PAS | `*V` | Scheduled jobs (packing, maintenance). |
 | Echomail / netmail | echomail.pas, INIQMAIL.PAS | | FidoNet-style networking; would need a mailer/tosser bridge today. |

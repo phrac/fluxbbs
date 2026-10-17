@@ -183,18 +183,24 @@ impl Session {
         }
     }
 
-    /// `faListAreas` (`FA`, and `FC` without a number).
-    pub async fn list_fareas(&mut self, change: bool) -> io::Result<()> {
+    /// (number shown, area number) for each file area the caller can use.
+    pub(crate) fn file_area_labels(&self) -> Vec<(u32, u32)> {
         let compress = self.state.config().messages.compress_area_numbers;
-        let mut rows = Vec::new();
-        let mut visible = 0;
+        let mut out = Vec::new();
         for (i, a) in self.state.fareas().areas.iter().enumerate() {
             let n = i as u32 + 1;
             if self.acs(&a.acs) {
-                visible += 1;
-                rows.push((if compress { visible } else { n }, n, a.clone()));
+                out.push((if compress { out.len() as u32 + 1 } else { n }, n));
             }
         }
+        out
+    }
+
+    /// `faListAreas` (`FA`, and `FC` without a number).
+    pub async fn list_fareas(&mut self, change: bool) -> io::Result<()> {
+        let fareas = self.state.fareas();
+        let rows: Vec<_> =
+            self.file_area_labels().into_iter().map(|(label, n)| (label, n, fareas.areas[n as usize - 1].clone())).collect();
         let mut rep = self.repeat_begin("FAREA", true).await?;
         if rep.is_none() {
             self.clear_screen();
