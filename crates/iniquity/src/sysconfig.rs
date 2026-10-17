@@ -74,7 +74,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('F', "Max nodes", 3, "Callers online at once (takes effect on restart).", Num(|c| c.bbs.max_nodes as u64, |c, v| c.bbs.max_nodes = v as u16, 1, 250)),
             set('G', "Idle timeout", 6, "Disconnect after this many idle seconds (0 = never).", Num(|c| c.bbs.inactivity_seconds, |c, v| c.bbs.inactivity_seconds = v, 0, 86_400)),
         ]),
-        ("SSH and Terminal", true, vec![
+        ("SSH, Telnet and Terminal", true, vec![
             set('A', "Listen on", 40, "Address and port for SSH, e.g. 0.0.0.0:2222 (restart).", Text(|c| &mut c.ssh.listen, TEXT)),
             set('B', "Host key dir", 40, "Where the SSH host keys live (restart).", Path(|c| &mut c.ssh.host_key_dir)),
             set('C', "Old algorithms", 3, "Also offer older SSH algorithms (SyncTERM needs them; restart).", Bool(|c| &mut c.ssh.legacy_algorithms)),
@@ -84,6 +84,8 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
                 &CHARSETS,
             )),
             set('E', "CP437 TERMs", 50, "TERM values that get CP437 when the character set is Auto.", List(|c| &mut c.terminal.cp437_terms)),
+            set('F', "Telnet", 3, "Also accept plain (unencrypted) telnet? (restart)", Bool(|c| &mut c.telnet.enabled)),
+            set('G', "Telnet listen", 40, "Address and port for telnet, e.g. 0.0.0.0:2323 (restart).", Text(|c| &mut c.telnet.listen, TEXT)),
         ]),
         ("Access and Logon", false, vec![
             set('A', "SysOp ACS", 20, "ACS for SysOp access.", Text(|c| &mut c.acs.sysop, ACS)),
@@ -245,7 +247,7 @@ impl Session {
         loop {
             let mut f = Form::new(&format!("{} System Configuration", cfg.bbs.name));
             for (i, (title, restart, _)) in secs.iter().enumerate() {
-                let note = if *restart { "SSH settings take effect when the BBS restarts." } else { "" };
+                let note = if *restart { "SSH and telnet settings take effect when the BBS restarts." } else { "" };
                 f.item((b'A' + i as u8) as char, title, 0, "", note);
             }
             f.item((b'A' + secs.len() as u8) as char, "Default Colors", 0, "", "");

@@ -30,6 +30,7 @@ mod nodes;
 mod session;
 mod ssh;
 mod sysop;
+mod telnet;
 mod strings;
 mod sysconfig;
 mod sysdata;
@@ -241,8 +242,19 @@ async fn main() -> anyhow::Result<()> {
         nodes,
     });
 
+    let telnet = {
+        let state = state.clone();
+        async move {
+            if state.config().telnet.enabled {
+                telnet::serve(state).await
+            } else {
+                std::future::pending().await
+            }
+        }
+    };
     tokio::select! {
         r = ssh::serve(state) => r,
+        r = telnet => r,
         _ = tokio::signal::ctrl_c() => {
             tracing::info!("shutting down");
             Ok(())

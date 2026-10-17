@@ -7,6 +7,7 @@ FOSSIL drivers. It runs the stock 1.00a26r5 screens, menus and strings.
     cargo run                                # serves iniquity.toml on :2222
     ssh -p 2222 anyname@localhost            # UTF-8 terminal
     syncterm ssh://anyname@localhost:2222    # raw CP437
+    syncterm telnet://localhost:2323         # plain telnet (unencrypted)
 
 The stock SysOp account is `SysOp` / `SYSOP`, with system password
 `SYSTEM` (asked of SL 250+). Type `new` at the login prompt, or pick
@@ -68,7 +69,7 @@ editor.
   checked byte-for-byte against a stock install (`INIQUITY_STOCK=dir
   cargo test -p iniquity-legacy`).
 - `crates/iniquity`: the server.
-  - `ssh.rs` transport, `session.rs` output and display engine,
+  - `ssh.rs` and `telnet.rs` transports, `session.rs` output and display engine,
     `input.rs` keys/line input/yes-no
   - `logon.rs` matrix, login, new-user application
   - `messages.rs` areas, reader, posting, scans, email; `editor.rs` the
@@ -107,7 +108,8 @@ column 80 and `ESC[2J` homing the cursor. Override with `[terminal] charset`.
 
 ## Status
 
-Working: SSH (including SyncTERM), nodes, display codes and text files,
+Working: SSH (including SyncTERM), telnet (binary-clean, with window
+size and terminal type), nodes, display codes and text files,
 repeat screens (TOP/MID/HIL/BOT), the matrix and lightbar menus, login,
 new-user application, access levels, the menu engine (hot keys, `/` and
 `//` commands, FIRSTCMD, stacked commands, gosub/return, generic menus,

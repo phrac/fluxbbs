@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 pub struct Config {
     pub bbs: Bbs,
     pub ssh: Ssh,
+    pub telnet: Telnet,
     pub paths: Paths,
     pub terminal: Terminal,
     pub acs: Acs,
@@ -59,6 +60,20 @@ pub struct Ssh {
     /// Also offer older algorithms (ECDH P-256, DH group 14, AES-CBC,
     /// HMAC-SHA1) after the modern ones. Needed by SyncTERM.
     pub legacy_algorithms: bool,
+}
+
+/// Plain telnet, for clients and directories that don't do SSH.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Telnet {
+    pub enabled: bool,
+    pub listen: String,
+}
+
+impl Default for Telnet {
+    fn default() -> Self {
+        Self { enabled: true, listen: "0.0.0.0:2323".into() }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
