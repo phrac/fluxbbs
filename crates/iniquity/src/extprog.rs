@@ -118,7 +118,27 @@ fn hex(s: &str) -> Option<Vec<u8>> {
     (0..s.len()).step_by(2).map(|i| u8::from_str_radix(s.get(i..i + 2)?, 16).ok()).collect()
 }
 
-/// Load a list file, or the default if it doesn't exist yet.
+/// `levels.toml`: access levels A-Z (LEVELS.DAT). A level with no
+/// description isn't in use.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Levels(pub std::collections::BTreeMap<String, crate::config::Level>);
+
+impl Levels {
+    pub fn to_toml(&self) -> String {
+        format!(
+            "# Access levels A-Z. A level with no description isn't used. Users get a\n\
+             # level's limits when given it (new users get A).\n\n{}",
+            toml::to_string_pretty(self).expect("levels serialize")
+        )
+    }
+
+    pub fn get(&self, key: char) -> Option<&crate::config::Level> {
+        self.0.get(&key.to_string()).filter(|l| !l.desc.is_empty())
+    }
+}
+
+/// Load a list file, or None if it doesn't exist yet.
 pub fn load<T: Default + serde::de::DeserializeOwned>(path: &Path) -> anyhow::Result<Option<T>> {
     match std::fs::read_to_string(path) {
         Ok(s) => Ok(Some(toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?)),

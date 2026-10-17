@@ -1,6 +1,7 @@
 //! `*U`: the user editor (CONFIG8), with its colour and preference
-//! sub-screens. Changes are saved when the SysOp moves to another user,
-//! and on leaving if they say so.
+//! sub-screens, and `*L`: the access level editor (CONFIG6). Changes are
+//! saved when the SysOp moves to another user, and on leaving if they say
+//! so.
 
 use std::io;
 
@@ -8,6 +9,7 @@ use chrono::NaiveDate;
 use iniquity_term::{Palette, Slot};
 
 use crate::cfgedit::{Field, Form, color_name, flags_text, yes_no};
+use crate::config::Level;
 use crate::input::Case;
 use crate::session::Session;
 use crate::user::{User, fmt_date, parse_date};
@@ -138,7 +140,113 @@ pub fn next_level(levels: impl Fn(char) -> bool, cur: char, up: bool) -> Option<
     }
 }
 
+/// A level's number fields: key, label, width, suffix, help, accessor.
+type LevelNum = (char, &'static str, usize, &'static str, &'static str, fn(&mut Level) -> &mut u16);
+
+const LEVEL_NUMS: [LevelNum; 7] = [
+    ('E', "Time limit", 5, "", "Daily time limit (minutes) for users at this access level.", |l| &mut l.time_limit),
+    ('F', "Post/call ratio", 6, "%", "Default post/call ratio for users with this access.", |l| &mut l.post_call),
+    ('G', "File points", 5, "", "File points for users at this access level.", |l| &mut l.file_points),
+    ('H', "Download limit", 5, "", "Allowed number of downloads per day at this level (0: no limit).", |l| &mut l.limit_dl),
+    ('I', "Download kb limit", 7, "kb", "Allowed number of downloaded kilobytes per day at this level (0: no limit).", |l| &mut l.limit_dl_kb),
+    ('J', "UL/DL ratio", 5, "", "Allowed number of downloads for each file uploaded (0: no ratio).", |l| &mut l.uldl_ratio),
+    ('K', "UL/DL kb ratio", 5, "", "Allowed number of downloadable kilobytes for every kb uploaded (0: no ratio).", |l| &mut l.kb_ratio),
+];
+
 impl Session {
+    /// `cfgLevelEditor`: levels A-Z; `[` and `]` step through them.
+    pub async fn level_editor(&mut self) -> io::Result<()> {
+        tracing::info!("{}: access level edit", self.user.handle);
+        let original = (*self.state.levels()).clone();
+        let mut levels = original.clone();
+        let mut c = 'A';
+        loop {
+            let mut l = levels.0.get(&c.to_string()).cloned().unwrap_or_default();
+            let mut f = Form::new(&format!("{} Access Level Editor", self.state.config.bbs.name));
+            f.label("Current level", 1, c.to_string());
+            f.item('A', "Description", 40, &l.desc, "Text description of this access level (blank: not in use).");
+            f.item('B', "Security level", 3, l.sl.to_string(), "Security level (SL) for this access level.");
+            f.item('C', "File security level", 3, l.dsl.to_string(), "File (download) security level (DSL) for this access level.");
+            f.item('D', "User note", 40, &l.note, "Default user note given to users validated at this level.");
+            for (key, label, len, suffix, info, get) in &LEVEL_NUMS {
+                f.item(*key, label, *len, format!("{}{suffix}", get(&mut l)), info);
+            }
+            f.item('=', "Update users", 0, "", "Give every user at this level the limits above.");
+            f.item('[', "Previous level", 0, "", "");
+            f.item(']', "Next level", 0, "", "");
+            self.cfg_draw(&f);
+            let step: i32 = loop {
+                let Some(key) = self.cfg_command(&mut f).await? else { break 0 };
+                match key {
+                    'A' | 'D' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {
+                            *if key == 'A' { &mut l.desc } else { &mut l.note } = v;
+                        }
+                    }
+                    'B' | 'C' => {
+                        if let Some(v) = self.cfg_number(&mut f, key, 0, 255).await? {
+                            *if key == 'B' { &mut l.sl } else { &mut l.dsl } = v as u8;
+                        }
+                    }
+                    '=' => {
+                        levels.0.insert(c.to_string(), l.clone());
+                        if l.desc.is_empty() {
+                            self.cfg_info(&mut f, "Give the level a description first.");
+                        } else if self.cfg_ask(&mut f, &format!("Update all level {c} users?"), false).await? {
+                            let n = self.update_level_users(c, &l)?;
+                            self.cfg_info(&mut f, &format!("{n} user(s) updated."));
+                        }
+                    }
+                    '[' => break -1,
+                    ']' => break 1,
+                    k => {
+                        let Some((_, _, _, suffix, _, get)) = LEVEL_NUMS.iter().find(|n| n.0 == k) else { continue };
+                        f.set(k, get(&mut l).to_string());
+                        let min = if k == 'E' { 1 } else { 0 };
+                        if let Some(v) = self.cfg_number(&mut f, k, min, u16::MAX as u64).await? {
+                            *get(&mut l) = v as u16;
+                        }
+                        self.cfg_set(&mut f, k, format!("{}{suffix}", get(&mut l)));
+                    }
+                }
+            };
+            if l != Level::default() || levels.0.contains_key(&c.to_string()) {
+                levels.0.insert(c.to_string(), l);
+            }
+            if step == 0 {
+                break;
+            }
+            c = (b'A' + ((c as u8 - b'A') as i32 + step).rem_euclid(26) as u8) as char;
+        }
+        self.screen.goto(1, self.screen.rows());
+        self.newline();
+        if levels != original {
+            self.show("|U1Save access levels? ").await?;
+            if self.yes_no(true).await? {
+                self.state.set_levels(levels).map_err(io_err)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// `=` in the level editor: `levelSet` on every user at a level.
+    fn update_level_users(&mut self, key: char, level: &Level) -> io::Result<u32> {
+        self.save_user();
+        let mut n = 0;
+        for mut u in self.state.users.list().map_err(io_err)? {
+            if u.level == key {
+                u.apply_level(key, level);
+                self.state.users.save(&u).map_err(io_err)?;
+                if u.id == self.user.id {
+                    self.user = u;
+                }
+                n += 1;
+            }
+        }
+        tracing::info!("{}: applied level {key} to {n} users", self.user.handle);
+        Ok(n)
+    }
+
     /// `cfgUserEditor`: `param` may name a user to start with.
     pub async fn user_editor(&mut self, param: &str) -> io::Result<()> {
         // Our own record is live in the session: save it so the editor
@@ -267,7 +375,7 @@ impl Session {
                                 continue;
                             };
                             u.level = c;
-                            let defined = self.state.config.level(c).cloned();
+                            let defined = self.state.level(c);
                             if let Some(level) = defined
                                 && self.cfg_ask(&mut f, &format!("Apply level {c}'s limits ({})?", level.desc), true).await?
                             {
@@ -276,10 +384,10 @@ impl Session {
                             }
                         }
                         '>' | '<' => {
-                            let cfg = &self.state.config;
-                            match next_level(|c| cfg.level(c).is_some(), u.level, key == '>') {
+                            let levels = self.state.levels();
+                            match next_level(|c| levels.get(c).is_some(), u.level, key == '>') {
                                 Some(c) => {
-                                    let level = cfg.level(c).cloned().expect("level exists");
+                                    let level = levels.get(c).cloned().expect("level exists");
                                     u.apply_level(c, &level);
                                     note = format!("Now level {c}: {}.", level.desc);
                                 }

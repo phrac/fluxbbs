@@ -186,7 +186,7 @@ impl Session {
     pub fn acs(&self, expr: &str) -> bool {
         let now = Local::now();
         let u = &self.user;
-        let level_req = self.state.config.level(u.level).map_or(0, |l| l.post_call as u32);
+        let level_req = self.state.level(u.level).map_or(0, |l| l.post_call as u32);
         let ratio = (u.posts * 100).checked_div(u.total_calls).unwrap_or(0);
         let env = AcsEnv {
             local: false,

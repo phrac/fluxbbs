@@ -4,7 +4,7 @@
 //! | from                  | to                          |
 //! |-----------------------|-----------------------------|
 //! | INIQUITY.DAT          | iniquity.toml               |
-//! | DATA\LEVELS.DAT       | iniquity.toml `[levels.X]`  |
+//! | DATA\LEVELS.DAT       | levels.toml                 |
 //! | DATA\STRINGS.DAT      | strings.toml                |
 //! | DATA\USERS.DAT        | data/iniquity.db            |
 //! | DATA\MSGAREA.DAT etc. | msgareas.toml               |
@@ -59,8 +59,13 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
         "# Iniquity BBS configuration, imported from {}.\n# Paths are relative to this file.\n\n",
         src.display()
     );
+    // Levels get a file of their own, which the level editor rewrites.
+    let levels = crate::extprog::Levels(std::mem::take(&mut cfg.levels));
     std::fs::write(&cfg_path, header + &toml::to_string_pretty(&cfg)?)?;
     println!("wrote {}", cfg_path.display());
+    let levels_path = dest.join(&cfg.paths.levels);
+    std::fs::write(&levels_path, levels.to_toml())?;
+    println!("wrote {} ({} levels)", levels_path.display(), levels.0.values().filter(|l| !l.desc.is_empty()).count());
 
     if let Some(p) = find_ci(&data, "STRINGS.DAT") {
         let table = strings::parse_file(&std::fs::read(p)?);

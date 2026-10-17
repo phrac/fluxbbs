@@ -59,6 +59,7 @@ pub struct BbsState {
     fareas: std::sync::RwLock<Arc<FileAreas>>,
     protocols: std::sync::RwLock<Arc<extprog::Protocols>>,
     archivers: std::sync::RwLock<Arc<extprog::Archivers>>,
+    levels: std::sync::RwLock<Arc<extprog::Levels>>,
     pub files: FileBase,
     pub sys: SysData,
     /// Serialises appends to shared text files (`?T`).
@@ -97,6 +98,21 @@ impl BbsState {
     pub fn set_archivers(&self, new: extprog::Archivers) -> anyhow::Result<()> {
         write_atomic(&self.config.resolve(&self.config.paths.archivers), &new.to_toml())?;
         *self.archivers.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        Ok(())
+    }
+
+    pub fn levels(&self) -> Arc<extprog::Levels> {
+        self.levels.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// An access level in use (it has a description).
+    pub fn level(&self, key: char) -> Option<config::Level> {
+        self.levels().get(key).cloned()
+    }
+
+    pub fn set_levels(&self, new: extprog::Levels) -> anyhow::Result<()> {
+        write_atomic(&self.config.resolve(&self.config.paths.levels), &new.to_toml())?;
+        *self.levels.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
     }
 
@@ -155,6 +171,8 @@ async fn main() -> anyhow::Result<()> {
     let protocols = extprog::load(&config.resolve(&config.paths.protocols))?
         .unwrap_or_else(|| extprog::Protocols { list: config.protocols.clone() });
     let archivers: extprog::Archivers = extprog::load(&config.resolve(&config.paths.archivers))?.unwrap_or_default();
+    let levels = extprog::load(&config.resolve(&config.paths.levels))?
+        .unwrap_or_else(|| extprog::Levels(config.levels.clone()));
     let files = FileBase::open(&db)?;
     let sys = SysData::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
@@ -167,6 +185,7 @@ async fn main() -> anyhow::Result<()> {
         fareas: std::sync::RwLock::new(Arc::new(fareas)),
         protocols: std::sync::RwLock::new(Arc::new(protocols)),
         archivers: std::sync::RwLock::new(Arc::new(archivers)),
+        levels: std::sync::RwLock::new(Arc::new(levels)),
         files,
         sys,
         text_lock: std::sync::Mutex::new(()),

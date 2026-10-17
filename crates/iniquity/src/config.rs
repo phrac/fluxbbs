@@ -27,7 +27,9 @@ pub struct Config {
     pub protocols: Vec<Protocol>,
     /// Default colour scheme for new users and before logon.
     pub colors: Palette,
-    /// Access levels 'A'..'Z'.
+    /// Access levels 'A'..'Z'. Only used until levels.toml exists (the
+    /// level editor writes it).
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
     pub levels: BTreeMap<String, Level>,
     /// Directory the config file lives in; relative paths resolve from here.
     #[serde(skip)]
@@ -74,6 +76,8 @@ pub struct Paths {
     pub protocols: PathBuf,
     /// Archivers for formats other than ZIP.
     pub archivers: PathBuf,
+    /// Access levels.
+    pub levels: PathBuf,
     /// Scratch space for uploads in progress.
     pub temp: PathBuf,
 }
@@ -284,7 +288,7 @@ pub struct Protocol {
     pub receive: String,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Level {
     pub desc: String,
@@ -332,6 +336,7 @@ impl Default for Paths {
             fileareas: "fileareas.toml".into(),
             protocols: "protocols.toml".into(),
             archivers: "archivers.toml".into(),
+            levels: "levels.toml".into(),
             temp: "data/temp".into(),
         }
     }

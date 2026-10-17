@@ -356,7 +356,7 @@ impl Session {
         u.first_call = Some(today);
         u.last_call = None;
         u.start_menu = self.state.config.logon.start_menu.clone();
-        if let Some(level) = self.state.config.level('A').cloned() {
+        if let Some(level) = self.state.level('A') {
             u.apply_level('A', &level);
         }
         self.say("NuSavingInfo").await?;
