@@ -39,11 +39,11 @@ impl Session {
     // ---- areas and access ---------------------------------------------
 
     pub fn email_area(&self) -> AreaRef {
-        AreaRef { num: 0, area: self.state.areas.email.clone() }
+        AreaRef { num: 0, area: self.state.areas().email.clone() }
     }
 
     pub fn msg_area(&self, n: u32) -> Option<AreaRef> {
-        self.state.areas.get(n).map(|a| AreaRef { num: n, area: a.clone() })
+        self.state.areas().get(n).map(|a| AreaRef { num: n, area: a.clone() })
     }
 
     pub fn current_area(&self) -> Option<AreaRef> {
@@ -103,14 +103,14 @@ impl Session {
         if self.current_area().is_some_and(|a| self.acs(&a.area.acs)) {
             return;
         }
-        if let Some(n) = (1..=self.state.areas.areas.len() as u32).find(|&n| self.msg_area(n).is_some_and(|a| self.acs(&a.area.acs))) {
+        if let Some(n) = (1..=self.state.areas().areas.len() as u32).find(|&n| self.msg_area(n).is_some_and(|a| self.acs(&a.area.acs))) {
             self.user.cur_msg_area = n;
         }
     }
 
     /// `maPrevArea` / `maNextArea`.
     pub async fn step_area(&mut self, forward: bool) -> io::Result<()> {
-        let total = self.state.areas.areas.len() as u32;
+        let total = self.state.areas().areas.len() as u32;
         let mut n = self.user.cur_msg_area;
         loop {
             n = if forward { n + 1 } else { n.saturating_sub(1) };
@@ -133,7 +133,7 @@ impl Session {
         let rows: Vec<(u32, u32, MsgArea)> = {
             let mut out = Vec::new();
             let mut visible = 0;
-            for (i, a) in self.state.areas.areas.iter().enumerate() {
+            for (i, a) in self.state.areas().areas.iter().enumerate() {
                 let n = i as u32 + 1;
                 let listed = self.acs(&a.acs) || a.unhidden;
                 if listed {
@@ -205,8 +205,8 @@ impl Session {
 
     // ---- conferences ----------------------------------------------------
 
-    fn confs(&self, msg: bool) -> Vec<crate::msgareas::Conf> {
-        if msg { self.state.areas.confs.clone() } else { self.state.fareas().confs.clone() }
+    pub(crate) fn confs(&self, msg: bool) -> Vec<crate::msgareas::Conf> {
+        if msg { self.state.areas().confs.clone() } else { self.state.fareas().confs.clone() }
     }
 
     /// `confSelect` (`MJ`, `FJ`): by key, or ask (`?` lists).
@@ -853,7 +853,7 @@ impl Session {
     }
 
     async fn newscan(&mut self, all: bool, num: u32) -> io::Result<()> {
-        let total = self.state.areas.areas.len() as u32;
+        let total = self.state.areas().areas.len() as u32;
         if total == 0 {
             return Ok(());
         }
@@ -889,7 +889,7 @@ impl Session {
     /// `maScanForMandatory` (`MM`).
     pub async fn mandatory_scan(&mut self, param: &str) -> io::Result<()> {
         self.say("MsgScanMandatory").await?;
-        let total = self.state.areas.areas.len() as u32;
+        let total = self.state.areas().areas.len() as u32;
         let range = match param.trim().parse::<u32>() {
             Ok(n) if n > 0 => n.min(total)..=n.min(total),
             _ => 1..=total,
@@ -917,7 +917,7 @@ impl Session {
         let when = date.and_hms_opt(0, 0, 0).unwrap_or_default();
         self.say("MsgAskAllPointers").await?;
         let areas: Vec<u32> = if self.yes_no(true).await? {
-            (1..=self.state.areas.areas.len() as u32).collect()
+            (1..=self.state.areas().areas.len() as u32).collect()
         } else {
             vec![self.user.cur_msg_area]
         };
@@ -947,7 +947,7 @@ impl Session {
     pub fn mail_waiting(&self) -> u32 {
         self.state
             .msgs
-            .mail_for(&self.state.areas.email.file, &self.user.handle, &self.user.real_name, false)
+            .mail_for(&self.state.areas().email.file, &self.user.handle, &self.user.real_name, false)
             .map_or(0, |v| v.len() as u32)
     }
 

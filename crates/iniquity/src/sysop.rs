@@ -10,6 +10,7 @@ use iniquity_term::codes::{resize, squish};
 
 use crate::cfgedit::{Field, Form, yes_no};
 use crate::fileareas::{FileArea, FileAreas, SortBy};
+use crate::msgareas::Conf;
 use crate::filebase::{FileRec, wildcard};
 use crate::files::{FAreaRef, commas, zip_description};
 use crate::session::Session;
@@ -115,6 +116,154 @@ impl Session {
 
     fn save_fareas(&self, areas: FileAreas) -> io::Result<()> {
         self.state.set_fareas(areas).map_err(io_err)
+    }
+
+    // ---- *@ / *!: conferences (CONFIG12) ------------------------------------
+
+    fn save_confs(&self, msg: bool, confs: Vec<Conf>) -> io::Result<()> {
+        if msg {
+            let mut a = (*self.state.areas()).clone();
+            a.confs = confs;
+            self.state.set_areas(a).map_err(io_err)
+        } else {
+            let mut a = (*self.state.fareas()).clone();
+            a.confs = confs;
+            self.save_fareas(a)
+        }
+    }
+
+    /// `cfgConferenceEditor`: message (`*@`) or file (`*!`) conferences.
+    pub async fn conference_editor(&mut self, msg: bool) -> io::Result<()> {
+        let kind = if msg { "message" } else { "file" };
+        tracing::info!("{}: {kind} conference edit", self.user.handle);
+        loop {
+            let confs = self.confs(msg);
+            self.clear_screen();
+            self.set_slot(Slot::Text);
+            self.write(" Num  Description                          ACS                  Key");
+            self.newline();
+            self.rule().await?;
+            let mut lines = 3;
+            for (i, c) in confs.iter().enumerate() {
+                self.set_slot(Slot::Info);
+                self.write(&format!(" {} {} {} {}", resize(&(i + 1).to_string(), 4), resize(&c.desc, 36), resize(&c.acs, 20), c.key));
+                self.newline();
+                lines += 1;
+                if !self.more(&mut lines).await? {
+                    break;
+                }
+            }
+            if confs.is_empty() {
+                self.write(&format!("No {kind} conferences currently exist."));
+                self.newline();
+            }
+            self.rule().await?;
+            let cmd = self.cfg_list_prompt(&[("I", "nsert"), ("D", "elete"), ("E", "dit"), ("M", "ove"), ("Esc", " Quit")]).await?;
+            let mut confs = confs;
+            let n = confs.len() as u32;
+            self.newline();
+            let renumbered = match cmd {
+                Some('I') => {
+                    let Some(at) = self.cfg_ask_number(&format!("Insert before which {kind} conference?"), 1, n + 1).await? else { continue };
+                    let desc = if msg { "New Message Conference" } else { "New File Conference" };
+                    confs.insert(at as usize - 1, Conf { key: 'X', desc: desc.into(), acs: String::new() });
+                    self.save_confs(msg, confs)?;
+                    at <= n
+                }
+                Some('D') => {
+                    if n <= 1 {
+                        self.show_line(&format!("|U0You must have at least one {kind} conference!")).await?;
+                        self.prompt_key().await?;
+                        continue;
+                    }
+                    let Some(which) = self.cfg_ask_number(&format!("Delete which {kind} conference?"), 1, n).await? else { continue };
+                    confs.remove(which as usize - 1);
+                    self.save_confs(msg, confs)?;
+                    true
+                }
+                Some('M') => {
+                    if n <= 1 {
+                        self.show_line(&format!("|U0There is only one {kind} conference, no need to move it.")).await?;
+                        self.prompt_key().await?;
+                        continue;
+                    }
+                    let Some(from) = self.cfg_ask_number(&format!("Move which {kind} conference?"), 1, n).await? else { continue };
+                    let Some(before) = self.cfg_ask_number(&format!("Move before which {kind} conference?"), 1, n + 1).await? else { continue };
+                    move_before(&mut confs, from as usize - 1, before as usize - 1);
+                    self.save_confs(msg, confs)?;
+                    true
+                }
+                Some('E') => {
+                    if n == 0 {
+                        continue;
+                    }
+                    let Some(num) = self.cfg_ask_number(&format!("Begin edit with which {kind} conference?"), 1, n).await? else { continue };
+                    self.conf_edit(msg, num).await?;
+                    false
+                }
+                _ => return Ok(()),
+            };
+            if renumbered {
+                self.show_line(&format!(
+                    "|U1Areas join conferences by number (|U3x1|U1, |U3x2|U1... in their ACS); check your {kind} areas."
+                ))
+                .await?;
+                self.prompt_key().await?;
+            }
+        }
+    }
+
+    async fn conf_edit(&mut self, msg: bool, mut num: u32) -> io::Result<()> {
+        let kind = if msg { "Message" } else { "File" };
+        loop {
+            let mut confs = self.confs(msg);
+            let n = confs.len() as u32;
+            let idx = num as usize - 1;
+            let mut c = confs[idx].clone();
+            let mut f = Form::new(&format!("{} {kind} Conference Editor", self.state.config.bbs.name));
+            f.label("Current conference", 12, format!("{num} of {n}"));
+            f.item('A', "Key", 1, c.key.to_string(), "Key used to select and identify this conference.");
+            f.item('B', "Description", 30, &c.desc, "This conference's description.");
+            f.item('C', "ACS", 20, &c.acs, "Access condition required to enter this conference.");
+            f.item('[', "Previous conference", 0, "", "");
+            f.item(']', "Next conference", 0, "", "");
+            self.cfg_draw(&f);
+            let step: i64 = loop {
+                let Some(key) = self.cfg_command(&mut f).await? else { break 0 };
+                match key {
+                    'A' => {
+                        let field = Field { allowed: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", ..Field::UPPER.max(1) };
+                        match self.cfg_text(&mut f, key, field).await?.and_then(|v| v.chars().next()) {
+                            Some(k) => c.key = k,
+                            None => self.cfg_set(&mut f, key, c.key.to_string()),
+                        }
+                    }
+                    'B' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(40)).await? {
+                            c.desc = v;
+                        }
+                    }
+                    'C' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::LOWER).await? {
+                            c.acs = v;
+                        }
+                    }
+                    '[' => break -1,
+                    ']' => break 1,
+                    _ => {}
+                }
+            };
+            if confs[idx] != c {
+                confs[idx] = c;
+                self.save_confs(msg, confs)?;
+            }
+            if step == 0 {
+                self.screen.goto(1, self.screen.rows());
+                self.newline();
+                return Ok(());
+            }
+            num = ((num as i64 - 1 + step).rem_euclid(n as i64) + 1) as u32;
+        }
     }
 
     // ---- *F: file areas (CONFIG9) -------------------------------------------
@@ -616,6 +765,47 @@ impl Session {
         self.state.files.move_to(&from.file, fr.num, &to.file).map_err(io_err)?;
         tracing::info!("{}: moved {} from {} to {}", self.user.handle, fr.name, from.name, to.name);
         Ok(())
+    }
+
+    // ---- *>: download any file ---------------------------------------------
+
+    /// `faDownloadAny`: send any file on the server, by path. The name may
+    /// have wildcards (`/srv/files/*.zip`).
+    pub async fn download_any(&mut self, param: &str) -> io::Result<()> {
+        self.newline();
+        let mut want = param.trim().to_string();
+        if want.is_empty() {
+            self.show("|U1File(s) to download |U5(|U4full path|U5)|U2: |U3").await?;
+            want = self.read_string(crate::input::ReadOpts::new(200)).await?;
+            self.newline();
+        }
+        if want.is_empty() {
+            return Ok(());
+        }
+        let path = std::path::PathBuf::from(&want);
+        let files = match path.file_name().map(|n| n.to_string_lossy().into_owned()) {
+            Some(name) if name.contains(['*', '?']) => {
+                let dir = path.parent().filter(|p| !p.as_os_str().is_empty()).unwrap_or(Path::new("."));
+                let mut found: Vec<_> = std::fs::read_dir(dir)
+                    .map(|rd| rd.filter_map(Result::ok).map(|e| e.path()).collect())
+                    .unwrap_or_default();
+                found.retain(|p| p.is_file() && p.file_name().is_some_and(|n| wildcard(&name, &n.to_string_lossy())));
+                found.sort();
+                found
+            }
+            _ if path.is_file() => vec![path],
+            _ => Vec::new(),
+        };
+        if files.is_empty() {
+            return self.show_line(&format!("|U0No such file: |U3{want}")).await;
+        }
+        let total: u64 = files.iter().filter_map(|p| std::fs::metadata(p).ok()).map(|m| m.len()).sum();
+        self.show_line(&format!("|U1{} file(s), |U3{}|U1 bytes.", files.len(), commas(total))).await?;
+        let Some(proto) = self.select_protocol(files.len() > 1).await? else { return Ok(()) };
+        tracing::info!("{}: download any: {}", self.user.handle, want);
+        let sent = self.send_files(&proto, &files).await?;
+        let ok = sent.iter().filter(|&&b| b).count();
+        self.show_line(&format!("|U1Sent |U3{ok}|U1 of |U3{}|U1.", files.len())).await
     }
 
     // ---- *S: sort file areas (FILESORT) -------------------------------------

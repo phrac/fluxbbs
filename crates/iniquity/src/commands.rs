@@ -200,6 +200,10 @@ impl Session {
             "*F" if self.is_sysop() => self.file_area_editor().await?,
             "*S" if self.is_sysop() => self.sort_file_areas(param).await?,
             "*Y" if self.is_sysop() => self.file_editor(param).await?,
+            "*U" if self.is_sysop() => self.user_editor(param).await?,
+            "*@" if self.is_sysop() => self.conference_editor(true).await?,
+            "*!" if self.is_sysop() => self.conference_editor(false).await?,
+            "*>" if self.is_sysop() => self.download_any(param).await?,
 
             // -- automessage, BBS list, callers
             "AS" => self.show_automsg().await?,

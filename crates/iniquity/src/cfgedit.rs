@@ -3,9 +3,10 @@
 //! place. Each editor builds a [`Form`], draws it, and loops on
 //! [`Session::cfg_command`].
 
+use std::collections::BTreeSet;
 use std::io;
 
-use iniquity_term::Slot;
+use iniquity_term::{Color, Slot};
 use iniquity_term::codes::{resize, squish};
 
 use crate::input::{Case, Key};
@@ -99,6 +100,13 @@ impl Form {
         let y = TOP + self.rows;
         self.rows += 1;
         self.push(Some(key), label, 1, y, self.col, len, value.into(), info);
+    }
+
+    /// An item anywhere (`cfgItemXY`): key box at `x`, value at `vx`, on
+    /// row `y` counting from 1.
+    #[allow(clippy::too_many_arguments)]
+    pub fn item_xy(&mut self, x: u16, y: u16, vx: u16, key: char, label: &str, len: usize, value: impl Into<String>, info: &str) {
+        self.push(Some(key), label, x, TOP + y - 1, vx, len, value.into(), info);
     }
 
     /// A line that shows a value but can't be picked.
@@ -213,6 +221,15 @@ impl Session {
         self.screen.goto(it.vx, it.y);
         self.set_slot(Slot::Text);
         self.write_with_controls(&shown);
+    }
+
+    /// Redraw an item's value in a colour of its own (colour pickers).
+    pub fn cfg_paint(&mut self, f: &Form, key: char, color: Color) {
+        let Some(i) = f.find(key) else { return };
+        let it = &f.items[i];
+        self.screen.goto(it.vx, it.y);
+        self.screen.set_color(color);
+        self.write(&resize(&it.value, it.len));
     }
 
     /// `cfgSetItem`: store and redraw a value.
@@ -434,6 +451,66 @@ impl Session {
         Ok(s)
     }
 
+    /// `cfgReadColor`: up/down change the foreground, left/right the
+    /// background. Returns the colour picked (the old one on Esc).
+    pub async fn cfg_color(&mut self, f: &mut Form, key: char, cur: Color) -> io::Result<Color> {
+        let Some(i) = f.find(key) else { return Ok(cur) };
+        self.cfg_info(f, "[up/down: foreground; left/right: background; enter: done; esc: abort]");
+        let (x, y, len) = (f.items[i].vx, f.items[i].y, f.items[i].len);
+        let mut c = cur;
+        let done = loop {
+            self.screen.goto(x, y);
+            self.screen.set_color(c);
+            self.write(&resize(&color_name(c), len));
+            match self.read_key().await? {
+                Key::Enter => break c,
+                Key::Esc => break cur,
+                Key::Up => c.fore = (c.fore + 1) % 16,
+                Key::Down => c.fore = (c.fore + 15) % 16,
+                Key::Right => c.back = (c.back + 1) % 8,
+                Key::Left => c.back = (c.back + 7) % 8,
+                _ => {}
+            }
+        };
+        self.cfg_info(f, "");
+        self.screen.goto(x, y);
+        self.screen.set_color(done);
+        self.write(&resize(&color_name(done), len));
+        f.set(key, color_name(done));
+        Ok(done)
+    }
+
+    /// `cfgReadFlags`: toggle flags A-Z with their letters, or move with
+    /// left/right and toggle with space.
+    pub async fn cfg_flags(&mut self, f: &mut Form, key: char, flags: &mut BTreeSet<char>) -> io::Result<()> {
+        let Some(i) = f.find(key) else { return Ok(()) };
+        let info = format!("[left/right: select; space/a-z: toggle; enter: done] {}", f.items[i].info);
+        self.cfg_info(f, &info);
+        let (x, y) = (f.items[i].vx, f.items[i].y);
+        let mut cur = 0u8;
+        loop {
+            self.screen.goto(x, y);
+            self.set_slot(Slot::TextHi);
+            self.write(&flags_text(flags));
+            self.screen.goto(x + 1 + cur as u16, y);
+            let k = self.read_key().await?;
+            match (k, k.upper()) {
+                (Key::Enter | Key::Esc, _) => break,
+                (Key::Left, _) => cur = (cur + 25) % 26,
+                (Key::Right, _) => cur = (cur + 1) % 26,
+                (_, Some(c @ 'A'..='Z')) => {
+                    cur = c as u8 - b'A';
+                    toggle(flags, c);
+                }
+                (_, Some(' ')) => toggle(flags, (b'A' + cur) as char),
+                _ => {}
+            }
+        }
+        self.cfg_info(f, "");
+        self.cfg_set(f, key, flags_text(flags));
+        Ok(())
+    }
+
     /// `cfgPrompt`: a command line under a list, e.g.
     /// `-- [I]nsert [D]elete [Esc]Quit ∙ Command: `. Returns the key picked
     /// (upper-cased), or None for Esc.
@@ -470,6 +547,28 @@ impl Session {
     }
 }
 
+fn toggle(flags: &mut BTreeSet<char>, c: char) {
+    if !flags.remove(&c) {
+        flags.insert(c);
+    }
+}
+
+/// `cfgFlags`: `[AbcD...]`, upper-case for the flags that are set.
+pub fn flags_text(flags: &BTreeSet<char>) -> String {
+    let set: String = ('A'..='Z').map(|c| if flags.contains(&c) { c } else { c.to_ascii_lowercase() }).collect();
+    format!("[{set}]")
+}
+
+/// `strColor`: "Light cyan on blue".
+pub fn color_name(c: Color) -> String {
+    const NAMES: [&str; 16] = [
+        "Black", "Blue", "Green", "Cyan", "Red", "Magenta", "Brown", "Light gray",
+        "Dark gray", "Light blue", "Light green", "Light cyan", "Light red", "Light magenta", "Yellow", "White",
+    ];
+    let blink = if c.blink { ", blinking" } else { "" };
+    format!("{} on {}{blink}", NAMES[c.fore as usize & 15], NAMES[c.back as usize & 7].to_ascii_lowercase())
+}
+
 pub fn yes_no(b: bool) -> &'static str {
     if b { "Yes" } else { "No" }
 }
@@ -477,6 +576,13 @@ pub fn yes_no(b: bool) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_and_flags() {
+        assert_eq!(color_name(Color::new(11, 1)), "Light cyan on blue");
+        let flags: BTreeSet<char> = ['A', 'C'].into();
+        assert_eq!(flags_text(&flags), "[AbCdefghijklmnopqrstuvwxyz]");
+    }
 
     #[test]
     fn bar_skips_labels_and_moves_by_column() {

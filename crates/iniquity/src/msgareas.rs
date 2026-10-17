@@ -6,7 +6,7 @@ use std::path::Path;
 use anyhow::Context;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MsgAreas {
     #[serde(rename = "conference", default)]
@@ -32,7 +32,7 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct MsgArea {
     pub name: String,

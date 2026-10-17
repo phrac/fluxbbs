@@ -9,7 +9,7 @@ use iniquity_term::Palette;
 
 use crate::config::Level;
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct User {
     /// 0 until saved.
     pub id: u32,

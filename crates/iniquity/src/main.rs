@@ -29,6 +29,7 @@ mod sysop;
 mod strings;
 mod sysdata;
 mod user;
+mod useredit;
 mod users;
 
 use std::path::PathBuf;
@@ -50,7 +51,8 @@ pub struct BbsState {
     pub config: Config,
     pub strings: Strings,
     pub users: UserStore,
-    pub areas: MsgAreas,
+    /// Swapped whole by the SysOp's message area and conference editors.
+    areas: std::sync::RwLock<Arc<MsgAreas>>,
     pub msgs: MsgBase,
     /// Swapped whole by the SysOp's file area editor.
     fareas: std::sync::RwLock<Arc<FileAreas>>,
@@ -62,6 +64,19 @@ pub struct BbsState {
 }
 
 impl BbsState {
+    /// The message areas as they are now.
+    pub fn areas(&self) -> Arc<MsgAreas> {
+        self.areas.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Save new message areas to msgareas.toml and start using them.
+    pub fn set_areas(&self, new: MsgAreas) -> anyhow::Result<()> {
+        let path = self.config.resolve(&self.config.paths.msgareas);
+        write_atomic(&path, &new.to_toml())?;
+        *self.areas.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        Ok(())
+    }
+
     /// The file areas as they are now.
     pub fn fareas(&self) -> Arc<FileAreas> {
         self.fareas.read().unwrap_or_else(|e| e.into_inner()).clone()
@@ -74,12 +89,18 @@ impl BbsState {
             std::fs::create_dir_all(&dir).with_context(|| format!("file area directory {}", dir.display()))?;
         }
         let path = self.config.resolve(&self.config.paths.fileareas);
-        let tmp = path.with_extension("toml.new");
-        std::fs::write(&tmp, new.to_toml()).with_context(|| format!("writing {}", tmp.display()))?;
-        std::fs::rename(&tmp, &path).with_context(|| format!("replacing {}", path.display()))?;
+        write_atomic(&path, &new.to_toml())?;
         *self.fareas.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
     }
+}
+
+/// Write a file through a temporary, so a crash can't leave half of it.
+fn write_atomic(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
+    let tmp = path.with_extension("toml.new");
+    std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
+    std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
+    Ok(())
 }
 
 #[tokio::main]
@@ -115,7 +136,7 @@ async fn main() -> anyhow::Result<()> {
         config,
         strings,
         users,
-        areas,
+        areas: std::sync::RwLock::new(Arc::new(areas)),
         msgs,
         fareas: std::sync::RwLock::new(Arc::new(fareas)),
         files,

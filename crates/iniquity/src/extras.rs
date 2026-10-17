@@ -350,10 +350,18 @@ impl Session {
 
     /// `SE`: write or change the auto-signature in the full-screen editor.
     pub async fn edit_autosig(&mut self) -> io::Result<()> {
+        let (handle, sig) = (self.user.handle.clone(), self.user.autosig.clone());
+        let Some(sig) = self.sig_editor(&handle, sig).await? else { return Ok(()) };
+        self.set_autosig(sig).await
+    }
+
+    /// `asEditAutoSig`: a signature in the full-screen editor. None if
+    /// aborted; otherwise clamped to six lines.
+    pub async fn sig_editor(&mut self, handle: &str, sig: Vec<String>) -> io::Result<Option<Vec<String>>> {
         let ctx = EditCtx {
             subject: "AutoSignature".into(),
-            from: self.user.handle.clone(),
-            to: self.user.handle.clone(),
+            from: handle.to_string(),
+            to: handle.to_string(),
             date: Local::now().naive_local(),
             anonymous: false,
             can_anonymous: false,
@@ -361,10 +369,9 @@ impl Session {
             autosig: false,
             reply: None,
             auto_quote: false,
-            text: self.user.autosig.clone(),
+            text: sig,
         };
-        let Some(done) = self.edit_message(ctx).await? else { return Ok(()) };
-        self.set_autosig(clamp_sig(done.lines)).await
+        Ok(self.edit_message(ctx).await?.map(|done| clamp_sig(done.lines)))
     }
 
     /// `SU`: upload a prepared signature (ASCII or ANSI).
