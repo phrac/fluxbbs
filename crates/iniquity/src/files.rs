@@ -110,19 +110,19 @@ impl Session {
     // ---- areas ----------------------------------------------------------
 
     pub fn farea(&self, n: u32) -> Option<FAreaRef> {
-        self.state.fareas.get(n).map(|a| FAreaRef { num: n, area: a.clone() })
+        self.state.fareas().get(n).map(|a| FAreaRef { num: n, area: a.clone() })
     }
 
     pub fn current_farea(&self) -> Option<FAreaRef> {
         self.farea(self.user.cur_file_area)
     }
 
-    fn farea_dir(&self, a: &FileArea) -> PathBuf {
+    pub(crate) fn farea_dir(&self, a: &FileArea) -> PathBuf {
         self.state.config.resolve(&a.path)
     }
 
     fn farea_count(&self) -> u32 {
-        self.state.fareas.areas.len() as u32
+        self.state.fareas().areas.len() as u32
     }
 
     /// `faChangeArea`.
@@ -175,7 +175,7 @@ impl Session {
         let compress = self.state.config.messages.compress_area_numbers;
         let mut rows = Vec::new();
         let mut visible = 0;
-        for (i, a) in self.state.fareas.areas.iter().enumerate() {
+        for (i, a) in self.state.fareas().areas.iter().enumerate() {
             let n = i as u32 + 1;
             if self.acs(&a.acs) {
                 visible += 1;
@@ -975,7 +975,7 @@ impl Session {
     }
 
     /// `faEditFileDesc` (co-SysOp `edit` in the lister).
-    async fn edit_description(&mut self, mut f: FileRec) -> io::Result<()> {
+    pub(crate) async fn edit_description(&mut self, mut f: FileRec) -> io::Result<()> {
         let ctx = EditCtx {
             subject: format!("Desc [{}]", f.name),
             from: self.user.handle.clone(),
@@ -1138,7 +1138,7 @@ impl Session {
         Ok(())
     }
 
-    async fn view_archive_file(&mut self, a: &FAreaRef, f: &FileRec) -> io::Result<()> {
+    pub(crate) async fn view_archive_file(&mut self, a: &FAreaRef, f: &FileRec) -> io::Result<()> {
         let path = self.farea_dir(&a.area).join(&f.name);
         let entries = std::fs::File::open(&path).ok().and_then(|file| zip::ZipArchive::new(file).ok()).map(|mut z| {
             (0..z.len())

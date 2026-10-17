@@ -70,7 +70,10 @@ taken from FILE_ID.DIZ in ZIP archives.
   - `engine.rs` menu engine, `commands.rs` menu commands, `acs.rs` access
     conditions, `mci.rs` MCI codes
   - `extras.rs` oneliners (`?I`/`?T`), last callers, history, the
-    automessage, the BBS list, user configuration; `sysdata.rs` their storage
+    automessage, the BBS list, user configuration,
+    auto-signatures; `sysdata.rs` their storage
+  - `cfgedit.rs` the SysOp editors' screen (CONFIG.PAS), `sysop.rs` the
+    editors: file areas (`*F`), files (`*Y`), sorting (`*S`)
   - `users.rs` user database, `import.rs` legacy import
 - `menus/`, `text/`, `iniquity.toml`: the stock r5 setup, imported.
 - `crates/iniquity/assets/strings.toml`: the stock prompt strings, built in;
@@ -92,15 +95,17 @@ command help), message areas and conferences, the message reader, the
 full-screen editor, newscans, email, file areas and conferences, the
 file lister, downloads (single and batch, with the original's limits and
 ratios), uploads, file search and newscan, ZIP viewing, oneliners, the
-automessage, last callers, BBS history and statistics, the BBS list, and
-user configuration.
+automessage, last callers, BBS history and statistics, the BBS list,
+user configuration and auto-signatures (edit, view, delete, or upload
+an ASCII/ANSI file).
 
 Commands: `?= ?+ ?/ ?% ?B ?E ?F ?I ?L ?N ?Y ?S ?T ?U`,
 `-^ -/ -\ -= -? -C -D -E -F -K -L -P -R -S -W`, the `|` cursor commands,
 `>A >H >L`, `HC HI HM`, `MA MC MJ MN MM MP MR MS MZ M[ M]`, `EE ER EC *R`,
 `FA FB FC FD FF FI FJ FL FN FS FT FU FV FZ F+ F[ F] *%`, `AR AS AW`,
-`BA BC BD BL BS`, `LC LH`, `UC UL UP XL`.
+`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y`.
 
-Other commands from the original say "not available yet". Next:
-auto-signatures, infoforms and new-user voting, multinode chat and
-messages, and then the SysOp editors.
+Other commands from the original say "not available yet". Next: the
+rest of the SysOp editors (users, file conferences, download any file,
+protocols, archivers, then the rest), infoforms and new-user voting,
+multinode chat and messages.

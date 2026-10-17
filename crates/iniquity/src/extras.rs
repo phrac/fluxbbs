@@ -1,6 +1,6 @@
 //! The smaller features: menu-scripted input (`?I`, `?T`, which the stock
 //! oneliners use), last callers, BBS history, the automessage, the BBS
-//! list, and user configuration.
+//! list, user configuration and auto-signatures.
 
 use std::io;
 
@@ -16,6 +16,36 @@ use crate::sysdata::{AutoMsg, Bbs, Call, Stat};
 use crate::user::fmt_date;
 
 const AUTOMSG_LINES: usize = 10;
+/// `maxSigLines`, and the `String[80]` each line was stored in.
+const SIG_LINES: usize = 6;
+const SIG_WIDTH: usize = 80;
+
+/// Fit text into an auto-signature: at most six lines of 80 characters,
+/// without trailing blank lines.
+pub fn clamp_sig(lines: impl IntoIterator<Item = String>) -> Vec<String> {
+    let mut sig: Vec<String> = lines
+        .into_iter()
+        .take(SIG_LINES)
+        .map(|l| l.trim_end().chars().take(SIG_WIDTH).collect())
+        .collect();
+    while sig.last().is_some_and(|l| l.is_empty()) {
+        sig.pop();
+    }
+    sig
+}
+
+/// An uploaded signature file: CP437 text, possibly ANSI, ending at ^Z.
+fn parse_sig_file(data: &[u8]) -> Vec<String> {
+    let data = data.split(|&b| b == 0x1A).next().unwrap_or_default();
+    let lines = data
+        .split(|&b| b == b'\n')
+        .map(|l| iniquity_term::cp437::decode(l.strip_suffix(b"\r").unwrap_or(l)));
+    let mut sig = clamp_sig(lines);
+    while sig.first().is_some_and(|l| l.is_empty()) {
+        sig.remove(0);
+    }
+    sig
+}
 
 fn io_err(e: anyhow::Error) -> io::Error {
     io::Error::other(e)
@@ -286,6 +316,99 @@ impl Session {
         self.enter_email(&m.user_id.to_string(), &subject).await
     }
 
+    // ---- auto-signatures (the AUTOSIG unit) ---------------------------------
+
+    /// `SS`: show the caller's auto-signature.
+    pub async fn show_autosig(&mut self) -> io::Result<()> {
+        self.newline();
+        if self.user.autosig.is_empty() {
+            return self.say_line("AutoSigNone").await;
+        }
+        self.say("AutoSigShow").await?;
+        for line in self.user.autosig.clone() {
+            self.show_line(&line).await?;
+        }
+        self.screen.set_color(self.user.palette.get(Slot::Text));
+        Ok(())
+    }
+
+    /// `SD`: delete the auto-signature.
+    pub async fn delete_autosig(&mut self) -> io::Result<()> {
+        self.newline();
+        if self.user.autosig.is_empty() {
+            return self.say_line("AutoSigNone").await;
+        }
+        self.say("AutoSigAskDelete").await?;
+        if !self.yes_no(false).await? {
+            return Ok(());
+        }
+        self.newline();
+        self.user.autosig.clear();
+        self.save_user();
+        self.say_line("AutoSigDeleted").await
+    }
+
+    /// `SE`: write or change the auto-signature in the full-screen editor.
+    pub async fn edit_autosig(&mut self) -> io::Result<()> {
+        let ctx = EditCtx {
+            subject: "AutoSignature".into(),
+            from: self.user.handle.clone(),
+            to: self.user.handle.clone(),
+            date: Local::now().naive_local(),
+            anonymous: false,
+            can_anonymous: false,
+            can_autosig: false,
+            autosig: false,
+            reply: None,
+            auto_quote: false,
+            text: self.user.autosig.clone(),
+        };
+        let Some(done) = self.edit_message(ctx).await? else { return Ok(()) };
+        self.set_autosig(clamp_sig(done.lines)).await
+    }
+
+    /// `SU`: upload a prepared signature (ASCII or ANSI).
+    pub async fn upload_autosig(&mut self) -> io::Result<()> {
+        self.newline();
+        self.say("AutoSigAskUpload").await?;
+        if !self.yes_no(true).await? {
+            return Ok(());
+        }
+        self.newline();
+        let Some(proto) = self.select_protocol(false).await? else { return Ok(()) };
+        let temp = self.state.config.resolve(&self.state.config.paths.temp).join(format!("node{}", self.node.number()));
+        let _ = std::fs::remove_dir_all(&temp);
+        let got = self.receive_files(&proto, &temp).await?;
+        // Only the start of the first file matters; six lines can't be long.
+        let data = match got.first() {
+            Some(p) => std::fs::read(p).map(|mut d| {
+                d.truncate(16 * 1024);
+                d
+            })?,
+            None => Vec::new(),
+        };
+        let _ = std::fs::remove_dir_all(&temp);
+        let sig = parse_sig_file(&data);
+        if sig.is_empty() {
+            return self.say_line("AutoSigNone").await;
+        }
+        self.set_autosig(sig).await
+    }
+
+    async fn set_autosig(&mut self, sig: Vec<String>) -> io::Result<()> {
+        self.newline();
+        if sig.is_empty() {
+            self.user.autosig.clear();
+            self.save_user();
+            return self.say_line("AutoSigDeleted").await;
+        }
+        self.user.autosig = sig;
+        self.save_user();
+        tracing::info!("{}: changed their auto-signature", self.user.handle);
+        self.say_line("AutoSigChanged").await?;
+        self.show_autosig().await
+    }
+
     // ---- the BBS list --------------------------------------------------------
 
     fn bbs_waves(b: &Bbs, n: usize) -> Waves {
@@ -514,7 +637,7 @@ impl Session {
                     self.user = original;
                     self.user.password_hash = pw;
                 }
-                self.state.users.save(&self.user).map_err(io_err)?;
+                self.save_user();
                 self.screen.goto(1, self.screen.rows());
                 self.newline();
                 return Ok(());
@@ -613,5 +736,28 @@ impl Session {
                 self.state.users.save(&self.user).map_err(io_err)?;
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn sig_is_clamped() {
+        let long = "x".repeat(100);
+        let lines = ["a", &long, "", "b", "c", "d", "e", "f"].map(String::from);
+        let sig = clamp_sig(lines);
+        assert_eq!(sig.len(), 6);
+        assert_eq!(sig[1].len(), 80);
+        assert_eq!(clamp_sig(["hi  ", "", " "].map(String::from)), vec!["hi"]);
+    }
+
+    #[test]
+    fn sig_file_parsing() {
+        let data = b"\r\n\x1b[1;36m-- \xfe me\r\nline two\n\x1aSAUCE00junk";
+        // ESC is kept in its glyph form, which encodes back to ESC on output.
+        assert_eq!(parse_sig_file(data), vec!["←[1;36m-- ■ me", "line two"]);
+        assert!(parse_sig_file(b"\r\n\r\n").is_empty());
     }
 }

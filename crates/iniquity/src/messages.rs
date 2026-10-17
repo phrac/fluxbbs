@@ -206,7 +206,7 @@ impl Session {
     // ---- conferences ----------------------------------------------------
 
     fn confs(&self, msg: bool) -> Vec<crate::msgareas::Conf> {
-        if msg { self.state.areas.confs.clone() } else { self.state.fareas.confs.clone() }
+        if msg { self.state.areas.confs.clone() } else { self.state.fareas().confs.clone() }
     }
 
     /// `confSelect` (`MJ`, `FJ`): by key, or ask (`?` lists).

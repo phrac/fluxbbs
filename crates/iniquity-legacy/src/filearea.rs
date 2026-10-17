@@ -24,6 +24,9 @@ pub struct LegacyFileArea {
     pub acs_download: String,
     pub password: String,
     pub files: u16,
+    /// `sortNone`..`sortDownloads` (0-7).
+    pub sort_type: u8,
+    pub sort_ascending: bool,
 }
 
 impl LegacyFileArea {
@@ -40,6 +43,8 @@ impl LegacyFileArea {
             acs_download: r.string(20),
             password: r.string(20),
             files: r.u16(),
+            sort_type: r.u8(),
+            sort_ascending: r.bool(),
         })
     }
 

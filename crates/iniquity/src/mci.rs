@@ -54,7 +54,7 @@ impl Session {
             b"FA" => self.current_farea().map(|a| a.area.name).unwrap_or_default(),
             b"FD" | b"FS" => fmt_date(u.file_scan),
             b"FP" => u.file_points.to_string(),
-            b"CF" => self.state.fareas.conf(u.conf_file).map(|c| c.desc.clone()).unwrap_or_default(),
+            b"CF" => self.state.fareas().conf(u.conf_file).map(|c| c.desc.clone()).unwrap_or_default(),
             b"HK" => yes_no(u.hot_keys),
             b"ID" => u.id.to_string(),
             b"IN" => "Iniquity".into(),

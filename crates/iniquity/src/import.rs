@@ -23,7 +23,7 @@ use iniquity_term::Palette;
 
 use crate::config::{self, Config, Level};
 use crate::menu::{Command, Menu, MenuType, Mode};
-use crate::fileareas::{FileArea, FileAreas};
+use crate::fileareas::{FileArea, FileAreas, SortBy};
 use crate::filebase::{FileBase, FileRec};
 use crate::msgareas::{Conf, MsgArea, MsgAreas};
 use crate::msgbase::{Message, MsgBase, Party};
@@ -189,6 +189,8 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
                 upload_acs: a.acs_upload.clone(),
                 download_acs: a.acs_download.clone(),
                 password: a.password.clone(),
+                sort: SortBy::from_legacy(a.sort_type),
+                sort_descending: !a.sort_ascending,
             })
             .collect();
     }

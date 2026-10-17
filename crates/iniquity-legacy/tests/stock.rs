@@ -52,6 +52,7 @@ fn file_areas() {
     let a = &areas[0];
     assert_eq!((a.name.as_str(), a.filename.as_str(), a.sponsor.as_str()), ("New Iniquity file area", "NEWAREA", "SysOp"));
     assert!(a.path.ends_with("INSTALL\\"));
+    assert!(a.sort_type <= 7);
 }
 
 #[test]

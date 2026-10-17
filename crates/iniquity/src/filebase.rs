@@ -8,6 +8,8 @@ use anyhow::Context;
 use chrono::NaiveDate;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
+use crate::fileareas::SortBy;
+
 #[derive(Debug, Clone)]
 pub struct FileRec {
     pub area: String,
@@ -154,6 +156,71 @@ impl FileBase {
         )?;
         Ok(())
     }
+
+    /// Remove a file's record and close the gap in the numbering.
+    pub fn remove(&self, area: &str, num: u32) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        tx.execute("DELETE FROM files WHERE area = ?1 AND num = ?2", params![area, num])?;
+        // Two steps so UNIQUE (area, num) holds after each statement.
+        tx.execute("UPDATE files SET num = -(num - 1) WHERE area = ?1 AND num > ?2", params![area, num])?;
+        tx.execute("UPDATE files SET num = -num WHERE area = ?1 AND num < 0", [area])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Move a file's record to the end of another area.
+    pub fn move_to(&self, area: &str, num: u32, to: &str) -> anyhow::Result<u32> {
+        let Some(mut f) = self.get(area, num)? else { anyhow::bail!("no file {num} in {area}") };
+        self.remove(area, num)?;
+        f.area = to.to_string();
+        f.num = 0;
+        self.add(&mut f)?;
+        Ok(f.num)
+    }
+
+    /// An area's storage key changed.
+    pub fn rename_area(&self, from: &str, to: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("UPDATE files SET area = ?2 WHERE area = ?1", params![from, to])?;
+        Ok(())
+    }
+
+    /// Forget every file record in an area.
+    pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap();
+        Ok(db.execute("DELETE FROM files WHERE area = ?1", [area])? as u32)
+    }
+
+    /// `fsSortFileArea`: renumber an area's files in the given order.
+    pub fn sort_area(&self, area: &str, by: SortBy, descending: bool) -> anyhow::Result<()> {
+        if by == SortBy::None {
+            return Ok(());
+        }
+        let mut files = self.list(area)?;
+        let ext = |n: &str| n.rsplit_once('.').map(|(_, e)| e.to_ascii_uppercase()).unwrap_or_default();
+        files.sort_by(|a, b| {
+            let o = match by {
+                SortBy::None => std::cmp::Ordering::Equal,
+                SortBy::Name => a.name.to_ascii_uppercase().cmp(&b.name.to_ascii_uppercase()),
+                SortBy::Extension => ext(&a.name).cmp(&ext(&b.name)),
+                SortBy::Size => a.size.cmp(&b.size),
+                SortBy::Date => a.date.cmp(&b.date),
+                SortBy::Uploaded => a.uploaded.cmp(&b.uploaded),
+                SortBy::Uploader => a.uploader.to_ascii_uppercase().cmp(&b.uploader.to_ascii_uppercase()),
+                SortBy::Downloads => a.downloads.cmp(&b.downloads),
+            };
+            if descending { o.reverse() } else { o }
+        });
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        tx.execute("UPDATE files SET num = -num WHERE area = ?1", [area])?;
+        for (i, f) in files.iter().enumerate() {
+            tx.execute("UPDATE files SET num = ?3 WHERE area = ?1 AND num = ?2", params![area, -(f.num as i64), i as u32 + 1])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -191,6 +258,31 @@ mod tests {
         fb.update(&got).unwrap();
         assert_eq!(fb.get("UTILS", 2).unwrap().unwrap().downloads, 5);
         assert_eq!(fb.list("UTILS").unwrap().len(), 2);
+    }
+
+    fn names(fb: &FileBase, area: &str) -> Vec<String> {
+        fb.list(area).unwrap().into_iter().map(|f| format!("{}:{}", f.num, f.name)).collect()
+    }
+
+    #[test]
+    fn remove_move_sort() {
+        let fb = FileBase::open_memory().unwrap();
+        for (n, size) in [("C.ZIP", 3), ("A.TXT", 9), ("B.ARJ", 1), ("D.ZIP", 5)] {
+            let mut f = rec("UTILS", n);
+            f.size = size;
+            fb.add(&mut f).unwrap();
+        }
+        fb.sort_area("UTILS", SortBy::Name, false).unwrap();
+        assert_eq!(names(&fb, "UTILS"), ["1:A.TXT", "2:B.ARJ", "3:C.ZIP", "4:D.ZIP"]);
+        fb.sort_area("UTILS", SortBy::Size, true).unwrap();
+        assert_eq!(names(&fb, "UTILS"), ["1:A.TXT", "2:D.ZIP", "3:C.ZIP", "4:B.ARJ"]);
+        fb.remove("UTILS", 2).unwrap();
+        assert_eq!(names(&fb, "UTILS"), ["1:A.TXT", "2:C.ZIP", "3:B.ARJ"]);
+        assert_eq!(fb.move_to("UTILS", 1, "TEXT").unwrap(), 1);
+        assert_eq!(names(&fb, "UTILS"), ["1:C.ZIP", "2:B.ARJ"]);
+        fb.rename_area("TEXT", "DOCS").unwrap();
+        assert_eq!(names(&fb, "DOCS"), ["1:A.TXT"]);
+        assert_eq!(fb.delete_area("UTILS").unwrap(), 2);
     }
 
     #[test]

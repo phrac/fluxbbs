@@ -189,7 +189,7 @@ impl Session {
         // confLoad / maFindAreaWithAccess
         let confs = self.state.areas.confs.len().max(1) as u32;
         u.conf_msg = u.conf_msg.clamp(1, confs);
-        u.conf_file = u.conf_file.clamp(1, self.state.fareas.confs.len().max(1) as u32);
+        u.conf_file = u.conf_file.clamp(1, self.state.fareas().confs.len().max(1) as u32);
         self.find_area_with_access();
         self.find_farea_with_access();
         self.bump(crate::sysdata::Stat::Call);

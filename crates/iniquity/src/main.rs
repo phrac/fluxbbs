@@ -5,6 +5,7 @@
 
 mod acs;
 mod commands;
+mod cfgedit;
 mod config;
 mod engine;
 mod import;
@@ -24,6 +25,7 @@ mod transfer;
 mod nodes;
 mod session;
 mod ssh;
+mod sysop;
 mod strings;
 mod sysdata;
 mod user;
@@ -50,12 +52,34 @@ pub struct BbsState {
     pub users: UserStore,
     pub areas: MsgAreas,
     pub msgs: MsgBase,
-    pub fareas: FileAreas,
+    /// Swapped whole by the SysOp's file area editor.
+    fareas: std::sync::RwLock<Arc<FileAreas>>,
     pub files: FileBase,
     pub sys: SysData,
     /// Serialises appends to shared text files (`?T`).
     pub text_lock: std::sync::Mutex<()>,
     pub nodes: Arc<Nodes>,
+}
+
+impl BbsState {
+    /// The file areas as they are now.
+    pub fn fareas(&self) -> Arc<FileAreas> {
+        self.fareas.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Save new file areas to fileareas.toml and start using them.
+    pub fn set_fareas(&self, new: FileAreas) -> anyhow::Result<()> {
+        for a in &new.areas {
+            let dir = self.config.resolve(&a.path);
+            std::fs::create_dir_all(&dir).with_context(|| format!("file area directory {}", dir.display()))?;
+        }
+        let path = self.config.resolve(&self.config.paths.fileareas);
+        let tmp = path.with_extension("toml.new");
+        std::fs::write(&tmp, new.to_toml()).with_context(|| format!("writing {}", tmp.display()))?;
+        std::fs::rename(&tmp, &path).with_context(|| format!("replacing {}", path.display()))?;
+        *self.fareas.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        Ok(())
+    }
 }
 
 #[tokio::main]
@@ -93,7 +117,7 @@ async fn main() -> anyhow::Result<()> {
         users,
         areas,
         msgs,
-        fareas,
+        fareas: std::sync::RwLock::new(Arc::new(fareas)),
         files,
         sys,
         text_lock: std::sync::Mutex::new(()),

@@ -12,7 +12,7 @@ use crate::session::Session;
 /// Commands the original had that aren't ported yet. They report that,
 /// rather than "invalid command", so stock menus degrade honestly.
 const NOT_YET: &[&str] = &[
-    "SD", "SE", "SS", "SU", "D0", "D1", "D2", "D3", "DZ", "E+", "E-", "E/", "E\\", "F#", "IM", "IN",
+    "D0", "D1", "D2", "D3", "DZ", "E+", "E-", "E/", "E\\", "F#", "IM", "IN",
     "M#", "NV", "QD", "QU", "TP", "TS", "XC", "XM", "XB", "XS", "CP", ">C", "!D", "!W", "!E", "!I",
     "!V", "-X",
 ];
@@ -197,6 +197,9 @@ impl Session {
             "ER" => self.read_email(false, false).await?,
             "EC" => self.read_email(false, true).await?,
             "*R" if self.is_sysop() => self.read_email(true, false).await?,
+            "*F" if self.is_sysop() => self.file_area_editor().await?,
+            "*S" if self.is_sysop() => self.sort_file_areas(param).await?,
+            "*Y" if self.is_sysop() => self.file_editor(param).await?,
 
             // -- automessage, BBS list, callers
             "AS" => self.show_automsg().await?,
@@ -212,6 +215,10 @@ impl Session {
             "LC" => self.last_callers(param).await?,
             "LH" => self.show_history().await?,
             "UC" => self.user_config().await?,
+            "SD" => self.delete_autosig().await?,
+            "SE" => self.edit_autosig().await?,
+            "SS" => self.show_autosig().await?,
+            "SU" => self.upload_autosig().await?,
 
             // -- users and nodes
             "UL" => self.user_list().await?,
@@ -307,7 +314,7 @@ impl Session {
         out
     }
 
-    fn save_user(&self) {
+    pub(crate) fn save_user(&self) {
         if self.user.id != 0
             && let Err(e) = self.state.users.save(&self.user) {
                 tracing::error!("saving {}: {e}", self.user.handle);

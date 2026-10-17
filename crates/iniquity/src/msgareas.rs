@@ -19,7 +19,7 @@ pub struct MsgAreas {
 
 /// A conference groups areas; areas join one through ACS `Cn` (n = the
 /// conference's position, from 1).
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Conf {
     pub key: char,

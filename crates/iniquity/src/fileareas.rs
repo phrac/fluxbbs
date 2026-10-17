@@ -8,7 +8,7 @@ use serde::{Deserialize, Serialize};
 
 use crate::msgareas::Conf;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileAreas {
     #[serde(rename = "conference", default)]
@@ -17,7 +17,7 @@ pub struct FileAreas {
     pub areas: Vec<FileArea>,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FileArea {
     pub name: String,
@@ -35,6 +35,61 @@ pub struct FileArea {
     pub download_acs: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub password: String,
+    /// How `*S` orders the area.
+    #[serde(default, skip_serializing_if = "SortBy::is_none")]
+    pub sort: SortBy,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub sort_descending: bool,
+}
+
+/// `SortType`: the key a file area is sorted by.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SortBy {
+    #[default]
+    None,
+    Name,
+    Extension,
+    Size,
+    Date,
+    Uploaded,
+    Uploader,
+    Downloads,
+}
+
+impl SortBy {
+    pub const ALL: [SortBy; 8] = [
+        SortBy::None,
+        SortBy::Name,
+        SortBy::Extension,
+        SortBy::Size,
+        SortBy::Date,
+        SortBy::Uploaded,
+        SortBy::Uploader,
+        SortBy::Downloads,
+    ];
+
+    pub fn is_none(&self) -> bool {
+        *self == SortBy::None
+    }
+
+    /// The legacy `SortType` byte.
+    pub fn from_legacy(n: u8) -> Self {
+        Self::ALL.get(n as usize).copied().unwrap_or_default()
+    }
+
+    pub fn label(self) -> &'static str {
+        match self {
+            SortBy::None => "None (unsorted)",
+            SortBy::Name => "Filename",
+            SortBy::Extension => "Extension",
+            SortBy::Size => "Size",
+            SortBy::Date => "Date",
+            SortBy::Uploaded => "Upload date",
+            SortBy::Uploader => "Uploader",
+            SortBy::Downloads => "Downloads",
+        }
+    }
 }
 
 impl Default for FileAreas {
@@ -50,6 +105,8 @@ impl Default for FileAreas {
                 upload_acs: "s50".into(),
                 download_acs: "s50".into(),
                 password: String::new(),
+                sort: SortBy::None,
+                sort_descending: false,
             }],
         }
     }
