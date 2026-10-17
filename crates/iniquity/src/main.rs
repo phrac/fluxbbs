@@ -18,6 +18,7 @@ mod menu;
 mod menuedit;
 mod messages;
 mod msgareas;
+mod multinode;
 mod msgbase;
 mod editor;
 mod extras;

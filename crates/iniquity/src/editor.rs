@@ -383,8 +383,16 @@ pub fn strip_codes(s: &str) -> String {
 }
 
 impl Session {
-    /// `fsEdit`: edit a message full-screen. None if aborted.
-    pub async fn edit_message(&mut self, mut ctx: EditCtx<'_>) -> io::Result<Option<EditResult>> {
+    /// `fsEdit`: edit a message full-screen. None if aborted. Node
+    /// messages wait until it's done, so they don't land in the text.
+    pub async fn edit_message(&mut self, ctx: EditCtx<'_>) -> io::Result<Option<EditResult>> {
+        let held = std::mem::replace(&mut self.hold_node_msgs, true);
+        let result = self.edit_message_inner(ctx).await;
+        self.hold_node_msgs = held;
+        result
+    }
+
+    async fn edit_message_inner(&mut self, mut ctx: EditCtx<'_>) -> io::Result<Option<EditResult>> {
         let mut d = Draft::new(&ctx.text);
         if ctx.auto_quote
             && let Some(r) = ctx.reply {

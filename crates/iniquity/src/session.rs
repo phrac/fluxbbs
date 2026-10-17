@@ -58,6 +58,8 @@ pub struct Session {
     pub state: Arc<BbsState>,
     pub caller: Caller,
     pub node: NodeGuard,
+    /// Keep node messages queued (full-screen editor, chat).
+    pub hold_node_msgs: bool,
     pub user: User,
     pub(crate) io: Box<dyn Stream>,
     pub(crate) screen: Screen,
@@ -146,6 +148,7 @@ impl Session {
             state,
             caller,
             node,
+            hold_node_msgs: false,
             user,
             io,
             screen: Screen::new(charset, rows),

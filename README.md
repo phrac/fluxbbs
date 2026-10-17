@@ -91,6 +91,9 @@ editor.
     which writes back only the settings that changed
   - `infoform.rs` infoforms (`IN`, `IM`, the `*I` editor) and new user
     voting (`NV`)
+  - `nodes.rs` who's on which node, and each node's inbox;
+    `multinode.rs` node messages (`XM`), broadcasts (`XB`), multinode chat
+    (`XC`) and node status (`XS`)
   - `users.rs` user database, `import.rs` legacy import
 - `menus/`, `text/`, `iniquity.toml`: the stock r5 setup, imported.
 - `crates/iniquity/assets/strings.toml`: the stock prompt strings, built in;
@@ -120,10 +123,10 @@ Commands: `?= ?+ ?/ ?% ?B ?E ?F ?I ?L ?N ?Y ?S ?T ?U`,
 `-^ -/ -\ -= -? -C -D -E -F -K -L -P -R -S -W`, the `|` cursor commands,
 `>A >H >L`, `HC HI HM`, `MA MC MJ MN MM MP MR MS MZ M[ M]`, `EE ER EC *R`,
 `FA FB FC FD FF FI FJ FL FN FS FT FU FV FZ F+ F[ F] *%`, `AR AS AW`,
-`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y *U *@ *! *> *X *Z *A *P *L *B *H *E *# *C *I`, `IN IM NV`.
+`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y *U *@ *! *> *X *Z *A *P *L *B *H *E *# *C *I`, `IN IM NV`, `XM XB XC XS`.
 
 Other commands from the original say "not available yet". Next:
-multinode chat and messages, then doors.
+doors.
 
 ## Infoforms and new user voting
 

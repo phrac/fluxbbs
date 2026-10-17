@@ -13,7 +13,7 @@ use crate::session::Session;
 /// rather than "invalid command", so stock menus degrade honestly.
 const NOT_YET: &[&str] = &[
     "D0", "D1", "D2", "D3", "DZ", "E+", "E-", "E/", "E\\", "F#",
-    "M#", "QD", "QU", "TP", "TS", "XC", "XM", "XB", "XS", "CP", ">C", "!D", "!W", "!E", "!I",
+    "M#", "QD", "QU", "TP", "TS", "CP", ">C", "!D", "!W", "!E", "!I",
     "!V", "-X",
 ];
 
@@ -242,6 +242,10 @@ impl Session {
             "UL" => self.user_list().await?,
             "UP" => self.change_password().await?,
             "XL" => self.node_list().await?,
+            "XM" => self.node_message().await?,
+            "XB" => self.node_broadcast().await?,
+            "XC" => self.node_chat().await?,
+            "XS" => self.node_status(param),
 
             _ if NOT_YET.contains(&code.as_str()) || code.starts_with('*') => {
                 self.newline();
@@ -371,7 +375,7 @@ impl Session {
     }
 
     /// `nodeList` (`XL`), text version.
-    async fn node_list(&mut self) -> io::Result<()> {
+    pub(crate) async fn node_list(&mut self) -> io::Result<()> {
         self.newline();
         self.set_slot(Slot::Info);
         self.show_line("|U4 Node  User                     Activity").await?;

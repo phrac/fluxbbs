@@ -15,6 +15,17 @@ pub struct Strings {
     stock: HashMap<String, String>,
 }
 
+/// r5 strings that were numbered before they had names; overrides
+/// saved under the old names still apply.
+fn renamed(old: &str) -> Option<&'static str> {
+    let n: usize = old.strip_prefix('s')?.parse().ok()?;
+    const NODE: [&str; 12] = [
+        "MNCyouspeak", "MNCtheyspeak", "MNCenterchat", "MNCquitchat", "NodeAskNode", "NodeUserOn",
+        "NodeMsgAskText", "NodeMsgSent", "NodeMsgReceived", "NodeBCaskText", "NodeBCsent", "NodeBCreceived",
+    ];
+    NODE.get(n.checked_sub(287)?).copied()
+}
+
 /// Every string's name, in the stock table's order (STRINGS.DAT's).
 pub fn stock_names() -> Vec<&'static str> {
     STOCK.lines().filter_map(|l| l.split_once(" = ").map(|(n, _)| n.trim())).filter(|n| !n.starts_with('#')).collect()
@@ -28,7 +39,7 @@ impl Strings {
             Ok(s) => {
                 let over: HashMap<String, String> =
                     toml::from_str(&s).with_context(|| format!("parsing {}", path.display()))?;
-                map.extend(over);
+                map.extend(over.into_iter().map(|(k, v)| (renamed(&k).map_or(k, String::from), v)));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(e).with_context(|| format!("reading {}", path.display())),
@@ -103,6 +114,13 @@ mod tests {
         assert!(s.overrides().is_empty());
         s.set("Pause", "wait".into());
         assert_eq!(s.overrides(), [("Pause".to_string(), "wait".to_string())]);
+    }
+
+    #[test]
+    fn old_numbered_names_still_apply() {
+        assert_eq!(renamed("s295"), Some("NodeMsgReceived"));
+        assert_eq!(renamed("s286"), None);
+        assert_eq!(renamed("Pause"), None);
     }
 
     #[test]
