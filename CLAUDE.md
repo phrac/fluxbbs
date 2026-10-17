@@ -23,7 +23,7 @@ git: copy `data/` and `files/` across if the board should move with you.
   it, not from memory: read the unit before porting a feature.
 - `original/inqa26r5.zip`: the 1.00a26r5 release; `original/stock/` is the
   stock install unpacked from it (by `tools/setup_host.sh`), used by the
-  legacy tests (`INIQUITY_STOCK=original/stock cargo test`) and as an
+  legacy tests (`cargo test` uses it when present) and as an
   import source.
 - Some original units are missing or corrupt in that source: `autosig.pas`
   is a TheDraw screen, `faDownloadAny` and `maPackArea` aren't there, and
@@ -70,7 +70,7 @@ git: copy `data/` and `files/` across if the board should move with you.
 ## Testing
 
     cargo test
-    INIQUITY_STOCK=original/stock cargo test   # legacy readers too
+    cargo test   # includes the legacy readers once original/stock exists
     cargo clippy --all-targets
 
 Test features **live** as well: run the server (`cargo build`, then

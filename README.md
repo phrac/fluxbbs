@@ -261,8 +261,8 @@ gets UTF-8, with DOS behaviour emulated: hard wrap at column 80 and
 
 ## Development
 
-    cargo test                                        # unit tests
-    INIQUITY_STOCK=original/stock cargo test          # plus the legacy readers
+    cargo test       # unit tests, plus the legacy readers once
+                     # tools/setup_host.sh has unpacked original/stock
     cargo clippy --all-targets
 
 ## Credits

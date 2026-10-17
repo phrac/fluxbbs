@@ -38,5 +38,5 @@ fi
 echo
 echo "ready:"
 echo "  ./target/release/iniquity                       # SSH :2222, telnet :2323"
-echo "  INIQUITY_STOCK=$stock cargo test               # tests, with the legacy readers"
+echo "  cargo test                                      # includes the legacy readers"
 echo "  log in as SysOp / SYSOP (system password SYSTEM); change both before going public"

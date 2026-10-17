@@ -1,12 +1,20 @@
-//! Checks against a stock r5 install. Point INIQUITY_STOCK at the directory
-//! holding INIQUITY.DAT (e.g. the extracted newinst.exe); skipped if unset.
+//! Checks against a stock r5 install: `original/stock` (unpacked by
+//! `tools/setup_host.sh`) or `INIQUITY_STOCK`; skipped if neither exists.
 
 use std::path::PathBuf;
 
 use iniquity_legacy::*;
 
+/// The stock install: `INIQUITY_STOCK` (relative paths are from the
+/// workspace root), else `original/stock` if `tools/setup_host.sh` has
+/// unpacked it. Without either, these tests do nothing.
 fn stock() -> Option<PathBuf> {
-    std::env::var_os("INIQUITY_STOCK").map(PathBuf::from)
+    let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
+    let dir = match std::env::var_os("INIQUITY_STOCK") {
+        Some(p) => root.join(p),
+        None => root.join("original/stock"),
+    };
+    dir.join("INIQUITY.DAT").exists().then_some(dir)
 }
 
 #[test]
