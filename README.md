@@ -88,7 +88,9 @@ Neither is in git.
   comments; `*E` prompt strings; `*#` menus; `*L` access levels.
 - `*U` users (with colours, preferences, auto-signature, infoforms).
 - `*F` file areas, `*Y` files (validate, move, extract/apply DIZ), `*S`
-  sort areas, `*>` download any file, `*%` local upload.
+  sort areas, `*>` download any file, `*%` local upload, `*K` pack file
+  areas (forget files missing from their directories; also
+  `iniquity pack-files` from the shell, as FILEPACK.EXE was).
 - `*A` message areas, `*P` pack them, `*@`/`*!` conferences, `*R` all
   email.
 - `*X` protocols, `*Z` archivers, `*B` BBS list, `*H` statistics, `*I`
@@ -109,7 +111,6 @@ libraries (unpacked into themes).
 | Message attachments | ATTACH.PAS | | Files attached to messages and email. |
 | Events | EVENTS.PAS | `*V` | Scheduled jobs (packing, maintenance). |
 | Echomail / netmail | echomail.pas, INIQMAIL.PAS | | FidoNet-style networking; would need a mailer/tosser bridge today. |
-| File area packing | FILEPACK.PAS | | Removing records of missing files. |
 
 Smaller gaps:
 - Bans are kept in memory and cleared by a restart.

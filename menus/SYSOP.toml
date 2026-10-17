@@ -154,6 +154,15 @@ on = "|B1Pack msg areas"
 off = "|B0Pack msg areas"
 
 [[command]]
+keys = "K"
+command = "*K"
+acs = "s250"
+desc = "Pack file areas"
+help = "[sysop] Remove records of files missing from their directories"
+on = "|B1Pack file areas"
+off = "|B0Pack file areas"
+
+[[command]]
 keys = "Q"
 command = '-\'
 desc = "Quit sysop menu"

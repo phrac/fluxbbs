@@ -169,6 +169,23 @@ impl FileBase {
         Ok(())
     }
 
+    /// `FilePack`: drop the records of files no longer in the area's
+    /// directory (`dir`), closing up the numbering. Returns their names.
+    /// (The original packed FILEDESC.DAT; descriptions live with their
+    /// records here, so what's left to tidy is records of missing files.)
+    pub fn prune_missing(&self, area: &str, dir: &Path) -> anyhow::Result<Vec<String>> {
+        let mut gone = Vec::new();
+        // Last first, so the numbers still to check don't move.
+        for f in self.list(area)?.into_iter().rev() {
+            if !dir.join(&f.name).is_file() {
+                self.remove(area, f.num)?;
+                gone.push(f.name);
+            }
+        }
+        gone.reverse();
+        Ok(gone)
+    }
+
     /// Move a file's record to the end of another area.
     pub fn move_to(&self, area: &str, num: u32, to: &str) -> anyhow::Result<u32> {
         let Some(mut f) = self.get(area, num)? else { anyhow::bail!("no file {num} in {area}") };
@@ -262,6 +279,23 @@ mod tests {
 
     fn names(fb: &FileBase, area: &str) -> Vec<String> {
         fb.list(area).unwrap().into_iter().map(|f| format!("{}:{}", f.num, f.name)).collect()
+    }
+
+    #[test]
+    fn prune_forgets_missing_files() {
+        let fb = FileBase::open_memory().unwrap();
+        let dir = std::env::temp_dir().join(format!("iqprune{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        for n in ["A.ZIP", "GONE1.ZIP", "B.ZIP", "GONE2.ZIP", "C.ZIP"] {
+            fb.add(&mut rec("UTILS", n)).unwrap();
+            if !n.starts_with("GONE") {
+                std::fs::write(dir.join(n), b"x").unwrap();
+            }
+        }
+        assert_eq!(fb.prune_missing("UTILS", &dir).unwrap(), ["GONE1.ZIP", "GONE2.ZIP"]);
+        assert_eq!(names(&fb, "UTILS"), ["1:A.ZIP", "2:B.ZIP", "3:C.ZIP"]);
+        assert!(fb.prune_missing("UTILS", &dir).unwrap().is_empty());
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 
     #[test]

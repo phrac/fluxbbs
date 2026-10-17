@@ -207,6 +207,25 @@ fn write_atomic(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `iniquity pack-files [config]`: what FILEPACK.EXE was, run outside
+/// the BBS: forget files that are gone from every file area's directory.
+fn pack_files(path: PathBuf) -> anyhow::Result<()> {
+    let config = Config::load(&path)?;
+    let db = config.resolve(&config.paths.data).join("iniquity.db");
+    let files = FileBase::open(&db).with_context(|| format!("file database {}", db.display()))?;
+    let fareas = FileAreas::load(&config.resolve(&config.paths.fileareas))?;
+    let mut total = 0;
+    for a in &fareas.areas {
+        let gone = files.prune_missing(&a.file, &config.resolve(&a.path))?;
+        for name in &gone {
+            println!("{}: {name} is missing; record removed", a.name);
+        }
+        total += gone.len();
+    }
+    println!("{total} record(s) removed from {} file area(s)", fareas.areas.len());
+    Ok(())
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
@@ -218,6 +237,9 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "import") {
         return import::from_args(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "pack-files") {
+        return pack_files(args.get(1).map_or("iniquity.toml".into(), PathBuf::from));
     }
 
     let path = args.first().map(PathBuf::from).unwrap_or_else(|| "iniquity.toml".into());

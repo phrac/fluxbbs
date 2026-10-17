@@ -500,6 +500,46 @@ impl Session {
         Ok(())
     }
 
+    /// `*K` (FILEPACK): forget files that are gone from one area's
+    /// directory, or every area's (`A` as the parameter, or answering
+    /// yes).
+    pub async fn pack_file_areas(&mut self, param: &str) -> io::Result<()> {
+        self.newline();
+        // Numbers change: a batch would point at the wrong files.
+        if !self.clear_batch_ok().await? {
+            return Ok(());
+        }
+        let param = param.trim().to_ascii_uppercase();
+        let areas = self.state.fareas();
+        let which: Vec<usize> = if param.starts_with('A') {
+            (0..areas.areas.len()).collect()
+        } else if let Ok(n) = param.parse::<usize>() {
+            vec![n.wrapping_sub(1)]
+        } else {
+            self.say("FaPackAskAll").await?;
+            let all = self.yes_no(true).await?;
+            self.newline();
+            if all { (0..areas.areas.len()).collect() } else { vec![(self.user.cur_file_area as usize).wrapping_sub(1)] }
+        };
+        let mut total = 0;
+        for i in which {
+            let Some(a) = areas.areas.get(i).cloned() else { continue };
+            let count = self.state.files.count(&a.file).map_err(io_err)?;
+            let s = self.strings().fmt("FaPackStart", &[&a.name, &count.to_string()]);
+            self.show(&s).await?;
+            self.flush().await?;
+            let gone = self.state.files.prune_missing(&a.file, &self.farea_dir(&a)).map_err(io_err)?;
+            for name in &gone {
+                tracing::info!("{}: file area {}: {name} is gone, record removed", self.user.handle, a.name);
+            }
+            total += gone.len();
+            let s = self.strings().fmt("FaPackEnd", &[&gone.len().to_string()]);
+            self.show_line(&s).await?;
+        }
+        tracing::info!("{}: packed file areas, {total} records removed", self.user.handle);
+        Ok(())
+    }
+
     // ---- *F: file areas (CONFIG9) -------------------------------------------
 
     /// `*F`: list, insert, delete, edit and move file areas.
