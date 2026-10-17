@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use iniquity_legacy::msgarea::{flag, status};
-use iniquity_legacy::{LegacyBbs, LegacyCall, LegacyConf, LegacyConfig, LegacyFile, LegacyFileArea, LegacyHistory, LegacyStats, LegacyLevel, LegacyMenu, LegacyMsgArea, LegacyMsgHeader, LegacyUser, strings, user::ac};
+use iniquity_legacy::{LegacyBbs, LegacyCall, LegacyInfoform, LegacyConf, LegacyConfig, LegacyFile, LegacyFileArea, LegacyHistory, LegacyStats, LegacyLevel, LegacyMenu, LegacyMsgArea, LegacyMsgHeader, LegacyUser, strings, user::ac};
 use iniquity_term::Palette;
 
 use crate::config::{self, Config, Level};
@@ -28,6 +28,7 @@ use crate::filebase::{FileBase, FileRec};
 use crate::msgareas::{Conf, MsgArea, MsgAreas};
 use crate::msgbase::{Message, MsgBase, Party};
 use crate::sysdata::{Bbs, Call, Counts, SysData};
+use crate::infoform::{FormStore, Infoform, Infoforms};
 use crate::session::find_ci;
 use crate::user::{User, parse_date};
 use crate::users::UserStore;
@@ -115,8 +116,10 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
     }
     let store = UserStore::open(&db_path)?;
     let mut n = 0;
+    let mut user_slots = 0u16;
     if let Some(p) = find_ci(&data, "USERS.DAT") {
         for (i, lu) in LegacyUser::parse_file(&std::fs::read(p)?)?.iter().enumerate() {
+            user_slots = i as u16 + 1;
             if lu.user_name.trim().is_empty() {
                 continue;
             }
@@ -282,6 +285,41 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
     }
     println!("imported statistics, history and {nbbs} BBS list entries");
 
+    // Infoforms (INFOFORM.DAT), everyone's answers (INFOFORM.001...) and
+    // new user votes (NUV.DAT). User numbers are kept, so they line up.
+    let forms = FormStore::open(&db_path)?;
+    let now = chrono::Local::now().naive_local();
+    let legacy_forms = read("INFOFORM.DAT")?.map(|b| LegacyInfoform::parse_file(&b)).unwrap_or_default();
+    let mut nanswers = 0;
+    let mut list = Vec::new();
+    for (i, f) in legacy_forms.iter().enumerate() {
+        let file = f.filename.to_ascii_uppercase();
+        if let Some(buf) = read(&format!("INFOFORM.{:03}", i + 1))? {
+            for user in 1..=user_slots {
+                if let Some(answers) = iniquity_legacy::misc::infoform_answers(&buf, user) {
+                    forms.set_answers(&file, user as u32, &answers, now)?;
+                    nanswers += 1;
+                }
+            }
+        }
+        list.push(Infoform { desc: f.desc.clone(), file, mandatory: f.mandatory, nuv: f.nuv, acs: f.acs.clone() });
+    }
+    if !list.is_empty() {
+        let out = dest.join("infoforms.toml");
+        std::fs::write(&out, Infoforms { list }.to_toml())?;
+        println!("wrote {} ({} forms, {nanswers} filled in)", out.display(), legacy_forms.len());
+    }
+    let mut nvotes = 0;
+    if let Some(buf) = read("NUV.DAT")? {
+        for v in iniquity_legacy::misc::parse_votes(&buf) {
+            forms.add_vote(v.voter as u32, v.candidate as u32, &v.initials, &v.comment, now)?;
+            nvotes += 1;
+        }
+    }
+    if nvotes > 0 {
+        println!("imported {nvotes} new user votes");
+    }
+
     let fbase = FileBase::open(&db_path)?;
     let descs = read("FILEDESC.DAT")?.unwrap_or_default();
     for (area, legacy) in fareas.areas.iter().zip(&legacy_areas) {
@@ -395,6 +433,15 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
     f.no_description = c.no_desc_line.clone();
     f.wrap_descriptions = c.desc_wrap;
     f.advance_bar_on_flag = c.adv_file_bar;
+    cfg.nuv = crate::config::Nuv {
+        enabled: c.nuv_validation,
+        votes_yes: c.nuv_votes_yes,
+        votes_no: c.nuv_votes_no,
+        candidate_acs: c.nuv_access.clone(),
+        voter_acs: c.nuv_vote_access.clone(),
+        initials: c.nuv_initials,
+        level: c.nuv_user_level.to_ascii_uppercase(),
+    };
     cfg.levels = if levels.is_empty() {
         config::default_levels()
     } else {

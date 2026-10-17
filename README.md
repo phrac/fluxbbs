@@ -89,6 +89,8 @@ editor.
     statistics (`*H`) and string (`*E`) editors; `menuedit.rs` the menu
     editor (`*#`); `sysconfig.rs` the system configuration editor (`*C`),
     which writes back only the settings that changed
+  - `infoform.rs` infoforms (`IN`, `IM`, the `*I` editor) and new user
+    voting (`NV`)
   - `users.rs` user database, `import.rs` legacy import
 - `menus/`, `text/`, `iniquity.toml`: the stock r5 setup, imported.
 - `crates/iniquity/assets/strings.toml`: the stock prompt strings, built in;
@@ -118,7 +120,25 @@ Commands: `?= ?+ ?/ ?% ?B ?E ?F ?I ?L ?N ?Y ?S ?T ?U`,
 `-^ -/ -\ -= -? -C -D -E -F -K -L -P -R -S -W`, the `|` cursor commands,
 `>A >H >L`, `HC HI HM`, `MA MC MJ MN MM MP MR MS MZ M[ M]`, `EE ER EC *R`,
 `FA FB FC FD FF FI FJ FL FN FS FT FU FV FZ F+ F[ F] *%`, `AR AS AW`,
-`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y *U *@ *! *> *X *Z *A *P *L *B *H *E *# *C`.
+`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y *U *@ *! *> *X *Z *A *P *L *B *H *E *# *C *I`, `IN IM NV`.
 
 Other commands from the original say "not available yet". Next:
-infoforms and new-user voting, multinode chat and messages.
+multinode chat and messages, then doors.
+
+## Infoforms and new user voting
+
+An infoform is a text file in `text/` with input points in it (see
+`text/EXAMPLE.INF`): `~SN` reads text (`~SU` upper case, `~SM` mixed,
+`~SC` first letter up, and the r5 `~SE ~SW ~SI` styles), `~BD` a date,
+`~PN` a phone number, `~NM` digits, `~FN` a filename, and a bare `*` is
+plain text too. `~NN` (two digits) sets how long answers may be, `~**`
+puts it back to 254, and `~*=` / `~*-` make them required or optional.
+List the forms with `*I` (saved to `infoforms.toml`); mandatory ones are
+filled in at logon (`IM` on the stock STARTUP menu), and callers can see
+and redo theirs with `IN`.
+
+With new user voting (`[nuv]` in iniquity.toml, or `*C`), users who pass
+the voter ACS vote on the users who match the candidate ACS, at logon
+(`NV` on STARTUP) or from the main menu. Voters can read the candidate's
+NUV infoforms and leave comments; enough yes votes give the candidate
+the validated level, enough no votes delete them.

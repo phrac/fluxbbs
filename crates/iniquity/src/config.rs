@@ -21,6 +21,7 @@ pub struct Config {
     pub prompts: Prompts,
     pub messages: Messages,
     pub files: Files,
+    pub nuv: Nuv,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -78,6 +79,8 @@ pub struct Paths {
     pub archivers: PathBuf,
     /// Access levels.
     pub levels: PathBuf,
+    /// Infoform definitions.
+    pub infoforms: PathBuf,
     /// Scratch space for uploads in progress.
     pub temp: PathBuf,
 }
@@ -215,6 +218,39 @@ impl Default for Messages {
     }
 }
 
+/// New user voting (NUV): existing users vote new ones in or out.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Nuv {
+    pub enabled: bool,
+    /// Yes votes that validate a new user.
+    pub votes_yes: u8,
+    /// No votes that delete one.
+    pub votes_no: u8,
+    /// Who gets voted on.
+    pub candidate_acs: String,
+    /// Who may vote.
+    pub voter_acs: String,
+    /// Show voters' initials beside their comments.
+    pub initials: bool,
+    /// Access level given when voted in.
+    pub level: char,
+}
+
+impl Default for Nuv {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            votes_yes: 5,
+            votes_no: 3,
+            candidate_acs: "!s50".into(),
+            voter_acs: "s50".into(),
+            initials: true,
+            level: 'B',
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Files {
@@ -337,6 +373,7 @@ impl Default for Paths {
             protocols: "protocols.toml".into(),
             archivers: "archivers.toml".into(),
             levels: "levels.toml".into(),
+            infoforms: "infoforms.toml".into(),
             temp: "data/temp".into(),
         }
     }

@@ -24,6 +24,8 @@ enum Kind {
     List(fn(&mut Config) -> &mut Vec<String>),
     Path(fn(&mut Config) -> &mut PathBuf),
     Char(fn(&mut Config) -> &mut char),
+    /// A level letter, A-Z.
+    Letter(fn(&mut Config) -> &mut char),
     /// Getter, setter, labels.
     Choice(fn(&Config) -> usize, fn(&mut Config, usize), &'static [&'static str]),
 }
@@ -54,7 +56,7 @@ fn shown(kind: &Kind, c: &mut Config) -> String {
         Kind::Num(get, ..) => get(c).to_string(),
         Kind::List(get) => get(c).join(", "),
         Kind::Path(get) => get(c).display().to_string(),
-        Kind::Char(get) => get(c).to_string(),
+        Kind::Char(get) | Kind::Letter(get) => get(c).to_string(),
         Kind::Choice(get, _, labels) => labels.get(get(c)).copied().unwrap_or("?").into(),
     }
 }
@@ -126,6 +128,15 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('F', "No bar", 50, "The yes/no bar with no selected.", Text(|c| &mut c.prompts.no_bar, TEXT.max(200))),
             set('G', "Password echo", 1, "Character shown for each typed password letter.", Char(|c| &mut c.prompts.password_echo)),
             set('H', "Erase pauses", 3, "Erase \"pause\" prompts after a key?", Bool(|c| &mut c.prompts.remove_pause)),
+        ]),
+        ("New User Voting", false, vec![
+            set('A', "Use NUV", 3, "Do existing users vote new users in or out?", Bool(|c| &mut c.nuv.enabled)),
+            set('B', "Yes votes", 3, "Yes votes that validate a new user.", Num(|c| c.nuv.votes_yes as u64, |c, v| c.nuv.votes_yes = v as u8, 1, 255)),
+            set('C', "No votes", 3, "No votes that delete a new user.", Num(|c| c.nuv.votes_no as u64, |c, v| c.nuv.votes_no = v as u8, 1, 255)),
+            set('D', "Candidate ACS", 20, "Who gets voted on (stock: !s50, everyone below SL 50).", Text(|c| &mut c.nuv.candidate_acs, ACS)),
+            set('E', "Voter ACS", 20, "Who may vote.", Text(|c| &mut c.nuv.voter_acs, ACS)),
+            set('F', "Show initials", 3, "Show voters' initials beside their comments?", Bool(|c| &mut c.nuv.initials)),
+            set('G', "Validated level", 1, "Access level given to users voted in.", Letter(|c| &mut c.nuv.level)),
         ]),
         ("Message System", false, vec![
             set('A', "Email ACS", 20, "ACS to send email.", Text(|c| &mut c.messages.acs_post_email, ACS)),
@@ -305,6 +316,13 @@ impl Session {
                 }
                 Kind::Char(get) => {
                     if let Some(c) = self.cfg_text(&mut f, key, TEXT.max(1)).await?.and_then(|v| v.chars().next()) {
+                        *get(cfg) = c;
+                    }
+                    self.cfg_set(&mut f, key, get(cfg).to_string());
+                }
+                Kind::Letter(get) => {
+                    let field = Field { allowed: "ABCDEFGHIJKLMNOPQRSTUVWXYZ", ..Field::UPPER.max(1) };
+                    if let Some(c) = self.cfg_text(&mut f, key, field).await?.and_then(|v| v.chars().next()) {
                         *get(cfg) = c;
                     }
                     self.cfg_set(&mut f, key, get(cfg).to_string());

@@ -292,6 +292,8 @@ impl Session {
                 f.item_xy(20, 18, 1, '+', "Autosignature", 0, "", "");
                 f.item_xy(40, 18, 1, '?', "Edit user prefs", 0, "", "");
                 f.item_xy(60, 18, 1, '>', "Upgrade access", 0, "", "");
+                f.item_xy(1, 19, 1, '&', "View infoforms", 0, "", "");
+                f.item_xy(20, 19, 1, '~', "Clear infoforms", 0, "", "");
                 f.item_xy(40, 19, 1, '*', if u.deleted { "Undelete user" } else { "Delete user" }, 0, "", "");
                 f.item_xy(60, 19, 1, '<', "Lower access", 0, "", "");
                 self.cfg_draw(&f);
@@ -402,6 +404,39 @@ impl Session {
                         '-' => {
                             self.palette_editor(&mut u.palette).await?;
                             break;
+                        }
+                        '&' | '~' => {
+                            let forms = self.state.infoforms().list.clone();
+                            if forms.is_empty() {
+                                self.cfg_info(&mut f, "There are no infoforms.");
+                                continue;
+                            }
+                            let verb = if key == '&' { "view" } else { "clear" };
+                            let q = format!("Infoform to {verb} [1-{}, = for all]: ", forms.len());
+                            let pick = self.cfg_read_info(&mut f, &q, 3).await?;
+                            let which: Vec<_> = if pick == "=" {
+                                forms.iter().collect()
+                            } else {
+                                pick.parse::<usize>().ok().and_then(|n| forms.get(n.wrapping_sub(1))).into_iter().collect()
+                            };
+                            if which.is_empty() {
+                                continue;
+                            }
+                            if key == '~' {
+                                for form in &which {
+                                    self.state.forms.clear(Some(&form.file), u.id).map_err(io_err)?;
+                                }
+                                self.cfg_info(&mut f, &format!("Cleared {} infoform(s).", which.len()));
+                                continue;
+                            }
+                            let mut shown = false;
+                            for form in which.into_iter().cloned().collect::<Vec<_>>() {
+                                shown |= self.show_form(&form, u.id).await?;
+                            }
+                            if shown {
+                                break;
+                            }
+                            self.cfg_info(&mut f, "They haven't filled that in.");
                         }
                         '?' => {
                             self.prefs_editor(&mut u).await?;
@@ -526,7 +561,7 @@ mod tests {
     #[test]
     fn fields_have_unique_keys_and_fit() {
         let mut keys: Vec<char> = plain_fields().iter().map(|s| s.key).collect();
-        keys.extend(['/', '[', ']', 'A', 'B', '=', 'J', 'L', '-', '+', '?', '>', '*', '<']);
+        keys.extend(['/', '[', ']', 'A', 'B', '=', 'J', 'L', '-', '+', '?', '>', '*', '<', '&', '~']);
         let n = keys.len();
         keys.sort();
         keys.dedup();

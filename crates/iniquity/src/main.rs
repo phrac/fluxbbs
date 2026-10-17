@@ -10,6 +10,7 @@ mod config;
 mod engine;
 mod extprog;
 mod import;
+mod infoform;
 mod input;
 mod logon;
 mod mci;
@@ -67,6 +68,9 @@ pub struct BbsState {
     protocols: std::sync::RwLock<Arc<extprog::Protocols>>,
     archivers: std::sync::RwLock<Arc<extprog::Archivers>>,
     levels: std::sync::RwLock<Arc<extprog::Levels>>,
+    infoforms: std::sync::RwLock<Arc<infoform::Infoforms>>,
+    /// Infoform answers and new user votes.
+    pub forms: infoform::FormStore,
     pub files: FileBase,
     pub sys: SysData,
     /// Serialises appends to shared text files (`?T`).
@@ -145,6 +149,16 @@ impl BbsState {
         Ok(())
     }
 
+    pub fn infoforms(&self) -> Arc<infoform::Infoforms> {
+        self.infoforms.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set_infoforms(&self, new: infoform::Infoforms) -> anyhow::Result<()> {
+        write_atomic(&self.config().resolve(&self.config().paths.infoforms), &new.to_toml())?;
+        *self.infoforms.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        Ok(())
+    }
+
     /// The file areas as they are now.
     pub fn fareas(&self) -> Arc<FileAreas> {
         self.fareas.read().unwrap_or_else(|e| e.into_inner()).clone()
@@ -202,6 +216,8 @@ async fn main() -> anyhow::Result<()> {
     let archivers: extprog::Archivers = extprog::load(&config.resolve(&config.paths.archivers))?.unwrap_or_default();
     let levels = extprog::load(&config.resolve(&config.paths.levels))?
         .unwrap_or_else(|| extprog::Levels(config.levels.clone()));
+    let infoforms: infoform::Infoforms = extprog::load(&config.resolve(&config.paths.infoforms))?.unwrap_or_default();
+    let forms = infoform::FormStore::open(&db)?;
     let files = FileBase::open(&db)?;
     let sys = SysData::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
@@ -216,6 +232,8 @@ async fn main() -> anyhow::Result<()> {
         protocols: std::sync::RwLock::new(Arc::new(protocols)),
         archivers: std::sync::RwLock::new(Arc::new(archivers)),
         levels: std::sync::RwLock::new(Arc::new(levels)),
+        infoforms: std::sync::RwLock::new(Arc::new(infoforms)),
+        forms,
         files,
         sys,
         text_lock: std::sync::Mutex::new(()),

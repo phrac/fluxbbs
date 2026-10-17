@@ -142,3 +142,100 @@ impl LegacyBbs {
             .collect()
     }
 }
+
+/// INFOFORM.DAT: `tInfoformRec` (78 bytes) per form.
+pub const INFOFORM_SIZE: usize = 78;
+
+#[derive(Debug, Clone)]
+pub struct LegacyInfoform {
+    pub desc: String,
+    /// The form's text file (with its extension).
+    pub filename: String,
+    pub mandatory: bool,
+    pub nuv: bool,
+    pub acs: String,
+}
+
+impl LegacyInfoform {
+    pub fn parse_file(buf: &[u8]) -> Vec<Self> {
+        buf.as_chunks::<INFOFORM_SIZE>()
+            .0
+            .iter()
+            .map(|c| {
+                let mut r = Reader::new(c);
+                Self { desc: r.string(40), filename: r.string(13), mandatory: r.bool(), nuv: r.bool(), acs: r.string(20) }
+            })
+            .collect()
+    }
+}
+
+/// A user's answers in an `INFOnnn` file: a 6-byte index per user number
+/// (`tInfoIdxRec`: position, count) at the start, the answers as Pascal
+/// strings at that position. None if they haven't filled it in.
+pub fn infoform_answers(buf: &[u8], user: u16) -> Option<Vec<String>> {
+    let at = (user as usize).checked_sub(1)? * 6;
+    let idx = buf.get(at..at + 6)?;
+    let pos = u32::from_le_bytes(idx[..4].try_into().ok()?) as usize;
+    let count = u16::from_le_bytes(idx[4..].try_into().ok()?);
+    if count == 0 {
+        return None;
+    }
+    let mut out = Vec::new();
+    let mut p = pos;
+    for _ in 0..count {
+        let len = *buf.get(p)? as usize;
+        out.push(iniquity_term::cp437::decode(buf.get(p + 1..p + 1 + len)?));
+        p += 1 + len;
+    }
+    Some(out)
+}
+
+/// A NUV.DAT record: who voted on whom, their initials and comment.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LegacyVote {
+    pub voter: u16,
+    pub candidate: u16,
+    pub initials: String,
+    pub comment: String,
+}
+
+pub fn parse_votes(buf: &[u8]) -> Vec<LegacyVote> {
+    let mut out = Vec::new();
+    let mut p = 0;
+    while p + 7 <= buf.len() {
+        let voter = u16::from_le_bytes([buf[p], buf[p + 1]]);
+        let candidate = u16::from_le_bytes([buf[p + 2], buf[p + 3]]);
+        let initials = iniquity_term::cp437::decode(&buf[p + 4..p + 6]);
+        let len = buf[p + 6] as usize;
+        let Some(c) = buf.get(p + 7..p + 7 + len) else { break };
+        out.push(LegacyVote { voter, candidate, initials, comment: iniquity_term::cp437::decode(c) });
+        p += 7 + len;
+    }
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn infoform_answers_by_user() {
+        // Index for users 1 and 2, then user 2's two answers at 12.
+        let mut buf = vec![0u8; 12];
+        buf[6..10].copy_from_slice(&12u32.to_le_bytes());
+        buf[10..12].copy_from_slice(&2u16.to_le_bytes());
+        buf.extend_from_slice(b"\x03Bob\x00");
+        assert_eq!(infoform_answers(&buf, 1), None);
+        assert_eq!(infoform_answers(&buf, 2), Some(vec!["Bob".into(), String::new()]));
+        assert_eq!(infoform_answers(&buf, 9), None);
+    }
+
+    #[test]
+    fn votes() {
+        let buf = b"\x02\x00\x05\x00JD\x02hi\x03\x00\x05\x00XY\x00";
+        let v = parse_votes(buf);
+        assert_eq!(v.len(), 2);
+        assert_eq!(v[0], LegacyVote { voter: 2, candidate: 5, initials: "JD".into(), comment: "hi".into() });
+        assert_eq!(v[1].comment, "");
+    }
+}

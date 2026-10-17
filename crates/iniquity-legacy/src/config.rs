@@ -64,6 +64,15 @@ pub struct LegacyConfig {
     pub inact_seconds: u16,
     pub inact_warning: u16,
     pub nuv_validation: bool,
+    pub nuv_votes_yes: u8,
+    pub nuv_votes_no: u8,
+    /// Who gets voted on.
+    pub nuv_access: String,
+    /// Who may vote.
+    pub nuv_vote_access: String,
+    pub nuv_initials: bool,
+    /// Level given when voted in.
+    pub nuv_user_level: char,
     pub multi_node: bool,
     pub acs_post_email: String,
     pub acs_anonymous: String,
@@ -215,7 +224,12 @@ impl LegacyConfig {
         let ansi_string = r.string(75);
         r.skip(3); // pageAskEmail, soundRestrict, inactLocal
         let allow_blind = r.bool();
-        r.skip(2 + 21 * 2 + 2); // nuvVotesYes/No, nuvAccess, nuvVoteAccess, nuvInitials, nuvUserLevel
+        let nuv_votes_yes = r.u8();
+        let nuv_votes_no = r.u8();
+        let nuv_access = r.string(20);
+        let nuv_vote_access = r.string(20);
+        let nuv_initials = r.bool();
+        let nuv_user_level = r.u8() as char;
         let nuv_validation = r.bool();
         let multi_node = r.bool();
         debug_assert_eq!(r.pos(), 5992);
@@ -229,7 +243,8 @@ impl LegacyConfig {
             new_ask_pause, new_ask_quote, bbs_location, light_char, light_char_ok,
             light_char_fail, new_config, new_verify, pmt_yes, pmt_no, pmt_yes_word,
             pmt_no_word, pmt_yes_bar, pmt_no_bar, chat_start, chat_end, inact_time,
-            inact_seconds, inact_warning, nuv_validation, multi_node, acs_post_email,
+            inact_seconds, inact_warning, nuv_validation, nuv_votes_yes, nuv_votes_no, nuv_access,
+            nuv_vote_access, nuv_initials, nuv_user_level, multi_node, acs_post_email,
             acs_anonymous, acs_upload_message, acs_autosig, abort_mandatory_ok, ask_private_msg,
             ask_private_reply, ask_post_in_area, ask_kill_msg, ask_kill_all_msg, ask_auto_quote,
             default_quote_num, max_quote_lines, conf_ignore_msg, comp_msg_areas, ansi_string,

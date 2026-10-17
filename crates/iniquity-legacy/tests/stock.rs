@@ -27,6 +27,9 @@ fn config() {
     assert_eq!((c.kb_per_file_point, c.ul_search, c.file_points_per), (15, 4, 175));
     assert_eq!((c.file_desc1.as_str(), c.file_desc2.as_str()), ("FILE_ID.DIZ", "DESC.SDI"));
     assert_eq!(c.no_desc_line, "No description");
+    assert_eq!((c.nuv_votes_yes, c.nuv_votes_no, c.nuv_user_level), (5, 3, 'B'));
+    assert_eq!((c.nuv_access.as_str(), c.nuv_vote_access.as_str()), ("!s50", "s50"));
+    assert!(c.nuv_validation && c.nuv_initials);
     assert!(!c.use_file_points && c.use_dl_limit && c.auto_validate && c.allow_blind && c.desc_wrap);
 }
 

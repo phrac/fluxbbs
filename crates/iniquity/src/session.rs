@@ -85,6 +85,14 @@ pub struct Session {
 }
 
 /// Run a caller from connect to disconnect.
+/// Display state carried from token to token: a pending `{NN`/`}NN`
+/// limit and a `|**` return position.
+#[derive(Default)]
+pub(crate) struct DisplayState {
+    limit: Option<(usize, bool)>,
+    return_to: Option<(u16, u16, Color)>,
+}
+
 pub async fn run(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Caller) {
     let who = caller.remote.map_or("?".into(), |a| a.to_string());
     let Some(node) = state.nodes.acquire(caller.transport) else {
@@ -184,8 +192,12 @@ impl Session {
 
     /// `acsOk`: does the current user pass an ACS expression?
     pub fn acs(&self, expr: &str) -> bool {
+        self.acs_for(&self.user, expr)
+    }
+
+    /// `mUserAcs`: does another user pass an ACS expression?
+    pub fn acs_for(&self, u: &User, expr: &str) -> bool {
         let now = Local::now();
-        let u = &self.user;
         let level_req = self.state.level(u.level).map_or(0, |l| l.post_call as u32);
         let ratio = (u.posts * 100).checked_div(u.total_calls).unwrap_or(0);
         let env = AcsEnv {
@@ -201,7 +213,7 @@ impl Session {
             hour: now.hour(),
             area_code: u.area_code().to_string(),
             posts: u.posts,
-            minutes_left: self.minutes_left(),
+            minutes_left: if u.id == self.user.id { self.minutes_left() } else { u.time_today },
             user_id: u.id,
             level: u.level,
             weekday: now.weekday().num_days_from_sunday(),
@@ -307,65 +319,75 @@ impl Session {
     /// supplies values for `~XX` codes; `keep_positions` keeps the markers
     /// of an earlier file (repeat rows).
     async fn display(&mut self, src: &[u8], source: Source, waves: Option<&Waves>, keep_positions: bool) -> io::Result<()> {
-        let mut limit: Option<(usize, bool)> = None;
-        let mut return_to = None;
         if source == Source::File && !keep_positions {
             self.positions.clear();
             self.positions2.clear();
         }
+        let mut st = DisplayState::default();
         for tok in tokenize(src, source) {
-            match tok {
-                Token::Text(b) => self.screen.write_bytes(&b),
-                Token::Ctrl(c) => self.control(c).await?,
-                Token::Mci(code) => match self.mci_value(code) {
-                    Some(mut v) => {
-                        if let Some((n, pad)) = limit {
-                            v = if pad { resize(&v, n) } else { squish(&v, n) };
-                        }
-                        // In files the value may carry |XX colour codes
-                        // (oStrCtr); in prompts it's written as-is.
-                        if source == Source::File {
-                            self.write_with_controls(&v);
-                        } else {
-                            self.screen.write_str(&v);
-                        }
+            self.display_token(tok, source, waves, &mut st).await?;
+        }
+        self.display_end(st);
+        Ok(())
+    }
+
+    /// One token of [`Session::display`].
+    pub(crate) async fn display_token(&mut self, tok: Token, source: Source, waves: Option<&Waves>, st: &mut DisplayState) -> io::Result<()> {
+        match tok {
+            Token::Text(b) => self.screen.write_bytes(&b),
+            Token::Ctrl(c) => self.control(c).await?,
+            Token::Mci(code) => match self.mci_value(code) {
+                Some(mut v) => {
+                    if let Some((n, pad)) = st.limit {
+                        v = if pad { resize(&v, n) } else { squish(&v, n) };
                     }
-                    None => {
-                        self.screen.write_bytes(b"%");
-                        self.screen.write_bytes(&code);
-                    }
-                },
-                Token::PosX(n) => self.screen.pos_x(n as u16),
-                Token::PosY(n) => self.screen.pos_y(n as u16),
-                Token::Limit(n) => limit = Some((n as usize, false)),
-                Token::Pad(n) => limit = Some((n as usize, true)),
-                Token::SavePos => return_to = Some(self.here()),
-                Token::Ext(code) => match waves.and_then(|w| w.get(&code)) {
-                    // sfWrite: limit/pad apply, |XX codes in the value work.
-                    Some(v) => {
-                        let v = match limit {
-                            Some((n, true)) => resize(v, n),
-                            Some((n, false)) => squish(v, n),
-                            None => v.clone(),
-                        };
+                    // In files the value may carry |XX colour codes
+                    // (oStrCtr); in prompts it's written as-is.
+                    if source == Source::File {
                         self.write_with_controls(&v);
+                    } else {
+                        self.screen.write_str(&v);
                     }
-                    None => {
-                        let here = self.here();
-                        self.positions.insert(code, here);
-                    }
-                },
-                Token::Ext2(n) => {
-                    let here = self.here();
-                    self.positions2.insert(n, here);
                 }
+                None => {
+                    self.screen.write_bytes(b"%");
+                    self.screen.write_bytes(&code);
+                }
+            },
+            Token::PosX(n) => self.screen.pos_x(n as u16),
+            Token::PosY(n) => self.screen.pos_y(n as u16),
+            Token::Limit(n) => st.limit = Some((n as usize, false)),
+            Token::Pad(n) => st.limit = Some((n as usize, true)),
+            Token::SavePos => st.return_to = Some(self.here()),
+            Token::Ext(code) => match waves.and_then(|w| w.get(&code)) {
+                // sfWrite: limit/pad apply, |XX codes in the value work.
+                Some(v) => {
+                    let v = match st.limit {
+                        Some((n, true)) => resize(v, n),
+                        Some((n, false)) => squish(v, n),
+                        None => v.clone(),
+                    };
+                    self.write_with_controls(&v);
+                }
+                None => {
+                    let here = self.here();
+                    self.positions.insert(code, here);
+                }
+            },
+            Token::Ext2(n) => {
+                let here = self.here();
+                self.positions2.insert(n, here);
             }
         }
-        if let Some((x, y, c)) = return_to {
+        Ok(())
+    }
+
+    /// Finish a display: go back to a `|**` saved position.
+    pub(crate) fn display_end(&mut self, st: DisplayState) {
+        if let Some((x, y, c)) = st.return_to {
             self.screen.goto(x, y);
             self.screen.set_color(c);
         }
-        Ok(())
     }
 
     fn here(&self) -> (u16, u16, Color) {
@@ -532,9 +554,14 @@ impl Session {
         }
         let mid = self.read_text_file(&format!("{prefix}MID")).await?.unwrap_or_default();
         let hil = if highlight { self.read_text_file(&format!("{prefix}HIL")).await? } else { None };
+        let top = self.read_text_file(&format!("{prefix}TOP")).await?.unwrap_or_default();
         self.show_file(&format!("{prefix}TOP")).await?;
         self.goto_pos(*b"TL");
-        let lines = self.screen.where_y();
+        // Count the screen from the top if the file cleared it; otherwise
+        // (it carries on below whatever was there) just its own lines, as
+        // `oUpPause(ansiRows)` did.
+        let clears = top.windows(4).any(|w| w == b"\x1b[2J");
+        let lines = if clears { self.screen.where_y() } else { top.iter().filter(|&&b| b == b'\n').count() as u16 + 1 };
         Ok(Some(Repeat { prefix: prefix.into(), mid, hil, lines }))
     }
 
@@ -564,7 +591,7 @@ impl Session {
     /// `sfGetTextFile`: with no extension, prefer `.ANS` then `.ASC`. An ANSI
     /// screen may have random variants (`.AN1`-`.AN9`) and a weekday
     /// override (`.A0S`-`.A6S`, Sunday = 0).
-    fn find_text_file(&self, name: &str) -> Option<PathBuf> {
+    pub(crate) fn find_text_file(&self, name: &str) -> Option<PathBuf> {
         let dir = self.state.config().resolve(&self.state.config().paths.text);
         if name.is_empty() {
             return None;

@@ -63,7 +63,8 @@ def render(data, rows_max=60):
             elif f == b's': saved = (x, y)
             elif f == b'u': x, y = saved
             i += m.end(); continue
-        if b == 13: x = 0
+        if b == 8: x = max(0, x - 1)
+        elif b == 13: x = 0
         elif b == 10: y += 1
         elif b == 9: x = min(79, (x // 8 + 1) * 8)
         else:

@@ -416,7 +416,7 @@ impl Session {
 }
 
 /// Digits as "(xxx)xxx-xxxx".
-fn format_phone(d: &str) -> String {
+pub(crate) fn format_phone(d: &str) -> String {
     if d.len() == 10 {
         format!("({}){}-{}", &d[..3], &d[3..6], &d[6..])
     } else {
