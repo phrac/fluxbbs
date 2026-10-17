@@ -1,0 +1,24 @@
+[2J[0m[21CiNiQUiTY Message Reading Command Help
+[1mMessage Reading Commands:[0m
+
+[7C[1mEnter  [0mAdvance to the next message
+[7C[1m-[0m[6CBacks to the previous message
+[7C[1m?[0m[6CDisplay this help screen
+[7C[1mA[0m[6CDisplay the current message over again
+[7C[1mD[0m[6CDelete or undelete the current message [1;30m(if yours)[0m
+[7C[1mE[0m[6CEdit current message [1;30m(if yours)[0m
+[7C[1mH[0m[6CSet HiRead (NewScan pointer) to current message
+[7C[1mI[0m[6CIgnore remaining messages [1;30m(quit ans set pointer to newest)[0m
+[7C[1mL[0m[6CList messages
+[7C[1mP[0m[6CPosts a message in the current message area
+[7C[1mQ[0m[6CQuit reading messages
+[7C[1mR[0m[6CReply to the current message [1;30m(private or public)[0m
+[7C[1mX[0m[6CExtract message to file for download
+[7C[1mU[0m[6CEdit author of current message [1;30m(sysops only)[0m
+[7C[1mS[0m[6CSkip this area and goto next [1;30m(newscan)[0m
+[7C[1mM[0m[6CMoves message to a differant area [1;30m(if yours)[0m
+[7C[1mC[0m[6CCopies message to a differant area[1;30m (if yours)[0m
+[7C[1m###    [0mYou may also type the number of any message to jump
+[17Cdirectly to that message
+[1;30m--[0m
+[0m

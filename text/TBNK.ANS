@@ -1,0 +1,12 @@
+[2J[0m[1mt[0mime[1;30m.[37mb[0mank[1;30m.[37ms[0mtats
+
+ Time in time bank[12C[1m:[0m [1m~TT[0m[3CDownload kb in kb bank[7C[1m:[0m [1m~KK[0m
+
+ Time deposit today[11C[1m:[0m [1m~TD[0m[3CKb deposit today[13C[1m:[0m [1m~KD[0m
+ Time withdrawn today[9C[1m:[0m [1m~TW[0m[3CKb withdrawn today[11C[1m:[0m [1m~KW[0m
+ Max time allowed in time bank[1m:[0m [1m~MA[0m[3CMax kb allowed in kb bank[4C[1m:[0m [1m~MA[0m
+ Max time deposit per day[5C[1m:[0m [1m~MD[0m[3CMax kb withdraw per day[6C[1m:[0m [1m~MK[0m
+ Max time withdraw per day[4C[1m:[0m [1m~MW[0m[3CMax kb deposit per day[7C[1m:[0m [1m~ME[0m
+ Time Left today[14C[1m:[0m [1m%TL[0m[3CDownload kb left today[7C[1m:[0m [1m%DK[0m
+ 
+[0m

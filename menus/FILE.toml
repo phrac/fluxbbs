@@ -1,0 +1,188 @@
+title = "File Menu"
+prompt_name = "file"
+help_file = "FILE"
+prompt = "%%MENUPMT3"
+acs = "s50"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+
+[[command]]
+keys = "+"
+command = "F+"
+acs = "s50"
+desc = "Flag file"
+help = "Add a file to your batch"
+on = "|B1Flag file"
+off = "|B0Flag file"
+
+[[command]]
+keys = "/E"
+command = "*Y"
+acs = "s250"
+desc = "Edit files"
+help = "[sysop] Edit files in current file area"
+on = "|B1Edit files"
+off = "|B0Edit files"
+
+[[command]]
+keys = "/S"
+command = "*S"
+acs = "s250"
+desc = "Sort file areas"
+help = "[sysop] Sort current/all file areas (by default sort spec)"
+on = "|B1Sort file areas"
+off = "|B0Sort file areas"
+
+[[command]]
+keys = "/U"
+command = "*%"
+acs = "s250"
+desc = "Local file upload"
+help = "[sysop] Upload files locally in current file area"
+on = "|B1Local file upload"
+off = "|B0Local file upload"
+
+[[command]]
+keys = "A"
+command = "FC"
+acs = "s25"
+desc = "Change file area"
+help = "Select a new file area from list"
+on = "|B1Change file area"
+off = "|B0Change file area"
+
+[[command]]
+keys = "B"
+command = "FB"
+acs = "s25"
+desc = "Batch edit"
+help = "Add or remove files flagged for download"
+on = "|B1Batch edit"
+off = "|B0Batch edit"
+
+[[command]]
+keys = "D"
+command = "FD"
+acs = "s50"
+desc = "Download"
+help = "Download a file (or file(s) in batch)"
+on = "|B1Download"
+off = "|B0Download"
+
+[[command]]
+keys = "F"
+command = "FF"
+acs = "s50"
+desc = "Filespec search"
+help = "Scan current/all areas for a specified filespec (and list)"
+on = "|B1Filespec search"
+off = "|B0Filespec search"
+
+[[command]]
+keys = "I"
+command = "FI"
+acs = "s50"
+desc = "File information"
+help = "Display information on a specific file"
+on = "|B1File information"
+off = "|B0File information"
+
+[[command]]
+keys = "J"
+command = "FJ"
+param = "List"
+acs = "s25"
+desc = "Join file conf"
+help = "Change to a new file conference"
+on = "|B1Join file conf"
+off = "|B0Join file conf"
+
+[[command]]
+keys = "L"
+command = "FL"
+param = "Ask"
+acs = "s25"
+desc = "List files"
+help = "List files in current file area (if there are any)"
+on = "|B1List files"
+off = "|B0List files"
+
+[[command]]
+keys = "N"
+command = "FN"
+acs = "s50"
+desc = "Newscan areas"
+help = "Scan for new fiiles since your last call (or pointer date)"
+on = "|B1Newscan areas"
+off = "|B0Newscan areas"
+
+[[command]]
+keys = "Q"
+command = "-^"
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the file menu, return to main"
+on = "|B1Quit menu"
+off = "|B0Quit menu"
+
+[[command]]
+keys = "S"
+command = "FS"
+acs = "s25"
+desc = "Set newscan date"
+help = "Update your newscan date pointer to a specific date"
+on = "|B1Set newscan date"
+off = "|B0Set newscan date"
+
+[[command]]
+keys = "T"
+command = "FT"
+acs = "s50"
+desc = "Text search"
+help = "Search current/all file areas for description text"
+on = "|B1Text search"
+off = "|B0Text search"
+
+[[command]]
+keys = "U"
+command = "FU"
+acs = "s50"
+desc = "Upload"
+help = "Upload file(s) to current file area (if possible)"
+on = "|B1Upload"
+off = "|B0Upload"
+
+[[command]]
+keys = "V"
+command = "FV"
+acs = "s50"
+desc = "View archive"
+help = "Examine the contents of an archived file"
+on = "|B1View archive"
+off = "|B0View archive"
+
+[[command]]
+keys = "["
+command = "F["
+acs = "s25"
+desc = "Previous area"
+help = "Change to the previous file area (if possible)"
+on = "|B1Previous area"
+off = "|B0Previous area"
+
+[[command]]
+keys = "]"
+command = "F]"
+acs = "s25"
+desc = "Next area"
+help = "Change to the next file area (if possible)"
+on = "|B1Next area"
+off = "|B0Next area"
+
+[[command]]
+keys = "#"
+command = "F#"
+desc = "Goto Area #"
+help = "None"

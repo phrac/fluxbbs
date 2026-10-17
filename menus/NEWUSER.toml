@@ -1,0 +1,98 @@
+title = "Newuser access"
+prompt_name = "newuser"
+help_file = ""
+prompt = ""
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+upper_input = true
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-F"
+param = "newuser"
+desc = "display a file"
+on = "|B1display a file"
+off = "|B0display a file"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-P"
+desc = "pause .."
+on = "|B1pause .."
+off = "|B0pause .."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-C"
+desc = "clear the screen"
+on = "|B1clear the screen"
+off = "|B0clear the screen"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-L"
+param = "|08l|01on|09g |08d|01istanc|09e |08c|01al|09l |08d|01etecte|09d|08."
+acs = "!k902"
+desc = "check area code.."
+on = "|B1check area code.."
+off = "|B0check area code.."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-L"
+param = "|08a|01ut|09o|08-v|01alidatin|09g |08n|01e|09w |08u|01se|09r |08..."
+acs = "!k902"
+desc = "Do more strings.."
+on = "|B1Do more strings.."
+off = "|B0Do more strings.."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-="
+param = "B"
+acs = "!k902"
+desc = "autovalidate long dist call"
+on = "|B1autovalidate long dist call"
+off = "|B0autovalidate long dist call"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-L"
+param = "|lf|08y|04o|12u |08h|04av|12e |08b|04ee|12n |08v|04alidate|12d|08|lf"
+acs = "!k902"
+desc = "tell user.."
+on = "|B1tell user.."
+off = "|B0tell user.."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-P"
+acs = "!k902"
+desc = "get a key.."
+on = "|B1get a key.."
+off = "|B0get a key.."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-^"
+param = "startup"
+acs = "!k902"
+desc = "proceed to startup.."
+on = "|B1proceed to startup.."
+off = "|B0proceed to startup.."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-L"
+param = "|01thanks for calling, |09%un|08."
+desc = "say bye"
+on = "|B1say bye"
+off = "|B0say bye"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "HI"
+desc = "hangup"
+on = "|B1hangup"
+off = "|B0hangup"

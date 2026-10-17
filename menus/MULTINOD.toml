@@ -1,0 +1,51 @@
+title = "Multinode Interaction"
+prompt_name = "Multinode"
+help_file = "MULTINOD"
+prompt = "%%menupmt1"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "MAIN"
+desc = "Quit"
+help = "Quit current menu"
+on = "|B1Quit"
+off = "|B0Quit"
+
+[[command]]
+keys = "W"
+command = "XL"
+desc = "Who's online?"
+help = "Display a list of users currently online"
+on = "|B1Who's online?"
+off = "|B0Who's online?"
+
+[[command]]
+keys = "M"
+command = "XM"
+desc = "Send message"
+help = "Send a message to another user online on the BBS"
+on = "|B1Send message"
+off = "|B0Send message"
+
+[[command]]
+keys = "C"
+command = "XC"
+acs = "s50"
+desc = "Multinode chat"
+help = "Real-time online multi-user chat between BBS nodes"
+on = "|B1Multinode chat"
+off = "|B0Multinode chat"
+
+[[command]]
+keys = "B"
+command = "XB"
+acs = "s250"
+desc = "Broadcast message"
+help = "[sysop] Broadcast a message to everyone currently online"
+on = "|B1Broadcast message"
+off = "|B0Broadcast message"

@@ -1,0 +1,24 @@
+# Message conferences and areas. Area numbers are positions in this
+# file, from 1. Put an area in conference N with `acs = "cN ..."`.
+
+[[conference]]
+key = "X"
+desc = "New Message Conference"
+
+[email]
+name = "Private Mail"
+file = "EMAIL"
+sponsor = "System Operator"
+acs = ""
+post_acs = ""
+qwk_name = "NewArea"
+
+[[area]]
+name = "New Iniquity Message Area"
+file = "NEWAREA"
+sponsor = "SysOp"
+acs = "s25"
+post_acs = "s50"
+private = true
+anonymous = true
+qwk_name = "NewArea"

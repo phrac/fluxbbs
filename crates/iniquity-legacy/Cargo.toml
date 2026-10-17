@@ -1,0 +1,10 @@
+[package]
+name = "iniquity-legacy"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+
+[dependencies]
+chrono = "0.4.45"
+iniquity-term = { version = "0.1.0", path = "../iniquity-term" }
+thiserror = "2.0.21"

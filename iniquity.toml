@@ -1,0 +1,213 @@
+# Iniquity BBS configuration, imported from the stock 1.00a26r5 install.
+# Paths are relative to this file.
+
+[bbs]
+name = "Iniquity"
+location = "Somewhere, ??"
+phone = "(000)000-0000"
+sysop_alias = "SysOp"
+sysop_name = "System Operator"
+max_nodes = 16
+inactivity_seconds = 180
+
+[ssh]
+listen = "0.0.0.0:2222"
+host_key_dir = "data"
+legacy_algorithms = true
+
+[paths]
+text = "text"
+menus = "menus"
+data = "data"
+strings = "strings.toml"
+msgareas = "msgareas.toml"
+
+[terminal]
+charset = "auto"
+cp437_terms = [
+    "syncterm",
+    "ansi-bbs",
+    "ansi",
+    "pc-ansi",
+    "pcansi",
+    "scoansi",
+    "netrunner",
+]
+
+[acs]
+sysop = "s255"
+cosysop = "s250"
+
+[logon]
+matrix = true
+ask_apply = true
+tries = 5
+system_password = "SYSTEM"
+system_password_acs = "s250"
+start_menu = "STARTUP"
+real_names = false
+time_per_call = false
+
+[newuser]
+password = ""
+verify = true
+alias_format = 2
+page_length = 24
+ask_page_length = true
+hot_keys = true
+ask_hot_keys = true
+expert = false
+ask_expert = true
+pause = true
+ask_pause = true
+quote = true
+ask_quote = true
+yes_no_bars = true
+ask_yes_no_bars = true
+
+[prompts]
+yes = "|U5[|U6Y|U5/|U4n|U5] |U6"
+no = "|U5[|U4y|U5/|U6N|U5] |U6"
+yes_word = "Yes"
+no_word = "No"
+yes_bar = "|U8 Yes |U7 No "
+no_bar = "|U7 Yes |U8 No |U1"
+password_echo = "■"
+remove_pause = true
+
+[messages]
+acs_post_email = "s25"
+acs_anonymous = "s50"
+acs_autosig = "s25"
+abort_mandatory_ok = false
+ask_private = true
+ask_private_reply = true
+ask_post_after_read = true
+ask_delete_replied = true
+ask_delete_all_read = true
+ask_auto_quote = true
+default_quote_lines = true
+max_quote_lines = 11
+mandatory_all_confs = true
+compress_area_numbers = true
+ansi_quote = "(ansi codes detected; line not displayed)"
+
+[[colors]]
+fore = 12
+back = 0
+blink = false
+
+[[colors]]
+fore = 7
+back = 0
+blink = false
+
+[[colors]]
+fore = 8
+back = 0
+blink = false
+
+[[colors]]
+fore = 15
+back = 0
+blink = false
+
+[[colors]]
+fore = 1
+back = 0
+blink = false
+
+[[colors]]
+fore = 8
+back = 0
+blink = false
+
+[[colors]]
+fore = 9
+back = 0
+blink = false
+
+[[colors]]
+fore = 8
+back = 0
+blink = false
+
+[[colors]]
+fore = 8
+back = 7
+blink = false
+
+[[colors]]
+fore = 8
+back = 0
+blink = false
+
+[[colors]]
+fore = 15
+back = 1
+blink = false
+
+[levels.A]
+desc = "New user access level"
+sl = 25
+dsl = 25
+time_limit = 25
+file_points = 0
+post_call = 20
+limit_dl = 5
+limit_dl_kb = 100
+note = "New user access"
+uldl_ratio = 1
+kb_ratio = 10
+
+[levels.B]
+desc = "Normal user access level"
+sl = 50
+dsl = 50
+time_limit = 60
+file_points = 50
+post_call = 20
+limit_dl = 10
+limit_dl_kb = 600
+note = "Normal access"
+uldl_ratio = 5
+kb_ratio = 15
+
+[levels.C]
+desc = "Enhanced user access level"
+sl = 100
+dsl = 100
+time_limit = 80
+file_points = 150
+post_call = 10
+limit_dl = 15
+limit_dl_kb = 1500
+note = "Enhanced access"
+uldl_ratio = 10
+kb_ratio = 30
+
+[levels.D]
+desc = "Co-SysOp access level"
+sl = 250
+dsl = 250
+time_limit = 120
+file_points = 200
+post_call = 0
+limit_dl = 20
+limit_dl_kb = 5000
+note = "Co-SysOp access"
+uldl_ratio = 30
+kb_ratio = 100
+
+[levels.E]
+desc = "SysOp access level"
+sl = 255
+dsl = 255
+time_limit = 999
+file_points = 64000
+post_call = 0
+limit_dl = 64000
+limit_dl_kb = 64000
+note = "SysOp access"
+uldl_ratio = 64000
+kb_ratio = 64000

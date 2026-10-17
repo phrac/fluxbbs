@@ -1,0 +1,76 @@
+//! Checks against a stock r5 install. Point INIQUITY_STOCK at the directory
+//! holding INIQUITY.DAT (e.g. the extracted newinst.exe); skipped if unset.
+
+use std::path::PathBuf;
+
+use iniquity_legacy::*;
+
+fn stock() -> Option<PathBuf> {
+    std::env::var_os("INIQUITY_STOCK").map(PathBuf::from)
+}
+
+#[test]
+fn config() {
+    let Some(dir) = stock() else { return };
+    let c = LegacyConfig::parse(&std::fs::read(dir.join("INIQUITY.DAT")).unwrap()).unwrap();
+    assert_eq!(c.bbs_name, "Iniquity");
+    assert_eq!(c.acs_sysop, "s255");
+    assert_eq!(c.start_menu, "STARTUP");
+    assert_eq!(c.bbs_location, "Somewhere, ??");
+    assert_eq!(c.pmt_yes_word, "Yes");
+    assert_eq!(c.inact_seconds, 180);
+    assert!(c.matrix_login && c.multi_node);
+    assert_eq!((c.acs_post_email.as_str(), c.acs_anonymous.as_str()), ("s25", "s50"));
+    assert_eq!(c.max_quote_lines, 11);
+    assert!(c.ask_post_in_area && c.conf_ignore_msg && c.comp_msg_areas);
+    assert!(c.ansi_string.starts_with("(ansi codes detected"));
+}
+
+#[test]
+fn message_areas() {
+    let Some(dir) = stock() else { return };
+    let areas = LegacyMsgArea::parse_file(&std::fs::read(dir.join("DATA/MSGAREA.DAT")).unwrap()).unwrap();
+    assert_eq!(areas.len(), 1);
+    let a = &areas[0];
+    assert_eq!((a.name.as_str(), a.filename.as_str(), a.acs.as_str(), a.post_acs.as_str()), ("New Iniquity Message Area", "NEWAREA", "s25", "s50"));
+    assert_eq!((a.max_msgs, a.area_type), (200, 1));
+    assert!(a.has(msgarea::flag::PRIVATE) && a.has(msgarea::flag::ANONYMOUS) && !a.has(msgarea::flag::MANDATORY));
+    let email = LegacyMsgArea::parse_file(&std::fs::read(dir.join("DATA/EMAIL.DAT")).unwrap()).unwrap();
+    assert_eq!((email[0].filename.as_str(), email[0].area_type), ("EMAIL", 0));
+    let confs = LegacyConf::parse_file(&std::fs::read(dir.join("DATA/MSGCONF.DAT")).unwrap());
+    assert_eq!((confs[0].desc.as_str(), confs[0].key), ("New Message Conference", 'X'));
+}
+
+#[test]
+fn users() {
+    let Some(dir) = stock() else { return };
+    let users = LegacyUser::parse_file(&std::fs::read(dir.join("DATA/USERS.DAT")).unwrap()).unwrap();
+    let u = &users[0];
+    assert_eq!((u.number, u.user_name.as_str(), u.real_name.as_str()), (1, "SysOp", "System Operator"));
+    assert_eq!((u.sl, u.dsl, u.level, u.page_length), (255, 255, 'E', 24));
+    assert_eq!(u.last_call, "11/24/97");
+    assert_eq!(u.first_call, "10/21/97");
+    assert!(u.has(user::ac::ANSI) && u.has(user::ac::HOT_KEY) && !u.has(user::ac::DELETED));
+}
+
+#[test]
+fn levels_and_strings() {
+    let Some(dir) = stock() else { return };
+    let levels = LegacyLevel::parse_file(&std::fs::read(dir.join("DATA/LEVELS.DAT")).unwrap()).unwrap();
+    let a = levels.iter().find(|l| l.key == 'A').unwrap();
+    assert_eq!((a.sl, a.desc.as_str()), (25, "New user access level"));
+    let s = strings::parse_file(&std::fs::read(dir.join("DATA/STRINGS.DAT")).unwrap());
+    assert_eq!(s.len(), 329);
+    assert_eq!(strings::NAMES[8], "Pause");
+    assert!(s[8].contains("Pa|02use"));
+}
+
+#[test]
+fn menus() {
+    let Some(dir) = stock() else { return };
+    let m = LegacyMenu::parse(&std::fs::read(dir.join("MENU/MATRIX.MNU")).unwrap()).unwrap();
+    assert_eq!((m.menu_type, m.title.as_str()), (3, "Login Matrix"));
+    assert_eq!(m.commands.len(), 5);
+    assert_eq!((m.commands[0].command.as_str(), m.commands[0].keys.as_str()), (">L", "1"));
+    assert!(m.commands[0].on.starts_with("|B1"));
+}

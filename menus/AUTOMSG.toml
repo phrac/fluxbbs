@@ -1,0 +1,46 @@
+title = "AutoMessage Menu"
+prompt_name = "automessage"
+help_file = "AUTOMSG"
+prompt = "%%MENUPMT1"
+acs = "s25"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+upper_input = true
+
+[[command]]
+keys = "Q"
+command = "-^"
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the automessage menu, return to main"
+on = "|B1Quit menu"
+off = "|B0Quit menu"
+
+[[command]]
+keys = "R"
+command = "AR"
+acs = "s50"
+desc = "Reply to automsg"
+help = "Reply to the author of the automessage [private; in email]"
+on = "|B1Reply to automsg"
+off = "|B0Reply to automsg"
+
+[[command]]
+keys = "S"
+command = "AS"
+acs = "s25"
+desc = "Show automessage"
+help = "View the current system automessage"
+on = "|B1Show automessage"
+off = "|B0Show automessage"
+
+[[command]]
+keys = "W"
+command = "AW"
+acs = "s50"
+desc = "Write automessage"
+help = "Replace the current automessage with your own"
+on = "|B1Write automessage"
+off = "|B0Write automessage"

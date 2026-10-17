@@ -1,0 +1,128 @@
+title = "Oneliner Menu"
+prompt_name = "oneliner"
+help_file = "ONELINER"
+prompt = "Command: "
+fallback = "MAIN"
+generic_columns = 3
+clear_before = false
+upper_input = true
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-F"
+param = "ONELNTOP"
+desc = "Display oneliner header"
+on = "|B1Display oneliner header"
+off = "|B0Display oneliner header"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-F"
+param = "ONELNMID"
+desc = "Show oneliners"
+on = "|B1Show oneliners"
+off = "|B0Show oneliners"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-F"
+param = "ONELNBOT"
+desc = "Display oneliner footer"
+on = "|B1Display oneliner footer"
+off = "|B0Display oneliner footer"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?N"
+param = " |12w|04ould |12y|04ou |12l|04ike |12t|04o |12a|04dd |12s|04omething? "
+desc = "Ask if user wants to add a oneliner"
+on = "|B1Ask if user wants to add a oneliner"
+off = "|B0Ask if user wants to add a oneliner"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-E"
+param = "|12|16|CU|CZ e|04nter |12t|04ext |12b|04elow|08.  "
+acs = "*"
+desc = "Move up, clear line, do prompt"
+on = "|B1Move up, clear line, do prompt"
+off = "|B0Move up, clear line, do prompt"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-E"
+param = "|08[|151 |07line only|08, |1570|07 characters|08]|LF|08: |07"
+acs = "*"
+desc = "Do more text"
+on = "|B1Do more text"
+off = "|B0Do more text"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?I"
+param = "*;*;/MN;70"
+acs = "*"
+desc = "If yes, then get input"
+on = "|B1If yes, then get input"
+off = "|B0If yes, then get input"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-E"
+param = "|LF|08» |12s|04aving |12y|04our |12t|04ext |08... |DM|DM"
+acs = "*"
+desc = "Show sig"
+on = "|B1Show sig"
+off = "|B0Show sig"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?/"
+param = "|04=|12"
+acs = "*"
+desc = "Insert oneliner prefix before str"
+on = "|B1Insert oneliner prefix before str"
+off = "|B0Insert oneliner prefix before str"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?+"
+param = "|04= @75|08(|04%ui|08)"
+acs = "*"
+desc = "Add stuff to end"
+on = "|B1Add stuff to end"
+off = "|B0Add stuff to end"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?%"
+acs = "*"
+desc = "Do MCIs"
+on = "|B1Do MCIs"
+off = "|B0Do MCIs"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?T"
+param = "onelnmid.ans;12"
+acs = "*"
+desc = "Add line to onliner textfile"
+on = "|B1Add line to onliner textfile"
+off = "|B0Add line to onliner textfile"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-L"
+param = "|12d|04one|08.|LF|LF"
+acs = "*"
+desc = "Show done saving"
+on = "|B1Show done saving"
+off = "|B0Show done saving"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-^"
+param = "MAIN"
+desc = "Goto main now"
+on = "|B1Goto main now"
+off = "|B0Goto main now"

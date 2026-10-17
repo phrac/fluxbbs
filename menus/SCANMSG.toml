@@ -1,0 +1,108 @@
+title = "Message Newscan menu"
+prompt_name = "newscan"
+help_file = ""
+prompt = ""
+fallback = "MESSAGE"
+generic_columns = 4
+clear_before = false
+show_prompt = false
+upper_input = true
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-C"
+desc = "clear the screen"
+on = "|B1clear the screen"
+off = "|B0clear the screen"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-E"
+param = "%%scanmsg"
+desc = "show file"
+on = "|B1show file"
+off = "|B0show file"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?B"
+param = "new messages;change conference;continue;quit;1"
+desc = "perform xprompt"
+on = "|B1perform xprompt"
+off = "|B0perform xprompt"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-E"
+param = "|LF|LF|LF|LF"
+desc = "do some linefeeds"
+on = "|B1do some linefeeds"
+off = "|B0do some linefeeds"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?U"
+param = "quit"
+desc = "check for quit.."
+on = "|B1check for quit.."
+off = "|B0check for quit.."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-^"
+param = "main"
+acs = "*"
+desc = "if quit then go back.."
+on = "|B1if quit then go back.."
+off = "|B0if quit then go back.."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?U"
+param = "new messages"
+desc = "check for new messages"
+on = "|B1check for new messages"
+off = "|B0check for new messages"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "MN"
+param = "All"
+acs = "*"
+desc = "if yes, then newscan"
+on = "|B1if yes, then newscan"
+off = "|B0if yes, then newscan"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?U"
+param = "change conference"
+desc = "check for confs"
+on = "|B1check for confs"
+off = "|B0check for confs"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "MJ"
+param = "List"
+acs = "*"
+desc = "if yes, then change conf .."
+on = "|B1if yes, then change conf .."
+off = "|B0if yes, then change conf .."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-^"
+param = "SCANMSG"
+acs = "*"
+desc = ".. but return to scanmsg"
+on = "|B1.. but return to scanmsg"
+off = "|B0.. but return to scanmsg"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-^"
+param = "MESSAGE"
+desc = "goto the msg menu"
+on = "|B1goto the msg menu"
+off = "|B0goto the msg menu"

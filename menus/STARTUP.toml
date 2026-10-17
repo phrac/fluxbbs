@@ -1,0 +1,115 @@
+title = "Iniquity Startup Menu"
+prompt_name = "startup"
+help_file = "STARTUP"
+prompt = ""
+fallback = "MAIN"
+generic_columns = 3
+clear_before = false
+show_prompt = false
+upper_input = true
+
+[[command]]
+keys = "FIRSTCMD"
+command = "IM"
+desc = "Check for infoforms"
+help = "None"
+on = "|B1Check for infoforms"
+off = "|B0Check for infoforms"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "EC"
+desc = "Scan for waiting mail"
+on = "|B1Scan for waiting mail"
+off = "|B0Scan for waiting mail"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-^"
+param = "NEWUSER"
+acs = "!s50"
+desc = "Check if new user..."
+on = "|B1Check if new user..."
+off = "|B0Check if new user..."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "NV"
+acs = "s50"
+desc = "Do new user voting (if enabled)"
+on = "|B1Do new user voting (if enabled)"
+off = "|B0Do new user voting (if enabled)"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "LC"
+desc = "Display last callers"
+on = "|B1Display last callers"
+off = "|B0Display last callers"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-P"
+desc = "[pause]"
+on = "|B1[pause]"
+off = "|B0[pause]"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "MM"
+desc = "Scan for mandatory messages"
+on = "|B1Scan for mandatory messages"
+off = "|B0Scan for mandatory messages"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "XL"
+desc = "Show who's online"
+on = "|B1Show who's online"
+off = "|B0Show who's online"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-P"
+desc = "[pause]"
+on = "|B1[pause]"
+off = "|B0[pause]"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "AS"
+desc = "Display automessage"
+on = "|B1Display automessage"
+off = "|B0Display automessage"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?N"
+param = "|u2:|u1:|u3: |u1Change the automessage|u2? "
+desc = "Ask change automessage"
+on = "|B1Ask change automessage"
+off = "|B0Ask change automessage"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "AW"
+acs = "*"
+desc = "If OkFlag set, alter automessage"
+on = "|B1If OkFlag set, alter automessage"
+off = "|B0If OkFlag set, alter automessage"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-F"
+param = "USERSTAT"
+desc = "Display user's statistics"
+on = "|B1Display user's statistics"
+off = "|B0Display user's statistics"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-^"
+param = "ONELINER"
+desc = "Goto oneliners ..."
+on = "|B1Goto oneliners ..."
+off = "|B0Goto oneliners ..."

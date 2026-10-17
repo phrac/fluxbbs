@@ -1,0 +1,44 @@
+type = "lightbar"
+title = "Login Matrix"
+prompt_name = "matrix"
+help_file = "MATRIX"
+prompt = ""
+fallback = "MAIN"
+generic_columns = 3
+upper_input = true
+
+[[command]]
+keys = "1"
+command = ">L"
+desc = "  |15l|07ogon |15t|07o |15b|07bs  "
+on = "|B1  |15l|07ogon |15t|07o |15b|07bs  "
+off = "|B0  |15l|07ogon |15t|07o |15b|07bs  "
+
+[[command]]
+keys = "2"
+command = "EE"
+param = "1;Matrix feedback;No"
+desc = " |15l|07eave |15f|07eedback "
+on = "|B1 |15l|07eave |15f|07eedback "
+off = "|B0 |15l|07eave |15f|07eedback "
+
+[[command]]
+keys = "3"
+command = ">H"
+desc = "   |15l|07ogoff |15b|07bs   "
+on = "|B1   |15l|07ogoff |15b|07bs   "
+off = "|B0   |15l|07ogoff |15b|07bs   "
+
+[[command]]
+keys = "4"
+command = ">A"
+desc = "  |15a|07pply |15a|07s |15n|07ew  "
+on = "|B1  |15a|07pply |15a|07s |15n|07ew  "
+off = "|B0  |15a|07pply |15a|07s |15n|07ew  "
+
+[[command]]
+keys = "5"
+command = ">C"
+desc = "   |15p|07age |15s|07ysop   "
+on = "|B1   |15p|07age |15s|07ysop   "
+off = "|B0   |15p|07age |15s|07ysop   "

@@ -1,0 +1,169 @@
+title = "Online Games menu"
+prompt_name = "online games"
+help_file = "DOOR"
+prompt = "%%MENUPMT1"
+acs = "s50"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+upper_input = true
+
+[[command]]
+keys = "1"
+command = "DZ"
+param = "LORD.BAT"
+acs = "s50"
+desc = "LORD"
+help = "Legend of the Red Dragon"
+on = "|B1LORD"
+off = "|B0LORD"
+
+[[command]]
+keys = "2"
+command = "D1"
+param = "BRE.BAT"
+acs = "s50"
+desc = "BRE"
+help = "Barren Realms Elite"
+on = "|B1BRE"
+off = "|B0BRE"
+
+[[command]]
+keys = "3"
+command = "D1"
+param = "USURPER.BAT"
+acs = "s50"
+desc = "Usurper"
+help = "Usurper"
+on = "|B1Usurper"
+off = "|B0Usurper"
+
+[[command]]
+keys = "4"
+command = "D1"
+param = "TW2002.BAT"
+acs = "s50"
+desc = "TradeWars 2002"
+help = "TradeWars 2002"
+on = "|B1TradeWars 2002"
+off = "|B0TradeWars 2002"
+
+[[command]]
+keys = "5"
+command = "D1"
+param = "YANK.BAT"
+acs = "s50"
+desc = "Yankees & Rednecks"
+help = "Yankees and Rednecks"
+on = "|B1Yankees & Rednecks"
+off = "|B0Yankees & Rednecks"
+
+[[command]]
+keys = "6"
+command = "D1"
+param = "HACK.BAT"
+acs = "s50"
+desc = "BBS Hacker"
+help = "BBS Hacker"
+on = "|B1BBS Hacker"
+off = "|B0BBS Hacker"
+
+[[command]]
+keys = "7"
+command = "D1"
+param = "LORE.BAT"
+acs = "s50"
+desc = "LORE"
+help = "LORE"
+on = "|B1LORE"
+off = "|B0LORE"
+
+[[command]]
+keys = "8"
+command = "D1"
+param = "ICE.BAT"
+acs = "s50"
+desc = "Steel & Ice"
+help = "Steel & Ice"
+on = "|B1Steel & Ice"
+off = "|B0Steel & Ice"
+
+[[command]]
+keys = "9"
+command = "D1"
+param = "MECH.BAT"
+acs = "s50"
+desc = "MechWars"
+help = "MechWars"
+on = "|B1MechWars"
+off = "|B0MechWars"
+
+[[command]]
+keys = "A"
+command = "D1"
+param = "OUTPOST.BAT"
+acs = "s250"
+desc = "Outpost Trader"
+help = "Outpost Trader"
+on = "|B1Outpost Trader"
+off = "|B0Outpost Trader"
+
+[[command]]
+keys = "B"
+command = "D1"
+param = "ARROW.BAT"
+acs = "s50"
+desc = "ArrowBridge"
+help = "ArrowBridge"
+on = "|B1ArrowBridge"
+off = "|B0ArrowBridge"
+
+[[command]]
+keys = "C"
+command = "D1"
+param = "KOMBAT.BAT"
+acs = "s50"
+desc = "iMMortal Combat"
+help = "iMMortal Combat"
+on = "|B1iMMortal Combat"
+off = "|B0iMMortal Combat"
+
+[[command]]
+keys = "D"
+command = "D1"
+param = "GLOBAL.BAT"
+acs = "s50"
+desc = "Global Wars"
+help = "Global Wars"
+on = "|B1Global Wars"
+off = "|B0Global Wars"
+
+[[command]]
+keys = "E"
+command = "D1"
+param = "BORD.BAT"
+acs = "s50&a16"
+desc = "Bordelo"
+help = "Bordelo"
+on = "|B1Bordelo"
+off = "|B0Bordelo"
+
+[[command]]
+keys = "F"
+command = "D1"
+param = "TEOS.BAT"
+acs = "s50"
+desc = "Planets: TEOS"
+help = "Planets: TEOS"
+on = "|B1Planets: TEOS"
+off = "|B0Planets: TEOS"
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "main"
+desc = "Quit menu"
+help = "Exit the doors menu, return to previous"
+on = "|B1Quit menu"
+off = "|B0Quit menu"

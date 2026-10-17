@@ -1,0 +1,42 @@
+title = "File Newscan Menu"
+prompt_name = "newscan"
+help_file = "SCANFILE"
+prompt = "Command: "
+fallback = "MAIN"
+generic_columns = 3
+clear_before = false
+pause_before = true
+upper_input = true
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-C"
+desc = "clear the screen"
+on = "|B1clear the screen"
+off = "|B0clear the screen"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "?Y"
+param = "|09S|01can |09f|01or |09n|01ew |09f|01iles |08[|01since |09%FS|08] ? "
+desc = "display prompt, get yes/no"
+help = "(default to yes)"
+on = "|B1display prompt, get yes/no"
+off = "|B0display prompt, get yes/no"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "FN"
+param = "all"
+acs = "*"
+desc = "scan for new files if yes"
+on = "|B1scan for new files if yes"
+off = "|B0scan for new files if yes"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-^"
+param = "FILE"
+desc = "goto the file menu"
+on = "|B1goto the file menu"
+off = "|B0goto the file menu"

@@ -1,0 +1,45 @@
+title = "New Iniquity Menu"
+prompt_name = "Timebank"
+help_file = "TIMEBANK"
+prompt = "|07Command|08:"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+
+[[command]]
+keys = "D"
+command = "!D"
+desc = "Deposit time"
+help = "Deposit time in time bank"
+
+[[command]]
+keys = "W"
+command = ""
+desc = "Withdraw time"
+help = "Withdraw time from time bank"
+
+[[command]]
+keys = "/D"
+command = "!E"
+desc = "Deposit kb"
+help = "Deposit download kbytes in bank"
+
+[[command]]
+keys = "/W"
+command = "!I"
+desc = "Withdraw kb"
+help = "Withdraw download kbytes from bank"
+
+[[command]]
+keys = "S"
+command = "!V"
+desc = "Stats"
+help = "View time bank stats"
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "MAIN"
+desc = "Quit"
+help = "Quit current menu"
