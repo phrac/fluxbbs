@@ -164,6 +164,15 @@ pub struct NewUser {
     pub ask_quote: bool,
     pub yes_no_bars: bool,
     pub ask_yes_no_bars: bool,
+    /// Which personal details the application asks for. Without a real
+    /// name, the handle is used.
+    pub ask_real_name: bool,
+    pub ask_birth_date: bool,
+    pub ask_phone: bool,
+    pub ask_address: bool,
+    /// City, country/state and zip code.
+    pub ask_location: bool,
+    pub ask_sex: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -445,6 +454,12 @@ impl Default for NewUser {
             ask_quote: true,
             yes_no_bars: true,
             ask_yes_no_bars: true,
+            ask_real_name: true,
+            ask_birth_date: true,
+            ask_phone: true,
+            ask_address: true,
+            ask_location: true,
+            ask_sex: true,
         }
     }
 }

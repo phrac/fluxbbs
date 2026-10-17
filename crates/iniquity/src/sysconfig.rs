@@ -131,6 +131,14 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('G', "Password echo", 1, "Character shown for each typed password letter.", Char(|c| &mut c.prompts.password_echo)),
             set('H', "Erase pauses", 3, "Erase \"pause\" prompts after a key?", Bool(|c| &mut c.prompts.remove_pause)),
         ]),
+        ("New User Questions", false, vec![
+            set('A', "Real name", 3, "Ask for a real name? (If not, the handle is used.)", Bool(|c| &mut c.newuser.ask_real_name)),
+            set('B', "Birth date", 3, "Ask for a date of birth? (ACS age checks need it.)", Bool(|c| &mut c.newuser.ask_birth_date)),
+            set('C', "Phone number", 3, "Ask for a voice phone number?", Bool(|c| &mut c.newuser.ask_phone)),
+            set('D', "Street address", 3, "Ask for a street address?", Bool(|c| &mut c.newuser.ask_address)),
+            set('E', "Location", 3, "Ask for city, country/state and zip code?", Bool(|c| &mut c.newuser.ask_location)),
+            set('F', "Gender", 3, "Ask for gender?", Bool(|c| &mut c.newuser.ask_sex)),
+        ]),
         ("New User Voting", false, vec![
             set('A', "Use NUV", 3, "Do existing users vote new users in or out?", Bool(|c| &mut c.nuv.enabled)),
             set('B', "Yes votes", 3, "Yes votes that validate a new user.", Num(|c| c.nuv.votes_yes as u64, |c, v| c.nuv.votes_yes = v as u8, 1, 255)),

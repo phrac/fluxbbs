@@ -54,7 +54,7 @@ last_callers = 10
 [newuser]
 password = ""
 verify = true
-alias_format = 2
+alias_format = 1
 page_length = 24
 ask_page_length = true
 hot_keys = true
@@ -67,6 +67,12 @@ quote = true
 ask_quote = true
 yes_no_bars = true
 ask_yes_no_bars = true
+ask_real_name = false
+ask_birth_date = false
+ask_phone = false
+ask_address = false
+ask_location = false
+ask_sex = false
 
 [prompts]
 yes = "|U5[|U6Y|U5/|U4n|U5] |U6"

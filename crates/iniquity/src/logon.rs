@@ -207,6 +207,7 @@ impl Session {
     pub(crate) async fn apply(&mut self) -> io::Result<()> {
         let cfg = self.state.config();
         let (nu_pw, verify, real_names) = (cfg.newuser.password.clone(), cfg.newuser.verify, cfg.logon.real_names);
+        let nu = cfg.newuser.clone();
         let case = Case::from_alias_format(cfg.newuser.alias_format);
         self.show_file("APPLY").await?;
         if verify {
@@ -228,6 +229,17 @@ impl Session {
         }
 
         let mut u = User { palette: self.state.config().colors.clone(), ..User::default() };
+        // Details the application doesn't ask for are left blank, not
+        // filled with placeholders that would show in user lists.
+        if !nu.ask_phone {
+            u.phone.clear();
+        }
+        if !nu.ask_address {
+            u.address.clear();
+        }
+        if !nu.ask_location {
+            u.location.clear();
+        }
         if !real_names {
             loop {
                 self.say("NuHandle").await?;
@@ -243,47 +255,91 @@ impl Session {
                 }
             }
         }
-        loop {
-            self.say("NuName").await?;
-            let n = self.read_string(ReadOpts::new(36).case(Case::Mixed).required()).await?;
-            self.newline();
-            if n.starts_with(|c: char| c.is_ascii_digit()) {
-                self.say_line("NuBadName").await?;
-            } else if !n.contains(' ') {
-                self.say_line("NuFullName").await?;
-            } else if self.name_taken(&n)? {
-                self.say_line("NuDupUser").await?;
-            } else {
-                u.real_name = n;
-                break;
+        if real_names || nu.ask_real_name {
+            loop {
+                self.say("NuName").await?;
+                let n = self.read_string(ReadOpts::new(36).case(Case::Mixed).required()).await?;
+                self.newline();
+                if n.starts_with(|c: char| c.is_ascii_digit()) {
+                    self.say_line("NuBadName").await?;
+                } else if !n.contains(' ') {
+                    self.say_line("NuFullName").await?;
+                } else if self.name_taken(&n)? {
+                    self.say_line("NuDupUser").await?;
+                } else {
+                    u.real_name = n;
+                    break;
+                }
             }
         }
         if real_names {
             u.handle = u.real_name.clone();
+        } else if !nu.ask_real_name {
+            u.real_name = u.handle.clone();
         }
 
         let today = Local::now().date_naive();
-        loop {
-            self.say("NuBirthDate").await?;
-            let s = self.read_string(ReadOpts::new(8).allowed("0123456789/").required()).await?;
-            self.newline();
-            u.birth_date = parse_date(&s);
-            match u.age(today) {
-                Some(3..=90) => break,
-                _ => self.say_line("NuBadBirth").await?,
+        if nu.ask_birth_date {
+            loop {
+                self.say("NuBirthDate").await?;
+                let s = self.read_string(ReadOpts::new(8).allowed("0123456789/").required()).await?;
+                self.newline();
+                u.birth_date = parse_date(&s);
+                match u.age(today) {
+                    Some(3..=90) => break,
+                    _ => self.say_line("NuBadBirth").await?,
+                }
             }
         }
-        let age = u.age(today).unwrap_or(0).to_string();
-        let s = self.strings().fmt("NuYourAgeIs", &[&age]);
-        self.show_line(&s).await?;
+        if let Some(age) = u.age(today) {
+            let s = self.strings().fmt("NuYourAgeIs", &[&age.to_string()]);
+            self.show_line(&s).await?;
+        }
 
-        self.say("NuPhoneNum").await?;
-        let digits = self.read_string(ReadOpts::new(10).allowed(DIGITS)).await?;
+        if nu.ask_phone {
+            self.say("NuPhoneNum").await?;
+            let digits = self.read_string(ReadOpts::new(10).allowed(DIGITS)).await?;
+            self.newline();
+            u.phone = format_phone(&digits);
+        }
+        if nu.ask_address {
+            self.say("NuAddress").await?;
+            u.address = self.read_string(ReadOpts::new(36).case(Case::Mixed)).await?;
+            self.newline();
+        }
+        if nu.ask_location {
+            self.ask_location(&mut u).await?;
+        }
+        if nu.ask_sex {
+            self.say("NuAskSex").await?;
+            u.sex = loop {
+                if let Some(c @ ('M' | 'F')) = self.read_key().await?.upper() { break c }
+            };
+            self.write(if u.sex == 'M' { "Male" } else { "Female" });
+            self.newline();
+        }
+        self.new_user_prefs(&mut u).await?;
+        let pw = self.ask_new_password("NuPassword", "NuSmallPassword", "NuValidatePW", "NuPWnoMatch").await?;
+        u.set_password(&pw);
+
+        u.first_call = Some(today);
+        u.last_call = None;
+        u.start_menu = self.state.config().logon.start_menu.clone();
+        if let Some(level) = self.state.level('A') {
+            u.apply_level('A', &level);
+        }
+        self.say("NuSavingInfo").await?;
         self.newline();
-        u.phone = format_phone(&digits);
-        self.say("NuAddress").await?;
-        u.address = self.read_string(ReadOpts::new(36).case(Case::Mixed)).await?;
-        self.newline();
+        self.state.users.insert(&mut u).map_err(io::Error::other)?;
+        tracing::info!("new user {} (#{}) applied", u.handle, u.id);
+        self.user = u;
+        self.logged_in = true;
+        self.new_user = true;
+        Ok(())
+    }
+
+    /// City, country, state and zip code.
+    async fn ask_location(&mut self, u: &mut User) -> io::Result<()> {
         self.say("NuLocation").await?;
         let city = self.read_string(ReadOpts::new(36).case(Case::Mixed)).await?;
         self.newline();
@@ -316,14 +372,11 @@ impl Session {
         self.show(&s).await?;
         u.zip_code = self.read_string(ReadOpts::new(10).case(Case::Upper)).await?;
         self.newline();
+        Ok(())
+    }
 
-        self.say("NuAskSex").await?;
-        u.sex = loop {
-            if let Some(c @ ('M' | 'F')) = self.read_key().await?.upper() { break c }
-        };
-        self.write(if u.sex == 'M' { "Male" } else { "Female" });
-        self.newline();
-
+    /// Screen and menu preferences (the `ask_*` toggles in [newuser]).
+    async fn new_user_prefs(&mut self, u: &mut User) -> io::Result<()> {
         let nu = &self.state.config().newuser;
         let (page_len, ask_page) = (nu.page_length, nu.ask_page_length);
         let toggles = [
@@ -349,23 +402,6 @@ impl Session {
             }
         }
         [u.hot_keys, u.expert, u.pause, u.quote, u.yes_no_bars] = answers;
-
-        let pw = self.ask_new_password("NuPassword", "NuSmallPassword", "NuValidatePW", "NuPWnoMatch").await?;
-        u.set_password(&pw);
-
-        u.first_call = Some(today);
-        u.last_call = None;
-        u.start_menu = self.state.config().logon.start_menu.clone();
-        if let Some(level) = self.state.level('A') {
-            u.apply_level('A', &level);
-        }
-        self.say("NuSavingInfo").await?;
-        self.newline();
-        self.state.users.insert(&mut u).map_err(io::Error::other)?;
-        tracing::info!("new user {} (#{}) applied", u.handle, u.id);
-        self.user = u;
-        self.logged_in = true;
-        self.new_user = true;
         Ok(())
     }
 
