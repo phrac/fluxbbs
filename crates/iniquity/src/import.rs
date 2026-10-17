@@ -9,6 +9,8 @@
 //! | DATA\USERS.DAT        | data/iniquity.db            |
 //! | DATA\MSGAREA.DAT etc. | msgareas.toml               |
 //! | MSGS\*.HDR, *.DAT     | data/iniquity.db            |
+//! | DATA\FILEAREA.DAT etc.| fileareas.toml              |
+//! | DATA\*.DIR, FILEDESC  | data/iniquity.db            |
 //! | MENU\*.MNU            | menus/*.toml                |
 //! | TEXT\*                | text/                       |
 
@@ -16,11 +18,13 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use iniquity_legacy::msgarea::{flag, status};
-use iniquity_legacy::{LegacyConf, LegacyConfig, LegacyLevel, LegacyMenu, LegacyMsgArea, LegacyMsgHeader, LegacyUser, strings, user::ac};
+use iniquity_legacy::{LegacyConf, LegacyConfig, LegacyFile, LegacyFileArea, LegacyLevel, LegacyMenu, LegacyMsgArea, LegacyMsgHeader, LegacyUser, strings, user::ac};
 use iniquity_term::Palette;
 
 use crate::config::{self, Config, Level};
 use crate::menu::{Command, Menu, MenuType, Mode};
+use crate::fileareas::{FileArea, FileAreas};
+use crate::filebase::{FileBase, FileRec};
 use crate::msgareas::{Conf, MsgArea, MsgAreas};
 use crate::msgbase::{Message, MsgBase, Party};
 use crate::session::find_ci;
@@ -157,6 +161,71 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
         }
     }
     println!("imported {n} messages");
+
+    // File conferences, areas and records. The files themselves stay where
+    // they are: DOS paths can't be carried over.
+    let mut fareas = FileAreas::default();
+    if let Some(buf) = read("FILECONF.DAT")? {
+        let confs: Vec<Conf> =
+            LegacyConf::parse_file(&buf).into_iter().map(|c| Conf { key: c.key, desc: c.desc, acs: c.acs }).collect();
+        if !confs.is_empty() {
+            fareas.confs = confs;
+        }
+    }
+    let legacy_areas = match read("FILEAREA.DAT")? {
+        Some(buf) => LegacyFileArea::parse_file(&buf)?,
+        None => Vec::new(),
+    };
+    if !legacy_areas.is_empty() {
+        fareas.areas = legacy_areas
+            .iter()
+            .map(|a| FileArea {
+                name: a.name.clone(),
+                file: a.filename.to_ascii_uppercase(),
+                path: format!("files/{}", a.filename.to_ascii_lowercase()).into(),
+                sponsor: a.sponsor.clone(),
+                acs: a.acs.clone(),
+                upload_acs: a.acs_upload.clone(),
+                download_acs: a.acs_download.clone(),
+                password: a.password.clone(),
+            })
+            .collect();
+    }
+    let out = dest.join("fileareas.toml");
+    std::fs::write(&out, fareas.to_toml())?;
+    println!("wrote {} ({} areas, {} conferences)", out.display(), fareas.areas.len(), fareas.confs.len());
+    let fbase = FileBase::open(&db_path)?;
+    let descs = read("FILEDESC.DAT")?.unwrap_or_default();
+    for (area, legacy) in fareas.areas.iter().zip(&legacy_areas) {
+        std::fs::create_dir_all(dest.join(&area.path))?;
+        let Some(buf) = read(&format!("{}.DIR", area.file))? else { continue };
+        let files = LegacyFile::parse_file(&buf)?;
+        for (i, f) in files.iter().enumerate() {
+            let mut rec = FileRec {
+                area: area.file.clone(),
+                num: i as u32 + 1,
+                name: f.filename.clone(),
+                size: f.size.max(0) as u64,
+                date: parse_date(&f.date),
+                uploader: f.uploader.clone(),
+                uploaded: parse_date(&f.ul_date),
+                downloads: f.downloads as u32,
+                points: f.file_points as u32,
+                valid: f.valid,
+                description: f.description(&descs),
+            };
+            fbase.add(&mut rec)?;
+        }
+        if !files.is_empty() {
+            println!(
+                "imported {} file records for {}; copy the files from {} into {}",
+                files.len(),
+                area.name,
+                legacy.path,
+                dest.join(&area.path).display()
+            );
+        }
+    }
     Ok(())
 }
 
@@ -220,6 +289,22 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
     m.mandatory_all_confs = c.conf_ignore_msg;
     m.compress_area_numbers = c.comp_msg_areas;
     m.ansi_quote = c.ansi_string.clone();
+    let f = &mut cfg.files;
+    f.use_file_points = c.use_file_points;
+    f.kb_per_point = c.kb_per_file_point;
+    f.upload_points_percent = c.file_points_per;
+    f.use_daily_limit = c.use_dl_limit;
+    f.use_daily_kb_limit = c.use_dl_kb_limit;
+    f.use_ratio = c.use_uldl_ratio;
+    f.use_kb_ratio = c.use_kb_ratio;
+    f.auto_validate = c.auto_validate;
+    f.allow_blind_upload = c.allow_blind;
+    f.upload_dupe_check = c.ul_search;
+    f.import_descriptions = c.import_descs;
+    f.description_files = [&c.file_desc1, &c.file_desc2].into_iter().filter(|s| !s.is_empty()).cloned().collect();
+    f.no_description = c.no_desc_line.clone();
+    f.wrap_descriptions = c.desc_wrap;
+    f.advance_bar_on_flag = c.adv_file_bar;
     cfg.levels = if levels.is_empty() {
         config::default_levels()
     } else {
@@ -389,6 +474,7 @@ fn convert_user(l: &LegacyUser) -> User {
         autosig: l.autosig.clone(),
         vote_yes: l.vote_yes as u32,
         vote_no: l.vote_no as u32,
+        file_scan: parse_date(&l.file_scan),
     };
     u.set_password(&l.password);
     u

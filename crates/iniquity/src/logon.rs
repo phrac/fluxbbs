@@ -180,12 +180,18 @@ impl Session {
             u.calls_today += 1;
         }
         u.total_calls += 1;
+        // New files are those since the last call.
+        if u.last_call.is_some() {
+            u.file_scan = u.last_call;
+        }
         u.first_call.get_or_insert(today);
         u.last_call = Some(today);
         // confLoad / maFindAreaWithAccess
         let confs = self.state.areas.confs.len().max(1) as u32;
         u.conf_msg = u.conf_msg.clamp(1, confs);
+        u.conf_file = u.conf_file.clamp(1, self.state.fareas.confs.len().max(1) as u32);
         self.find_area_with_access();
+        self.find_farea_with_access();
         self.time_on = Instant::now();
         if let Err(e) = self.state.users.save(&self.user) {
             tracing::error!("saving {}: {e}", self.user.handle);

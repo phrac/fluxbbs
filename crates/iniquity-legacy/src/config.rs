@@ -82,6 +82,24 @@ pub struct LegacyConfig {
     pub comp_msg_areas: bool,
     /// Shown in place of quoted lines that contain ANSI codes.
     pub ansi_string: String,
+    pub kb_per_file_point: u16,
+    pub use_file_points: bool,
+    pub import_descs: bool,
+    pub use_dl_limit: bool,
+    pub use_dl_kb_limit: bool,
+    pub no_desc_line: String,
+    /// 1 none, 2 this area, 3 all areas, 4 all conferences.
+    pub ul_search: u8,
+    pub auto_validate: bool,
+    /// Percent of a file's points awarded to the uploader.
+    pub file_points_per: u16,
+    pub use_uldl_ratio: bool,
+    pub use_kb_ratio: bool,
+    pub file_desc1: String,
+    pub file_desc2: String,
+    pub desc_wrap: bool,
+    pub adv_file_bar: bool,
+    pub allow_blind: bool,
 }
 
 impl LegacyConfig {
@@ -154,14 +172,28 @@ impl LegacyConfig {
         r.skip(1 + 41 + 21 * 2); // iniqAsDoor, pathAtch, acsAttach*
         let conf_ignore_msg = r.bool();
         let comp_msg_areas = r.bool();
-        r.skip(2 + 2 + 4); // compFileAreas .. useDLkbLimit
+        r.skip(2); // compFileAreas, RestoreChatTime
+        let kb_per_file_point = r.u16();
+        let use_file_points = r.bool();
+        let import_descs = r.bool();
+        let use_dl_limit = r.bool();
+        let use_dl_kb_limit = r.bool();
         let bbs_location = r.string(40);
-        r.skip(9 + 13 * 3 + 41 + 2 + 51 + 2 + 2); // qwk*, noDescLine, waitConnect, modemReInit
+        r.skip(9 + 13 * 3 + 41 + 2); // qwk*
+        let no_desc_line = r.string(50);
+        r.skip(2 + 2); // waitConnect, modemReInit
         let light_char = r.char();
         let light_char_ok = r.char();
         let light_char_fail = r.char();
-        r.skip(51 + 3 + 13 * 3 + 3 + 2 + 2); // virusScan .. useKbRatio
-        r.skip(14 * 2 + 1 + 41 + 1); // fileDesc1/2, useTextLibs, pathLibs, echomailLev
+        r.skip(51 + 3 + 13 * 3 + 1); // virusScan .. extMaint
+        let ul_search = r.u8();
+        let auto_validate = r.bool();
+        let file_points_per = r.u16();
+        let use_uldl_ratio = r.bool();
+        let use_kb_ratio = r.bool();
+        let file_desc1 = r.string(13);
+        let file_desc2 = r.string(13);
+        r.skip(1 + 41 + 1); // useTextLibs, pathLibs, echomailLev
         let new_config = r.bool();
         let new_verify = r.bool();
         let pmt_yes = r.string(30);
@@ -170,16 +202,18 @@ impl LegacyConfig {
         let pmt_no_word = r.string(20);
         let pmt_yes_bar = r.string(30);
         let pmt_no_bar = r.string(30);
-        r.skip(1); // descWrap
+        let desc_wrap = r.bool();
         let chat_start = r.string(5);
         let chat_end = r.string(5);
-        r.skip(21 + 1); // chatOverAcs, advFileBar
+        r.skip(21); // chatOverAcs
+        let adv_file_bar = r.bool();
         let inact_time = r.bool();
         r.skip(1); // inactInChat
         let inact_seconds = r.u16();
         let inact_warning = r.u16();
         let ansi_string = r.string(75);
-        r.skip(4); // pageAskEmail, soundRestrict, inactLocal, allowBlind
+        r.skip(3); // pageAskEmail, soundRestrict, inactLocal
+        let allow_blind = r.bool();
         r.skip(2 + 21 * 2 + 2); // nuvVotesYes/No, nuvAccess, nuvVoteAccess, nuvInitials, nuvUserLevel
         let nuv_validation = r.bool();
         let multi_node = r.bool();
@@ -198,6 +232,9 @@ impl LegacyConfig {
             acs_anonymous, acs_upload_message, acs_autosig, abort_mandatory_ok, ask_private_msg,
             ask_private_reply, ask_post_in_area, ask_kill_msg, ask_kill_all_msg, ask_auto_quote,
             default_quote_num, max_quote_lines, conf_ignore_msg, comp_msg_areas, ansi_string,
+            kb_per_file_point, use_file_points, import_descs, use_dl_limit, use_dl_kb_limit,
+            no_desc_line, ul_search, auto_validate, file_points_per, use_uldl_ratio, use_kb_ratio,
+            file_desc1, file_desc2, desc_wrap, adv_file_bar, allow_blind,
         })
     }
 }

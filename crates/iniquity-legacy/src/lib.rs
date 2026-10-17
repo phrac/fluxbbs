@@ -7,6 +7,7 @@
 //! lightbar fields (see [`menu`]).
 
 pub mod config;
+pub mod filearea;
 pub mod level;
 pub mod menu;
 pub mod msgarea;
@@ -15,6 +16,7 @@ pub mod strings;
 pub mod user;
 
 pub use config::LegacyConfig;
+pub use filearea::{LegacyFile, LegacyFileArea};
 pub use level::LegacyLevel;
 pub use menu::{LegacyCommand, LegacyMenu};
 pub use msgarea::{LegacyConf, LegacyMsgArea, LegacyMsgHeader};

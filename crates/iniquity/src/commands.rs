@@ -13,8 +13,7 @@ use crate::session::Session;
 /// rather than "invalid command", so stock menus degrade honestly.
 const NOT_YET: &[&str] = &[
     "?I", "?T", "AR", "AS", "AW", "SD", "SE", "SS", "SU", "BA", "BC", "BD", "BL", "BS", "D0", "D1",
-    "D2", "D3", "DZ", "E+", "E-", "E/", "E\\", "F[", "F]", "F+", "FA", "FC", "FD", "FF", "FI", "FJ",
-    "FL", "FN", "FS", "FT", "FU", "FV", "FZ", "F#", "IM", "IN", "LC", "LH", "M#", "NV", "QD", "QU",
+    "D2", "D3", "DZ", "E+", "E-", "E/", "E\\", "F#", "IM", "IN", "LC", "LH", "M#", "NV", "QD", "QU",
     "TP", "TS", "UC", "XC", "XM", "XB", "XS", "CP", ">C", "!D", "!W", "!E", "!I", "!V", "-X",
 ];
 
@@ -160,8 +159,8 @@ impl Session {
             }
             "M[" => self.step_area(false).await?,
             "M]" => self.step_area(true).await?,
-            "MJ" => self.select_conf(param).await?,
-            "MZ" => self.list_confs().await?,
+            "MJ" => self.select_conf(true, param).await?,
+            "MZ" => self.list_confs(true).await?,
             "MN" => self.newscan_cmd(param).await?,
             "MM" => self.mandatory_scan(param).await?,
             "MP" => {
@@ -176,6 +175,34 @@ impl Session {
                 }
             }
             "MS" => self.set_pointer_date().await?,
+
+            // -- files
+            "FA" => self.list_fareas(false).await?,
+            "FC" => {
+                let ok = match param.trim().parse::<u32>() {
+                    Ok(n) => self.change_farea(n).await?,
+                    Err(_) => false,
+                };
+                if !ok {
+                    self.list_fareas(true).await?;
+                }
+            }
+            "F[" => self.step_farea(false).await?,
+            "F]" => self.step_farea(true).await?,
+            "FJ" => self.select_conf(false, param).await?,
+            "FZ" => self.list_confs(false).await?,
+            "FL" => self.list_files_cmd(param).await?,
+            "FN" => self.file_newscan_cmd(param).await?,
+            "FS" => self.set_file_scan().await?,
+            "FD" => self.download(param).await?,
+            "F+" => self.flag_file(param).await?,
+            "FB" => self.batch_editor().await?,
+            "FI" => self.file_info_cmd(param).await?,
+            "FV" => self.view_archive(param).await?,
+            "FF" => self.search_files(true).await?,
+            "FT" => self.search_files(false).await?,
+            "FU" => self.upload().await?,
+            "*%" if self.is_sysop() => self.local_upload().await?,
 
             // -- email
             "EE" => self.enter_email(semi(0), semi(1)).await?,
@@ -214,7 +241,7 @@ impl Session {
 
     /// `?B` (`iXprompt`): a horizontal lightbar of choices. The parameter
     /// is `choice;choice;...;default`; the pick goes in the input string.
-    async fn x_prompt(&mut self, semis: &[&str]) -> io::Result<()> {
+    pub(crate) async fn x_prompt(&mut self, semis: &[&str]) -> io::Result<()> {
         self.input_string.clear();
         let Some((def, opts)) = semis.split_last() else { return Ok(()) };
         let def: usize = def.trim().parse().unwrap_or(0);

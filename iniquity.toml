@@ -21,6 +21,8 @@ menus = "menus"
 data = "data"
 strings = "strings.toml"
 msgareas = "msgareas.toml"
+fileareas = "fileareas.toml"
+temp = "data/temp"
 
 [terminal]
 charset = "auto"
@@ -91,6 +93,28 @@ max_quote_lines = 11
 mandatory_all_confs = true
 compress_area_numbers = true
 ansi_quote = "(ansi codes detected; line not displayed)"
+
+[files]
+use_file_points = false
+kb_per_point = 15
+upload_points_percent = 175
+use_daily_limit = true
+use_daily_kb_limit = true
+use_ratio = false
+use_kb_ratio = false
+auto_validate = true
+allow_blind_upload = true
+upload_dupe_check = 4
+import_descriptions = true
+description_files = [
+    "FILE_ID.DIZ",
+    "DESC.SDI",
+]
+no_description = "No description"
+wrap_descriptions = true
+advance_bar_on_flag = true
+max_upload_bytes = 104857600
+transfer_cps = 500000
 
 [[colors]]
 fore = 12

@@ -1,0 +1,16 @@
+# File conferences and areas. Area numbers are positions in this file,
+# from 1. Put an area in conference N with `acs = "xN ..."`. Paths
+# are relative to this file.
+
+[[conference]]
+key = "X"
+desc = "New File Conference"
+
+[[area]]
+name = "New Iniquity file area"
+file = "NEWAREA"
+path = "files/newarea"
+sponsor = "SysOp"
+acs = "s25"
+upload_acs = "s50"
+download_acs = "s50"

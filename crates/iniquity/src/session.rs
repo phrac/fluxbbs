@@ -75,6 +75,8 @@ pub struct Session {
     pub ok_flag: bool,
     /// Message number being read (`%MN`).
     pub menu_msg: u32,
+    /// Files flagged for download: (area, file number).
+    pub batch: Vec<(u32, u32)>,
     /// `~XX` / `^NN` markers from the last displayed file: (x, y, colour).
     pub positions: HashMap<[u8; 2], (u16, u16, Color)>,
     pub positions2: HashMap<u8, (u16, u16, Color)>,
@@ -147,6 +149,7 @@ impl Session {
             input_string: String::new(),
             ok_flag: false,
             menu_msg: 0,
+            batch: Vec::new(),
             positions: HashMap::new(),
             positions2: HashMap::new(),
         }

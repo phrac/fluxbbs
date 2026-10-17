@@ -24,11 +24,32 @@ The stock SysOp account is `SysOp` / `SYSOP`, with system password
 | DATA\USERS.DAT        | data/iniquity.db (SQLite)   |
 | DATA\MSGAREA.DAT, EMAIL.DAT, MSGCONF.DAT | msgareas.toml |
 | MSGS\*.HDR, *.DAT     | data/iniquity.db            |
+| DATA\FILEAREA.DAT, FILECONF.DAT | fileareas.toml     |
+| DATA\*.DIR, FILEDESC.DAT | data/iniquity.db         |
 | MENU\*.MNU            | menus/*.toml                |
 | TEXT\*                | text/                       |
 
 Passwords are re-hashed with argon2 on import. They stay case-insensitive,
-as in the original.
+as in the original. File records are imported, but the files themselves
+must be copied into each area's new directory (the importer says where).
+
+## File transfers
+
+Zmodem is built in (via the `zmodem2` crate), so SyncTERM and other BBS
+terminals can download and upload with nothing else installed. Other
+protocols are external programs with stdin/stdout connected to the
+caller, as the original ran DSZ:
+
+    [[protocol]]
+    key = "Y"
+    desc = "Ymodem (lrzsz)"
+    batch = true
+    send = "sb %F"      # %F: the file paths
+    receive = "rb"      # runs in the upload directory
+
+A SysOp can also copy files into an area's directory and add them with
+the local-upload command (`/U` on the stock file menu); descriptions are
+taken from FILE_ID.DIZ in ZIP archives.
 
 ## Layout
 
@@ -43,6 +64,8 @@ as in the original.
   - `logon.rs` matrix, login, new-user application
   - `messages.rs` areas, reader, posting, scans, email; `editor.rs` the
     full-screen editor; `msgbase.rs` message storage
+  - `files.rs` file areas, lister, downloads, uploads, searches;
+    `transfer.rs` Zmodem and external protocols; `filebase.rs` file records
   - `engine.rs` menu engine, `commands.rs` menu commands, `acs.rs` access
     conditions, `mci.rs` MCI codes
   - `users.rs` user database, `import.rs` legacy import
@@ -63,14 +86,15 @@ repeat screens (TOP/MID/HIL/BOT), the matrix and lightbar menus, login,
 new-user application, access levels, the menu engine (hot keys, `/` and
 `//` commands, FIRSTCMD, stacked commands, gosub/return, generic menus,
 command help), message areas and conferences, the message reader, the
-full-screen editor (word wrap, quoting, cut/paste, auto-signatures),
-newscans, the mandatory scan, and email.
+full-screen editor, newscans, email, file areas and conferences, the
+file lister, downloads (single and batch, with the original's limits and
+ratios), uploads, file search and newscan, and ZIP viewing.
 
 Commands: `?= ?+ ?/ ?% ?B ?E ?F ?L ?N ?Y ?S ?U`,
 `-^ -/ -\ -= -? -C -D -E -F -K -L -P -R -S -W`, the `|` cursor commands,
 `>A >H >L`, `HC HI HM`, `MA MC MJ MN MM MP MR MS MZ M[ M]`, `EE ER EC *R`,
-`UL UP XL`.
+`FA FB FC FD FF FI FJ FL FN FS FT FU FV FZ F+ F[ F] *%`, `UL UP XL`.
 
-Other commands from the original say "not available yet". Next: file
-areas and transfers, then the automessage, oneliners (`?I`/`?T`), last
-callers and user configuration.
+Other commands from the original say "not available yet". Next: the
+automessage, oneliners (`?I`/`?T`), last callers, user configuration and
+the BBS list.

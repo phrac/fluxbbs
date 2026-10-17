@@ -196,7 +196,7 @@ impl Session {
         Ok(())
     }
 
-    async fn rule(&mut self) -> io::Result<()> {
+    pub(crate) async fn rule(&mut self) -> io::Result<()> {
         self.set_slot(Slot::Border);
         self.write(&"─".repeat(79));
         self.newline();
@@ -205,54 +205,61 @@ impl Session {
 
     // ---- conferences ----------------------------------------------------
 
-    /// `confSelect` (`MJ`): by key, or ask (`?` lists).
-    pub async fn select_conf(&mut self, param: &str) -> io::Result<()> {
-        let key_of = |s: &Self, c: char| {
-            s.state.areas.confs.iter().position(|f| f.key.eq_ignore_ascii_case(&c) && s.acs(&f.acs)).map(|i| i as u32 + 1)
+    fn confs(&self, msg: bool) -> Vec<crate::msgareas::Conf> {
+        if msg { self.state.areas.confs.clone() } else { self.state.fareas.confs.clone() }
+    }
+
+    /// `confSelect` (`MJ`, `FJ`): by key, or ask (`?` lists).
+    pub async fn select_conf(&mut self, msg: bool, param: &str) -> io::Result<()> {
+        let confs = self.confs(msg);
+        let key_of = |s: &Self, c: char| confs.iter().position(|f| f.key.eq_ignore_ascii_case(&c) && s.acs(&f.acs)).map(|i| i as u32 + 1);
+        let set = |s: &mut Self, n: u32| {
+            if msg {
+                s.user.conf_msg = n;
+                s.find_area_with_access();
+            } else {
+                s.user.conf_file = n;
+                s.find_farea_with_access();
+            }
         };
         let p = param.trim();
         if !p.is_empty() && !p.eq_ignore_ascii_case("LIST") {
             if let Some(n) = key_of(self, p.chars().next().unwrap()) {
-                self.user.conf_msg = n;
-                self.find_area_with_access();
+                set(self, n);
             }
             return Ok(());
         }
         if p.eq_ignore_ascii_case("LIST") {
-            self.list_confs().await?;
+            self.list_confs(msg).await?;
         }
         let c = loop {
-            self.say("ConfMsgSelect").await?;
+            self.say(if msg { "ConfMsgSelect" } else { "ConfFileSelect" }).await?;
             match self.read_key().await? {
                 Key::Enter => break None,
                 Key::Char(b'?') => {
                     self.write("?");
                     self.newline();
-                    self.list_confs().await?;
+                    self.list_confs(msg).await?;
                 }
                 k => break k.upper(),
             }
         };
-        let cur = self.state.areas.conf(self.user.conf_msg).map(|c| c.key);
+        let cur_n = if msg { self.user.conf_msg } else { self.user.conf_file };
+        let cur = confs.get(cur_n.saturating_sub(1) as usize).map(|c| c.key.to_ascii_uppercase());
         match c {
-            None => {
-                self.newline();
-                return Ok(());
-            }
-            Some(c) if Some(c) == cur.map(|k| k.to_ascii_uppercase()) => {
+            None => self.newline(),
+            Some(c) if Some(c) == cur => {
                 self.write(&c.to_string());
                 self.newline();
-                return Ok(());
             }
             Some(c) => match key_of(self, c) {
                 Some(n) => {
-                    self.user.conf_msg = n;
+                    set(self, n);
                     self.write(&c.to_string());
                     self.newline();
-                    let desc = self.state.areas.conf(n).map(|c| c.desc.clone()).unwrap_or_default();
-                    let s = self.strings().fmt("ConfMsgChanged", &[&desc]);
+                    let desc = confs[n as usize - 1].desc.clone();
+                    let s = self.strings().fmt(if msg { "ConfMsgChanged" } else { "ConfFileChanged" }, &[&desc]);
                     self.show_line(&s).await?;
-                    self.find_area_with_access();
                 }
                 None => {
                     self.write("Abort");
@@ -263,10 +270,10 @@ impl Session {
         Ok(())
     }
 
-    /// `confList` (`MZ`).
-    pub async fn list_confs(&mut self) -> io::Result<()> {
-        let confs = self.state.areas.confs.clone();
-        let mut rep = self.repeat_begin("MCONF", false).await?;
+    /// `confList` (`MZ`, `FZ`).
+    pub async fn list_confs(&mut self, msg: bool) -> io::Result<()> {
+        let confs: Vec<_> = self.confs(msg).into_iter().filter(|c| self.acs(&c.acs)).collect();
+        let mut rep = self.repeat_begin(if msg { "MCONF" } else { "FCONF" }, false).await?;
         if rep.is_none() {
             self.newline();
             self.set_slot(Slot::Info);
@@ -274,7 +281,6 @@ impl Session {
             self.rule().await?;
         }
         let mut lines = 3;
-        let confs: Vec<_> = confs.into_iter().filter(|c| self.acs(&c.acs)).collect();
         for c in &confs {
             let more = match rep.as_mut() {
                 Some(r) => self.repeat_row(r, &waves([("CK", c.key.to_string()), ("CN", c.desc.clone())]), false).await?,

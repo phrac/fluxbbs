@@ -16,6 +16,10 @@ mod messages;
 mod msgareas;
 mod msgbase;
 mod editor;
+mod fileareas;
+mod filebase;
+mod files;
+mod transfer;
 mod nodes;
 mod session;
 mod ssh;
@@ -28,6 +32,8 @@ use std::sync::Arc;
 
 use anyhow::Context;
 use config::Config;
+use fileareas::FileAreas;
+use filebase::FileBase;
 use msgareas::MsgAreas;
 use msgbase::MsgBase;
 use nodes::Nodes;
@@ -41,6 +47,8 @@ pub struct BbsState {
     pub users: UserStore,
     pub areas: MsgAreas,
     pub msgs: MsgBase,
+    pub fareas: FileAreas,
+    pub files: FileBase,
     pub nodes: Arc<Nodes>,
 }
 
@@ -65,8 +73,14 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("{} users in {}", users.count()?, db.display());
     let areas = MsgAreas::load(&config.resolve(&config.paths.msgareas))?;
     let msgs = MsgBase::open(&db)?;
+    let fareas = FileAreas::load(&config.resolve(&config.paths.fileareas))?;
+    for a in &fareas.areas {
+        let dir = config.resolve(&a.path);
+        std::fs::create_dir_all(&dir).with_context(|| format!("file area directory {}", dir.display()))?;
+    }
+    let files = FileBase::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
-    let state = Arc::new(BbsState { config, strings, users, areas, msgs, nodes });
+    let state = Arc::new(BbsState { config, strings, users, areas, msgs, fareas, files, nodes });
 
     tokio::select! {
         r = ssh::serve(state) => r,

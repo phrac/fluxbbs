@@ -20,6 +20,10 @@ pub struct Config {
     pub newuser: NewUser,
     pub prompts: Prompts,
     pub messages: Messages,
+    pub files: Files,
+    /// External transfer protocols, in addition to built-in Zmodem.
+    #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
+    pub protocols: Vec<Protocol>,
     /// Default colour scheme for new users and before logon.
     pub colors: Palette,
     /// Access levels 'A'..'Z'.
@@ -63,6 +67,10 @@ pub struct Paths {
     pub strings: PathBuf,
     /// Message conferences and areas.
     pub msgareas: PathBuf,
+    /// File conferences and areas.
+    pub fileareas: PathBuf,
+    /// Scratch space for uploads in progress.
+    pub temp: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -194,6 +202,79 @@ impl Default for Messages {
     }
 }
 
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Files {
+    pub use_file_points: bool,
+    /// One file point per this many kb.
+    pub kb_per_point: u16,
+    /// Percent of an upload's points given to the uploader.
+    pub upload_points_percent: u16,
+    pub use_daily_limit: bool,
+    pub use_daily_kb_limit: bool,
+    pub use_ratio: bool,
+    pub use_kb_ratio: bool,
+    /// New uploads may be downloaded before a SysOp checks them.
+    pub auto_validate: bool,
+    /// Accept files sent without naming them first.
+    pub allow_blind_upload: bool,
+    /// Check names before upload: 1 never, 2 this area, 3+ every area.
+    pub upload_dupe_check: u8,
+    /// Take descriptions from these files inside uploaded archives.
+    pub import_descriptions: bool,
+    pub description_files: Vec<String>,
+    pub no_description: String,
+    /// Long descriptions continue on the next page of the file lister.
+    pub wrap_descriptions: bool,
+    /// Flagging a file moves the lister's bar down.
+    pub advance_bar_on_flag: bool,
+    /// Largest accepted upload, in bytes (0 = no limit).
+    pub max_upload_bytes: u64,
+    /// Bytes per second assumed when estimating transfer time.
+    pub transfer_cps: u64,
+}
+
+impl Default for Files {
+    fn default() -> Self {
+        Self {
+            use_file_points: false,
+            kb_per_point: 15,
+            upload_points_percent: 175,
+            use_daily_limit: true,
+            use_daily_kb_limit: true,
+            use_ratio: false,
+            use_kb_ratio: false,
+            auto_validate: true,
+            allow_blind_upload: true,
+            upload_dupe_check: 4,
+            import_descriptions: true,
+            description_files: vec!["FILE_ID.DIZ".into(), "DESC.SDI".into()],
+            no_description: "No description".into(),
+            wrap_descriptions: true,
+            advance_bar_on_flag: true,
+            max_upload_bytes: 100 * 1024 * 1024,
+            transfer_cps: 500_000,
+        }
+    }
+}
+
+/// An external transfer program, run with its stdin/stdout connected to
+/// the caller (like lrzsz's `sz`/`rz`). `%F` in `send` is replaced by the
+/// file paths; `receive` runs in the upload directory.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct Protocol {
+    pub key: char,
+    pub desc: String,
+    #[serde(default)]
+    pub acs: String,
+    /// Can send several files at once.
+    #[serde(default)]
+    pub batch: bool,
+    pub send: String,
+    pub receive: String,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Level {
@@ -239,6 +320,8 @@ impl Default for Paths {
             data: "data".into(),
             strings: "strings.toml".into(),
             msgareas: "msgareas.toml".into(),
+            fileareas: "fileareas.toml".into(),
+            temp: "data/temp".into(),
         }
     }
 }

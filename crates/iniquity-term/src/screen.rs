@@ -73,6 +73,14 @@ impl Screen {
         self.color
     }
 
+    /// Forget what we think the terminal looks like after something else
+    /// (a file transfer) wrote to it: reset its colour and our model.
+    pub fn resync(&mut self) {
+        self.raw(b"\x1b[0m");
+        self.color = Color::DEFAULT;
+        self.esc = None;
+    }
+
     /// Bytes ready to send; clears the buffer.
     pub fn take_output(&mut self) -> Vec<u8> {
         std::mem::take(&mut self.out)

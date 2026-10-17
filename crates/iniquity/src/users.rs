@@ -67,7 +67,8 @@ CREATE TABLE IF NOT EXISTS users (
     conf_file     INTEGER NOT NULL,
     autosig       TEXT NOT NULL,
     vote_yes      INTEGER NOT NULL,
-    vote_no       INTEGER NOT NULL
+    vote_no       INTEGER NOT NULL,
+    file_scan     TEXT
 );
 CREATE INDEX IF NOT EXISTS users_real_name ON users(real_name);
 ";
@@ -81,7 +82,21 @@ const COLUMNS: &[&str] = &[
     "email", "uploads", "downloads", "upload_kb", "download_kb", "file_points", "post_call",
     "limit_dl", "limit_dl_kb", "today_dl", "today_dl_kb", "uldl_ratio", "kb_ratio",
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
+    "file_scan",
 ];
+
+/// Add columns newer than the database (`ALTER TABLE`, since SQLite
+/// can't `CREATE TABLE IF NOT EXISTS` its way to new columns).
+fn migrate(db: &Connection) -> rusqlite::Result<()> {
+    let have: Vec<String> = db
+        .prepare("SELECT name FROM pragma_table_info('users')")?
+        .query_map([], |r| r.get(0))?
+        .collect::<Result<_, _>>()?;
+    if !have.iter().any(|c| c == "file_scan") {
+        db.execute("ALTER TABLE users ADD COLUMN file_scan TEXT", [])?;
+    }
+    Ok(())
+}
 
 fn palette_to_text(p: &Palette) -> String {
     p.0.iter().map(|c| format!("{},{},{}", c.fore, c.back, c.blink as u8)).collect::<Vec<_>>().join(";")
@@ -156,6 +171,7 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         autosig: r.get::<_, String>("autosig")?.lines().map(String::from).collect(),
         vote_yes: r.get("vote_yes")?,
         vote_no: r.get("vote_no")?,
+        file_scan: r.get("file_scan")?,
     })
 }
 
@@ -175,7 +191,7 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.file_points), Box::new(u.post_call), Box::new(u.limit_dl), Box::new(u.limit_dl_kb),
         Box::new(u.today_dl), Box::new(u.today_dl_kb), Box::new(u.uldl_ratio), Box::new(u.kb_ratio),
         Box::new(u.cur_msg_area), Box::new(u.cur_file_area), Box::new(u.conf_msg), Box::new(u.conf_file),
-        Box::new(u.autosig.join("\n")), Box::new(u.vote_yes), Box::new(u.vote_no),
+        Box::new(u.autosig.join("\n")), Box::new(u.vote_yes), Box::new(u.vote_no), Box::new(u.file_scan),
     ]
 }
 
@@ -186,6 +202,7 @@ impl UserStore {
         }
         let db = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
         db.execute_batch(SCHEMA)?;
+        migrate(&db)?;
         Ok(Self { db: Mutex::new(db) })
     }
 

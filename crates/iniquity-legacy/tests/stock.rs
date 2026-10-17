@@ -24,6 +24,20 @@ fn config() {
     assert_eq!(c.max_quote_lines, 11);
     assert!(c.ask_post_in_area && c.conf_ignore_msg && c.comp_msg_areas);
     assert!(c.ansi_string.starts_with("(ansi codes detected"));
+    assert_eq!((c.kb_per_file_point, c.ul_search, c.file_points_per), (15, 4, 175));
+    assert_eq!((c.file_desc1.as_str(), c.file_desc2.as_str()), ("FILE_ID.DIZ", "DESC.SDI"));
+    assert_eq!(c.no_desc_line, "No description");
+    assert!(!c.use_file_points && c.use_dl_limit && c.auto_validate && c.allow_blind && c.desc_wrap);
+}
+
+#[test]
+fn file_areas() {
+    let Some(dir) = stock() else { return };
+    let areas = LegacyFileArea::parse_file(&std::fs::read(dir.join("DATA/FILEAREA.DAT")).unwrap()).unwrap();
+    assert_eq!(areas.len(), 1);
+    let a = &areas[0];
+    assert_eq!((a.name.as_str(), a.filename.as_str(), a.sponsor.as_str()), ("New Iniquity file area", "NEWAREA", "SysOp"));
+    assert!(a.path.ends_with("INSTALL\\"));
 }
 
 #[test]

@@ -9,8 +9,7 @@ use crate::user::fmt_date;
 /// (message/file areas, conferences, history, system stats). They render
 /// empty rather than as literal text, so stock screens don't show raw codes.
 const PENDING: &[&[u8; 2]] = &[
-    b"BR", b"CF", b"DC", b"DD", b"DP", b"DU", b"FA", b"FD", b"FP", b"FS", b"LA", b"LD", b"TC", b"TD",
-    b"TE", b"TP", b"TZ",
+    b"BR", b"DC", b"DD", b"DP", b"DU", b"LA", b"LD", b"TC", b"TD", b"TE", b"TP", b"TZ",
 ];
 
 fn yes_no(b: bool) -> String {
@@ -52,6 +51,10 @@ impl Session {
             b"EM" => self.emulation_name().into(),
             b"FC" => fmt_date(u.first_call),
             b"FI" => u.cur_file_area.to_string(),
+            b"FA" => self.current_farea().map(|a| a.area.name).unwrap_or_default(),
+            b"FD" | b"FS" => fmt_date(u.file_scan),
+            b"FP" => u.file_points.to_string(),
+            b"CF" => self.state.fareas.conf(u.conf_file).map(|c| c.desc.clone()).unwrap_or_default(),
             b"HK" => yes_no(u.hot_keys),
             b"ID" => u.id.to_string(),
             b"IN" => "Iniquity".into(),

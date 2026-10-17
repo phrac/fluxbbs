@@ -67,6 +67,8 @@ pub struct User {
     pub autosig: Vec<String>,
     pub vote_yes: u32,
     pub vote_no: u32,
+    /// Files uploaded since this date are new (`fileScan`).
+    pub file_scan: Option<NaiveDate>,
 }
 
 impl Default for User {
@@ -125,6 +127,7 @@ impl Default for User {
             autosig: Vec::new(),
             vote_yes: 0,
             vote_no: 0,
+            file_scan: None,
         }
     }
 }
