@@ -25,6 +25,7 @@ pub struct Config {
     pub files: Files,
     pub nuv: Nuv,
     pub dos: Dos,
+    pub qwk: Qwk,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -160,6 +161,32 @@ pub enum CharsetPref {
     Utf8,
 }
 
+/// QWK offline mail (`QD`, `QU`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Qwk {
+    /// Packet name (the BBSID): packets are NAME.QWK, replies NAME.REP.
+    pub packet: String,
+    /// Screens from the text directory put in each packet.
+    pub welcome: String,
+    pub news: String,
+    pub goodbye: String,
+    /// Leave auto-signatures out of exported messages.
+    pub strip_sigs: bool,
+}
+
+impl Default for Qwk {
+    fn default() -> Self {
+        Self {
+            packet: "INIQUITY".into(),
+            welcome: "WELCOME.ANS".into(),
+            news: "NEWS.ANS".into(),
+            goodbye: "LOGOFF.ANS".into(),
+            strip_sigs: true,
+        }
+    }
+}
+
 /// DOS doors: door commands naming a .BAT, .COM or .EXE run under DOSBox,
 /// with COM1 wired to the caller.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -266,6 +293,10 @@ pub struct Prompts {
     pub password_echo: char,
     /// Erase "pause" prompts after a key.
     pub remove_pause: bool,
+    /// Status-screen lights: working, done, failed.
+    pub light: char,
+    pub light_ok: char,
+    pub light_fail: char,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -557,6 +588,9 @@ impl Default for Prompts {
             no_bar: "|U7 Yes |U8 No |U1".into(),
             password_echo: '■',
             remove_pause: true,
+            light: '■',
+            light_ok: '√',
+            light_fail: 'x',
         }
     }
 }

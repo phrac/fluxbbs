@@ -5,3 +5,4 @@ __pycache__/
 *.raw
 original/stock/
 doors/
+tools/proto.log

@@ -83,6 +83,9 @@ yes_bar = "|U8 Yes |U7 No "
 no_bar = "|U7 Yes |U8 No |U1"
 password_echo = "■"
 remove_pause = true
+light = "■"
+light_ok = "√"
+light_fail = "x"
 
 [messages]
 acs_post_email = "s25"
@@ -123,6 +126,15 @@ wrap_descriptions = true
 advance_bar_on_flag = true
 max_upload_bytes = 104857600
 transfer_cps = 500000
+
+# QWK offline mail: packets are PACKET.QWK, replies PACKET.REP; the
+# screens come from the text directory.
+[qwk]
+packet = "INIQUITY"
+welcome = "WELCOME.ANS"
+news = "NEWS.ANS"
+goodbye = "LOGOFF.ANS"
+strip_sigs = true
 
 # DOS doors: a door command naming a .BAT, .COM or .EXE runs under DOSBox
 # (window hidden), with COM1 wired to the caller. `drive` is C: and on the

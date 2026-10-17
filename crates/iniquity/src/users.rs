@@ -69,7 +69,8 @@ CREATE TABLE IF NOT EXISTS users (
     vote_yes      INTEGER NOT NULL,
     vote_no       INTEGER NOT NULL,
     file_scan     TEXT,
-    theme         TEXT NOT NULL DEFAULT ''
+    theme         TEXT NOT NULL DEFAULT '',
+    last_rep      TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS users_real_name ON users(real_name);
 ";
@@ -83,7 +84,7 @@ const COLUMNS: &[&str] = &[
     "email", "uploads", "downloads", "upload_kb", "download_kb", "file_points", "post_call",
     "limit_dl", "limit_dl_kb", "today_dl", "today_dl_kb", "uldl_ratio", "kb_ratio",
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
-    "file_scan", "theme",
+    "file_scan", "theme", "last_rep",
 ];
 
 /// Add columns newer than the database (`ALTER TABLE`, since SQLite
@@ -98,6 +99,9 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     }
     if !have.iter().any(|c| c == "theme") {
         db.execute("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT ''", [])?;
+    }
+    if !have.iter().any(|c| c == "last_rep") {
+        db.execute("ALTER TABLE users ADD COLUMN last_rep TEXT NOT NULL DEFAULT ''", [])?;
     }
     Ok(())
 }
@@ -177,6 +181,7 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         vote_no: r.get("vote_no")?,
         file_scan: r.get("file_scan")?,
         theme: r.get("theme")?,
+        last_rep: r.get("last_rep")?,
     })
 }
 
@@ -198,6 +203,7 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.cur_msg_area), Box::new(u.cur_file_area), Box::new(u.conf_msg), Box::new(u.conf_file),
         Box::new(u.autosig.join("\n")), Box::new(u.vote_yes), Box::new(u.vote_no), Box::new(u.file_scan),
         Box::new(u.theme.clone()),
+        Box::new(u.last_rep.clone()),
     ]
 }
 

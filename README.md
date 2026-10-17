@@ -64,6 +64,9 @@ Neither is in git.
 - Infoforms (questionnaires, mandatory or not) and new user voting.
 - Screen themes (the original's text libraries): directories of screens
   that replace the stock ones; callers pick theirs with `UT`.
+- QWK offline mail: `QD` packs new messages (email as conference 0)
+  for an offline reader, `QU` posts the replies (`[qwk]` in
+  `iniquity.toml`). See [QWK](#qwk-offline-mail).
 - Doors, native and DOS (under DOSBox): `D1` DORINFO1.DEF, `D2` DOOR.SYS,
   `D3` CHAIN.TXT, `D4` DOOR32.SYS, `DZ` DOOR.SYS and DORINFO1.DEF, `D0`
   none. See [Doors](#doors).
@@ -90,7 +93,6 @@ libraries (unpacked into themes).
 | Feature | Original | Commands | Notes |
 |---|---|---|---|
 | IPL scripting | IPLC.PAS, IPLI.PAS, IPLX.PAS | `-X` | Iniquity's own scripting language: compiler and interpreter. Port it so `.IPS` mods run, or offer Rhai/Lua instead. |
-| QWK offline mail | QWKMAIL.PAS | `QD`, `QU` | Packet download and REP upload. |
 | Paging the SysOp / SysOp chat | CHATMODE.PAS | `CP`, `>C` | The original split-screen chat assumed a local console; here it would page a SysOp who is logged in on another node, then chat. |
 | Time bank | (MENUCMD) | `!D`, `!W`, `!E`, `!I`, `!V` | Deposit and withdraw minutes and kb. |
 | Tetris | tetris.pas | `TP`, `TS` | The built-in game and its high scores. |
@@ -174,6 +176,23 @@ Changes from the original: each node gets its own drop directory; the
 DOOR.SYS password line is empty; CHAIN.TXT has real times and transfer
 totals, and points its directories at the drop directory; DOOR32.SYS
 (`D4`) is new.
+
+## QWK offline mail
+
+`QD` builds NAME.QWK (`[qwk] packet`) from the new messages in the
+caller's areas (the current conference's, or every conference's) and
+their new email, and sends it; once it's down, the newscan pointers can
+move past what was packed. `QU` takes NAME.REP back (a SysOp can give a
+local file instead) and posts the replies where the caller may post;
+the same packet won't post twice.
+
+Changes from the original: email goes in as conference 0, with
+PERSONAL.NDX; "include your own messages?" does what it says (the
+original's test was the wrong way round); four-digit years; areas with
+a password are left out; pointers move to the newest message packed
+rather than to the time of the download; long reply lines are wrapped
+rather than cut at 79 columns; and replies to unknown users are refused
+in email (posted to the name in public areas, as before).
 
 ## Importing an existing Iniquity install
 

@@ -97,6 +97,14 @@ pub struct LegacyConfig {
     pub use_dl_limit: bool,
     pub use_dl_kb_limit: bool,
     pub no_desc_line: String,
+    /// QWK packet name (BBSID), and the screens put in each packet.
+    pub qwk_filename: String,
+    pub qwk_welcome: String,
+    pub qwk_news: String,
+    pub qwk_goodbye: String,
+    pub qwk_local_path: String,
+    pub qwk_ignore_time: bool,
+    pub qwk_strip_sigs: bool,
     /// 1 none, 2 this area, 3 all areas, 4 all conferences.
     pub ul_search: u8,
     pub auto_validate: bool,
@@ -189,7 +197,13 @@ impl LegacyConfig {
         let use_dl_limit = r.bool();
         let use_dl_kb_limit = r.bool();
         let bbs_location = r.string(40);
-        r.skip(9 + 13 * 3 + 41 + 2); // qwk*
+        let qwk_filename = r.string(8);
+        let qwk_welcome = r.string(12);
+        let qwk_news = r.string(12);
+        let qwk_goodbye = r.string(12);
+        let qwk_local_path = r.string(40);
+        let qwk_ignore_time = r.bool();
+        let qwk_strip_sigs = r.bool();
         let no_desc_line = r.string(50);
         r.skip(2 + 2); // waitConnect, modemReInit
         let light_char = r.char();
@@ -251,6 +265,8 @@ impl LegacyConfig {
             kb_per_file_point, use_file_points, import_descs, use_dl_limit, use_dl_kb_limit,
             no_desc_line, ul_search, auto_validate, file_points_per, use_uldl_ratio, use_kb_ratio,
             file_desc1, file_desc2, desc_wrap, adv_file_bar, allow_blind, acs_anon_automsg,
+            qwk_filename, qwk_welcome, qwk_news, qwk_goodbye, qwk_local_path, qwk_ignore_time,
+            qwk_strip_sigs,
         })
     }
 }

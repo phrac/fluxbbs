@@ -434,6 +434,16 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
     p.no_bar = c.pmt_no_bar.clone();
     p.password_echo = c.pw_echo_char;
     p.remove_pause = c.remove_pause;
+    p.light = c.light_char;
+    p.light_ok = c.light_char_ok;
+    p.light_fail = c.light_char_fail;
+    cfg.qwk = crate::config::Qwk {
+        packet: c.qwk_filename.clone(),
+        welcome: c.qwk_welcome.clone(),
+        news: c.qwk_news.clone(),
+        goodbye: c.qwk_goodbye.clone(),
+        strip_sigs: c.qwk_strip_sigs,
+    };
     cfg.colors = Palette(c.default_colors);
     let m = &mut cfg.messages;
     m.acs_post_email = c.acs_post_email.clone();
@@ -651,6 +661,7 @@ fn convert_user(l: &LegacyUser) -> User {
         file_scan: parse_date(&l.file_scan),
         // Set from TEXTLIB.DAT once the libraries are imported.
         theme: String::new(),
+        last_rep: String::new(),
     };
     u.set_password(&l.password);
     u

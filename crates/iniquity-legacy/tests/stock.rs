@@ -39,6 +39,10 @@ fn config() {
     assert_eq!((c.nuv_access.as_str(), c.nuv_vote_access.as_str()), ("!s50", "s50"));
     assert!(c.nuv_validation && c.nuv_initials);
     assert!(!c.use_file_points && c.use_dl_limit && c.auto_validate && c.allow_blind && c.desc_wrap);
+    assert_eq!(c.qwk_filename, "INIQUITY");
+    assert_eq!((c.qwk_welcome.as_str(), c.qwk_news.as_str(), c.qwk_goodbye.as_str()), ("WELCOME.ANS", "NEWS.ANS", "LOGOFF.ANS"));
+    assert!(c.qwk_strip_sigs);
+    assert_eq!((c.light_char, c.light_char_ok, c.light_char_fail), ('■', '√', 'x'));
 }
 
 #[test]

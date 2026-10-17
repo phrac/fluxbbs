@@ -50,7 +50,7 @@ impl Session {
         self.msg_area(self.user.cur_msg_area)
     }
 
-    fn is_me(&self, p: &Party) -> bool {
+    pub(crate) fn is_me(&self, p: &Party) -> bool {
         p.alias.eq_ignore_ascii_case(&self.user.handle)
             || (!p.real_name.is_empty() && p.real_name.eq_ignore_ascii_case(&self.user.real_name))
     }
@@ -65,7 +65,7 @@ impl Session {
     }
 
     /// `maOKtoRead`.
-    fn ok_to_read(&self, a: &AreaRef, m: &Message) -> bool {
+    pub(crate) fn ok_to_read(&self, a: &AreaRef, m: &Message) -> bool {
         (!m.private && !m.deleted) || self.is_me(&m.to) || self.is_me(&m.from) || self.is_cosysop() || self.is_sponsor(a)
     }
 

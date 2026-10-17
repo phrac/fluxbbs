@@ -30,6 +30,7 @@ mod filebase;
 mod files;
 mod transfer;
 mod nodes;
+mod qwk;
 mod session;
 mod ssh;
 mod sysop;

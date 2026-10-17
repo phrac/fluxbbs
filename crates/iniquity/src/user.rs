@@ -71,6 +71,9 @@ pub struct User {
     pub file_scan: Option<NaiveDate>,
     /// Chosen screen theme (text library); empty for the default.
     pub theme: String,
+    /// Fingerprint of the last REP packet's replies (`lastQwkDate`), so
+    /// the same packet isn't posted twice.
+    pub last_rep: String,
 }
 
 impl Default for User {
@@ -131,6 +134,7 @@ impl Default for User {
             vote_no: 0,
             file_scan: None,
             theme: String::new(),
+            last_rep: String::new(),
         }
     }
 }
