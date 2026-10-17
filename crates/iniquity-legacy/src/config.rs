@@ -100,6 +100,7 @@ pub struct LegacyConfig {
     pub desc_wrap: bool,
     pub adv_file_bar: bool,
     pub allow_blind: bool,
+    pub acs_anon_automsg: String,
 }
 
 impl LegacyConfig {
@@ -139,7 +140,7 @@ impl LegacyConfig {
         let num_last_calls = r.u8();
         let acs_post_email = r.string(20);
         let acs_anonymous = r.string(20);
-        r.skip(21); // acsAnonAutoMsg
+        let acs_anon_automsg = r.string(20);
         let acs_upload_message = r.string(20);
         let acs_autosig = r.string(20);
         let abort_mandatory_ok = r.bool();
@@ -234,7 +235,7 @@ impl LegacyConfig {
             default_quote_num, max_quote_lines, conf_ignore_msg, comp_msg_areas, ansi_string,
             kb_per_file_point, use_file_points, import_descs, use_dl_limit, use_dl_kb_limit,
             no_desc_line, ul_search, auto_validate, file_points_per, use_uldl_ratio, use_kb_ratio,
-            file_desc1, file_desc2, desc_wrap, adv_file_bar, allow_blind,
+            file_desc1, file_desc2, desc_wrap, adv_file_bar, allow_blind, acs_anon_automsg,
         })
     }
 }

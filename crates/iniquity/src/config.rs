@@ -112,6 +112,8 @@ pub struct Logon {
     pub real_names: bool,
     /// Time limits reset every call instead of every day.
     pub time_per_call: bool,
+    /// How many calls the last-callers list shows.
+    pub last_callers: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
@@ -156,6 +158,7 @@ pub struct Prompts {
 pub struct Messages {
     pub acs_post_email: String,
     pub acs_anonymous: String,
+    pub acs_anon_automsg: String,
     /// May append their auto-signature.
     pub acs_autosig: String,
     /// Callers may quit reading mandatory messages.
@@ -185,6 +188,7 @@ impl Default for Messages {
         Self {
             acs_post_email: "s25".into(),
             acs_anonymous: "s50".into(),
+            acs_anon_automsg: "s50".into(),
             acs_autosig: "s25".into(),
             abort_mandatory_ok: false,
             ask_private: true,
@@ -354,6 +358,7 @@ impl Default for Logon {
             start_menu: "STARTUP".into(),
             real_names: false,
             time_per_call: false,
+            last_callers: 10,
         }
     }
 }

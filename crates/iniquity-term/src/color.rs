@@ -76,6 +76,8 @@ impl Color {
                 5 | 6 => self.blink = true,
                 25 => self.blink = false,
                 30..=37 => self.fore = (self.fore & 8) | dos_index(p - 30),
+                // aixterm bright foreground (modern editors save these).
+                90..=97 => self.fore = 8 | dos_index(p - 90),
                 39 => self.fore = (self.fore & 8) | 7,
                 40..=47 => self.back = dos_index(p - 40),
                 49 => self.back = 0,

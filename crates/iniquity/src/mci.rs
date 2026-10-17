@@ -9,7 +9,7 @@ use crate::user::fmt_date;
 /// (message/file areas, conferences, history, system stats). They render
 /// empty rather than as literal text, so stock screens don't show raw codes.
 const PENDING: &[&[u8; 2]] = &[
-    b"BR", b"DC", b"DD", b"DP", b"DU", b"LA", b"LD", b"TC", b"TD", b"TE", b"TP", b"TZ",
+    b"BR", b"LA", b"LD",
 ];
 
 fn yes_no(b: bool) -> String {
@@ -87,6 +87,26 @@ impl Session {
             b"TM" => now.format("%H:%M").to_string(),
             b"TT" => u.time_per_day.to_string(),
             b"TU" => self.state.users.count().unwrap_or(0).to_string(),
+            b"TC" | b"TD" | b"TE" | b"TP" | b"TZ" => {
+                let t = self.state.sys.totals().unwrap_or_default();
+                match &code {
+                    b"TC" => crate::files::commas(t.calls),
+                    b"TD" => crate::files::commas(t.downloads),
+                    b"TE" => crate::files::commas(t.email),
+                    b"TP" => crate::files::commas(t.posts),
+                    _ => ratio(t.posts as u32, t.calls as u32),
+                }
+            }
+            b"DC" | b"DD" | b"DP" | b"DU" => {
+                let d = self.state.sys.day(now.date_naive()).unwrap_or_default();
+                let v = match &code {
+                    b"DC" => d.calls,
+                    b"DD" => d.downloads,
+                    b"DP" => d.posts,
+                    _ => d.uploads,
+                };
+                crate::files::commas(v)
+            }
             b"UA" => u.level.to_string(),
             b"UC" => u.total_calls.to_string(),
             b"UE" => u.email.to_string(),

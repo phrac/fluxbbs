@@ -192,6 +192,11 @@ impl Session {
         u.conf_file = u.conf_file.clamp(1, self.state.fareas.confs.len().max(1) as u32);
         self.find_area_with_access();
         self.find_farea_with_access();
+        self.bump(crate::sysdata::Stat::Call);
+        if self.new_user {
+            self.bump(crate::sysdata::Stat::NewUser);
+        }
+        self.log_call();
         self.time_on = Instant::now();
         if let Err(e) = self.state.users.save(&self.user) {
             tracing::error!("saving {}: {e}", self.user.handle);
@@ -360,6 +365,7 @@ impl Session {
         tracing::info!("new user {} (#{}) applied", u.handle, u.id);
         self.user = u;
         self.logged_in = true;
+        self.new_user = true;
         Ok(())
     }
 

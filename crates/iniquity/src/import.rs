@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use iniquity_legacy::msgarea::{flag, status};
-use iniquity_legacy::{LegacyConf, LegacyConfig, LegacyFile, LegacyFileArea, LegacyLevel, LegacyMenu, LegacyMsgArea, LegacyMsgHeader, LegacyUser, strings, user::ac};
+use iniquity_legacy::{LegacyBbs, LegacyCall, LegacyConf, LegacyConfig, LegacyFile, LegacyFileArea, LegacyHistory, LegacyStats, LegacyLevel, LegacyMenu, LegacyMsgArea, LegacyMsgHeader, LegacyUser, strings, user::ac};
 use iniquity_term::Palette;
 
 use crate::config::{self, Config, Level};
@@ -27,6 +27,7 @@ use crate::fileareas::{FileArea, FileAreas};
 use crate::filebase::{FileBase, FileRec};
 use crate::msgareas::{Conf, MsgArea, MsgAreas};
 use crate::msgbase::{Message, MsgBase, Party};
+use crate::sysdata::{Bbs, Call, Counts, SysData};
 use crate::session::find_ci;
 use crate::user::{User, parse_date};
 use crate::users::UserStore;
@@ -194,6 +195,86 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
     let out = dest.join("fileareas.toml");
     std::fs::write(&out, fareas.to_toml())?;
     println!("wrote {} ({} areas, {} conferences)", out.display(), fareas.areas.len(), fareas.confs.len());
+    // Statistics, history, today's callers and the BBS list.
+    let sys = SysData::open(&db_path)?;
+    let mut history_sum = Counts::default();
+    if let Some(buf) = read("HISTORY.DAT")? {
+        for h in LegacyHistory::parse_file(&buf) {
+            let Some(day) = parse_date(&h.date) else { continue };
+            let c = Counts {
+                calls: h.calls as u64,
+                new_users: h.new_users as u64,
+                posts: h.posts as u64,
+                email: h.email as u64,
+                uploads: h.uploads as u64,
+                downloads: h.downloads as u64,
+                upload_kb: h.upload_kb as u64,
+                download_kb: h.download_kb as u64,
+            };
+            history_sum.calls += c.calls;
+            history_sum.posts += c.posts;
+            history_sum.email += c.email;
+            history_sum.uploads += c.uploads;
+            history_sum.downloads += c.downloads;
+            history_sum.upload_kb += c.upload_kb;
+            history_sum.download_kb += c.download_kb;
+            sys.set_day(day, &c)?;
+        }
+    }
+    if let Some(buf) = read("STATS.DAT")? {
+        let s = LegacyStats::parse(&buf)?;
+        let less = |total: u64, part: u64| total.saturating_sub(part);
+        sys.set_base(
+            parse_date(&s.first_day),
+            &Counts {
+                calls: less(s.calls as u64, history_sum.calls),
+                posts: less(s.posts as u64, history_sum.posts),
+                email: less(s.email as u64, history_sum.email),
+                uploads: less(s.uploads.max(0) as u64, history_sum.uploads),
+                downloads: less(s.downloads.max(0) as u64, history_sum.downloads),
+                upload_kb: less(s.upload_kb.max(0) as u64, history_sum.upload_kb),
+                download_kb: less(s.download_kb.max(0) as u64, history_sum.download_kb),
+                new_users: 0,
+            },
+        )?;
+    }
+    if let Some(buf) = read("CALLERS.DAT")? {
+        for c in LegacyCall::parse_file(&buf) {
+            let at = parse_date(&c.date).and_then(|d| {
+                let t = chrono::NaiveTime::parse_from_str(&c.time.replace("am", " AM").replace("pm", " PM"), "%l:%M %p").ok()?;
+                Some(d.and_time(t))
+            });
+            sys.add_call(&Call {
+                call_num: c.call_num.max(0) as u64,
+                user_id: c.user_num as u32,
+                handle: c.user_name.clone(),
+                location: c.location.clone(),
+                at: at.unwrap_or_default(),
+                new_user: c.new_user,
+                area_code: c.area_code.clone(),
+                transport: "modem".into(),
+            })?;
+        }
+    }
+    let mut nbbs = 0;
+    if let Some(buf) = read("BBSLIST.DAT")? {
+        for b in LegacyBbs::parse_file(&buf) {
+            sys.add_bbs(&Bbs {
+                id: 0,
+                name: b.name,
+                address: b.phone,
+                sysop: b.sysop,
+                speed: b.baud.max(0) as u32,
+                software: b.software,
+                storage: b.storage,
+                info: b.info,
+                who_added: b.who_added,
+            })?;
+            nbbs += 1;
+        }
+    }
+    println!("imported statistics, history and {nbbs} BBS list entries");
+
     let fbase = FileBase::open(&db_path)?;
     let descs = read("FILEDESC.DAT")?.unwrap_or_default();
     for (area, legacy) in fareas.areas.iter().zip(&legacy_areas) {
@@ -289,6 +370,8 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
     m.mandatory_all_confs = c.conf_ignore_msg;
     m.compress_area_numbers = c.comp_msg_areas;
     m.ansi_quote = c.ansi_string.clone();
+    m.acs_anon_automsg = c.acs_anon_automsg.clone();
+    cfg.logon.last_callers = c.num_last_calls as u32;
     let f = &mut cfg.files;
     f.use_file_points = c.use_file_points;
     f.kb_per_point = c.kb_per_file_point;

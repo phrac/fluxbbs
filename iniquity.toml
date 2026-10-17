@@ -49,6 +49,7 @@ system_password_acs = "s250"
 start_menu = "STARTUP"
 real_names = false
 time_per_call = false
+last_callers = 10
 
 [newuser]
 password = ""
@@ -80,6 +81,7 @@ remove_pause = true
 [messages]
 acs_post_email = "s25"
 acs_anonymous = "s50"
+acs_anon_automsg = "s50"
 acs_autosig = "s25"
 abort_mandatory_ok = false
 ask_private = true

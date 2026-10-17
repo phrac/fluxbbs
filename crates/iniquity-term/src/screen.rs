@@ -32,6 +32,13 @@ pub struct Screen {
     color: Color,
     saved_cursor: (u16, u16),
     esc: Option<Vec<u8>>,
+    /// An aixterm bright background (SGR 100-107) is showing.
+    bright_bg: bool,
+    /// The foreground was set with an aixterm bright code (90-97), so a
+    /// plain 30-37 after it means normal intensity, not "keep bold".
+    aix_fg: bool,
+    /// A 256-colour or 24-bit colour is showing; `color` only approximates it.
+    ext_color: bool,
 }
 
 impl Screen {
@@ -45,7 +52,20 @@ impl Screen {
             color: Color::DEFAULT,
             saved_cursor: (1, 1),
             esc: None,
+            bright_bg: false,
+            aix_fg: false,
+            ext_color: false,
         }
+        .init()
+    }
+
+    fn init(mut self) -> Self {
+        if self.charset == Charset::Cp437 {
+            // iCE colours: the blink bit means a bright background
+            // (SyncTERM), so art with bright backgrounds shows right.
+            self.raw(b"\x1b[?33h");
+        }
+        self
     }
 
     pub fn charset(&self) -> Charset {
@@ -103,6 +123,13 @@ impl Screen {
     }
 
     pub fn set_color(&mut self, c: Color) {
+        if self.bright_bg || self.ext_color {
+            // Our model can't express these colours exactly; start over.
+            self.raw(b"\x1b[0m");
+            self.color = Color::DEFAULT;
+            self.bright_bg = false;
+            self.ext_color = false;
+        }
         let seq = self.color.transition(c);
         self.raw(seq.as_bytes());
         self.color = c;
@@ -252,6 +279,9 @@ impl Screen {
 
     /// Track an escape sequence (`seq` excludes the ESC) and pass it on.
     fn escape(&mut self, seq: &[u8]) {
+        if let [b'[', body @ .., b'm'] = seq {
+            return self.sgr(body);
+        }
         self.raw(b"\x1b");
         self.raw(seq);
         let [b'[', body @ .., fin] = seq else { return };
@@ -283,11 +313,141 @@ impl Screen {
                 }
             }
             b's' => self.saved_cursor = (self.x, self.y),
+            b'm' => unreachable!("handled by sgr"),
             b'u' => (self.x, self.y) = self.saved_cursor,
-            b'm' => self.color.apply_sgr(&params),
             _ => {}
         }
     }
+}
+
+impl Screen {
+    /// A colour change. Classic codes pass through; aixterm bright
+    /// colours (90-97, 100-107) pass through to Unicode terminals, which
+    /// understand them, but become DOS codes for CP437 terminals: bold for
+    /// a bright foreground, the iCE blink bit for a bright background.
+    fn sgr(&mut self, body: &[u8]) {
+        let params: Vec<u16> = if body.is_empty() {
+            vec![0]
+        } else {
+            body.split(|&c| c == b';')
+                .map(|p| std::str::from_utf8(p).ok().and_then(|s| s.parse().ok()).unwrap_or(0))
+                .collect()
+        };
+        if params.iter().any(|&p| p == 38 || p == 48) {
+            // xterm 256-colour / 24-bit colour (image converters and modern
+            // editors). SyncTERM understands these too, so they go out as
+            // they are and the tracker keeps the nearest DOS colour.
+            let mut k = 0;
+            while k < params.len() {
+                let p = params[k];
+                k += 1;
+                match p {
+                    0 => {
+                        self.color = Color::DEFAULT;
+                        self.bright_bg = false;
+                        self.aix_fg = false;
+                        self.ext_color = false;
+                    }
+                    38 | 48 => {
+                        let rgb = match params.get(k) {
+                            Some(5) => params.get(k + 1).map(|&n| xterm256(n)),
+                            Some(2) if k + 3 < params.len() => {
+                                Some([params[k + 1], params[k + 2], params[k + 3]].map(|v| v.min(255) as u8))
+                            }
+                            _ => None,
+                        };
+                        k += if params.get(k) == Some(&2) { 4 } else { 2 };
+                        if let Some(rgb) = rgb {
+                            self.ext_color = true;
+                            if p == 38 {
+                                self.color.fore = nearest_dos(rgb, 16);
+                            } else {
+                                self.color.back = nearest_dos(rgb, 8);
+                            }
+                        }
+                    }
+                    _ => self.color.apply_sgr(&[p]),
+                }
+            }
+            self.raw(b"\x1b[");
+            self.raw(body);
+            self.raw(b"m");
+            return;
+        }
+        if params.contains(&0) {
+            self.ext_color = false;
+        }
+        let aixterm = params.iter().any(|p| matches!(p, 90..=97 | 100..=107));
+        let was_bright = self.bright_bg;
+        let was_aix_fg = self.aix_fg;
+        for &p in &params {
+            match p {
+                0 | 40..=47 | 49 => self.bright_bg = false,
+                100..=107 => {
+                    self.bright_bg = true;
+                    self.color.back = [0, 4, 2, 6, 1, 5, 3, 7][(p - 100) as usize];
+                }
+                _ => {}
+            }
+        }
+        self.color.apply_sgr(&params);
+        let plain_fg = params.iter().any(|p| (30..=37).contains(p));
+        if plain_fg && was_aix_fg && !params.contains(&1) {
+            self.color.fore &= 7;
+        }
+        if params.iter().any(|p| (90..=97).contains(p)) {
+            self.aix_fg = true;
+        } else if plain_fg || params.contains(&0) {
+            self.aix_fg = false;
+        }
+        if self.charset == Charset::Cp437 && (aixterm || self.bright_bg || was_bright || was_aix_fg) {
+            self.color.blink = self.bright_bg;
+            let c = self.color;
+            let d = [0, 4, 2, 6, 1, 5, 3, 7];
+            let seq = format!(
+                "\x1b[0;{}{}3{};4{}m",
+                if c.fore >= 8 { "1;" } else { "" },
+                if c.blink { "5;" } else { "" },
+                d[(c.fore & 7) as usize],
+                d[(c.back & 7) as usize]
+            );
+            self.raw(seq.as_bytes());
+        } else {
+            self.raw(b"\x1b[");
+            self.raw(body);
+            self.raw(b"m");
+        }
+    }
+}
+
+/// The VGA text palette in DOS order.
+const VGA: [[u8; 3]; 16] = [
+    [0, 0, 0], [0, 0, 170], [0, 170, 0], [0, 170, 170],
+    [170, 0, 0], [170, 0, 170], [170, 85, 0], [170, 170, 170],
+    [85, 85, 85], [85, 85, 255], [85, 255, 85], [85, 255, 255],
+    [255, 85, 85], [255, 85, 255], [255, 255, 85], [255, 255, 255],
+];
+
+/// RGB of an xterm 256-colour palette entry.
+fn xterm256(n: u16) -> [u8; 3] {
+    match n {
+        0..=15 => VGA[([0, 4, 2, 6, 1, 5, 3, 7][(n & 7) as usize] | (n & 8)) as usize],
+        16..=231 => {
+            let n = n - 16;
+            let level = |c: u16| if c == 0 { 0 } else { (55 + 40 * c) as u8 };
+            [level(n / 36), level(n / 6 % 6), level(n % 6)]
+        }
+        _ => {
+            let v = (8 + 10 * (n.min(255) - 232)) as u8;
+            [v, v, v]
+        }
+    }
+}
+
+/// The closest of the first `count` DOS colours to `rgb`.
+fn nearest_dos(rgb: [u8; 3], count: usize) -> u8 {
+    let dist = |c: &[u8; 3]| -> i32 { (0..3).map(|i| (c[i] as i32 - rgb[i] as i32).pow(2)).sum() };
+    (0..count).min_by_key(|&i| dist(&VGA[i])).unwrap_or(7) as u8
 }
 
 #[cfg(test)]
@@ -297,6 +457,7 @@ mod tests {
     #[test]
     fn cp437_passthrough() {
         let mut s = Screen::new(Charset::Cp437, 25);
+        s.take_output();
         s.write_bytes(&[0xC9, 0xCD]);
         assert_eq!(s.take_output(), vec![0xC9, 0xCD]);
         assert_eq!(s.where_x(), 3);
@@ -338,9 +499,50 @@ mod tests {
     #[test]
     fn set_color_only_emits_changes() {
         let mut s = Screen::new(Charset::Cp437, 25);
+        s.take_output();
         s.set_color(Color::new(11, 0));
         s.set_color(Color::new(11, 0));
         assert_eq!(s.take_output(), b"\x1b[1;36m");
+    }
+
+    #[test]
+    fn extended_colours_pass_through() {
+        for cs in [Charset::Utf8, Charset::Cp437] {
+            let mut s = Screen::new(cs, 25);
+            s.take_output();
+            // The 102 and 5 inside these must not read as iCE green / blink.
+            s.write_bytes(b"\x1b[48;2;102;5;40m\x1b[38;5;196mX");
+            assert_eq!(s.take_output(), b"\x1b[48;2;102;5;40m\x1b[38;5;196mX");
+            assert_eq!(s.color, Color::new(4, 4));
+            // Moving back to a scheme colour resets first.
+            s.set_color(Color::new(7, 0));
+            assert_eq!(s.take_output(), b"\x1b[0m");
+        }
+    }
+
+    #[test]
+    fn aixterm_colours() {
+        // Unicode terminals get them as they are.
+        let mut s = Screen::new(Charset::Utf8, 25);
+        s.write_bytes(b"\x1b[104;91mX");
+        assert_eq!(s.take_output(), b"\x1b[104;91mX");
+        // CP437 terminals get DOS codes, with iCE for the background.
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.take_output();
+        s.write_bytes(b"\x1b[104;91mX\x1b[40;31mY");
+        assert_eq!(s.take_output(), b"\x1b[0;1;5;31;44mX\x1b[0;31;40mY");
+        // A later colour change starts from a clean slate.
+        let mut s = Screen::new(Charset::Utf8, 25);
+        s.write_bytes(b"\x1b[100m");
+        s.take_output();
+        s.set_color(Color::new(7, 0));
+        assert_eq!(s.take_output(), b"\x1b[0m");
+    }
+
+    #[test]
+    fn ice_mode_at_connect() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        assert_eq!(s.take_output(), b"\x1b[?33h");
     }
 
     #[test]

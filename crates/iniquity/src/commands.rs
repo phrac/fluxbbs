@@ -12,9 +12,9 @@ use crate::session::Session;
 /// Commands the original had that aren't ported yet. They report that,
 /// rather than "invalid command", so stock menus degrade honestly.
 const NOT_YET: &[&str] = &[
-    "?I", "?T", "AR", "AS", "AW", "SD", "SE", "SS", "SU", "BA", "BC", "BD", "BL", "BS", "D0", "D1",
-    "D2", "D3", "DZ", "E+", "E-", "E/", "E\\", "F#", "IM", "IN", "LC", "LH", "M#", "NV", "QD", "QU",
-    "TP", "TS", "UC", "XC", "XM", "XB", "XS", "CP", ">C", "!D", "!W", "!E", "!I", "!V", "-X",
+    "SD", "SE", "SS", "SU", "D0", "D1", "D2", "D3", "DZ", "E+", "E-", "E/", "E\\", "F#", "IM", "IN",
+    "M#", "NV", "QD", "QU", "TP", "TS", "XC", "XM", "XB", "XS", "CP", ">C", "!D", "!W", "!E", "!I",
+    "!V", "-X",
 ];
 
 impl Session {
@@ -32,21 +32,7 @@ impl Session {
             "?=" => self.input_string = param.into(),
             "?+" => self.input_string.push_str(param),
             "?/" => self.input_string.insert_str(0, param),
-            "?%" => {
-                let n = num(param) as usize;
-                let mut s = String::new();
-                for tok in iniquity_term::tokenize(&iniquity_term::cp437::encode(&self.input_string), iniquity_term::Source::String) {
-                    match tok {
-                        iniquity_term::Token::Mci(c) => {
-                            let v = self.mci_value(c).unwrap_or_else(|| format!("%{}", String::from_utf8_lossy(&c)));
-                            s.push_str(&if n > 0 { iniquity_term::codes::squish(&v, n) } else { v });
-                        }
-                        iniquity_term::Token::Text(b) => s.push_str(&iniquity_term::cp437::decode(&b)),
-                        _ => {}
-                    }
-                }
-                self.input_string = s;
-            }
+            "?%" => self.input_string = self.expand_mci(&self.input_string.clone(), num(param) as usize),
             "?E" => self.ok_flag = self.text_file_exists(param),
             "?F" => self.ok_flag = param.trim_start().starts_with(['Y', 'y', 'T', 't']),
             "?L" => self.input_string = self.minutes_left().to_string(),
@@ -60,6 +46,8 @@ impl Session {
             "?U" => self.ok_flag = param.eq_ignore_ascii_case(&self.input_string),
             "?X" => self.input_string = "0".into(),
             "?B" => self.x_prompt(&semis).await?,
+            "?I" => self.menu_input(&semis).await?,
+            "?T" => self.menu_append(&semis)?,
 
             // -- menus and display
             "-^" | "-/" | "-\\" => self.menu_change(code.chars().nth(1).unwrap(), param),
@@ -210,6 +198,21 @@ impl Session {
             "EC" => self.read_email(false, true).await?,
             "*R" if self.is_sysop() => self.read_email(true, false).await?,
 
+            // -- automessage, BBS list, callers
+            "AS" => self.show_automsg().await?,
+            "AW" => self.write_automsg().await?,
+            "AR" => self.reply_automsg().await?,
+            "BA" => self.bbs_add().await?,
+            "BL" => {
+                self.bbs_list().await?;
+            }
+            "BS" => self.bbs_show(param).await?,
+            "BD" => self.bbs_delete(param).await?,
+            "BC" => self.bbs_clear(param).await?,
+            "LC" => self.last_callers(param).await?,
+            "LH" => self.show_history().await?,
+            "UC" => self.user_config().await?,
+
             // -- users and nodes
             "UL" => self.user_list().await?,
             "UP" => self.change_password().await?,
@@ -279,6 +282,29 @@ impl Session {
         self.newline();
         self.input_string = opts[cur].to_string();
         Ok(())
+    }
+
+    /// `mciProcess`: replace `%XX` codes that have values, leaving all
+    /// other text (colour codes included) as it is. `limit` > 0 cuts each
+    /// value to that length.
+    pub(crate) fn expand_mci(&self, s: &str, limit: usize) -> String {
+        let chars: Vec<char> = s.chars().collect();
+        let mut out = String::new();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i] == '%' && i + 2 < chars.len() {
+                let code = [chars[i + 1] as u8, chars[i + 2] as u8];
+                if chars[i + 1].is_ascii() && chars[i + 2].is_ascii()
+                    && let Some(v) = self.mci_value(code) {
+                        out.push_str(&if limit > 0 { iniquity_term::codes::squish(&v, limit) } else { v });
+                        i += 3;
+                        continue;
+                    }
+            }
+            out.push(chars[i]);
+            i += 1;
+        }
+        out
     }
 
     fn save_user(&self) {

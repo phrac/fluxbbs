@@ -26,6 +26,7 @@ The stock SysOp account is `SysOp` / `SYSOP`, with system password
 | MSGS\*.HDR, *.DAT     | data/iniquity.db            |
 | DATA\FILEAREA.DAT, FILECONF.DAT | fileareas.toml     |
 | DATA\*.DIR, FILEDESC.DAT | data/iniquity.db         |
+| DATA\STATS, HISTORY, CALLERS, BBSLIST.DAT | data/iniquity.db |
 | MENU\*.MNU            | menus/*.toml                |
 | TEXT\*                | text/                       |
 
@@ -68,6 +69,8 @@ taken from FILE_ID.DIZ in ZIP archives.
     `transfer.rs` Zmodem and external protocols; `filebase.rs` file records
   - `engine.rs` menu engine, `commands.rs` menu commands, `acs.rs` access
     conditions, `mci.rs` MCI codes
+  - `extras.rs` oneliners (`?I`/`?T`), last callers, history, the
+    automessage, the BBS list, user configuration; `sysdata.rs` their storage
   - `users.rs` user database, `import.rs` legacy import
 - `menus/`, `text/`, `iniquity.toml`: the stock r5 setup, imported.
 - `crates/iniquity/assets/strings.toml`: the stock prompt strings, built in;
@@ -88,13 +91,16 @@ new-user application, access levels, the menu engine (hot keys, `/` and
 command help), message areas and conferences, the message reader, the
 full-screen editor, newscans, email, file areas and conferences, the
 file lister, downloads (single and batch, with the original's limits and
-ratios), uploads, file search and newscan, and ZIP viewing.
+ratios), uploads, file search and newscan, ZIP viewing, oneliners, the
+automessage, last callers, BBS history and statistics, the BBS list, and
+user configuration.
 
-Commands: `?= ?+ ?/ ?% ?B ?E ?F ?L ?N ?Y ?S ?U`,
+Commands: `?= ?+ ?/ ?% ?B ?E ?F ?I ?L ?N ?Y ?S ?T ?U`,
 `-^ -/ -\ -= -? -C -D -E -F -K -L -P -R -S -W`, the `|` cursor commands,
 `>A >H >L`, `HC HI HM`, `MA MC MJ MN MM MP MR MS MZ M[ M]`, `EE ER EC *R`,
-`FA FB FC FD FF FI FJ FL FN FS FT FU FV FZ F+ F[ F] *%`, `UL UP XL`.
+`FA FB FC FD FF FI FJ FL FN FS FT FU FV FZ F+ F[ F] *%`, `AR AS AW`,
+`BA BC BD BL BS`, `LC LH`, `UC UL UP XL`.
 
-Other commands from the original say "not available yet". Next: the
-automessage, oneliners (`?I`/`?T`), last callers, user configuration and
-the BBS list.
+Other commands from the original say "not available yet". Next:
+auto-signatures, infoforms and new-user voting, multinode chat and
+messages, and then the SysOp editors.

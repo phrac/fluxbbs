@@ -409,6 +409,7 @@ impl Session {
             u.file_points = u.file_points.saturating_sub(f.points);
         }
         f.downloads += 1;
+        self.bump(crate::sysdata::Stat::Download { kb: kb as u64 });
         self.state.files.update(f).map_err(io_err)?;
         self.state.users.save(&self.user).map_err(io_err)?;
         Ok(())
@@ -1327,6 +1328,7 @@ impl Session {
                 description: desc,
             };
             self.state.files.add(&mut rec).map_err(io_err)?;
+            self.bump(crate::sysdata::Stat::Upload { kb: rec.size / 1024 });
             if rec.valid {
                 self.user.uploads += 1;
                 self.user.upload_kb += rec.size / 1024;

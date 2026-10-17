@@ -31,6 +31,20 @@ fn config() {
 }
 
 #[test]
+fn small_files() {
+    let Some(dir) = stock() else { return };
+    let s = LegacyStats::parse(&std::fs::read(dir.join("DATA/STATS.DAT")).unwrap()).unwrap();
+    assert!(s.first_day.len() == 8, "{s:?}");
+    let h = LegacyHistory::parse_file(&std::fs::read(dir.join("DATA/HISTORY.DAT")).unwrap());
+    assert_eq!(h.len(), 1);
+    assert!(h[0].date.contains('/'), "{h:?}");
+    let b = LegacyBbs::parse_file(&std::fs::read(dir.join("DATA/BBSLIST.DAT")).unwrap());
+    assert_eq!(b.len(), 3);
+    assert!(!b[0].name.is_empty(), "{b:?}");
+    eprintln!("{s:?}\n{h:?}\n{b:#?}");
+}
+
+#[test]
 fn file_areas() {
     let Some(dir) = stock() else { return };
     let areas = LegacyFileArea::parse_file(&std::fs::read(dir.join("DATA/FILEAREA.DAT")).unwrap()).unwrap();

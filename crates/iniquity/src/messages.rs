@@ -782,8 +782,10 @@ impl Session {
         self.state.msgs.add(&mut m).map_err(io_err)?;
         if private {
             self.user.email += 1;
+            self.bump(crate::sysdata::Stat::Email);
         } else {
             self.user.posts += 1;
+            self.bump(crate::sysdata::Stat::Post);
         }
         if let Err(e) = self.state.users.save(&self.user) {
             tracing::error!("saving {}: {e}", self.user.handle);

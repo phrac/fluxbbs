@@ -16,6 +16,7 @@ mod messages;
 mod msgareas;
 mod msgbase;
 mod editor;
+mod extras;
 mod fileareas;
 mod filebase;
 mod files;
@@ -24,6 +25,7 @@ mod nodes;
 mod session;
 mod ssh;
 mod strings;
+mod sysdata;
 mod user;
 mod users;
 
@@ -38,6 +40,7 @@ use msgareas::MsgAreas;
 use msgbase::MsgBase;
 use nodes::Nodes;
 use strings::Strings;
+use sysdata::SysData;
 use users::UserStore;
 
 /// State shared by every session.
@@ -49,6 +52,9 @@ pub struct BbsState {
     pub msgs: MsgBase,
     pub fareas: FileAreas,
     pub files: FileBase,
+    pub sys: SysData,
+    /// Serialises appends to shared text files (`?T`).
+    pub text_lock: std::sync::Mutex<()>,
     pub nodes: Arc<Nodes>,
 }
 
@@ -79,8 +85,20 @@ async fn main() -> anyhow::Result<()> {
         std::fs::create_dir_all(&dir).with_context(|| format!("file area directory {}", dir.display()))?;
     }
     let files = FileBase::open(&db)?;
+    let sys = SysData::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
-    let state = Arc::new(BbsState { config, strings, users, areas, msgs, fareas, files, nodes });
+    let state = Arc::new(BbsState {
+        config,
+        strings,
+        users,
+        areas,
+        msgs,
+        fareas,
+        files,
+        sys,
+        text_lock: std::sync::Mutex::new(()),
+        nodes,
+    });
 
     tokio::select! {
         r = ssh::serve(state) => r,

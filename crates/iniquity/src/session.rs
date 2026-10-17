@@ -77,6 +77,8 @@ pub struct Session {
     pub menu_msg: u32,
     /// Files flagged for download: (area, file number).
     pub batch: Vec<(u32, u32)>,
+    /// The caller applied as a new user on this call.
+    pub new_user: bool,
     /// `~XX` / `^NN` markers from the last displayed file: (x, y, colour).
     pub positions: HashMap<[u8; 2], (u16, u16, Color)>,
     pub positions2: HashMap<u8, (u16, u16, Color)>,
@@ -150,6 +152,7 @@ impl Session {
             ok_flag: false,
             menu_msg: 0,
             batch: Vec::new(),
+            new_user: false,
             positions: HashMap::new(),
             positions2: HashMap::new(),
         }
