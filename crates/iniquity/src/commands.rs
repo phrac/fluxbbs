@@ -215,6 +215,8 @@ impl Session {
             "*#" if self.is_sysop() => self.menu_editor().await?,
             "*C" if self.is_sysop() => self.system_config().await?,
             "*I" if self.is_sysop() => self.infoform_editor().await?,
+            "*T" if self.is_sysop() => self.theme_editor().await?,
+            "UT" => self.choose_theme().await?,
             "IN" => self.infoforms(false).await?,
             "IM" => self.infoforms(true).await?,
             "NV" => self.nuv_vote(param.to_ascii_uppercase().contains('S')).await?,

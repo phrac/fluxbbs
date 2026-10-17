@@ -606,33 +606,39 @@ impl Session {
 
     /// `sfGetTextFile`: with no extension, prefer `.ANS` then `.ASC`. An ANSI
     /// screen may have random variants (`.AN1`-`.AN9`) and a weekday
-    /// override (`.A0S`-`.A6S`, Sunday = 0).
+    /// override (`.A0S`-`.A6S`, Sunday = 0). The caller's theme (text
+    /// library) is looked in first, then the text directory.
     pub(crate) fn find_text_file(&self, name: &str) -> Option<PathBuf> {
-        let dir = self.state.config().resolve(&self.state.config().paths.text);
         if name.is_empty() {
             return None;
         }
+        let text = self.state.config().resolve(&self.state.config().paths.text);
+        let dirs: Vec<PathBuf> = self.theme_dir().into_iter().chain(std::iter::once(text)).collect();
         if name.contains('.') {
-            return find_ci(&dir, name);
+            return dirs.iter().find_map(|d| find_ci(d, name));
         }
-        if let Some(ans) = find_ci(&dir, &format!("{name}.ANS")) {
-            let mut pick = ans;
-            let variants: Vec<PathBuf> = (1..=9).filter_map(|i| find_ci(&dir, &format!("{name}.AN{i}"))).collect();
-            if !variants.is_empty() {
-                let i = rand::rng().random_range(0..=variants.len());
-                if i > 0 {
-                    pick = variants[i - 1].clone();
-                }
-            }
-            let fname = pick.file_name()?.to_str()?.to_string();
-            let mut chars: Vec<char> = fname.chars().collect();
-            let n = chars.len();
-            chars[n - 2] = char::from_digit(mci::day_of_week(), 10)?;
-            let dow: String = chars.into_iter().collect();
-            return Some(find_ci(&dir, &dow).unwrap_or(pick));
-        }
-        find_ci(&dir, &format!("{name}.ASC"))
+        dirs.iter()
+            .find_map(|d| find_ansi(d, name))
+            .or_else(|| dirs.iter().find_map(|d| find_ci(d, &format!("{name}.ASC"))))
     }
+}
+
+/// `NAME.ANS` in `dir`, or one of its random or weekday variants.
+fn find_ansi(dir: &std::path::Path, name: &str) -> Option<PathBuf> {
+    let mut pick = find_ci(dir, &format!("{name}.ANS"))?;
+    let variants: Vec<PathBuf> = (1..=9).filter_map(|i| find_ci(dir, &format!("{name}.AN{i}"))).collect();
+    if !variants.is_empty() {
+        let i = rand::rng().random_range(0..=variants.len());
+        if i > 0 {
+            pick = variants[i - 1].clone();
+        }
+    }
+    let fname = pick.file_name()?.to_str()?.to_string();
+    let mut chars: Vec<char> = fname.chars().collect();
+    let n = chars.len();
+    chars[n - 2] = char::from_digit(mci::day_of_week(), 10)?;
+    let dow: String = chars.into_iter().collect();
+    Some(find_ci(dir, &dow).unwrap_or(pick))
 }
 
 /// `~NN` marker code for a number.

@@ -33,6 +33,7 @@ mod session;
 mod ssh;
 mod sysop;
 mod telnet;
+mod themes;
 mod strings;
 mod sysconfig;
 mod sysdata;
@@ -73,6 +74,7 @@ pub struct BbsState {
     archivers: std::sync::RwLock<Arc<extprog::Archivers>>,
     levels: std::sync::RwLock<Arc<extprog::Levels>>,
     infoforms: std::sync::RwLock<Arc<infoform::Infoforms>>,
+    themes: std::sync::RwLock<Arc<themes::Themes>>,
     /// Infoform answers and new user votes.
     pub forms: infoform::FormStore,
     pub files: FileBase,
@@ -155,6 +157,16 @@ impl BbsState {
         Ok(())
     }
 
+    pub fn themes(&self) -> Arc<themes::Themes> {
+        self.themes.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set_themes(&self, new: themes::Themes) -> anyhow::Result<()> {
+        write_atomic(&self.config().resolve(&self.config().paths.themes), &new.to_toml())?;
+        *self.themes.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        Ok(())
+    }
+
     pub fn infoforms(&self) -> Arc<infoform::Infoforms> {
         self.infoforms.read().unwrap_or_else(|e| e.into_inner()).clone()
     }
@@ -224,6 +236,7 @@ async fn main() -> anyhow::Result<()> {
         .unwrap_or_else(|| extprog::Levels(config.levels.clone()));
     let infoforms: infoform::Infoforms = extprog::load(&config.resolve(&config.paths.infoforms))?.unwrap_or_default();
     let forms = infoform::FormStore::open(&db)?;
+    let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
     let files = FileBase::open(&db)?;
     let sys = SysData::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
@@ -239,6 +252,7 @@ async fn main() -> anyhow::Result<()> {
         archivers: std::sync::RwLock::new(Arc::new(archivers)),
         levels: std::sync::RwLock::new(Arc::new(levels)),
         infoforms: std::sync::RwLock::new(Arc::new(infoforms)),
+        themes: std::sync::RwLock::new(Arc::new(themes)),
         forms,
         files,
         sys,

@@ -62,6 +62,9 @@ impl Session {
             b"IV" => env!("CARGO_PKG_VERSION").into(),
             b"LC" => fmt_date(u.last_call),
             b"LO" => u.location.clone(),
+            // The current text library (theme).
+            b"LA" => self.current_theme().map_or("n/a".into(), |t| t.author),
+            b"LD" => self.current_theme().map_or("n/a".into(), |t| t.desc),
             b"MI" => u.cur_msg_area.to_string(),
             b"MP" => self.menu.menu.as_ref().map(|m| m.prompt_name.clone()).unwrap_or_default(),
             b"MW" => self.mail_waiting().to_string(),

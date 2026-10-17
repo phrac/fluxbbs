@@ -18,7 +18,7 @@ use std::path::{Path, PathBuf};
 
 use anyhow::{Context, bail};
 use iniquity_legacy::msgarea::{flag, status};
-use iniquity_legacy::{LegacyBbs, LegacyCall, LegacyInfoform, LegacyConf, LegacyConfig, LegacyFile, LegacyFileArea, LegacyHistory, LegacyStats, LegacyLevel, LegacyMenu, LegacyMsgArea, LegacyMsgHeader, LegacyUser, strings, user::ac};
+use iniquity_legacy::{LegacyBbs, LegacyCall, LegacyInfoform, LegacyTextLib, LegacyConf, LegacyConfig, LegacyFile, LegacyFileArea, LegacyHistory, LegacyStats, LegacyLevel, LegacyMenu, LegacyMsgArea, LegacyMsgHeader, LegacyUser, strings, user::ac};
 use iniquity_term::Palette;
 
 use crate::config::{self, Config, Level};
@@ -29,6 +29,7 @@ use crate::msgareas::{Conf, MsgArea, MsgAreas};
 use crate::msgbase::{Message, MsgBase, Party};
 use crate::sysdata::{Bbs, Call, Counts, SysData};
 use crate::infoform::{FormStore, Infoform, Infoforms};
+use crate::themes::{Theme, Themes};
 use crate::session::find_ci;
 use crate::user::{User, parse_date};
 use crate::users::UserStore;
@@ -117,6 +118,8 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
     let store = UserStore::open(&db_path)?;
     let mut n = 0;
     let mut user_slots = 0u16;
+    // (user number, text library number) for after the libraries.
+    let mut user_libs: Vec<(u32, u8)> = Vec::new();
     if let Some(p) = find_ci(&data, "USERS.DAT") {
         for (i, lu) in LegacyUser::parse_file(&std::fs::read(p)?)?.iter().enumerate() {
             user_slots = i as u16 + 1;
@@ -125,6 +128,7 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
             }
             let mut u = convert_user(lu);
             u.id = i as u32 + 1;
+            user_libs.push((u.id, lu.text_lib));
             store.insert(&mut u).with_context(|| format!("importing user {}", lu.user_name))?;
             n += 1;
         }
@@ -318,6 +322,38 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
     }
     if nvotes > 0 {
         println!("imported {nvotes} new user votes");
+    }
+
+    // Text libraries (TEXTLIB.DAT and the .TFL files it names) become
+    // screen themes: a directory each, plus themes.toml.
+    let lib_names = read("TEXTLIB.DAT")?.map(|b| iniquity_legacy::misc::text_lib_names(&b)).unwrap_or_default();
+    let mut themes = Themes::default();
+    for name in &lib_names {
+        let file = format!("{name}.TFL");
+        let Some(path) = find_tfl(src, &file) else {
+            println!("text library {file} not found; skipped");
+            continue;
+        };
+        let lib = LegacyTextLib::parse(&std::fs::read(&path)?)?;
+        let dir_name = name.to_ascii_lowercase();
+        let dir = dest.join("themes").join(&dir_name);
+        std::fs::create_dir_all(&dir)?;
+        for (fname, data) in &lib.files {
+            std::fs::write(dir.join(fname.to_ascii_uppercase()), data)?;
+        }
+        println!("unpacked text library {file} into {} ({} files)", dir.display(), lib.files.len());
+        themes.list.push(Theme { dir: dir_name, desc: lib.desc, author: lib.author });
+    }
+    if !themes.list.is_empty() {
+        std::fs::write(dest.join("themes.toml"), themes.to_toml())?;
+        // Users keep the library they had (the first is the default).
+        for (id, n) in user_libs {
+            let Some(t) = (n as usize).checked_sub(1).and_then(|i| themes.list.get(i)).filter(|_| n > 1) else { continue };
+            if let Some(mut u) = store.get(id)? {
+                u.theme = t.dir.clone();
+                store.save(&u)?;
+            }
+        }
     }
 
     let fbase = FileBase::open(&db_path)?;
@@ -613,6 +649,8 @@ fn convert_user(l: &LegacyUser) -> User {
         vote_yes: l.vote_yes as u32,
         vote_no: l.vote_no as u32,
         file_scan: parse_date(&l.file_scan),
+        // Set from TEXTLIB.DAT once the libraries are imported.
+        theme: String::new(),
     };
     u.set_password(&l.password);
     u
@@ -628,4 +666,12 @@ pub fn from_args(args: &[String]) -> anyhow::Result<()> {
         _ => bail!("usage: iniquity import <old-install-dir> [dest-dir] [--force]"),
     };
     run(&src, &dest, force)
+}
+
+/// A library file: in the install's top directory or one level down
+/// (the stock path was a directory of its own).
+fn find_tfl(src: &Path, file: &str) -> Option<std::path::PathBuf> {
+    find_ci(src, file).or_else(|| {
+        std::fs::read_dir(src).ok()?.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_dir()).find_map(|d| find_ci(&d, file))
+    })
 }

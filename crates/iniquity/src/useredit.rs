@@ -94,6 +94,7 @@ fn plain_fields() -> Vec<Spec> {
         spec('9', "Daily Kb", B3, 15, 9, "Maximum number of kilobytes user may download in one day (0: no limit).", Kind::Num(|u| u.limit_dl_kb as u64, |u, v| u.limit_dl_kb = v as u32, 0, 9_999_999, "k")),
         spec('0', "UL/DL ratio", B1, 16, 5, "Number of files user can download per each upload (0: no ratio).", num(|u| u.uldl_ratio as u64, |u, v| u.uldl_ratio = v as u32, 99_999)),
         spec('!', "U/D Kb ratio", B2, 16, 6, "Number of kilobytes user can download per each kilobyte uploaded (0: no ratio).", Kind::Num(|u| u.kb_ratio as u64, |u, v| u.kb_ratio = v as u32, 0, 99_999, "k")),
+        spec('@', "Theme", B3, 16, 10, "Screen theme (text library) directory; blank for the default.", Text(|u| u.theme.clone(), |u, v| u.theme = v, Field::TEXT.max(20))),
         spec('%', "\"Yes\" votes", B1, 17, 3, "Number of \"yes\" votes this user currently has (new user voting).", num(|u| u.vote_yes as u64, |u, v| u.vote_yes = v as u32, 255)),
         spec('$', "\"No\" votes", B2, 17, 3, "Number of \"no\" votes this user currently has (new user voting).", num(|u| u.vote_no as u64, |u, v| u.vote_no = v as u32, 255)),
     ]

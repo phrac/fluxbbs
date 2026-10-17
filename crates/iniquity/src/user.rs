@@ -69,6 +69,8 @@ pub struct User {
     pub vote_no: u32,
     /// Files uploaded since this date are new (`fileScan`).
     pub file_scan: Option<NaiveDate>,
+    /// Chosen screen theme (text library); empty for the default.
+    pub theme: String,
 }
 
 impl Default for User {
@@ -128,6 +130,7 @@ impl Default for User {
             vote_yes: 0,
             vote_no: 0,
             file_scan: None,
+            theme: String::new(),
         }
     }
 }

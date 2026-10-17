@@ -142,6 +142,9 @@ pub struct Paths {
     pub levels: PathBuf,
     /// Infoform definitions.
     pub infoforms: PathBuf,
+    /// Screen themes (text libraries): the list, and their directories.
+    pub themes: PathBuf,
+    pub theme_dir: PathBuf,
     /// Scratch space for uploads in progress.
     pub temp: PathBuf,
 }
@@ -444,6 +447,8 @@ impl Default for Paths {
             archivers: "archivers.toml".into(),
             levels: "levels.toml".into(),
             infoforms: "infoforms.toml".into(),
+            themes: "themes.toml".into(),
+            theme_dir: "themes".into(),
             temp: "data/temp".into(),
         }
     }

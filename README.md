@@ -61,6 +61,8 @@ Neither is in git.
 - Oneliners, the automessage, last callers, history and statistics, the
   BBS list, user configuration, user listing.
 - Infoforms (questionnaires, mandatory or not) and new user voting.
+- Screen themes (the original's text libraries): directories of screens
+  that replace the stock ones; callers pick theirs with `UT`.
 
 **SysOp tools** (the `*` commands on the SysOp menu)
 - `*C` system configuration, written back to `iniquity.toml` keeping its
@@ -71,12 +73,13 @@ Neither is in git.
 - `*A` message areas, `*P` pack them, `*@`/`*!` conferences, `*R` all
   email.
 - `*X` protocols, `*Z` archivers, `*B` BBS list, `*H` statistics, `*I`
-  infoforms.
+  infoforms, `*T` themes.
 
 **Importing** an existing install: users (passwords re-hashed with
 argon2), message bases, file records and descriptions, areas,
 conferences, levels, strings, menus, text files, statistics, history,
-callers, BBS list, infoforms and their answers, new user votes.
+callers, BBS list, infoforms and their answers, new user votes, text
+libraries (unpacked into themes).
 
 ## What's left to port
 
@@ -92,7 +95,6 @@ callers, BBS list, infoforms and their answers, new user votes.
 | Jump to area by number | MSGAREA/FILEAREA | `M#`, `F#` | |
 | Message tags | EMAIL.PAS | `E+`, `E-`, `E/`, `E\` | Tagging messages and email while reading. |
 | Events | EVENTS.PAS | `*V` | Scheduled jobs (packing, maintenance). |
-| Text file libraries | INIQLIB.PAS | `*T` | Browsable collections of text files. |
 | Echomail / netmail | echomail.pas, INIQMAIL.PAS | | FidoNet-style networking; would need a mailer/tosser bridge today. |
 | File area packing | FILEPACK.PAS | | Removing records of missing files. |
 
@@ -117,6 +119,7 @@ web or terminal SysOp dashboard could replace the local console later.
 | `protocols.toml` | external transfer protocols | `*X` |
 | `archivers.toml` | archivers for formats other than ZIP | `*Z` |
 | `infoforms.toml` | infoforms | `*I` |
+| `themes.toml`, `themes/` | screen themes | `*T` |
 | `strings.toml` | prompt strings that differ from stock | `*E` |
 | `menus/*.toml` | menus | `*#` |
 | `text/` | screens (ANSI/ASCII) | your art tools; see `docs/ARTWORK.md` |
@@ -141,6 +144,7 @@ restart.
 | DATA\*.DIR, FILEDESC.DAT | data/iniquity.db |
 | DATA\STATS, HISTORY, CALLERS, BBSLIST.DAT | data/iniquity.db |
 | DATA\INFOFORM.DAT, INFOFORM.nnn, NUV.DAT | infoforms.toml, data/iniquity.db |
+| DATA\TEXTLIB.DAT, *.TFL | themes.toml, themes/NAME/ |
 | MENU\*.MNU | menus/*.toml |
 | TEXT\* | text/ |
 
@@ -203,6 +207,19 @@ users who match the candidate ACS, at logon or from the main menu.
 Voters can read the candidate's NUV infoforms and leave comments; enough
 yes votes give the candidate the validated level, enough no votes delete
 them.
+
+## Screen themes
+
+Iniquity's text libraries let a board offer more than one look. Here a
+theme is a directory under `themes/` holding any screens that should
+differ from `text/` (`MAIN.ANS`, `PRELOGON.ANS`, the list screens...);
+everything else still comes from `text/`. `themes.toml` lists them with
+a description and author (`*T` edits it); the first is the default.
+Callers choose with the `UT` command (put it on a menu, e.g.
+`keys = "/T"`, `command = "UT"` in `menus/GLOBAL.toml`), and the SysOp
+can set a user's theme in `*U`. `%LD` and `%LA` show the current theme's
+description and author. Imported `.TFL` libraries are unpacked into
+theme directories.
 
 ## Terminal handling
 

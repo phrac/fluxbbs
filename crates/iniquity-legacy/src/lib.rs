@@ -20,7 +20,7 @@ pub use config::LegacyConfig;
 pub use filearea::{LegacyFile, LegacyFileArea};
 pub use level::LegacyLevel;
 pub use menu::{LegacyCommand, LegacyMenu};
-pub use misc::{LegacyBbs, LegacyCall, LegacyHistory, LegacyInfoform, LegacyStats, LegacyVote};
+pub use misc::{LegacyBbs, LegacyCall, LegacyHistory, LegacyInfoform, LegacyStats, LegacyTextLib, LegacyVote};
 pub use msgarea::{LegacyConf, LegacyMsgArea, LegacyMsgHeader};
 pub use user::LegacyUser;
 

@@ -68,6 +68,9 @@ pub struct LegacyUser {
     pub uldl_ratio: u16,
     pub kb_ratio: u16,
     pub zip_code: String,
+    /// Text library chosen (1-based into TEXTLIB.DAT; 0 or out of range
+    /// means the first).
+    pub text_lib: u8,
     pub vote_yes: u8,
     pub vote_no: u8,
     pub uploads: i32,
@@ -133,7 +136,7 @@ impl LegacyUser {
         r.skip(4); // lastQwkDate
         let uldl_ratio = r.u16();
         let kb_ratio = r.u16();
-        r.skip(1); // textLib
+        let text_lib = r.u8();
         let zip_code = r.string(10);
         let vote_yes = r.u8();
         let vote_no = r.u8();
@@ -148,7 +151,7 @@ impl LegacyUser {
             ac_flags, colors, last_call, page_length, email_waiting, level, time_today,
             time_per_day, autosig, conf_msg, conf_file, first_call, start_menu, file_scan,
             sysop_note, posts, email, calls_today, flags, file_points, post_call, limit_dl,
-            limit_dl_kb, today_dl, today_dl_kb, uldl_ratio, kb_ratio, zip_code, vote_yes,
+            limit_dl_kb, today_dl, today_dl_kb, uldl_ratio, kb_ratio, zip_code, text_lib, vote_yes,
             vote_no, uploads, downloads, upload_kb, download_kb,
         })
     }

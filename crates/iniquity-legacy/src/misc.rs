@@ -214,6 +214,45 @@ pub fn parse_votes(buf: &[u8]) -> Vec<LegacyVote> {
     out
 }
 
+/// A text library (`.TFL`, made by INIQLIB): screens packed into one file
+/// so a library could replace the text directory on DOS.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LegacyTextLib {
+    pub desc: String,
+    pub author: String,
+    /// (filename, contents)
+    pub files: Vec<(String, Vec<u8>)>,
+}
+
+impl LegacyTextLib {
+    /// Header: count (byte), description and author (`String[36]` each),
+    /// then per file 13 bytes of name (length byte and 12 characters),
+    /// position (u32) and size (u16).
+    pub fn parse(buf: &[u8]) -> Result<Self, crate::Error> {
+        crate::pascal::check("tTextLib", buf.get(..75).unwrap_or(buf), 75)?;
+        let mut r = Reader::new(buf);
+        let n = r.u8() as usize;
+        let desc = r.string(36);
+        let author = r.string(36);
+        let index = buf.get(75..75 + n * 19).ok_or(crate::Error::Size { what: "TFL index", expected: 75 + n * 19, got: buf.len() })?;
+        let mut files = Vec::new();
+        for e in index.chunks(19) {
+            let len = (e[0] as usize).min(12);
+            let name = iniquity_term::cp437::decode(&e[1..1 + len]);
+            let pos = u32::from_le_bytes([e[13], e[14], e[15], e[16]]) as usize;
+            let size = u16::from_le_bytes([e[17], e[18]]) as usize;
+            let data = buf.get(pos..pos + size).ok_or(crate::Error::Size { what: "TFL file", expected: pos + size, got: buf.len() })?;
+            files.push((name, data.to_vec()));
+        }
+        Ok(Self { desc, author, files })
+    }
+}
+
+/// TEXTLIB.DAT: the installed libraries' names (`String[8]`), in order.
+pub fn text_lib_names(buf: &[u8]) -> Vec<String> {
+    buf.as_chunks::<9>().0.iter().map(|c| iniquity_term::cp437::decode(&c[1..1 + (c[0] as usize).min(8)])).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -228,6 +267,31 @@ mod tests {
         assert_eq!(infoform_answers(&buf, 1), None);
         assert_eq!(infoform_answers(&buf, 2), Some(vec!["Bob".into(), String::new()]));
         assert_eq!(infoform_answers(&buf, 9), None);
+    }
+
+    #[test]
+    fn text_library() {
+        let pstr = |s: &str, max: usize| {
+            let mut v = vec![s.len() as u8];
+            v.extend(s.bytes());
+            v.resize(max + 1, 0);
+            v
+        };
+        let mut buf = vec![2u8];
+        buf.extend(pstr("Dark theme", 36));
+        buf.extend(pstr("phrac", 36));
+        let data_at = 75 + 2 * 19;
+        for (name, pos, size) in [("MAIN.ANS", data_at, 3), ("LOGOFF.ANS", data_at + 3, 2)] {
+            buf.extend(&pstr(name, 12)[..13]);
+            buf.extend((pos as u32).to_le_bytes());
+            buf.extend((size as u16).to_le_bytes());
+        }
+        buf.extend(b"abcde");
+        let lib = LegacyTextLib::parse(&buf).unwrap();
+        assert_eq!((lib.desc.as_str(), lib.author.as_str()), ("Dark theme", "phrac"));
+        assert_eq!(lib.files, [("MAIN.ANS".to_string(), b"abc".to_vec()), ("LOGOFF.ANS".to_string(), b"de".to_vec())]);
+        let names = [pstr("DARK", 8), pstr("LIGHT", 8)].concat();
+        assert_eq!(text_lib_names(&names), ["DARK", "LIGHT"]);
     }
 
     #[test]
