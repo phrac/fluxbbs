@@ -1066,7 +1066,7 @@ impl Session {
 
     /// Insert, delete or move (the I/D/M of the list editors). `what`
     /// names an item ("protocol"). Returns whether the list changed.
-    async fn list_change<T>(&mut self, items: &mut Vec<T>, cmd: char, what: &str, fresh: impl FnOnce(&[T]) -> T) -> io::Result<bool> {
+    pub(crate) async fn list_change<T>(&mut self, items: &mut Vec<T>, cmd: char, what: &str, fresh: impl FnOnce(&[T]) -> T) -> io::Result<bool> {
         let n = items.len() as u32;
         self.newline();
         match cmd {

@@ -14,6 +14,7 @@ mod input;
 mod logon;
 mod mci;
 mod menu;
+mod menuedit;
 mod messages;
 mod msgareas;
 mod msgbase;
