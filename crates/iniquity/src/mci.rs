@@ -29,7 +29,7 @@ impl Session {
     /// writes the text literally).
     pub fn mci_value(&self, code: [u8; 2]) -> Option<String> {
         let code = code.map(|c| c.to_ascii_uppercase());
-        let cfg = &self.state.config.bbs;
+        let cfg = &self.state.config().bbs;
         let u = &self.user;
         let now = Local::now();
         Some(match &code {

@@ -120,12 +120,12 @@ fn is_hangup(e: &io::Error) -> bool {
 
 impl Session {
     fn new(state: Arc<BbsState>, io: Box<dyn Stream>, caller: Caller, node: NodeGuard) -> Self {
-        let charset = match state.config.terminal.charset {
+        let charset = match state.config().terminal.charset {
             CharsetPref::Cp437 => Charset::Cp437,
             CharsetPref::Utf8 => Charset::Utf8,
             CharsetPref::Auto => {
                 let term = caller.term.to_ascii_lowercase();
-                if state.config.terminal.cp437_terms.iter().any(|t| t.eq_ignore_ascii_case(&term)) {
+                if state.config().terminal.cp437_terms.iter().any(|t| t.eq_ignore_ascii_case(&term)) {
                     Charset::Cp437
                 } else {
                     Charset::Utf8
@@ -133,7 +133,7 @@ impl Session {
             }
         };
         let rows = caller.size.borrow().1;
-        let user = User { palette: state.config.colors.clone(), ..User::default() };
+        let user = User { palette: state.config().colors.clone(), ..User::default() };
         Self {
             state,
             caller,
@@ -179,7 +179,7 @@ impl Session {
     }
 
     pub fn is_sysop(&self) -> bool {
-        self.acs(&self.state.config.acs.sysop.clone())
+        self.acs(&self.state.config().acs.sysop.clone())
     }
 
     /// `acsOk`: does the current user pass an ACS expression?
@@ -487,7 +487,7 @@ impl Session {
         // Boxed: prompts are displayed by the same engine that calls us.
         Box::pin(self.show(prompt)).await?;
         self.read_key().await?;
-        if self.state.config.prompts.remove_pause {
+        if self.state.config().prompts.remove_pause {
             let len = self.screen.where_x().saturating_sub(start);
             self.screen.backspace(len);
         } else {
@@ -565,7 +565,7 @@ impl Session {
     /// screen may have random variants (`.AN1`-`.AN9`) and a weekday
     /// override (`.A0S`-`.A6S`, Sunday = 0).
     fn find_text_file(&self, name: &str) -> Option<PathBuf> {
-        let dir = self.state.config.resolve(&self.state.config.paths.text);
+        let dir = self.state.config().resolve(&self.state.config().paths.text);
         if name.is_empty() {
             return None;
         }

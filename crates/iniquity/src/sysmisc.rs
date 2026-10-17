@@ -124,7 +124,7 @@ impl Session {
             }
             num = num.clamp(1, n);
             let mut b = list[num as usize - 1].clone();
-            let mut f = Form::new(&format!("{} BBS List Editor", self.state.config.bbs.name));
+            let mut f = Form::new(&format!("{} BBS List Editor", self.state.config().bbs.name));
             f.value_col(20);
             f.label("Current", 12, format!("{num} of {n}"));
             for (key, label, len, info, get) in &texts[..3] {
@@ -176,7 +176,7 @@ impl Session {
         let mut totals = self.state.sys.totals().map_err(io_err)?;
         let mut first: Option<NaiveDate> = self.state.sys.first_day().map_err(io_err)?;
         let (orig_totals, orig_first) = (totals.clone(), first);
-        let mut f = Form::new(&format!("{} System Statistics Editor", self.state.config.bbs.name));
+        let mut f = Form::new(&format!("{} System Statistics Editor", self.state.config().bbs.name));
         f.value_col(25);
         f.item('A', "First day", 8, fmt_date(first), "Date [mm/dd/yy] of the first day the BBS was online.");
         for (key, label, info, get) in &STAT_FIELDS {

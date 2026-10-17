@@ -8,7 +8,7 @@ use anyhow::Context;
 use iniquity_term::Palette;
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Default, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Config {
     pub bbs: Bbs,
@@ -36,7 +36,7 @@ pub struct Config {
     pub root: PathBuf,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Bbs {
     pub name: String,
@@ -49,7 +49,7 @@ pub struct Bbs {
     pub inactivity_seconds: u64,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Ssh {
     pub listen: String,
@@ -60,7 +60,7 @@ pub struct Ssh {
     pub legacy_algorithms: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Paths {
     pub text: PathBuf,
@@ -90,7 +90,7 @@ pub enum CharsetPref {
     Utf8,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Terminal {
     pub charset: CharsetPref,
@@ -98,14 +98,14 @@ pub struct Terminal {
     pub cp437_terms: Vec<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Acs {
     pub sysop: String,
     pub cosysop: String,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Logon {
     /// Show the MATRIX menu before logging in.
@@ -125,7 +125,7 @@ pub struct Logon {
     pub last_callers: u32,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct NewUser {
     /// Password needed to apply (empty = none).
@@ -148,7 +148,7 @@ pub struct NewUser {
     pub ask_yes_no_bars: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Prompts {
     pub yes: String,
@@ -162,7 +162,7 @@ pub struct Prompts {
     pub remove_pause: bool,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Messages {
     pub acs_post_email: String,
@@ -215,7 +215,7 @@ impl Default for Messages {
     }
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Files {
     pub use_file_points: bool,

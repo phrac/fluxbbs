@@ -213,6 +213,7 @@ impl Session {
             "*H" if self.is_sysop() => self.stat_editor().await?,
             "*E" if self.is_sysop() => self.string_editor().await?,
             "*#" if self.is_sysop() => self.menu_editor().await?,
+            "*C" if self.is_sysop() => self.system_config().await?,
 
             // -- automessage, BBS list, callers
             "AS" => self.show_automsg().await?,

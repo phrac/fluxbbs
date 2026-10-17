@@ -42,7 +42,7 @@ impl MenuState {
 
 impl Session {
     fn menus_dir(&self) -> std::path::PathBuf {
-        self.state.config.resolve(&self.state.config.paths.menus)
+        self.state.config().resolve(&self.state.config().paths.menus)
     }
 
     /// `menuLoad`: the menu plus GLOBAL's commands if it uses them.
@@ -71,7 +71,7 @@ impl Session {
             .as_ref()
             .map(|m| m.fallback.clone())
             .filter(|f| !f.is_empty() && !f.eq_ignore_ascii_case(&missing))
-            .unwrap_or_else(|| self.state.config.logon.start_menu.clone());
+            .unwrap_or_else(|| self.state.config().logon.start_menu.clone());
         self.menu.current = fallback;
         match self.menu_load(&self.menu.current) {
             Some(m) => self.menu.menu = Some(m),

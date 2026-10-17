@@ -61,7 +61,7 @@ impl Session {
     }
 
     fn is_cosysop(&self) -> bool {
-        self.acs(&self.state.config.acs.cosysop.clone())
+        self.acs(&self.state.config().acs.cosysop.clone())
     }
 
     /// `maOKtoRead`.
@@ -127,7 +127,7 @@ impl Session {
 
     /// `maListAreas` (`MA`, and `MC` without a number).
     pub async fn list_areas(&mut self, change: bool) -> io::Result<()> {
-        let compress = self.state.config.messages.compress_area_numbers;
+        let compress = self.state.config().messages.compress_area_numbers;
         // (shown number, area number) for each listed area.
         let mut shown = Vec::new();
         let rows: Vec<(u32, u32, MsgArea)> = {
@@ -438,7 +438,7 @@ impl Session {
         cur = cur.clamp(1, total);
         let Some(mut m) = self.readable(a, cur, true, total)? else { return Ok(true) };
         cur = m.num;
-        let may_quit = self.state.config.messages.abort_mandatory_ok || !mandatory;
+        let may_quit = self.state.config().messages.abort_mandatory_ok || !mandatory;
         let mut show = true;
         loop {
             if self.hangup {
@@ -589,7 +589,7 @@ impl Session {
 
     /// After the last message: "post in this area?"
     async fn offer_post(&mut self, a: &AreaRef) -> io::Result<()> {
-        if !self.state.config.messages.ask_post_after_read || !self.acs(&a.area.post_acs) {
+        if !self.state.config().messages.ask_post_after_read || !self.acs(&a.area.post_acs) {
             return Ok(());
         }
         self.newline();
@@ -646,7 +646,7 @@ impl Session {
 
     /// `maPostMessage`: write a new message or a reply. Returns its number.
     pub async fn post(&mut self, a: &AreaRef, to: &str, subject: &str, reply: Option<&Message>) -> io::Result<Option<u32>> {
-        let mcfg = &self.state.config.messages;
+        let mcfg = &self.state.config().messages;
         let (ask_private, ask_private_reply, ask_quote, acs_anon, acs_sig) =
             (mcfg.ask_private, mcfg.ask_private_reply, mcfg.ask_auto_quote, mcfg.acs_anonymous.clone(), mcfg.acs_autosig.clone());
         if !a.is_email() && (!self.acs(&a.area.acs) || !self.acs(&a.area.post_acs)) {
@@ -934,7 +934,7 @@ impl Session {
 
     /// `emailEnterEmail` (`EE`): `to;subject`.
     pub async fn enter_email(&mut self, to: &str, subject: &str) -> io::Result<()> {
-        if !self.acs(&self.state.config.messages.acs_post_email.clone()) {
+        if !self.acs(&self.state.config().messages.acs_post_email.clone()) {
             self.say_line("EmailNoAccess").await?;
             return Ok(());
         }
@@ -1035,7 +1035,7 @@ impl Session {
                         let m = &mut mail[idx];
                         m.replies += 1;
                         self.newline();
-                        if self.state.config.messages.ask_delete_replied && !m.deleted {
+                        if self.state.config().messages.ask_delete_replied && !m.deleted {
                             self.say("EmailKillOriginal").await?;
                             if self.yes_no(true).await? {
                                 mail[idx].deleted = true;
@@ -1070,7 +1070,7 @@ impl Session {
                 }
             }
         }
-        if self.state.config.messages.ask_delete_all_read && !all {
+        if self.state.config().messages.ask_delete_all_read && !all {
             let left: Vec<usize> = (0..mail.len()).filter(|&i| !mail[i].deleted).collect();
             if !left.is_empty() {
                 self.newline();

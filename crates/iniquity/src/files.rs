@@ -131,7 +131,7 @@ impl Session {
     }
 
     pub(crate) fn farea_dir(&self, a: &FileArea) -> PathBuf {
-        self.state.config.resolve(&a.path)
+        self.state.config().resolve(&a.path)
     }
 
     fn farea_count(&self) -> u32 {
@@ -185,7 +185,7 @@ impl Session {
 
     /// `faListAreas` (`FA`, and `FC` without a number).
     pub async fn list_fareas(&mut self, change: bool) -> io::Result<()> {
-        let compress = self.state.config.messages.compress_area_numbers;
+        let compress = self.state.config().messages.compress_area_numbers;
         let mut rows = Vec::new();
         let mut visible = 0;
         for (i, a) in self.state.fareas().areas.iter().enumerate() {
@@ -291,7 +291,7 @@ impl Session {
     // ---- file information -----------------------------------------------
 
     fn xfer_secs(&self, size: u64) -> u64 {
-        size / self.state.config.files.transfer_cps.max(1)
+        size / self.state.config().files.transfer_cps.max(1)
     }
 
     /// `faFileInfo`.
@@ -309,7 +309,7 @@ impl Session {
             ("TM", mins.clone()),
             ("FP", f.points.to_string()),
         ]);
-        let no_desc = self.state.config.files.no_description.clone();
+        let no_desc = self.state.config().files.no_description.clone();
         for i in 1..=99u8 {
             let line = match f.description.get(i as usize - 1) {
                 Some(l) => l.clone(),
@@ -347,7 +347,7 @@ impl Session {
     /// `faReqDownload`: may this file be downloaded, on top of `add`
     /// (seconds, files, kb, points) already selected?
     async fn may_download(&mut self, a: &FAreaRef, f: &FileRec, add: (u64, u32, u64, u32)) -> io::Result<bool> {
-        let fc = &self.state.config.files;
+        let fc = &self.state.config().files;
         let (use_points, use_limit, use_kb_limit, use_ratio, use_kb_ratio) =
             (fc.use_file_points, fc.use_daily_limit, fc.use_daily_kb_limit, fc.use_ratio, fc.use_kb_ratio);
         let u = self.user.clone();
@@ -356,7 +356,7 @@ impl Session {
             Some(fail("FaDLaccessDenied", vec![f.name.clone()]))
         } else if !self.farea_dir(&a.area).join(&f.name).is_file() {
             Some(fail("FaFileNotThere", vec![f.name.clone()]))
-        } else if !f.valid && !self.acs(&self.state.config.acs.cosysop.clone()) {
+        } else if !f.valid && !self.acs(&self.state.config().acs.cosysop.clone()) {
             Some(fail("FaFileNotValid", vec![f.name.clone()]))
         } else if (self.minutes_left() as u64 * 60).saturating_sub(add.0) < self.xfer_secs(f.size) {
             Some(fail("FaNoTimeForDL", vec![f.name.clone()]))
@@ -418,7 +418,7 @@ impl Session {
         u.download_kb += kb as u64;
         u.today_dl += 1;
         u.today_dl_kb += kb;
-        if self.state.config.files.use_file_points {
+        if self.state.config().files.use_file_points {
             u.file_points = u.file_points.saturating_sub(f.points);
         }
         f.downloads += 1;
@@ -698,7 +698,7 @@ impl Session {
             self.screen.clear_eol();
         }
         let lines = (l.bot - l.top + 1) as usize;
-        let no_desc = self.state.config.files.no_description.clone();
+        let no_desc = self.state.config().files.no_description.clone();
         let mut rows = Vec::new();
         let mut used = 0;
         for (idx, f) in files.iter().enumerate().skip(first) {
@@ -762,7 +762,7 @@ impl Session {
         if files.is_empty() {
             return Ok(true);
         }
-        let cosysop = self.acs(&self.state.config.acs.cosysop.clone());
+        let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
         let mut list = MenuBar {
             items: &["next", "previous", "flag", "download", "view", "info", "edit", "help", "skip", "quit"],
             off: vec![false, false, false, false, false, false, !cosysop, false, !skip_ok, false],
@@ -914,8 +914,8 @@ impl Session {
                             self.lister_info(&l, &msg).await?;
                             info_dirty = true;
                             let b = bar.unwrap();
-                            self.lister_name(&l, &f, rows[b].y, !self.state.config.files.advance_bar_on_flag, true);
-                            if self.state.config.files.advance_bar_on_flag {
+                            self.lister_name(&l, &f, rows[b].y, !self.state.config().files.advance_bar_on_flag, true);
+                            if self.state.config().files.advance_bar_on_flag {
                                 bar = if b + 1 < rows.len() { Some(b + 1) } else { None };
                                 if let Some(nb) = bar {
                                     let nf = &files[rows[nb].idx];
@@ -1186,7 +1186,7 @@ impl Session {
 
     /// A scratch directory of this node's own for archiver work.
     pub(crate) fn archive_scratch(&self) -> io::Result<PathBuf> {
-        let dir = self.state.config.resolve(&self.state.config.paths.temp).join(format!("arc{}", self.node.number()));
+        let dir = self.state.config().resolve(&self.state.config().paths.temp).join(format!("arc{}", self.node.number()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir)?;
         Ok(dir)
@@ -1260,7 +1260,7 @@ impl Session {
 
     /// Is a file of this name already here (`faUploadSearch`)?
     fn upload_dupe(&self, name: &str) -> io::Result<bool> {
-        let level = self.state.config.files.upload_dupe_check;
+        let level = self.state.config().files.upload_dupe_check;
         let areas: Vec<u32> = match level {
             0 | 1 => return Ok(false),
             2 => vec![self.user.cur_file_area],
@@ -1301,7 +1301,7 @@ impl Session {
         if !self.acs(&a.area.upload_acs) {
             return self.say_line("FaULnoAccess").await;
         }
-        let allow_blind = self.state.config.files.allow_blind_upload;
+        let allow_blind = self.state.config().files.allow_blind_upload;
         let blind = if allow_blind {
             self.say("FaULaskBlind").await?;
             let b = self.yes_no(false).await?;
@@ -1349,11 +1349,11 @@ impl Session {
             }
         }
         let Some(proto) = self.select_protocol(true).await? else { return Ok(()) };
-        let temp = self.state.config.resolve(&self.state.config.paths.temp).join(format!("node{}", self.node.number()));
+        let temp = self.state.config().resolve(&self.state.config().paths.temp).join(format!("node{}", self.node.number()));
         let _ = std::fs::remove_dir_all(&temp);
         let got = self.receive_files(&proto, &temp).await?;
         let today = Local::now().date_naive();
-        let fc = &self.state.config.files;
+        let fc = &self.state.config().files;
         let (auto_valid, kb_pt, pct, use_points, import, desc_files) = (
             fc.auto_validate,
             fc.kb_per_point.max(1) as u64,
@@ -1450,8 +1450,8 @@ impl Session {
         let known: Vec<String> = self.state.files.list(&a.area.file).map_err(io_err)?.into_iter().map(|f| f.name.to_lowercase()).collect();
         let mut entries: Vec<PathBuf> = std::fs::read_dir(&dir)?.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_file()).collect();
         entries.sort();
-        let desc_files = self.state.config.files.description_files.clone();
-        let kb_pt = self.state.config.files.kb_per_point.max(1) as u64;
+        let desc_files = self.state.config().files.description_files.clone();
+        let kb_pt = self.state.config().files.kb_per_point.max(1) as u64;
         let mut n = 0;
         self.newline();
         for path in entries {

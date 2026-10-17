@@ -222,7 +222,7 @@ impl Session {
             let n = confs.len() as u32;
             let idx = num as usize - 1;
             let mut c = confs[idx].clone();
-            let mut f = Form::new(&format!("{} {kind} Conference Editor", self.state.config.bbs.name));
+            let mut f = Form::new(&format!("{} {kind} Conference Editor", self.state.config().bbs.name));
             f.label("Current conference", 12, format!("{num} of {n}"));
             f.item('A', "Key", 1, c.key.to_string(), "Key used to select and identify this conference.");
             f.item('B', "Description", 30, &c.desc, "This conference's description.");
@@ -371,7 +371,7 @@ impl Session {
             let idx = num as usize - 1;
             let mut a = areas.areas[idx].clone();
             let msgs = self.state.msgs.count(&a.file).map_err(io_err)?;
-            let mut f = Form::new(&format!("{} Message Area Editor", self.state.config.bbs.name));
+            let mut f = Form::new(&format!("{} Message Area Editor", self.state.config().bbs.name));
             f.value_col(20);
             f.label("Current area", 12, format!("{num} of {n}"));
             f.item('A', "Description", 40, &a.name, "This message area's description (shown in message area lists, etc).");
@@ -632,7 +632,7 @@ impl Session {
             let idx = num as usize - 1;
             let mut a = areas.areas[idx].clone();
             let files = self.state.files.count(&a.file).map_err(io_err)?;
-            let mut f = Form::new(&format!("{} File Area Editor", self.state.config.bbs.name));
+            let mut f = Form::new(&format!("{} File Area Editor", self.state.config().bbs.name));
             f.label("Current area", 12, format!("{num} of {n}"));
             f.item('A', "Description", 40, &a.name, "This file area's description (shown in file area lists, etc).");
             f.item('B', "Storage key", 8, &a.file, "Name the area's file records are kept under (letters and digits).");
@@ -678,7 +678,7 @@ impl Session {
                             if v.is_empty() {
                                 self.cfg_set(&mut f, key, a.path.display().to_string());
                             } else {
-                                let dir = self.state.config.resolve(std::path::Path::new(&v));
+                                let dir = self.state.config().resolve(std::path::Path::new(&v));
                                 if !dir.is_dir() && !self.cfg_ask(&mut f, "Create directory?", true).await? {
                                     self.cfg_set(&mut f, key, a.path.display().to_string());
                                 } else {
@@ -757,7 +757,7 @@ impl Session {
             let Some(mut fr) = self.state.files.get(&a.file, cur).map_err(io_err)? else { break };
             let dir = self.farea_dir(&a);
             let exists = dir.join(&fr.name).is_file();
-            let mut f = Form::new(&format!("{} File Editor: {}", self.state.config.bbs.name, a.name));
+            let mut f = Form::new(&format!("{} File Editor: {}", self.state.config().bbs.name, a.name));
             f.value_col(25);
             let missing = if exists { "" } else { " |U2(|U1does |U3not|U1 exist|U2)" };
             f.item('/', "Current file #", 30, format!("{cur} of {total}{missing}"), "");
@@ -893,7 +893,7 @@ impl Session {
                         continue 'files;
                     }
                     '+' => {
-                        let name = self.state.config.files.description_files.first().cloned().unwrap_or_else(|| "FILE_ID.DIZ".into());
+                        let name = self.state.config().files.description_files.first().cloned().unwrap_or_else(|| "FILE_ID.DIZ".into());
                         let path = dir.join(&fr.name);
                         note = if fr.description.is_empty() {
                             "There's no description to apply.".into()
@@ -915,7 +915,7 @@ impl Session {
                         continue 'files;
                     }
                     '-' => {
-                        let names = self.state.config.files.description_files.clone();
+                        let names = self.state.config().files.description_files.clone();
                         match self.archive_description(&dir.join(&fr.name), &names).await {
                             Some(lines) if !lines.is_empty() => {
                                 fr.description = lines;
@@ -964,7 +964,7 @@ impl Session {
                 format!("Credit {} for uploading this file?", u.handle)
             };
             if self.cfg_ask(f, &question, true).await? {
-                let fc = &self.state.config.files;
+                let fc = &self.state.config().files;
                 let points = if fc.use_file_points && fc.upload_points_percent > 0 {
                     (fr.points as u64 * fc.upload_points_percent as u64 / 100) as u32
                 } else {
@@ -1157,7 +1157,7 @@ impl Session {
             let n = list.len() as u32;
             let idx = num as usize - 1;
             let mut p = list[idx].clone();
-            let mut f = Form::new(&format!("{} Protocol Editor", self.state.config.bbs.name));
+            let mut f = Form::new(&format!("{} Protocol Editor", self.state.config().bbs.name));
             f.value_col(25);
             f.label("Current protocol", 12, format!("{num} of {n}"));
             f.item('A', "Activation key", 1, p.key.to_string(), "Key pressed to select this protocol (Z is Zmodem's).");
@@ -1283,7 +1283,7 @@ impl Session {
             let n = list.len() as u32;
             let idx = num as usize - 1;
             let mut a = list[idx].clone();
-            let mut f = Form::new(&format!("{} Archiver Editor", self.state.config.bbs.name));
+            let mut f = Form::new(&format!("{} Archiver Editor", self.state.config().bbs.name));
             f.value_col(25);
             f.label("Current archiver", 12, format!("{num} of {n}"));
             f.item('A', "Active archiver", 3, yes_no(a.active), "Is this archiver currently active or disabled?");

@@ -16,7 +16,7 @@ impl Session {
     /// then the menu loop until hang-up.
     pub async fn call(&mut self) -> io::Result<()> {
         self.logon_init().await?;
-        if self.state.config.logon.matrix {
+        if self.state.config().logon.matrix {
             self.menu.current = "MATRIX".into();
             self.menu_install().await?;
             self.menu.next_cmd.clear();
@@ -40,11 +40,11 @@ impl Session {
         });
 
         let start = &self.user.start_menu;
-        let dir = self.state.config.resolve(&self.state.config.paths.menus);
+        let dir = self.state.config().resolve(&self.state.config().paths.menus);
         self.menu.current = if !start.is_empty() && Menu::load(&dir, start).is_ok() {
             start.clone()
         } else {
-            self.state.config.logon.start_menu.clone()
+            self.state.config().logon.start_menu.clone()
         };
         self.menu_install().await?;
         self.menu.next_cmd.clear();
@@ -77,7 +77,7 @@ impl Session {
             self.apply().await?;
         }
         if !self.logged_in {
-            if !self.state.config.logon.matrix {
+            if !self.state.config().logon.matrix {
                 self.hangup = true;
             }
             return Ok(());
@@ -97,7 +97,7 @@ impl Session {
     /// `logonGetLogin`: ask for a name and password. Returns true on a
     /// good login, or when the caller chose to apply (`logged_in` false).
     async fn get_login(&mut self) -> io::Result<bool> {
-        let cfg = &self.state.config;
+        let cfg = self.state.config();
         let (tries, ask_apply) = (cfg.logon.tries, cfg.logon.ask_apply);
         let case = Case::from_alias_format(cfg.newuser.alias_format);
         let mut attempt = 0;
@@ -138,8 +138,8 @@ impl Session {
                         tracing::info!("{}: wrong password", user.handle);
                     }
                     let prelogon = std::mem::replace(&mut self.user, user);
-                    let sys_pw = self.state.config.logon.system_password.clone();
-                    if ok && !sys_pw.is_empty() && self.acs(&self.state.config.logon.system_password_acs.clone()) {
+                    let sys_pw = self.state.config().logon.system_password.clone();
+                    if ok && !sys_pw.is_empty() && self.acs(&self.state.config().logon.system_password_acs.clone()) {
                         self.say("LoginSystemPW").await?;
                         let s = self.read_string(ReadOpts::new(20).password()).await?;
                         self.newline();
@@ -169,7 +169,7 @@ impl Session {
         let today = Local::now().date_naive();
         let u = &mut self.user;
         let new_day = u.last_call != Some(today);
-        if new_day || self.state.config.logon.time_per_call {
+        if new_day || self.state.config().logon.time_per_call {
             u.time_today = u.time_per_day;
         }
         if new_day {
@@ -205,7 +205,7 @@ impl Session {
 
     /// `applyToBBS`: the new-user application.
     pub(crate) async fn apply(&mut self) -> io::Result<()> {
-        let cfg = &self.state.config;
+        let cfg = self.state.config();
         let (nu_pw, verify, real_names) = (cfg.newuser.password.clone(), cfg.newuser.verify, cfg.logon.real_names);
         let case = Case::from_alias_format(cfg.newuser.alias_format);
         self.show_file("APPLY").await?;
@@ -227,7 +227,7 @@ impl Session {
             }
         }
 
-        let mut u = User { palette: self.state.config.colors.clone(), ..User::default() };
+        let mut u = User { palette: self.state.config().colors.clone(), ..User::default() };
         if !real_names {
             loop {
                 self.say("NuHandle").await?;
@@ -324,7 +324,7 @@ impl Session {
         self.write(if u.sex == 'M' { "Male" } else { "Female" });
         self.newline();
 
-        let nu = &self.state.config.newuser;
+        let nu = &self.state.config().newuser;
         let (page_len, ask_page) = (nu.page_length, nu.ask_page_length);
         let toggles = [
             ("NuHotKey", nu.ask_hot_keys, nu.hot_keys),
@@ -355,7 +355,7 @@ impl Session {
 
         u.first_call = Some(today);
         u.last_call = None;
-        u.start_menu = self.state.config.logon.start_menu.clone();
+        u.start_menu = self.state.config().logon.start_menu.clone();
         if let Some(level) = self.state.level('A') {
             u.apply_level('A', &level);
         }

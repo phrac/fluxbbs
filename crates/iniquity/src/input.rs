@@ -161,7 +161,7 @@ impl Session {
                     Err(_) => return Ok(None),
                 },
                 Wait::Idle => {
-                    let idle = self.state.config.bbs.inactivity_seconds;
+                    let idle = self.state.config().bbs.inactivity_seconds;
                     if idle == 0 {
                         self.io.read(&mut buf).await?
                     } else {
@@ -237,7 +237,7 @@ impl Session {
     /// `iReadString`: read a line with editing. Backspace deletes,
     /// Ctrl-U/Ctrl-X clear, Enter finishes.
     pub async fn read_string(&mut self, opts: ReadOpts) -> io::Result<String> {
-        let echo = self.state.config.prompts.password_echo;
+        let echo = self.state.config().prompts.password_echo;
         loop {
             let mut s = String::new();
             for c in opts.default.chars().take(opts.max) {
@@ -283,7 +283,7 @@ impl Session {
         if self.user.yes_no_bars {
             return self.yes_no_bar(default).await;
         }
-        let p = &self.state.config.prompts;
+        let p = &self.state.config().prompts;
         let (prompt, yes, no) = (if default { p.yes.clone() } else { p.no.clone() }, p.yes_word.clone(), p.no_word.clone());
         self.show(&prompt).await?;
         let answer = loop {
@@ -299,7 +299,7 @@ impl Session {
     }
 
     async fn yes_no_bar(&mut self, default: bool) -> io::Result<bool> {
-        let (yes_bar, no_bar) = (self.state.config.prompts.yes_bar.clone(), self.state.config.prompts.no_bar.clone());
+        let (yes_bar, no_bar) = (self.state.config().prompts.yes_bar.clone(), self.state.config().prompts.no_bar.clone());
         let x = self.screen.where_x();
         let mut yes = default;
         self.show(if yes { &yes_bar } else { &no_bar }).await?;

@@ -15,6 +15,7 @@ russh = "0.64.1"
 serde = { version = "1.0.229", features = ["derive"] }
 tokio = { version = "1.53.3", features = ["full"] }
 toml = "1.1.8"
+toml_edit = { version = "0.25.17", features = ["serde"] }
 tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 zip = { version = "9.0.4", default-features = false, features = ["deflate"] }

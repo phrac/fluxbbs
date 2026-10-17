@@ -162,7 +162,7 @@ impl Session {
         let mut c = 'A';
         loop {
             let mut l = levels.0.get(&c.to_string()).cloned().unwrap_or_default();
-            let mut f = Form::new(&format!("{} Access Level Editor", self.state.config.bbs.name));
+            let mut f = Form::new(&format!("{} Access Level Editor", self.state.config().bbs.name));
             f.label("Current level", 1, c.to_string());
             f.item('A', "Description", 40, &l.desc, "Text description of this access level (blank: not in use).");
             f.item('B', "Security level", 3, l.sl.to_string(), "Security level (SL) for this access level.");
@@ -275,7 +275,7 @@ impl Session {
                 note = format!("{} is online on node {n}; their session may overwrite changes.", u.handle);
             }
             loop {
-                let mut f = Form::new(&format!("{} User Editor", self.state.config.bbs.name));
+                let mut f = Form::new(&format!("{} User Editor", self.state.config().bbs.name));
                 f.item_xy(B1.0, 1, B1.1, '/', "Current #", 14, format!("{} of {}", pos + 1, ids.len()), "");
                 f.item_xy(40, 1, 1, '[', "Previous", 0, "", "");
                 f.item_xy(59, 1, 1, ']', "Next", 0, "", "");
@@ -458,7 +458,7 @@ impl Session {
     }
 
     /// `cfgUserColors`.
-    async fn palette_editor(&mut self, pal: &mut Palette) -> io::Result<()> {
+    pub(crate) async fn palette_editor(&mut self, pal: &mut Palette) -> io::Result<()> {
         loop {
             let mut f = Form::new("User Color Configuration");
             for (key, label, slot) in COLOR_ITEMS {

@@ -29,6 +29,7 @@ mod session;
 mod ssh;
 mod sysop;
 mod strings;
+mod sysconfig;
 mod sysdata;
 mod sysmisc;
 mod user;
@@ -51,7 +52,10 @@ use users::UserStore;
 
 /// State shared by every session.
 pub struct BbsState {
-    pub config: Config,
+    /// Swapped whole by the system configuration editor.
+    config: std::sync::RwLock<Arc<Config>>,
+    /// Where the configuration came from (the editor writes it back).
+    pub config_path: PathBuf,
     /// Swapped whole by the string editor.
     strings: std::sync::RwLock<Arc<Strings>>,
     pub users: UserStore,
@@ -78,9 +82,19 @@ impl BbsState {
     /// Save the strings that differ from stock to strings.toml and start
     /// using them.
     pub fn set_strings(&self, new: Strings) -> anyhow::Result<()> {
-        write_atomic(&self.config.resolve(&self.config.paths.strings), &strings::to_toml(&new.overrides()))?;
+        write_atomic(&self.config().resolve(&self.config().paths.strings), &strings::to_toml(&new.overrides()))?;
         *self.strings.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
+    }
+
+    /// The configuration as it is now.
+    pub fn config(&self) -> Arc<Config> {
+        self.config.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    /// Start using a new configuration (already saved by the caller).
+    pub fn set_config(&self, new: Config) {
+        *self.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
     }
 
     /// The message areas as they are now.
@@ -90,7 +104,7 @@ impl BbsState {
 
     /// Save new message areas to msgareas.toml and start using them.
     pub fn set_areas(&self, new: MsgAreas) -> anyhow::Result<()> {
-        let path = self.config.resolve(&self.config.paths.msgareas);
+        let path = self.config().resolve(&self.config().paths.msgareas);
         write_atomic(&path, &new.to_toml())?;
         *self.areas.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
@@ -101,7 +115,7 @@ impl BbsState {
     }
 
     pub fn set_protocols(&self, new: extprog::Protocols) -> anyhow::Result<()> {
-        write_atomic(&self.config.resolve(&self.config.paths.protocols), &new.to_toml())?;
+        write_atomic(&self.config().resolve(&self.config().paths.protocols), &new.to_toml())?;
         *self.protocols.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
     }
@@ -111,7 +125,7 @@ impl BbsState {
     }
 
     pub fn set_archivers(&self, new: extprog::Archivers) -> anyhow::Result<()> {
-        write_atomic(&self.config.resolve(&self.config.paths.archivers), &new.to_toml())?;
+        write_atomic(&self.config().resolve(&self.config().paths.archivers), &new.to_toml())?;
         *self.archivers.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
     }
@@ -126,7 +140,7 @@ impl BbsState {
     }
 
     pub fn set_levels(&self, new: extprog::Levels) -> anyhow::Result<()> {
-        write_atomic(&self.config.resolve(&self.config.paths.levels), &new.to_toml())?;
+        write_atomic(&self.config().resolve(&self.config().paths.levels), &new.to_toml())?;
         *self.levels.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
     }
@@ -139,10 +153,10 @@ impl BbsState {
     /// Save new file areas to fileareas.toml and start using them.
     pub fn set_fareas(&self, new: FileAreas) -> anyhow::Result<()> {
         for a in &new.areas {
-            let dir = self.config.resolve(&a.path);
+            let dir = self.config().resolve(&a.path);
             std::fs::create_dir_all(&dir).with_context(|| format!("file area directory {}", dir.display()))?;
         }
-        let path = self.config.resolve(&self.config.paths.fileareas);
+        let path = self.config().resolve(&self.config().paths.fileareas);
         write_atomic(&path, &new.to_toml())?;
         *self.fareas.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
@@ -192,7 +206,8 @@ async fn main() -> anyhow::Result<()> {
     let sys = SysData::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
     let state = Arc::new(BbsState {
-        config,
+        config: std::sync::RwLock::new(Arc::new(config)),
+        config_path: path.clone(),
         strings: std::sync::RwLock::new(Arc::new(strings)),
         users,
         areas: std::sync::RwLock::new(Arc::new(areas)),

@@ -97,11 +97,11 @@ impl Session {
     /// `cfgMenuEditor`: pick a menu to add, delete or edit.
     pub async fn menu_editor(&mut self) -> io::Result<()> {
         tracing::info!("{}: menu editor", self.user.handle);
-        let dir = self.state.config.resolve(&self.state.config.paths.menus);
+        let dir = self.state.config().resolve(&self.state.config().paths.menus);
         loop {
             self.clear_screen();
             self.set_slot(Slot::Text);
-            self.write(&format!("   {} ", self.state.config.bbs.name));
+            self.write(&format!("   {} ", self.state.config().bbs.name));
             self.set_slot(Slot::TextHi);
             self.write("Menu Editing System");
             self.newline();
@@ -141,7 +141,7 @@ impl Session {
                             continue;
                         }
                     }
-                    let m = new_menu(&name, &self.state.config.bbs.name);
+                    let m = new_menu(&name, &self.state.config().bbs.name);
                     save_menu(&dir, &name, &m).map_err(io_err)?;
                     tracing::info!("{}: created menu {name}", self.user.handle);
                     self.menu_edit(&dir, &name).await?;
@@ -182,7 +182,7 @@ impl Session {
         let types: Vec<&str> = TYPES.iter().map(|t| t.1).collect();
         let modes: Vec<&str> = MODES.iter().map(|t| t.1).collect();
         loop {
-            let mut f = Form::new(&format!("{} Menu Editor [{name}]", self.state.config.bbs.name));
+            let mut f = Form::new(&format!("{} Menu Editor [{name}]", self.state.config().bbs.name));
             f.value_col(25);
             f.item('A', "Menu type", 8, type_label(m.menu_type), "Menu interface type.");
             f.item('B', "Menu title", 54, &m.title, "Title of this menu (displayed in generic menus).");
@@ -335,7 +335,7 @@ impl Session {
         loop {
             let idx = num as usize - 1;
             let c = &mut cmds[idx];
-            let mut f = Form::new(&format!("{} Menu Command Editor", self.state.config.bbs.name));
+            let mut f = Form::new(&format!("{} Menu Command Editor", self.state.config().bbs.name));
             f.value_col(25);
             f.label("Current command", 12, format!("{num} of {n}"));
             for (key, label, len, _, info, get) in &texts[..6] {

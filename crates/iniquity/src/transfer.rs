@@ -291,7 +291,7 @@ impl Session {
     }
 
     async fn zmodem_receive(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>> {
-        let max = self.state.config.files.max_upload_bytes;
+        let max = self.state.config().files.max_upload_bytes;
         let mut rx = zmodem2::Receiver::new().map_err(zerr)?;
         let mut got = Vec::new();
         let mut file: Option<(tokio::fs::File, PathBuf, u64)> = None;

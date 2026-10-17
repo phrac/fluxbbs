@@ -388,7 +388,7 @@ impl Session {
         let mut d = Draft::new(&ctx.text);
         if ctx.auto_quote
             && let Some(r) = ctx.reply {
-                let max = self.state.config.messages.max_quote_lines as usize;
+                let max = self.state.config().messages.max_quote_lines as usize;
                 if let Some((a, b)) = quote_range(r, max) {
                     d.insert_lines(&quote_lines(r, a, b));
                 }
@@ -690,7 +690,7 @@ impl Session {
         if body.is_empty() {
             return Ok(());
         }
-        let ansi = self.state.config.messages.ansi_quote.clone();
+        let ansi = self.state.config().messages.ansi_quote.clone();
         self.clear_screen();
         let mut lines = 0;
         for (i, l) in body.iter().enumerate() {
@@ -702,8 +702,8 @@ impl Session {
             }
         }
         self.newline();
-        let defaults = self.state.config.messages.default_quote_lines && !self.user.quote;
-        let suggest = quote_range(r, self.state.config.messages.max_quote_lines as usize);
+        let defaults = self.state.config().messages.default_quote_lines && !self.user.quote;
+        let suggest = quote_range(r, self.state.config().messages.max_quote_lines as usize);
         let n = body.len().to_string();
         let s = self.strings().fmt("MsgQuoteFirst", &[&n]);
         self.show(&s).await?;

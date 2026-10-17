@@ -20,7 +20,7 @@ use crate::BbsState;
 use crate::session::{self, Caller};
 
 pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
-    let dir = state.config.resolve(&state.config.ssh.host_key_dir);
+    let dir = state.config().resolve(&state.config().ssh.host_key_dir);
     let keys = [
         ("ssh_host_ed25519_key", Algorithm::Ed25519),
         ("ssh_host_ecdsa_key", Algorithm::Ecdsa { curve: EcdsaCurve::NistP256 }),
@@ -31,14 +31,14 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     .collect::<anyhow::Result<Vec<_>>>()?;
     let config = russh::server::Config {
         keys,
-        preferred: preferred(state.config.ssh.legacy_algorithms),
+        preferred: preferred(state.config().ssh.legacy_algorithms),
         auth_rejection_time: Duration::from_secs(1),
         auth_rejection_time_initial: Some(Duration::ZERO),
         inactivity_timeout: None,
         nodelay: true,
         ..Default::default()
     };
-    let listen = state.config.ssh.listen.clone();
+    let listen = state.config().ssh.listen.clone();
     tracing::info!("ssh listening on {listen}");
     let mut server = SshServer { state };
     server.run_on_address(Arc::new(config), listen.as_str()).await.context("ssh server")?;

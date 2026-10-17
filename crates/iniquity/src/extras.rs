@@ -117,7 +117,7 @@ impl Session {
         if name.is_empty() || name.contains(['/', '\\']) || name.starts_with('.') {
             return Ok(());
         }
-        let dir = self.state.config.resolve(&self.state.config.paths.text);
+        let dir = self.state.config().resolve(&self.state.config().paths.text);
         let path = crate::session::find_ci(&dir, name).unwrap_or_else(|| dir.join(name));
         let _guard = self.state.text_lock.lock().unwrap();
         let mut lines: Vec<Vec<u8>> = match std::fs::read(&path) {
@@ -147,7 +147,7 @@ impl Session {
         let calls = if all {
             self.state.sys.calls(None, Some(Local::now().date_naive()))
         } else {
-            self.state.sys.calls(Some(self.state.config.logon.last_callers), None)
+            self.state.sys.calls(Some(self.state.config().logon.last_callers), None)
         }
         .map_err(io_err)?;
         let mut rep = self.repeat_begin("LASTC", false).await?;
@@ -270,7 +270,7 @@ impl Session {
             return Ok(());
         }
         let mut anonymous = false;
-        if self.acs(&self.state.config.messages.acs_anon_automsg.clone()) {
+        if self.acs(&self.state.config().messages.acs_anon_automsg.clone()) {
             self.say("MsgAskAnonymous").await?;
             anonymous = self.yes_no(false).await?;
         }
@@ -383,7 +383,7 @@ impl Session {
         }
         self.newline();
         let Some(proto) = self.select_protocol(false).await? else { return Ok(()) };
-        let temp = self.state.config.resolve(&self.state.config.paths.temp).join(format!("node{}", self.node.number()));
+        let temp = self.state.config().resolve(&self.state.config().paths.temp).join(format!("node{}", self.node.number()));
         let _ = std::fs::remove_dir_all(&temp);
         let got = self.receive_files(&proto, &temp).await?;
         // Only the start of the first file matters; six lines can't be long.
