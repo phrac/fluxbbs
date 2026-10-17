@@ -15,6 +15,7 @@ use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWrite, AsyncWriteExt};
 use zmodem2::{Action, Event, FileInfo, Position};
 
 use crate::config::Protocol;
+use crate::extprog::shell_quote;
 use crate::input::Key;
 use crate::session::{Session, waves};
 
@@ -66,7 +67,7 @@ impl Session {
     /// The protocols this caller may use.
     fn protocols(&self, batch: bool) -> Vec<(char, Proto)> {
         let mut out = vec![('Z', Proto::Zmodem)];
-        for p in &self.state.config.protocols {
+        for p in &self.state.protocols().list {
             if self.acs(&p.acs) && (!batch || p.batch) && !p.key.eq_ignore_ascii_case(&'Z') {
                 out.push((p.key.to_ascii_uppercase(), Proto::External(p.clone())));
             }
@@ -421,9 +422,6 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
     (1..).map(|i| dir.join(format!("{name}.{i}"))).find(|p| !p.exists()).unwrap()
 }
 
-fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
-}
 
 #[cfg(test)]
 mod tests {

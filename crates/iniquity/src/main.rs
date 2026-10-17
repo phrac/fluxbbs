@@ -8,6 +8,7 @@ mod commands;
 mod cfgedit;
 mod config;
 mod engine;
+mod extprog;
 mod import;
 mod input;
 mod logon;
@@ -56,6 +57,8 @@ pub struct BbsState {
     pub msgs: MsgBase,
     /// Swapped whole by the SysOp's file area editor.
     fareas: std::sync::RwLock<Arc<FileAreas>>,
+    protocols: std::sync::RwLock<Arc<extprog::Protocols>>,
+    archivers: std::sync::RwLock<Arc<extprog::Archivers>>,
     pub files: FileBase,
     pub sys: SysData,
     /// Serialises appends to shared text files (`?T`).
@@ -74,6 +77,26 @@ impl BbsState {
         let path = self.config.resolve(&self.config.paths.msgareas);
         write_atomic(&path, &new.to_toml())?;
         *self.areas.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        Ok(())
+    }
+
+    pub fn protocols(&self) -> Arc<extprog::Protocols> {
+        self.protocols.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set_protocols(&self, new: extprog::Protocols) -> anyhow::Result<()> {
+        write_atomic(&self.config.resolve(&self.config.paths.protocols), &new.to_toml())?;
+        *self.protocols.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        Ok(())
+    }
+
+    pub fn archivers(&self) -> Arc<extprog::Archivers> {
+        self.archivers.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set_archivers(&self, new: extprog::Archivers) -> anyhow::Result<()> {
+        write_atomic(&self.config.resolve(&self.config.paths.archivers), &new.to_toml())?;
+        *self.archivers.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
     }
 
@@ -129,6 +152,9 @@ async fn main() -> anyhow::Result<()> {
         let dir = config.resolve(&a.path);
         std::fs::create_dir_all(&dir).with_context(|| format!("file area directory {}", dir.display()))?;
     }
+    let protocols = extprog::load(&config.resolve(&config.paths.protocols))?
+        .unwrap_or_else(|| extprog::Protocols { list: config.protocols.clone() });
+    let archivers: extprog::Archivers = extprog::load(&config.resolve(&config.paths.archivers))?.unwrap_or_default();
     let files = FileBase::open(&db)?;
     let sys = SysData::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
@@ -139,6 +165,8 @@ async fn main() -> anyhow::Result<()> {
         areas: std::sync::RwLock::new(Arc::new(areas)),
         msgs,
         fareas: std::sync::RwLock::new(Arc::new(fareas)),
+        protocols: std::sync::RwLock::new(Arc::new(protocols)),
+        archivers: std::sync::RwLock::new(Arc::new(archivers)),
         files,
         sys,
         text_lock: std::sync::Mutex::new(()),

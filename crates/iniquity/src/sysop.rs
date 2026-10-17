@@ -9,10 +9,12 @@ use iniquity_term::Slot;
 use iniquity_term::codes::{resize, squish};
 
 use crate::cfgedit::{Field, Form, yes_no};
+use crate::config::Protocol;
+use crate::extprog::{Archiver, Archivers, Protocols};
 use crate::fileareas::{FileArea, FileAreas, SortBy};
 use crate::msgareas::Conf;
 use crate::filebase::{FileRec, wildcard};
-use crate::files::{FAreaRef, commas, zip_description};
+use crate::files::{FAreaRef, commas, is_zip};
 use crate::session::Session;
 use crate::transfer::safe_name;
 use crate::user::{fmt_date, parse_date};
@@ -663,10 +665,13 @@ impl Session {
                         let path = dir.join(&fr.name);
                         note = if fr.description.is_empty() {
                             "There's no description to apply.".into()
-                        } else if !fr.name.to_ascii_lowercase().ends_with(".zip") {
-                            "Only ZIP archives can be changed.".into()
                         } else {
-                            match zip_set_description(&path, &name, &fr.description) {
+                            let result = if is_zip(&path) {
+                                zip_set_description(&path, &name, &fr.description)
+                            } else {
+                                self.archiver_set_description(&path, &name, &fr.description).await
+                            };
+                            match result {
                                 Ok(size) => {
                                     fr.size = size;
                                     format!("{name} written ({} bytes).", commas(size))
@@ -679,7 +684,7 @@ impl Session {
                     }
                     '-' => {
                         let names = self.state.config.files.description_files.clone();
-                        match zip_description(&dir.join(&fr.name), &names) {
+                        match self.archive_description(&dir.join(&fr.name), &names).await {
                             Some(lines) if !lines.is_empty() => {
                                 fr.description = lines;
                                 note = "Description extracted.".into();
@@ -697,6 +702,23 @@ impl Session {
         self.screen.goto(1, self.screen.rows());
         self.newline();
         Ok(())
+    }
+
+    /// `+` for formats other than ZIP: the archiver's add command.
+    async fn archiver_set_description(&mut self, path: &Path, name: &str, lines: &[String]) -> anyhow::Result<u64> {
+        let Some(arc) = self.state.archivers().for_file(path).cloned().filter(|a| !a.add.is_empty()) else {
+            anyhow::bail!("no archiver can add files to this kind of archive");
+        };
+        let dir = self.archive_scratch()?;
+        let text: Vec<u8> = lines.iter().flat_map(|l| [iniquity_term::cp437::encode(l), b"\r\n".to_vec()].concat()).collect();
+        std::fs::write(dir.join(name), text)?;
+        let cmd = crate::extprog::expand(&arc.add, &std::path::absolute(path)?, &[name]);
+        let ok = crate::extprog::run(&cmd, &dir).await;
+        let _ = std::fs::remove_dir_all(&dir);
+        if !ok?.0 {
+            anyhow::bail!("the {} add command failed", arc.ext);
+        }
+        Ok(std::fs::metadata(path)?.len())
     }
 
     /// `H` in the file editor: validating credits the uploader, as the
@@ -808,6 +830,280 @@ impl Session {
         self.show_line(&format!("|U1Sent |U3{ok}|U1 of |U3{}|U1.", files.len())).await
     }
 
+    // ---- list editors --------------------------------------------------------
+
+    /// Insert, delete or move (the I/D/M of the list editors). `what`
+    /// names an item ("protocol"). Returns whether the list changed.
+    async fn list_change<T>(&mut self, items: &mut Vec<T>, cmd: char, what: &str, fresh: impl FnOnce(&[T]) -> T) -> io::Result<bool> {
+        let n = items.len() as u32;
+        self.newline();
+        match cmd {
+            'I' => {
+                let Some(at) = self.cfg_ask_number(&format!("Insert before which {what}?"), 1, n + 1).await? else { return Ok(false) };
+                let item = fresh(items);
+                items.insert(at as usize - 1, item);
+            }
+            'D' => {
+                if n == 0 {
+                    return Ok(false);
+                }
+                let Some(which) = self.cfg_ask_number(&format!("Delete which {what}?"), 1, n).await? else { return Ok(false) };
+                items.remove(which as usize - 1);
+            }
+            'M' => {
+                if n <= 1 {
+                    return Ok(false);
+                }
+                let Some(from) = self.cfg_ask_number(&format!("Move which {what}?"), 1, n).await? else { return Ok(false) };
+                let Some(before) = self.cfg_ask_number(&format!("Move before which {what}?"), 1, n + 1).await? else { return Ok(false) };
+                move_before(items, from as usize - 1, before as usize - 1);
+            }
+            _ => return Ok(false),
+        }
+        Ok(true)
+    }
+
+    // ---- *X: transfer protocols (CONFIG7) -----------------------------------
+
+    /// `cfgProtocolEditor`: the external protocols (Zmodem is built in).
+    pub async fn protocol_editor(&mut self) -> io::Result<()> {
+        tracing::info!("{}: protocol edit", self.user.handle);
+        loop {
+            let mut protos = self.state.protocols().list.clone();
+            self.clear_screen();
+            self.set_slot(Slot::Text);
+            self.write(" Num  Key  Description                     Batch  ACS");
+            self.newline();
+            self.rule().await?;
+            self.set_slot(Slot::InfoLo);
+            self.write(" --   Z    Zmodem (built in)               Yes");
+            self.newline();
+            for (i, p) in protos.iter().enumerate() {
+                self.set_slot(Slot::Info);
+                self.write(&format!(
+                    " {} {} {} {} {}",
+                    resize(&(i + 1).to_string(), 4),
+                    resize(&p.key.to_string(), 4),
+                    resize(&p.desc, 31),
+                    resize(yes_no(p.batch), 6),
+                    squish(&p.acs, 20)
+                ));
+                self.newline();
+            }
+            self.rule().await?;
+            let Some(cmd) = self.cfg_list_prompt(&[("I", "nsert"), ("D", "elete"), ("E", "dit"), ("M", "ove"), ("Esc", " Quit")]).await? else {
+                return Ok(());
+            };
+            if cmd == 'E' {
+                self.newline();
+                let n = protos.len() as u32;
+                if n == 0 {
+                    continue;
+                }
+                if let Some(num) = self.cfg_ask_number("Begin edit with which protocol?", 1, n).await? {
+                    self.protocol_edit(num).await?;
+                }
+                continue;
+            }
+            let fresh = |list: &[Protocol]| Protocol {
+                key: ('A'..='Y').find(|c| !list.iter().any(|p| p.key.eq_ignore_ascii_case(c))).unwrap_or('X'),
+                desc: "New protocol".into(),
+                acs: String::new(),
+                batch: false,
+                send: "sz %F".into(),
+                receive: "rz".into(),
+            };
+            if self.list_change(&mut protos, cmd, "protocol", fresh).await? {
+                self.state.set_protocols(Protocols { list: protos }).map_err(io_err)?;
+            }
+        }
+    }
+
+    async fn protocol_edit(&mut self, mut num: u32) -> io::Result<()> {
+        loop {
+            let mut list = self.state.protocols().list.clone();
+            let n = list.len() as u32;
+            let idx = num as usize - 1;
+            let mut p = list[idx].clone();
+            let mut f = Form::new(&format!("{} Protocol Editor", self.state.config.bbs.name));
+            f.value_col(25);
+            f.label("Current protocol", 12, format!("{num} of {n}"));
+            f.item('A', "Activation key", 1, p.key.to_string(), "Key pressed to select this protocol (Z is Zmodem's).");
+            f.item('B', "Description", 36, &p.desc, "Name of this protocol.");
+            f.item('C', "Access required", 20, &p.acs, "Access condition required to use this protocol.");
+            f.item('D', "Batch protocol", 3, yes_no(p.batch), "Can it send several files at once?");
+            f.item('E', "Receive command", 53, &p.receive, "Run to receive uploads, in the upload directory.");
+            f.item('F', "Send command", 53, &p.send, "Run to send files; %F is replaced by the files.");
+            f.item('[', "Previous protocol", 0, "", "");
+            f.item(']', "Next protocol", 0, "", "");
+            self.cfg_draw(&f);
+            let step: i64 = loop {
+                let Some(key) = self.cfg_command(&mut f).await? else { break 0 };
+                match key {
+                    'A' => {
+                        let field = Field { allowed: "ABCDEFGHIJKLMNOPQRSTUVWXY0123456789", ..Field::UPPER.max(1) };
+                        match self.cfg_text(&mut f, key, field).await?.and_then(|v| v.chars().next()) {
+                            Some(k) if !list.iter().enumerate().any(|(i, o)| i != idx && o.key.eq_ignore_ascii_case(&k)) => p.key = k,
+                            Some(_) => {
+                                self.cfg_info(&mut f, "Another protocol already uses that key.");
+                                self.cfg_set(&mut f, key, p.key.to_string());
+                            }
+                            None => self.cfg_set(&mut f, key, p.key.to_string()),
+                        }
+                    }
+                    'B' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {
+                            p.desc = v;
+                        }
+                    }
+                    'C' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::LOWER).await? {
+                            p.acs = v;
+                        }
+                    }
+                    'D' => p.batch = self.cfg_bool(&mut f, key, p.batch).await?,
+                    'E' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(200)).await? {
+                            p.receive = v;
+                        }
+                    }
+                    'F' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(200)).await? {
+                            p.send = v;
+                        }
+                    }
+                    '[' => break -1,
+                    ']' => break 1,
+                    _ => {}
+                }
+            };
+            if list[idx] != p {
+                list[idx] = p;
+                self.state.set_protocols(Protocols { list }).map_err(io_err)?;
+            }
+            if step == 0 {
+                self.screen.goto(1, self.screen.rows());
+                self.newline();
+                return Ok(());
+            }
+            num = ((num as i64 - 1 + step).rem_euclid(n as i64) + 1) as u32;
+        }
+    }
+
+    // ---- *Z: archivers (CONFIG10) -------------------------------------------
+
+    /// `cfgArchiverEditor`: archivers for formats other than ZIP.
+    pub async fn archiver_editor(&mut self) -> io::Result<()> {
+        tracing::info!("{}: archiver edit", self.user.handle);
+        loop {
+            let mut arcs = self.state.archivers().list.clone();
+            self.clear_screen();
+            self.set_slot(Slot::Text);
+            self.write(" Num  Ext    Active  List command");
+            self.newline();
+            self.rule().await?;
+            self.set_slot(Slot::InfoLo);
+            self.write(" --   ZIP    Yes     (built in)");
+            self.newline();
+            for (i, a) in arcs.iter().enumerate() {
+                self.set_slot(Slot::Info);
+                self.write(&format!(
+                    " {} {} {} {}",
+                    resize(&(i + 1).to_string(), 4),
+                    resize(&a.ext, 6),
+                    resize(yes_no(a.active), 7),
+                    squish(&a.list, 58)
+                ));
+                self.newline();
+            }
+            self.rule().await?;
+            let Some(cmd) = self.cfg_list_prompt(&[("I", "nsert"), ("D", "elete"), ("E", "dit"), ("M", "ove"), ("Esc", " Quit")]).await? else {
+                return Ok(());
+            };
+            if cmd == 'E' {
+                self.newline();
+                let n = arcs.len() as u32;
+                if n == 0 {
+                    continue;
+                }
+                if let Some(num) = self.cfg_ask_number("Begin edit with which archiver?", 1, n).await? {
+                    self.archiver_edit(num).await?;
+                }
+                continue;
+            }
+            let fresh = |_: &[Archiver]| Archiver {
+                ext: "NEW".into(),
+                active: false,
+                signature: String::new(),
+                list: String::new(),
+                extract: String::new(),
+                add: String::new(),
+            };
+            if self.list_change(&mut arcs, cmd, "archiver", fresh).await? {
+                self.state.set_archivers(Archivers { list: arcs }).map_err(io_err)?;
+            }
+        }
+    }
+
+    async fn archiver_edit(&mut self, mut num: u32) -> io::Result<()> {
+        loop {
+            let mut list = self.state.archivers().list.clone();
+            let n = list.len() as u32;
+            let idx = num as usize - 1;
+            let mut a = list[idx].clone();
+            let mut f = Form::new(&format!("{} Archiver Editor", self.state.config.bbs.name));
+            f.value_col(25);
+            f.label("Current archiver", 12, format!("{num} of {n}"));
+            f.item('A', "Active archiver", 3, yes_no(a.active), "Is this archiver currently active or disabled?");
+            f.item('B', "File extension", 5, &a.ext, "File extension that signifies use of this archiver (no dot).");
+            f.item('C', "Archive signature", 24, &a.signature, "First bytes of the archive file, in hex (blank: go by the extension).");
+            f.item('D', "List command", 53, &a.list, "Prints the contents of %A (for the archive viewer).");
+            f.item('E', "Extract command", 53, &a.extract, "Extracts %F from %A into the current directory.");
+            f.item('F', "Add command", 53, &a.add, "Adds %F (in the current directory) to %A.");
+            f.item('[', "Previous archiver", 0, "", "");
+            f.item(']', "Next archiver", 0, "", "");
+            self.cfg_draw(&f);
+            let step: i64 = loop {
+                let Some(key) = self.cfg_command(&mut f).await? else { break 0 };
+                match key {
+                    'A' => a.active = self.cfg_bool(&mut f, key, a.active).await?,
+                    'B' => match self.cfg_text(&mut f, key, Field::KEY.max(5)).await? {
+                        Some(v) if !v.is_empty() => a.ext = v,
+                        _ => self.cfg_set(&mut f, key, &a.ext),
+                    },
+                    'C' => {
+                        let field = Field { allowed: "0123456789ABCDEF", ..Field::UPPER.max(24) };
+                        if let Some(v) = self.cfg_text(&mut f, key, field).await? {
+                            a.signature = v;
+                        }
+                    }
+                    'D' | 'E' | 'F' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(200)).await? {
+                            *match key {
+                                'D' => &mut a.list,
+                                'E' => &mut a.extract,
+                                _ => &mut a.add,
+                            } = v;
+                        }
+                    }
+                    '[' => break -1,
+                    ']' => break 1,
+                    _ => {}
+                }
+            };
+            if list[idx] != a {
+                list[idx] = a;
+                self.state.set_archivers(Archivers { list }).map_err(io_err)?;
+            }
+            if step == 0 {
+                self.screen.goto(1, self.screen.rows());
+                self.newline();
+                return Ok(());
+            }
+            num = ((num as i64 - 1 + step).rem_euclid(n as i64) + 1) as u32;
+        }
+    }
+
     // ---- *S: sort file areas (FILESORT) -------------------------------------
 
     /// `fsSortFileAreas`: sort one area, or every area that has a sort
@@ -883,7 +1179,7 @@ mod tests {
         let lines = vec!["New description".to_string(), "line two".to_string()];
         let size = zip_set_description(&path, "FILE_ID.DIZ", &lines).unwrap();
         assert_eq!(size, std::fs::metadata(&path).unwrap().len());
-        assert_eq!(zip_description(&path, &["FILE_ID.DIZ".into()]).unwrap(), lines);
+        assert_eq!(crate::files::zip_description(&path, &["FILE_ID.DIZ".into()]).unwrap(), lines);
         let names: Vec<String> = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap().file_names().map(|n| n.unwrap().into_owned()).collect();
         assert_eq!(names, ["README.TXT", "FILE_ID.DIZ"], "replaced, not duplicated");
         std::fs::remove_dir_all(&dir).unwrap();

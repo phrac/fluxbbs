@@ -39,7 +39,9 @@ must be copied into each area's new directory (the importer says where).
 Zmodem is built in (via the `zmodem2` crate), so SyncTERM and other BBS
 terminals can download and upload with nothing else installed. Other
 protocols are external programs with stdin/stdout connected to the
-caller, as the original ran DSZ:
+caller, as the original ran DSZ. They live in `protocols.toml`, edited
+on the BBS with `*X` (entries in `iniquity.toml` still work until that
+file exists):
 
     [[protocol]]
     key = "Y"
@@ -50,7 +52,13 @@ caller, as the original ran DSZ:
 
 A SysOp can also copy files into an area's directory and add them with
 the local-upload command (`/U` on the stock file menu); descriptions are
-taken from FILE_ID.DIZ in ZIP archives.
+taken from FILE_ID.DIZ in the archives.
+
+ZIP is read natively. Other formats go through the archivers in
+`archivers.toml` (`*Z`): by default `bsdtar` lists and extracts RAR, 7Z
+and LHA/LZH, `rar`/`7z` put descriptions back, and ARJ needs 7-Zip. These
+are used for description import, the archive viewer and the file
+editor.
 
 ## Layout
 
@@ -74,7 +82,9 @@ taken from FILE_ID.DIZ in ZIP archives.
     auto-signatures; `sysdata.rs` their storage
   - `cfgedit.rs` the SysOp editors' screen (CONFIG.PAS), `sysop.rs` the
     editors: file areas (`*F`), files (`*Y`), sorting (`*S`), conferences
-    (`*@` `*!`), download any file (`*>`); `useredit.rs` the user editor (`*U`)
+    (`*@` `*!`), download any file (`*>`), protocols (`*X`), archivers
+    (`*Z`); `useredit.rs` the user editor (`*U`); `extprog.rs` protocol and
+    archiver lists
   - `users.rs` user database, `import.rs` legacy import
 - `menus/`, `text/`, `iniquity.toml`: the stock r5 setup, imported.
 - `crates/iniquity/assets/strings.toml`: the stock prompt strings, built in;
@@ -104,9 +114,9 @@ Commands: `?= ?+ ?/ ?% ?B ?E ?F ?I ?L ?N ?Y ?S ?T ?U`,
 `-^ -/ -\ -= -? -C -D -E -F -K -L -P -R -S -W`, the `|` cursor commands,
 `>A >H >L`, `HC HI HM`, `MA MC MJ MN MM MP MR MS MZ M[ M]`, `EE ER EC *R`,
 `FA FB FC FD FF FI FJ FL FN FS FT FU FV FZ F+ F[ F] *%`, `AR AS AW`,
-`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y *U *@ *! *>`.
+`BA BC BD BL BS`, `LC LH`, `SD SE SS SU`, `UC UL UP XL`, `*F *S *Y *U *@ *! *> *X *Z`.
 
 Other commands from the original say "not available yet". Next: the
-rest of the SysOp editors (protocols, archivers, message areas, levels,
-system config, strings, menus), infoforms and new-user voting,
+rest of the SysOp editors (message areas, levels, system config, strings,
+menus), infoforms and new-user voting,
 multinode chat and messages.

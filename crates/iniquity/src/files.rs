@@ -55,24 +55,37 @@ pub fn zip_description(path: &Path, names: &[String]) -> Option<Vec<String>> {
         let mut entry = zip.by_index(idx).ok()?;
         let mut raw = Vec::new();
         io::Read::read_to_end(&mut entry, &mut raw).ok()?;
-        // Split before decoding: CP437 decoding turns CR/LF into glyphs.
-        let raw = raw.split(|&b| b == 0x1a).next().unwrap_or_default();
-        let mut lines: Vec<String> = raw
-            .split(|&b| b == b'\n')
-            .map(|l| {
-                let l: Vec<u8> = l.iter().copied().filter(|&b| b >= 0x20 || b == 0x1b).collect();
-                iniquity_term::cp437::decode(&l).trim_end().chars().take(DESC_WIDTH).collect()
-            })
-            .collect();
-        while lines.last().is_some_and(String::is_empty) {
-            lines.pop();
-        }
-        lines.truncate(MAX_DESC_LINES);
+        let lines = parse_description(&raw);
         if !lines.is_empty() {
             return Some(lines);
         }
     }
     None
+}
+
+/// Description lines from a FILE_ID.DIZ-style file.
+pub fn parse_description(raw: &[u8]) -> Vec<String> {
+    // Split before decoding: CP437 decoding turns CR/LF into glyphs.
+    let raw = raw.split(|&b| b == 0x1a).next().unwrap_or_default();
+    let mut lines: Vec<String> = raw
+        .split(|&b| b == b'\n')
+        .map(|l| {
+            let l: Vec<u8> = l.iter().copied().filter(|&b| b >= 0x20 || b == 0x1b).collect();
+            iniquity_term::cp437::decode(&l).trim_end().chars().take(DESC_WIDTH).collect()
+        })
+        .collect();
+    while lines.last().is_some_and(String::is_empty) {
+        lines.pop();
+    }
+    lines.truncate(MAX_DESC_LINES);
+    lines
+}
+
+/// ZIPs are handled natively; everything else goes to an archiver.
+pub fn is_zip(path: &Path) -> bool {
+    let mut head = [0u8; 4];
+    let n = std::fs::File::open(path).and_then(|mut f| io::Read::read(&mut f, &mut head)).unwrap_or(0);
+    &head[..n] == b"PK\x03\x04" || path.extension().is_some_and(|e| e.eq_ignore_ascii_case("zip"))
 }
 
 /// The file lister's screen layout (from LISTFILE.ANS, or built in).
@@ -1150,7 +1163,7 @@ impl Session {
                 .collect::<Vec<_>>()
         });
         let Some(entries) = entries else {
-            return self.show_line(&format!("|U6{}|U5: |U4Can't view that kind of file|U5.", f.name)).await;
+            return self.view_with_archiver(&path, &f.name).await;
         };
         self.set_slot(Slot::Info);
         self.show_line(&format!("|U4 Archive|U5: |U6{}", f.name)).await?;
@@ -1169,6 +1182,78 @@ impl Session {
         }
         self.rule().await?;
         self.show_line(&format!("|U1 {} {} |U3{} files", resize(&commas(total), 11), resize(&commas(packed), 11), entries.len())).await
+    }
+
+    /// A scratch directory of this node's own for archiver work.
+    pub(crate) fn archive_scratch(&self) -> io::Result<PathBuf> {
+        let dir = self.state.config.resolve(&self.state.config.paths.temp).join(format!("arc{}", self.node.number()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir)?;
+        Ok(dir)
+    }
+
+    /// FILE_ID.DIZ (or another of `names`) from any archive we can open.
+    pub(crate) async fn archive_description(&mut self, path: &Path, names: &[String]) -> Option<Vec<String>> {
+        if is_zip(path) {
+            return zip_description(path, names);
+        }
+        let arc = self.state.archivers().for_file(path)?.clone();
+        if arc.extract.is_empty() {
+            return None;
+        }
+        let dir = self.archive_scratch().ok()?;
+        // Tar-style tools match names exactly: ask for lower case too.
+        let lower: Vec<String> = names.iter().map(|n| n.to_lowercase()).collect();
+        let mut wanted: Vec<&str> = names.iter().map(String::as_str).collect();
+        wanted.extend(lower.iter().map(String::as_str).filter(|l| !names.iter().any(|n| n == l)));
+        let cmd = crate::extprog::expand(&arc.extract, &std::path::absolute(path).ok()?, &wanted);
+        let found = match crate::extprog::run(&cmd, &dir).await {
+            Ok(_) => {
+                let got: Vec<PathBuf> = std::fs::read_dir(&dir).ok()?.filter_map(Result::ok).map(|e| e.path()).collect();
+                names.iter().find_map(|want| {
+                    let p = got.iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(want)))?;
+                    let lines = parse_description(&std::fs::read(p).ok()?);
+                    (!lines.is_empty()).then_some(lines)
+                })
+            }
+            Err(e) => {
+                tracing::warn!("{}: {e}", arc.ext);
+                None
+            }
+        };
+        let _ = std::fs::remove_dir_all(&dir);
+        found
+    }
+
+    /// The archive viewer for formats other than ZIP: whatever the
+    /// archiver's list command prints.
+    async fn view_with_archiver(&mut self, path: &Path, name: &str) -> io::Result<()> {
+        let arc = self.state.archivers().for_file(path).cloned().filter(|a| !a.list.is_empty());
+        let Some(arc) = arc else {
+            return self.show_line(&format!("|U6{name}|U5: |U4Can't view that kind of file|U5.")).await;
+        };
+        let dir = self.archive_scratch()?;
+        let cmd = crate::extprog::expand(&arc.list, &std::path::absolute(path)?, &[]);
+        let out = crate::extprog::run(&cmd, &dir).await;
+        let _ = std::fs::remove_dir_all(&dir);
+        let out = match out {
+            Ok((_, out)) if !out.is_empty() => out,
+            _ => return self.show_line(&format!("|U6{name}|U5: |U4The {} lister isn't working|U5.", arc.ext)).await,
+        };
+        self.show_line(&format!("|U4 Archive|U5: |U6{name}")).await?;
+        self.rule().await?;
+        self.set_slot(Slot::Text);
+        let mut lines = 3;
+        for l in out.split(|&b| b == b'\n') {
+            let l: Vec<u8> = l.iter().copied().filter(|&b| b >= 0x20).collect();
+            self.write(&iniquity_term::cp437::decode(&l).chars().take(79).collect::<String>());
+            self.newline();
+            lines += 1;
+            if !self.more(&mut lines).await? {
+                break;
+            }
+        }
+        Ok(())
     }
 
     // ---- uploading --------------------------------------------------------
@@ -1298,7 +1383,7 @@ impl Session {
             }
             let mut desc = plan.map(|i| planned[i].1.clone()).unwrap_or_default();
             if desc.is_empty() && import
-                && let Some(d) = zip_description(&path, &desc_files) {
+                && let Some(d) = self.archive_description(&path, &desc_files).await {
                     self.say_line("FaTestDescFound").await?;
                     desc = d;
                 }
@@ -1386,8 +1471,9 @@ impl Session {
                 downloads: 0,
                 points: (meta.len() / (kb_pt * 1024)) as u32,
                 valid: true,
-                description: zip_description(&path, &desc_files).unwrap_or_default(),
+                description: Vec::new(),
             };
+            rec.description = self.archive_description(&path, &desc_files).await.unwrap_or_default();
             self.state.files.add(&mut rec).map_err(io_err)?;
             let s = self.strings().fmt("FaULfileAdded", &[&name, &rec.description.len().to_string()]);
             self.show_line(&s).await?;

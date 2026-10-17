@@ -21,7 +21,8 @@ pub struct Config {
     pub prompts: Prompts,
     pub messages: Messages,
     pub files: Files,
-    /// External transfer protocols, in addition to built-in Zmodem.
+    /// External transfer protocols, in addition to built-in Zmodem. Only
+    /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
     pub protocols: Vec<Protocol>,
     /// Default colour scheme for new users and before logon.
@@ -69,6 +70,10 @@ pub struct Paths {
     pub msgareas: PathBuf,
     /// File conferences and areas.
     pub fileareas: PathBuf,
+    /// External transfer protocols.
+    pub protocols: PathBuf,
+    /// Archivers for formats other than ZIP.
+    pub archivers: PathBuf,
     /// Scratch space for uploads in progress.
     pub temp: PathBuf,
 }
@@ -265,7 +270,7 @@ impl Default for Files {
 /// An external transfer program, run with its stdin/stdout connected to
 /// the caller (like lrzsz's `sz`/`rz`). `%F` in `send` is replaced by the
 /// file paths; `receive` runs in the upload directory.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct Protocol {
     pub key: char,
@@ -325,6 +330,8 @@ impl Default for Paths {
             strings: "strings.toml".into(),
             msgareas: "msgareas.toml".into(),
             fileareas: "fileareas.toml".into(),
+            protocols: "protocols.toml".into(),
+            archivers: "archivers.toml".into(),
             temp: "data/temp".into(),
         }
     }
