@@ -169,12 +169,19 @@ impl Session {
                     // Wait for the caller, showing node messages as they
                     // arrive (unless something like the editor holds them).
                     loop {
+                        // A forced event: go, whatever the caller's doing.
+                        if let Some(text) = self.node.take_kick() {
+                            self.newline();
+                            self.write_with_controls(&text);
+                            self.newline();
+                            let _ = self.flush().await;
+                            return Err(crate::session::kicked());
+                        }
                         if !self.hold_node_msgs && self.node.has_messages() {
                             self.show_node_messages();
                             self.flush().await?;
                         }
                         let waker = self.node.waker();
-                        let listen = !self.hold_node_msgs;
                         let timeout = async {
                             match deadline {
                                 Some(d) => tokio::time::sleep_until(d).await,
@@ -183,7 +190,7 @@ impl Session {
                         };
                         tokio::select! {
                             r = self.io.read(&mut buf) => break r?,
-                            _ = waker.notified(), if listen => continue,
+                            _ = waker.notified() => continue,
                             _ = timeout => {
                                 // Not `show`: that can wait for keys itself.
                                 let msg = self.strings().get("TimeInactive").to_string();

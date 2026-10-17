@@ -10,6 +10,7 @@ mod challenge;
 mod config;
 mod doors;
 mod engine;
+mod events;
 mod extprog;
 mod guard;
 mod import;
@@ -79,6 +80,7 @@ pub struct BbsState {
     levels: std::sync::RwLock<Arc<extprog::Levels>>,
     infoforms: std::sync::RwLock<Arc<infoform::Infoforms>>,
     themes: std::sync::RwLock<Arc<themes::Themes>>,
+    events: std::sync::RwLock<Arc<events::Events>>,
     /// Infoform answers and new user votes.
     pub forms: infoform::FormStore,
     pub files: FileBase,
@@ -123,6 +125,16 @@ impl BbsState {
         let path = self.config().resolve(&self.config().paths.msgareas);
         write_atomic(&path, &new.to_toml())?;
         *self.areas.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        Ok(())
+    }
+
+    pub fn events(&self) -> Arc<events::Events> {
+        self.events.read().unwrap_or_else(|e| e.into_inner()).clone()
+    }
+
+    pub fn set_events(&self, new: events::Events) -> anyhow::Result<()> {
+        write_atomic(&self.config().resolve(&self.config().paths.events), &new.to_toml())?;
+        *self.events.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
         Ok(())
     }
 
@@ -263,6 +275,7 @@ async fn main() -> anyhow::Result<()> {
     let infoforms: infoform::Infoforms = extprog::load(&config.resolve(&config.paths.infoforms))?.unwrap_or_default();
     let forms = infoform::FormStore::open(&db)?;
     let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
+    let events: events::Events = extprog::load(&config.resolve(&config.paths.events))?.unwrap_or_default();
     let files = FileBase::open(&db)?;
     let sys = SysData::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
@@ -279,6 +292,7 @@ async fn main() -> anyhow::Result<()> {
         levels: std::sync::RwLock::new(Arc::new(levels)),
         infoforms: std::sync::RwLock::new(Arc::new(infoforms)),
         themes: std::sync::RwLock::new(Arc::new(themes)),
+        events: std::sync::RwLock::new(Arc::new(events)),
         forms,
         files,
         sys,
@@ -286,6 +300,7 @@ async fn main() -> anyhow::Result<()> {
         nodes,
         guard: guard::Guard::new(),
     });
+    tokio::spawn(events::scheduler(state.clone()));
 
     // Forget idle addresses now and then.
     {
@@ -316,5 +331,36 @@ async fn main() -> anyhow::Result<()> {
             tracing::info!("shutting down");
             Ok(())
         }
+    }
+}
+
+#[cfg(test)]
+pub mod tests {
+    use super::*;
+
+    /// A board with stock settings and empty in-memory databases.
+    pub fn state() -> Arc<BbsState> {
+        let config = Config::default();
+        Arc::new(BbsState {
+            strings: std::sync::RwLock::new(Arc::new(Strings::load(std::path::Path::new("/nonexistent/strings.toml")).unwrap())),
+            config_path: PathBuf::from("iniquity.toml"),
+            users: UserStore::open_memory().unwrap(),
+            areas: std::sync::RwLock::new(Arc::new(MsgAreas::default())),
+            msgs: MsgBase::open_memory().unwrap(),
+            fareas: std::sync::RwLock::new(Arc::new(FileAreas::default())),
+            protocols: std::sync::RwLock::new(Arc::new(extprog::Protocols::default())),
+            archivers: std::sync::RwLock::new(Arc::new(extprog::Archivers::default())),
+            levels: std::sync::RwLock::new(Arc::new(extprog::Levels(config::default_levels()))),
+            infoforms: std::sync::RwLock::new(Arc::new(infoform::Infoforms::default())),
+            themes: std::sync::RwLock::new(Arc::new(themes::Themes::default())),
+            events: std::sync::RwLock::new(Arc::new(events::Events::default())),
+            forms: infoform::FormStore::open_memory().unwrap(),
+            files: FileBase::open_memory().unwrap(),
+            sys: SysData::open_memory().unwrap(),
+            text_lock: std::sync::Mutex::new(()),
+            nodes: Nodes::new(config.bbs.max_nodes),
+            guard: guard::Guard::new(),
+            config: std::sync::RwLock::new(Arc::new(config)),
+        })
     }
 }

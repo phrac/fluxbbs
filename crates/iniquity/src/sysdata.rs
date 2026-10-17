@@ -64,6 +64,10 @@ CREATE TABLE IF NOT EXISTS bbslist (
     info      TEXT NOT NULL,
     who_added TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS event_runs (
+    event     TEXT PRIMARY KEY,
+    last_run  TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS script_data (
     script    TEXT NOT NULL COLLATE NOCASE,
     key       TEXT NOT NULL,
@@ -350,6 +354,20 @@ impl SysData {
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
             params![m.user_id, m.author, m.anonymous, m.title, m.posted, m.lines.join("\n")],
         )?;
+        Ok(())
+    }
+
+    // ---- events -----------------------------------------------------------
+
+    /// The day an event (by description) last ran.
+    pub fn event_last(&self, event: &str) -> anyhow::Result<Option<NaiveDate>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT last_run FROM event_runs WHERE event = ?1", [event], |r| r.get(0)).optional()?)
+    }
+
+    pub fn set_event_last(&self, event: &str, day: NaiveDate) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT OR REPLACE INTO event_runs (event, last_run) VALUES (?1, ?2)", params![event, day])?;
         Ok(())
     }
 

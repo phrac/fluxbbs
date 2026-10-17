@@ -16,11 +16,13 @@ pub enum NodeEvent {
     Chat { from: usize, user: String, text: String },
     ChatJoin { user: String },
     ChatPart { user: String },
+    /// Disconnect, after showing `text` (a forced event).
+    Kick { text: String },
 }
 
 impl NodeEvent {
     fn is_chat(&self) -> bool {
-        !matches!(self, NodeEvent::Message { .. })
+        matches!(self, NodeEvent::Chat { .. } | NodeEvent::ChatJoin { .. } | NodeEvent::ChatPart { .. })
     }
 }
 
@@ -130,13 +132,26 @@ impl NodeGuard {
     pub fn take(&self, chat: bool) -> Vec<NodeEvent> {
         let mut boxes = self.nodes.inboxes.lock().unwrap();
         let q = &mut boxes[self.index];
-        let (take, keep): (Vec<_>, Vec<_>) = q.drain(..).partition(|e| chat || !e.is_chat());
+        // Kicks wait for `take_kick`, except in chat, which handles them.
+        let (take, keep): (Vec<_>, Vec<_>) =
+            q.drain(..).partition(|e| chat || !(e.is_chat() || matches!(e, NodeEvent::Kick { .. })));
         q.extend(keep);
         take
     }
 
+    /// A `Kick` waiting for this node, taken out of the inbox.
+    pub fn take_kick(&self) -> Option<String> {
+        let mut boxes = self.nodes.inboxes.lock().unwrap();
+        let q = &mut boxes[self.index];
+        let i = q.iter().position(|e| matches!(e, NodeEvent::Kick { .. }))?;
+        match q.remove(i) {
+            Some(NodeEvent::Kick { text }) => Some(text),
+            _ => None,
+        }
+    }
+
     pub fn has_messages(&self) -> bool {
-        self.nodes.inboxes.lock().unwrap()[self.index].iter().any(|e| !e.is_chat())
+        self.nodes.inboxes.lock().unwrap()[self.index].iter().any(|e| matches!(e, NodeEvent::Message { .. }))
     }
 
     /// Wakes when something is sent to this node.
@@ -167,6 +182,20 @@ mod tests {
         assert_eq!(n.online()[0].1.user, "Fiend");
         drop(a);
         assert_eq!(n.acquire("ssh").unwrap().number(), 1);
+    }
+
+    #[test]
+    fn kicks_reach_everyone_and_wait_for_take_kick() {
+        let n = Nodes::new(3);
+        let a = n.acquire("ssh").unwrap();
+        let b = n.acquire("ssh").unwrap();
+        b.update(|i| i.in_chat = true);
+        assert_eq!(n.send_all(0, NodeEvent::Kick { text: "bye".into() }), 2, "in chat or not");
+        assert!(!a.has_messages(), "not an ordinary message");
+        assert!(a.take(false).is_empty(), "left for take_kick");
+        assert_eq!(a.take_kick().as_deref(), Some("bye"));
+        assert_eq!(a.take_kick(), None);
+        assert_eq!(b.take(true), [NodeEvent::Kick { text: "bye".into() }], "chat takes it");
     }
 
     #[test]

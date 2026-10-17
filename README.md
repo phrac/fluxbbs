@@ -95,6 +95,12 @@ Neither is in git.
   email.
 - `*X` protocols, `*Z` archivers, `*B` BBS list, `*H` statistics, `*I`
   infoforms, `*T` themes.
+- `*V` events: jobs run once a day at a set time, by one scheduler in
+  the server (no per-node events or modem off-hook any more). A command
+  goes to the shell, or is one of the built-in jobs `pack-messages` and
+  `pack-files`; `force` disconnects callers first (with the stock
+  "event initiating NOW" string), `run_missed` catches up after
+  downtime the same day. "Run it now" in the editor starts one by hand.
 
 **Importing** an existing install: users (passwords re-hashed with
 argon2), message bases, file records and descriptions, areas,
@@ -109,7 +115,6 @@ libraries (unpacked into themes).
 | Paging the SysOp / SysOp chat | CHATMODE.PAS | `CP`, `>C` | The original split-screen chat assumed a local console; here it would page a SysOp who is logged in on another node, then chat. |
 | Tetris | tetris.pas | `TP`, `TS` | The built-in game and its high scores. |
 | Message attachments | ATTACH.PAS | | Files attached to messages and email. |
-| Events | EVENTS.PAS | `*V` | Scheduled jobs (packing, maintenance). |
 | Echomail / netmail | echomail.pas, INIQMAIL.PAS | | FidoNet-style networking; would need a mailer/tosser bridge today. |
 
 Smaller gaps:
@@ -138,6 +143,7 @@ web or terminal SysOp dashboard could replace the local console later.
 | `menus/*.toml` | menus | `*#` |
 | `text/` | screens (ANSI/ASCII) | your art tools; see `docs/ARTWORK.md` |
 | `scripts/` | Lua scripts (`-X`, `%!`) | any editor; see `docs/SCRIPTING.md` |
+| `events.toml` | scheduled events | `*V` |
 
 Files that don't exist yet use built-in defaults; the editors create
 them. Most changes apply at once; SSH, telnet and path settings need a

@@ -141,6 +141,11 @@ pub async fn run(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Caller) 
     let _ = s.flush().await;
 }
 
+/// The error that ends a call for a forced event.
+pub fn kicked() -> io::Error {
+    io::Error::new(io::ErrorKind::ConnectionReset, "disconnected for an event")
+}
+
 fn is_hangup(e: &io::Error) -> bool {
     matches!(
         e.kind(),

@@ -191,8 +191,13 @@ impl Session {
                 },
                 _ = waker.notified() => {}
             }
+            let mut kicked = false;
             for ev in self.node.take(true) {
                 let line = match ev {
+                    NodeEvent::Kick { text } => {
+                        kicked = true;
+                        text
+                    }
                     NodeEvent::Chat { user, text, .. } => self.strings().fmt("MNCtheyspeak", &[&user, &text]),
                     NodeEvent::ChatJoin { user } => self.strings().fmt("MNCenterchat", &[&user]),
                     NodeEvent::ChatPart { user } => self.strings().fmt("MNCquitchat", &[&user]),
@@ -202,6 +207,11 @@ impl Session {
                     }
                 };
                 self.chat_out(&layout, &mut lines, &line);
+            }
+            if kicked {
+                // Leave chat properly, then go.
+                self.hangup = true;
+                break;
             }
             self.chat_input(&layout, &input);
         }
@@ -214,6 +224,10 @@ impl Session {
         self.set_slot(Slot::Text);
         self.screen.goto(1, self.screen.rows());
         self.newline();
+        if self.hangup {
+            self.flush().await?;
+            return Err(crate::session::kicked());
+        }
         Ok(())
     }
 

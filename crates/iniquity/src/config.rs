@@ -153,6 +153,8 @@ pub struct Paths {
     pub doors: PathBuf,
     /// Lua scripts (`-X`, `%!`), which replace IPL modules (`pathIPLX`).
     pub scripts: PathBuf,
+    /// Scheduled events (`*V`).
+    pub events: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -523,6 +525,7 @@ impl Default for Paths {
             temp: "data/temp".into(),
             doors: "data/doors".into(),
             scripts: "scripts".into(),
+            events: "events.toml".into(),
         }
     }
 }
