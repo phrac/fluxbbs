@@ -4,12 +4,27 @@ A Rust port of the Iniquity BBS (Turbo Pascal, 1.00a26r5). `README.md` is
 the source of truth for what's done and **what's left to port** (the table
 under "What's left to port"); keep it current when features land.
 
+## Setting up a new host
+
+    git clone git@github.com:phrac/iniquity.git && cd iniquity
+    tools/setup_host.sh
+
+That unpacks the stock install into `original/stock/` (git-ignored), builds,
+and, if there's no `data/iniquity.db`, creates one from the stock install
+(SysOp / `SYSOP`, system password `SYSTEM`) without touching the committed
+config. SSH host keys are made in `data/` on first run. Needs `cargo` and
+`unzip`; live tests also want `python3` and `ssh`, and Zmodem tests `sz`/`rz`
+(lrzsz) on the PATH. The board's real database and uploaded files are not in
+git: copy `data/` and `files/` across if the board should move with you.
+
 ## Where things are
 
-- The original Pascal source and a stock install are **not** in this repo.
-  On the first host they were at `~/code/inq/source` (the `.PAS` files) and
-  `~/code/inq/inq26r5.zip` (the stock r5 install, unpacked for tests). Ask
-  for them if they aren't on this host; port from the source, not memory.
+- `original/source/`: the Turbo Pascal source (`.PAS`, CP437). Port from
+  it, not from memory: read the unit before porting a feature.
+- `original/inqa26r5.zip`: the 1.00a26r5 release; `original/stock/` is the
+  stock install unpacked from it (by `tools/setup_host.sh`), used by the
+  legacy tests (`INIQUITY_STOCK=original/stock cargo test`) and as an
+  import source.
 - Some original units are missing or corrupt in that source: `autosig.pas`
   is a TheDraw screen, `faDownloadAny` and `maPackArea` aren't there, and
   `NODES.PAS` has a block repeated. Those features were reconstructed from
@@ -55,7 +70,7 @@ under "What's left to port"); keep it current when features land.
 ## Testing
 
     cargo test
-    INIQUITY_STOCK=/path/to/stock/install cargo test   # legacy readers too
+    INIQUITY_STOCK=original/stock cargo test   # legacy readers too
     cargo clippy --all-targets
 
 Test features **live** as well: run the server (`cargo build`, then

@@ -10,6 +10,7 @@ same.
 
 ## Quick start
 
+    tools/setup_host.sh                      # first time: stock data, build
     cargo run --release                      # serves iniquity.toml
     ssh -p 2222 anyname@localhost            # UTF-8 terminal
     syncterm ssh://anyname@localhost:2222    # CP437 BBS terminal
@@ -254,11 +255,14 @@ gets UTF-8, with DOS behaviour emulated: hard wrap at column 80 and
 - `tools/drive_ssh.py`, `tools/drive_telnet.py`: scripted callers for
   testing a running board (see `CLAUDE.md`).
 - `CLAUDE.md`: notes for picking the work up (conventions, testing).
+- `original/`: the original Turbo Pascal source and the 1.00a26r5 release,
+  for reference (© the Iniquity authors); `tools/setup_host.sh` unpacks the
+  stock install from it into `original/stock/`.
 
 ## Development
 
     cargo test                                        # unit tests
-    INIQUITY_STOCK=/path/to/stock/install cargo test  # plus the legacy readers
+    INIQUITY_STOCK=original/stock cargo test          # plus the legacy readers
     cargo clippy --all-targets
 
 ## Credits
