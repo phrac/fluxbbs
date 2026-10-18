@@ -16,7 +16,10 @@ use crate::extprog::shell_quote;
 use crate::filebase::wildcard;
 use crate::config::SummaryAt;
 use crate::files::{DESC_WIDTH, MAX_DESC_LINES, commas, is_zip};
-use crate::upscan::{Limits, Refused, Scan, check_contents, human_size, kind_of, type_allowed};
+use crate::upscan::{Kind, Limits, Refused, Scan, check_contents, human_size, kind_of, type_allowed};
+
+/// Room in FILETEST's status field (`~PI` to its closing bracket).
+const STATUS_WIDTH: usize = 49;
 use crate::session::{Session, waves};
 
 /// Read every entry (which checks each CRC) and give (name, date).
@@ -51,7 +54,9 @@ pub fn age_test(dates: &[NaiveDate], limit_years: u32, strict: bool, today: Naiv
 
 /// Rewrite a ZIP without the entries `drop` picks, with `comment` as its
 /// comment if given. Returns how many entries went.
-pub fn zip_rewrite(path: &Path, drop: impl Fn(&str) -> bool, comment: Option<&[u8]>) -> anyhow::Result<usize> {
+/// `add` puts a file (name, contents) in at the top, replacing any copy
+/// already there (`faAddBBSad`).
+pub fn zip_rewrite(path: &Path, drop: impl Fn(&str) -> bool, comment: Option<&[u8]>, add: Option<(&str, &[u8])>) -> anyhow::Result<usize> {
     let mut src = zip::ZipArchive::new(std::fs::File::open(path)?)?;
     let tmp = path.with_extension("iqtmp");
     let mut dropped = 0;
@@ -64,11 +69,18 @@ pub fn zip_rewrite(path: &Path, drop: impl Fn(&str) -> bool, comment: Option<&[u
             let entry = src.by_index_raw(i)?;
             let name = entry.name().map(|n| n.into_owned()).unwrap_or_default();
             let base = name.rsplit('/').next().unwrap_or(&name);
+            if add.is_some_and(|(n, _)| n.eq_ignore_ascii_case(&name)) {
+                continue;
+            }
             if !name.ends_with('/') && drop(base) {
                 dropped += 1;
                 continue;
             }
             out.raw_copy_file(entry)?;
+        }
+        if let Some((n, body)) = add {
+            out.start_file(n, zip::write::SimpleFileOptions::default().compression_method(zip::CompressionMethod::Deflated))?;
+            out.write_all(body)?;
         }
         out.finish()?.flush()?;
         Ok(())
@@ -173,50 +185,48 @@ impl Session {
         drop(cfg);
         let size = std::fs::metadata(path).map(|m| m.len()).unwrap_or(0);
         let zip = is_zip(path);
-        let anything = zip || !f.test_command.trim().is_empty();
-        if !anything {
-            return Ok(true);
-        }
         self.newline();
         let screen = self.show_file_with("FILETEST", &waves([("FN", name.to_string()), ("FS", commas(size))])).await?;
-        if screen {
-            self.goto_pos(*b"PI");
+        self.test_screen = screen;
+        // The look inside (`screen_upload`) already unpacked it.
+        if !matches!(kind_of(name), Kind::Text | Kind::Other) {
+            self.light_done(screen, b"L1", true);
         }
         let mut entries = Vec::new();
         if zip {
-            self.light(screen, b"L1").await?;
+            self.light(screen, b"L0").await?;
             let cap = crate::upscan::Limits::from_config(&f).cap(size);
             match zip_entries(path, cap) {
                 Ok(e) => {
                     entries = e;
-                    self.light_done(screen, b"L1", true);
+                    self.light_done(screen, b"L0", true);
                     let s = self.strings().fmt("FaTestCRCok", &[name]);
-                    self.show_line(&s).await?;
+                    self.upload_note(&s).await?;
                 }
                 Err(e) => {
                     tracing::info!("{}: upload {name} failed the integrity test: {e}", self.user.handle);
-                    self.light_done(screen, b"L1", false);
+                    self.light_done(screen, b"L0", false);
                     let s = self.strings().fmt("FaTestCRCfail", &[name]);
-                    self.show_line(&s).await?;
+                    self.upload_note(&s).await?;
                     return Ok(false);
                 }
             }
         }
         if zip && f.age_limit_years > 0 {
-            self.light(screen, b"L4").await?;
+            self.light(screen, b"L3").await?;
             let dates: Vec<NaiveDate> = entries.iter().filter_map(|(_, d)| *d).collect();
             let (ok, judged) = age_test(&dates, f.age_limit_years as u32, f.strict_age, Local::now().date_naive());
             let shown = judged.map(|d| d.format("%m/%d/%y").to_string()).unwrap_or_default();
-            self.light_done(screen, b"L4", ok);
+            self.light_done(screen, b"L3", ok);
             let s = self.strings().fmt(if ok { "FaTestAgeOk" } else { "FaTestAgeFail" }, &[name, &shown]);
-            self.show_line(&s).await?;
+            self.upload_note(&s).await?;
             if !ok {
                 tracing::info!("{}: upload {name} failed the age test ({shown})", self.user.handle);
                 return Ok(false);
             }
         }
         if !f.test_command.trim().is_empty() {
-            self.light(screen, b"L3").await?;
+            self.light(screen, b"L2").await?;
             self.flush().await?;
             let cmd = f.test_command.replace("%F", &shell_quote(&path.to_string_lossy()));
             let status = tokio::time::timeout(
@@ -228,9 +238,9 @@ impl Session {
             if let Ok(Err(e)) = &status {
                 tracing::error!("upload test command {cmd:?}: {e}");
             }
-            self.light_done(screen, b"L3", ok);
+            self.light_done(screen, b"L2", ok);
             let s = self.strings().fmt(if ok { "FaTestVirusOk" } else { "FaTestVirusFail" }, &[name]);
-            self.show_line(&s).await?;
+            self.upload_note(&s).await?;
             if !ok {
                 tracing::info!("{}: upload {name} failed the test command", self.user.handle);
                 return Ok(false);
@@ -239,32 +249,51 @@ impl Session {
         if zip {
             let patterns = if f.delete_list.trim().is_empty() { Vec::new() } else { read_list(&data.join(f.delete_list.trim())) };
             let comment = if f.archive_comment.trim().is_empty() { None } else { std::fs::read(data.join(f.archive_comment.trim())).ok() };
-            if !patterns.is_empty() || comment.is_some() {
+            // The ad goes in under its own file name.
+            let ad_path = data.join(f.bbs_ad.trim());
+            let ad_name = ad_path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+            let ad = if f.bbs_ad.trim().is_empty() { None } else { std::fs::read(&ad_path).ok() };
+            if !f.bbs_ad.trim().is_empty() && ad.is_none() {
+                tracing::warn!("bbs_ad {} can't be read", ad_path.display());
+            }
+            if !patterns.is_empty() || comment.is_some() || ad.is_some() {
                 let drop = |n: &str| patterns.iter().any(|p| wildcard(p, n));
                 let stripping = entries.iter().any(|(n, _)| drop(n.rsplit('/').next().unwrap_or(n)));
                 if stripping {
-                    self.light(screen, b"L5").await?;
+                    self.light(screen, b"L4").await?;
                 }
                 if comment.is_some() {
                     self.light(screen, b"L6").await?;
                 }
-                match zip_rewrite(path, drop, comment.as_deref()) {
+                if ad.is_some() {
+                    self.light(screen, b"L5").await?;
+                }
+                match zip_rewrite(path, drop, comment.as_deref(), ad.as_deref().map(|b| (ad_name.as_str(), b))) {
                     Ok(n) => {
                         if stripping {
-                            self.light_done(screen, b"L5", true);
+                            self.light_done(screen, b"L4", true);
                             let s = self.strings().fmt("FaTestFilesRemoved", &[&n.to_string(), name]);
-                            self.show_line(&s).await?;
+                            self.upload_note(&s).await?;
                         }
                         if comment.is_some() {
                             self.light_done(screen, b"L6", true);
                             let s = self.strings().fmt("FaTestCommented", &[name]);
-                            self.show_line(&s).await?;
+                            self.upload_note(&s).await?;
+                        }
+                        if ad.is_some() {
+                            self.light_done(screen, b"L5", true);
+                            let s = self.strings().fmt("FaTestAdAdded", &[&ad_name, name]);
+                            self.upload_note(&s).await?;
                         }
                     }
                     Err(e) => {
                         // Not the uploader's fault: keep the file as it is.
                         tracing::warn!("rewriting upload {name}: {e}");
-                        self.light_done(screen, b"L5", false);
+                        for (on, code) in [(stripping, b"L4"), (comment.is_some(), b"L6"), (ad.is_some(), b"L5")] {
+                            if on {
+                                self.light_done(screen, code, false);
+                            }
+                        }
                     }
                 }
             }
@@ -272,7 +301,32 @@ impl Session {
         Ok(true)
     }
 
-    async fn light(&mut self, screen: bool, code: &[u8; 2]) -> io::Result<()> {
+    /// A line about an upload: in FILETEST's status field while that's on
+    /// screen (each replacing the last, held long enough to read), else on
+    /// a line of its own.
+    pub(crate) async fn upload_note(&mut self, s: &str) -> io::Result<()> {
+        if !(self.test_screen && self.goto_pos(*b"PI")) {
+            return self.show_line(s).await;
+        }
+        self.show(s).await?;
+        let len = self.visible_len(&iniquity_term::cp437::encode(s));
+        self.write(&" ".repeat(STATUS_WIDTH.saturating_sub(len)));
+        self.flush().await?;
+        self.delay(700).await
+    }
+
+    /// Done with FILETEST: give the last note a moment, then clear it away
+    /// before anything else is written.
+    pub(crate) async fn end_test_screen(&mut self) -> io::Result<()> {
+        if self.test_screen {
+            self.test_screen = false;
+            self.delay(800).await?;
+            self.clear_screen();
+        }
+        Ok(())
+    }
+
+    pub(crate) async fn light(&mut self, screen: bool, code: &[u8; 2]) -> io::Result<()> {
         if screen {
             let c = self.state.config().prompts.light;
             let here = (self.screen.where_x(), self.screen.where_y());
@@ -284,7 +338,7 @@ impl Session {
         self.flush().await
     }
 
-    fn light_done(&mut self, screen: bool, code: &[u8; 2], ok: bool) {
+    pub(crate) fn light_done(&mut self, screen: bool, code: &[u8; 2], ok: bool) {
         if screen {
             let p = &self.state.config().prompts;
             let c = if ok { p.light_ok } else { p.light_fail };
@@ -340,12 +394,16 @@ mod tests {
         std::fs::write(&list, "; ads\nBBSAD.*\n*.NFO  # scene\n\n").unwrap();
         let patterns = read_list(&list);
         assert_eq!(patterns, ["BBSAD.*", "*.NFO"]);
-        let dropped = zip_rewrite(&path, |n| patterns.iter().any(|p| wildcard(p, n)), Some(b"Visit the board!")).unwrap();
+        let dropped = zip_rewrite(&path, |n| patterns.iter().any(|p| wildcard(p, n)), Some(b"Visit the board!"), Some(("DISFLUX.TXT", b"call disflux"))).unwrap();
         assert_eq!(dropped, 1);
         let z = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
         let names: Vec<String> = z.file_names().filter_map(Result::ok).map(|n| n.into_owned()).collect();
-        assert_eq!(names, ["README.TXT", "PROG.EXE"]);
+        assert_eq!(names, ["README.TXT", "PROG.EXE", "DISFLUX.TXT"]);
         assert_eq!(z.comment(), b"Visit the board!");
+        // Uploading it again doesn't add a second copy of the ad.
+        zip_rewrite(&path, |_| false, None, Some(("disflux.txt", b"call disflux"))).unwrap();
+        let z = zip::ZipArchive::new(std::fs::File::open(&path).unwrap()).unwrap();
+        assert_eq!(z.len(), 3);
         // A damaged archive fails the integrity test.
         let mut bytes = std::fs::read(&path).unwrap();
         bytes[41] ^= 0xFF; // inside the first entry's data (30-byte header + 10-byte name)

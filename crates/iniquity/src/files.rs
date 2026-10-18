@@ -1286,6 +1286,22 @@ impl Session {
 
     pub(crate) async fn view_archive_file(&mut self, a: &FAreaRef, f: &FileRec) -> io::Result<()> {
         let path = self.farea_dir(&a.area).join(&f.name);
+        match crate::upscan::kind_of(&f.name) {
+            crate::upscan::Kind::Text => return self.view_text_file(&path, &f.name).await,
+            k @ (crate::upscan::Kind::TarGz | crate::upscan::Kind::Tar | crate::upscan::Kind::Gzip) => {
+                let cap = crate::upscan::Limits::from_config(&self.state.config().files).cap(std::fs::metadata(&path)?.len());
+                let p = path.clone();
+                let listed = tokio::task::spawn_blocking(move || crate::upscan::tar_listing(&p, k, cap)).await.map_err(io::Error::other)?;
+                return match listed {
+                    Ok(entries) => {
+                        let rows = entries.into_iter().map(|(n, size, d)| (n, size, None, d.map(|d| d.format("%m/%d/%y").to_string()).unwrap_or_default())).collect();
+                        self.view_listing(&f.name, rows).await
+                    }
+                    Err(e) => self.show_line(&format!("|U6{}|U5: |U4Couldn't read it ({e})|U5.", f.name)).await,
+                };
+            }
+            _ => {}
+        }
         let entries = std::fs::File::open(&path).ok().and_then(|file| zip::ZipArchive::new(file).ok()).map(|mut z| {
             (0..z.len())
                 .filter_map(|i| {
@@ -1298,23 +1314,42 @@ impl Session {
         let Some(entries) = entries else {
             return self.view_with_archiver(&path, &f.name).await;
         };
+        let rows = entries.into_iter().map(|(n, size, comp, d)| (n, size, Some(comp), d)).collect();
+        self.view_listing(&f.name, rows).await
+    }
+
+    /// An archive's contents: (name, size, packed size if known, date).
+    async fn view_listing(&mut self, archive: &str, entries: Vec<(String, u64, Option<u64>, String)>) -> io::Result<()> {
+        let packed_known = entries.iter().all(|e| e.2.is_some());
         self.set_slot(Slot::Info);
-        self.show_line(&format!("|U4 Archive|U5: |U6{}", f.name)).await?;
-        self.show_line("|U4 Size        Packed      Date      Name").await?;
+        self.show_line(&format!("|U4 Archive|U5: |U6{archive}")).await?;
+        self.show_line(if packed_known { "|U4 Size        Packed      Date      Name" } else { "|U4 Size        Date      Name" }).await?;
         self.rule().await?;
         let mut lines = 4;
         let (mut total, mut packed) = (0u64, 0u64);
         for (name, size, comp, date) in &entries {
             total += size;
-            packed += comp;
-            self.show_line(&format!("|U1 {} {} {} |U3{}", resize(&commas(*size), 11), resize(&commas(*comp), 11), resize(date, 9), name)).await?;
+            packed += comp.unwrap_or(0);
+            let comp = comp.map(|c| format!("{} ", resize(&commas(c), 11))).unwrap_or_default();
+            self.show_line(&format!("|U1 {} {comp}{} |U3{}", resize(&commas(*size), 11), resize(date, 9), name)).await?;
             lines += 1;
             if !self.more(&mut lines).await? {
                 break;
             }
         }
         self.rule().await?;
-        self.show_line(&format!("|U1 {} {} |U3{} files", resize(&commas(total), 11), resize(&commas(packed), 11), entries.len())).await
+        let comp = if packed_known { format!("{} ", resize(&commas(packed), 11)) } else { String::new() };
+        self.show_line(&format!("|U1 {} {comp}|U3{} files", resize(&commas(total), 11), entries.len())).await
+    }
+
+    /// Show an uploaded text file (ASCII or ANSI) in the scrolling
+    /// viewer: the text before any SAUCE record, CP437 unless it's UTF-8.
+    async fn view_text_file(&mut self, path: &Path, name: &str) -> io::Result<()> {
+        let data = std::fs::read(path)?;
+        let text = crate::upscan::text_part(&data);
+        let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
+        let grid = crate::pager::render(text, utf8);
+        self.page_grid(name, &grid).await
     }
 
     /// A scratch directory of this node's own for archiver work.
@@ -1502,6 +1537,7 @@ impl Session {
         let dir = self.farea_dir(&a.area);
         let mut added = (0u32, 0u64);
         for path in got {
+            self.end_test_screen().await?;
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let plan = planned.iter().position(|(n, _)| n.eq_ignore_ascii_case(&name));
             if plan.is_none() {
@@ -1527,18 +1563,27 @@ impl Session {
                 continue;
             }
             let mut desc = plan.map(|i| planned[i].1.clone()).unwrap_or_default();
-            if desc.is_empty() && import
-                && let Some(d) = self.archive_description(&path, &desc_files).await {
-                    self.say_line("FaTestDescFound").await?;
+            if desc.is_empty() && import {
+                let screen = self.test_screen;
+                self.light(screen, b"L8").await?;
+                let found = self.archive_description(&path, &desc_files).await;
+                self.light_done(screen, b"L8", found.is_some());
+                if let Some(d) = found {
+                    let s = self.strings().get("FaTestDescFound").to_string();
+                    self.upload_note(&s).await?;
                     desc = d;
                 }
+            }
             if desc.is_empty() {
+                self.end_test_screen().await?;
                 desc = self.ask_description(&name).await?;
             }
             self.add_summary(&mut desc, scan.as_ref());
-            self.newline();
+            if !self.test_screen {
+                self.newline();
+            }
             let s = self.strings().fmt("FaULaddingFile", &[&name]);
-            self.show_line(&s).await?;
+            self.upload_note(&s).await?;
             let meta = std::fs::metadata(&path)?;
             let dest = dir.join(&name);
             if dest.exists() || std::fs::rename(&path, &dest).is_err() {
@@ -1567,23 +1612,32 @@ impl Session {
                     let award = (rec.points as u64 * pct / 100) as u32;
                     self.user.file_points += award;
                     let s = self.strings().fmt("s269", &[&award.to_string()]);
-                    self.show_line(&s).await?;
+                    self.upload_note(&s).await?;
                 }
             }
             added.0 += 1;
             added.1 += rec.size;
             tracing::info!("{}: uploaded {} to {}", self.user.handle, name, a.area.name);
             let s = self.strings().fmt("FaULfileAdded", &[&name, &rec.description.len().to_string()]);
-            self.show_line(&s).await?;
+            self.upload_note(&s).await?;
         }
         let _ = std::fs::remove_dir_all(&temp);
         self.state.users.save(&self.user).map_err(io_err)?;
-        if added.0 > 0 {
-            let s = self.strings().fmt("s271", &[&added.0.to_string(), &commas(added.1)]);
-            self.show_line(&s).await?;
+        let summary = if added.0 > 0 {
+            self.strings().fmt("s271", &[&added.0.to_string(), &commas(added.1)])
         } else {
-            self.say_line("FaXferFailed").await?;
+            self.strings().get("FaXferFailed").to_string()
+        };
+        // The last file's FILETEST stays up with the summary in its status
+        // field; the menu's pause comes up under it.
+        if self.test_screen {
+            self.upload_note(&summary).await?;
+            self.test_screen = false;
+            let below = self.positions.get(b"PI").map_or(self.screen.rows(), |p| p.1 + 2).min(self.screen.rows());
+            self.screen.goto(1, below);
+            return Ok(());
         }
+        self.show_line(&summary).await?;
         self.newline();
         Ok(())
     }

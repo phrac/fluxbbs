@@ -46,12 +46,21 @@ pub fn type_allowed(allowed: &[String], name: &str) -> bool {
     types.is_empty() || types.iter().any(|t| n.ends_with(&format!(".{t}")))
 }
 
-/// Text: no NULs, and hardly any control characters besides the usual
-/// ones (tabs, line ends, form feed, EOF, ANSI escapes). Any byte above
-/// 127 is fine, CP437 or UTF-8.
+/// The text part of a file: up to the DOS end-of-file mark (^Z), after
+/// which ANSI and ASCII art keep a SAUCE record, which isn't text.
+pub fn text_part(b: &[u8]) -> &[u8] {
+    b.split(|&c| c == 0x1a).next().unwrap_or_default()
+}
+
+/// Text: hardly any control characters besides the usual ones (tabs,
+/// line ends, form feed, ANSI escapes); at most 1% of it. NULs count
+/// against that rather than ruling a file out, since ANSI editors save
+/// some blank cells as NUL (a blank in CP437), while programs and other
+/// binaries are full of them. Any byte above 127 is fine, CP437 or UTF-8.
 fn looks_like_text(b: &[u8]) -> bool {
+    let b = text_part(b);
     let odd = b.iter().filter(|&&c| c < 0x20 && !matches!(c, b'\t' | b'\n' | b'\r' | 0x0c | 0x1a | 0x1b | 0x07 | 0x08)).count();
-    !b.contains(&0) && odd * 100 <= b.len()
+    !b.is_empty() && odd * 100 <= b.len()
 }
 
 /// Do the contents match the name? `Err` says why not.
@@ -233,6 +242,7 @@ pub fn scan(path: &Path, kind: Kind, limits: &Limits) -> io::Result<Result<Optio
         }
         Kind::Text => {
             let data = std::fs::read(path)?;
+            let data = text_part(&data);
             let mut lines = data.iter().filter(|&&c| c == b'\n').count() as u64;
             if data.last().is_some_and(|&c| c != b'\n') {
                 lines += 1;
@@ -258,6 +268,31 @@ pub fn scan(path: &Path, kind: Kind, limits: &Limits) -> io::Result<Result<Optio
         }
     };
     Ok(result.map(|got| got.map(|_| seen.scan)))
+}
+
+/// A tar, tar.gz or gzip file's contents for the viewer: (name, size,
+/// date), reading no more than `cap` unpacked bytes.
+pub fn tar_listing(path: &Path, kind: Kind, cap: u64) -> io::Result<Vec<(String, u64, Option<NaiveDate>)>> {
+    let file = std::fs::File::open(path)?;
+    let reader: Box<dyn Read> = if kind == Kind::Tar { Box::new(file) } else { Box::new(flate2::read::MultiGzDecoder::new(file)) };
+    let hit = std::rc::Rc::new(std::cell::Cell::new(false));
+    let mut capped = Capped { inner: reader, left: cap, hit };
+    if kind == Kind::Gzip {
+        let n = io::copy(&mut capped, &mut io::sink())?;
+        let name = path.file_name().map(|n| n.to_string_lossy().trim_end_matches(".gz").to_string()).unwrap_or_default();
+        return Ok(vec![(name, n, None)]);
+    }
+    let mut out = Vec::new();
+    for e in tar::Archive::new(&mut capped).entries()? {
+        let e = e?;
+        let h = e.header();
+        if !h.entry_type().is_file() {
+            continue;
+        }
+        let date = h.mtime().ok().and_then(|t| DateTime::from_timestamp(t as i64, 0)).map(|d| d.date_naive());
+        out.push((e.path().map(|p| p.to_string_lossy().into_owned()).unwrap_or_default(), h.size().unwrap_or(0), date));
+    }
+    Ok(out)
 }
 
 /// "1.2 MB" and so on.
@@ -308,6 +343,17 @@ mod tests {
         std::fs::write(&txt, "hello\r\n\x1b[1mthere\x1b[0m\r\n\u{00e9}\n").unwrap();
         assert_eq!(check_contents(&txt, Kind::Text).unwrap(), Ok(()));
         assert_eq!(scan(&txt, Kind::Text, &limits()).unwrap().unwrap().unwrap().lines, Some(3));
+        // A SAUCE record after ^Z has NULs in it, and isn't counted.
+        let mut art = b"ACiD news\r\nissue 59\r\n\x1a".to_vec();
+        art.extend_from_slice(b"SAUCE00ACiD news\x00\x00\x00\x01\x01");
+        std::fs::write(&txt, &art).unwrap();
+        assert_eq!(check_contents(&txt, Kind::Text).unwrap(), Ok(()));
+        assert_eq!(scan(&txt, Kind::Text, &limits()).unwrap().unwrap().unwrap().lines, Some(2));
+        // ANSI art with a few NUL cells is still text.
+        let mut ans = b"\x1b[1;30m\xdb\xdb\x1b[0m  \xb0\xb1\xb2 \x1b[33mart\r\n".repeat(40);
+        ans.extend_from_slice(b"\x00\x00\r\n\x1a");
+        std::fs::write(&txt, &ans).unwrap();
+        assert_eq!(check_contents(&txt, Kind::Text).unwrap(), Ok(()));
         std::fs::write(&txt, b"\x7fELF\x02\x01\x01\x00\x00\x00").unwrap();
         assert_eq!(check_contents(&txt, Kind::Text).unwrap(), Err("text"));
         std::fs::remove_dir_all(d).unwrap();

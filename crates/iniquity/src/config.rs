@@ -529,6 +529,9 @@ pub struct Files {
     pub strict_age: bool,
     pub delete_list: String,
     pub archive_comment: String,
+    /// File in the data directory added to every uploaded ZIP under its own
+    /// name (an ad for the board); empty = off.
+    pub bbs_ad: String,
     /// Upload types allowed, as suffixes (`zip`, `tar.gz`); empty = any.
     /// The contents have to match the name too.
     pub allowed_types: Vec<String>,
@@ -582,6 +585,7 @@ impl Default for Files {
             strict_age: false,
             delete_list: String::new(),
             archive_comment: String::new(),
+            bbs_ad: String::new(),
             allowed_types: Vec::new(),
             scan_summary: SummaryAt::Last,
             scan_names: 0,

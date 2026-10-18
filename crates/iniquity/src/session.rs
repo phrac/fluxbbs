@@ -84,6 +84,11 @@ pub struct Session {
     /// `~XX` / `^NN` markers from the last displayed file: (x, y, colour).
     pub positions: HashMap<[u8; 2], (u16, u16, Color)>,
     pub positions2: HashMap<u8, (u16, u16, Color)>,
+    /// "Continuous" was chosen at a pause: no more pauses until the next
+    /// menu prompt (the original's `PausePos := 0`).
+    pub nonstop: bool,
+    /// FILETEST is on screen: upload messages go in its status field.
+    pub test_screen: bool,
     /// Scripts running inside scripts (`%!` in a string a script shows).
     pub(crate) script_depth: u8,
     /// Email tags for this call: what new email is tagged with (`E/`),
@@ -196,6 +201,8 @@ impl Session {
             new_user: false,
             positions: HashMap::new(),
             positions2: HashMap::new(),
+            nonstop: false,
+            test_screen: false,
             script_depth: 0,
             email_tag: 0,
             read_tag: 0,

@@ -35,6 +35,7 @@ mod transfer;
 mod upltest;
 mod upscan;
 mod nodes;
+mod pager;
 mod password;
 mod qwk;
 mod scripts;

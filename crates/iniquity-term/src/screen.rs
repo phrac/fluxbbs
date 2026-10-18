@@ -147,6 +147,16 @@ impl Screen {
             self.bright_bg = false;
             self.ext_color = false;
         }
+        if c.blink && self.truecolor && self.charset == Charset::Cp437 {
+            // A bright background, as `sgr` sends it to these terminals.
+            let d = [0, 4, 2, 6, 1, 5, 3, 7];
+            let [r, g, b] = VGA[(c.back & 7 | 8) as usize];
+            let seq = format!("\x1b[0;{}3{};48;2;{r};{g};{b}m", if c.fore >= 8 { "1;" } else { "" }, d[(c.fore & 7) as usize]);
+            self.raw(seq.as_bytes());
+            self.color = c;
+            self.bright_bg = true;
+            return;
+        }
         let seq = self.color.transition(c);
         self.raw(seq.as_bytes());
         self.color = c;
@@ -571,6 +581,9 @@ mod tests {
         s.take_output();
         s.write_bytes(b"\x1b[102;30mX\x1b[40mY");
         assert_eq!(s.take_output(), b"\x1b[0;30;48;2;85;255;85mX\x1b[0;30;40mY");
+        // set_color too (a light drawn at a marker of the art's colour).
+        s.set_color(Color { fore: 15, back: 7, blink: true });
+        assert_eq!(s.take_output(), b"\x1b[0;1;37;48;2;255;255;255m");
     }
 
     #[test]

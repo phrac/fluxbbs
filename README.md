@@ -385,9 +385,9 @@ New, in `[files]` or "Upload Tests" in `*C`:
   `[ password-protected ]` where it applies and, with `scan_names`, the
   first few names inside. ZIP and tar/gzip are read in the server;
   other archives are counted with `bsdtar`. The lines are `FaScan...`
-  strings for `*E`. Uploads themselves are never changed (no
-  FILE_ID.DIZ is added; `+` in `*Y` puts a description into a ZIP when
-  you want one).
+  strings for `*E`. The scan never changes the upload (no FILE_ID.DIZ
+  is added; `+` in `*Y` puts a description into a ZIP when you want
+  one).
 - **Zip bombs**: archives unpacking to more than `max_unpacked_ratio`
   (100) times their size, past a megabyte, or more than
   `max_unpacked_bytes` (4 GB) are refused. The size is read as far as
@@ -396,6 +396,10 @@ New, in `[files]` or "Upload Tests" in `*C`:
   their folder (`../`, `/etc/...`, `C:`) are refused.
 - **Virus scanning**: set `test_command = "clamscan --no-summary %F"`
   (ClamAV) and infected uploads fail the test.
+- **BBS ad** (`bbs_ad`, off by default; "BBS ad file" in `*C`): a file in
+  the data directory, e.g. `DISFLUX.NFO`, added to every uploaded ZIP
+  under its own name, replacing an older copy. Like `archive_comment`
+  and `delete_list`, this does change the upload (and its checksum).
 
 Archives are read where they are, not unpacked (other than pulling a
 FILE_ID.DIZ out of a non-ZIP archive for its description).

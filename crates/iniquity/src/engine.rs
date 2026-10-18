@@ -167,6 +167,7 @@ impl Session {
             self.hangup = true;
             return Ok(String::new());
         };
+        self.nonstop = false;
         self.check_expert();
         if menu.pause_before && self.menu.do_help && self.menu.last_cmd_good {
             self.prompt_key().await?;
@@ -533,7 +534,7 @@ impl Session {
     /// Page-length pausing for listings (`oUpPause`). Returns false if the
     /// user asked to stop.
     pub async fn more(&mut self, lines: &mut u16) -> io::Result<bool> {
-        if !self.user.pause || *lines < self.user.page_length.saturating_sub(1).max(5) {
+        if self.nonstop || !self.user.pause || *lines < self.user.page_length.saturating_sub(1).max(5) {
             return Ok(true);
         }
         *lines = 0;
@@ -545,6 +546,7 @@ impl Session {
         let len = self.screen.where_x().saturating_sub(start);
         self.screen.backspace(len);
         self.screen.set_color(color);
+        self.nonstop = key.upper() == Some('C');
         Ok(!matches!(key.upper(), Some('Q' | 'S' | 'N')) && key != Key::Esc)
     }
 }

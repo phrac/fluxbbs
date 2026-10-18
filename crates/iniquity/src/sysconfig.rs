@@ -223,6 +223,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('J', "Max unpack ratio", 6, "Refuse archives unpacking to more than this many times their size (0 = any).", Num(|c| c.files.max_unpacked_ratio as u64, |c, v| c.files.max_unpacked_ratio = v as u32, 0, 1_000_000)),
             set('K', "Max unpacked bytes", 14, "Refuse archives unpacking to more than this (0 = any).", Num(|c| c.files.max_unpacked_bytes, |c, v| c.files.max_unpacked_bytes = v, 0, u64::MAX / 2)),
             set('L', "Refuse unsafe paths", 3, "Refuse archives with names like ../ or /etc/ that point outside their folder?", Bool(|c| &mut c.files.refuse_unsafe_paths)),
+            set('M', "BBS ad file", 12, "File in the data directory added to every uploaded ZIP (an ad for the board); blank = off.", Text(|c| &mut c.files.bbs_ad, TEXT.max(40))),
         ]),
         ("Chat Mode", false, vec![
             set('A', "Override password", 20, "Password to page outside chat hours (blank = none).", Text(|c| &mut c.chat.override_password, Field::UPPER)),
