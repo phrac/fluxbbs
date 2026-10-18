@@ -42,6 +42,9 @@ pub struct Screen {
     /// The terminal takes 24-bit colour: bright backgrounds go out as
     /// that rather than the iCE blink bit.
     truecolor: bool,
+    /// The text's own blink attribute (`5` until `25` or `0`), which DOS
+    /// art means as a bright background.
+    ice_blink: bool,
 }
 
 impl Screen {
@@ -59,6 +62,7 @@ impl Screen {
             aix_fg: false,
             ext_color: false,
             truecolor: false,
+            ice_blink: false,
         }
         .init()
     }
@@ -409,9 +413,13 @@ impl Screen {
         let aixterm = params.iter().any(|p| matches!(p, 90..=97 | 100..=107));
         let was_bright = self.bright_bg;
         let was_aix_fg = self.aix_fg;
+        let was_blink = self.ice_blink;
         for &p in &params {
             match p {
-                0 | 40..=47 | 49 => self.bright_bg = false,
+                0 => (self.bright_bg, self.ice_blink) = (false, false),
+                5 | 6 => self.ice_blink = true,
+                25 => self.ice_blink = false,
+                40..=47 | 49 => self.bright_bg = false,
                 100..=107 => {
                     self.bright_bg = true;
                     self.color.back = [0, 4, 2, 6, 1, 5, 3, 7][(p - 100) as usize];
@@ -429,8 +437,12 @@ impl Screen {
         } else if plain_fg || params.contains(&0) {
             self.aix_fg = false;
         }
-        if self.charset == Charset::Cp437 && (aixterm || self.bright_bg || was_bright || was_aix_fg) {
-            self.color.blink = self.bright_bg;
+        // DOS art means blink as a bright background (iCE colours); a
+        // terminal getting 24-bit colour gets it that way too.
+        let ice = self.ice_blink;
+        let ice_rgb = self.truecolor && (ice || was_blink);
+        if self.charset == Charset::Cp437 && (aixterm || self.bright_bg || was_bright || was_aix_fg || ice_rgb) {
+            self.color.blink = self.bright_bg || ice;
             let c = self.color;
             let d = [0, 4, 2, 6, 1, 5, 3, 7];
             let rgb = c.blink && self.truecolor;
@@ -581,6 +593,9 @@ mod tests {
         s.take_output();
         s.write_bytes(b"\x1b[102;30mX\x1b[40mY");
         assert_eq!(s.take_output(), b"\x1b[0;30;48;2;85;255;85mX\x1b[0;30;40mY");
+        // Blink in DOS art (an iCE export) is a bright background too.
+        s.write_bytes(b"\x1b[0;5;30;47mA\x1b[25mB");
+        assert_eq!(s.take_output(), b"\x1b[0;30;48;2;255;255;255mA\x1b[0;30;47mB");
         // set_color too (a light drawn at a marker of the art's colour).
         s.set_color(Color { fore: 15, back: 7, blink: true });
         assert_eq!(s.take_output(), b"\x1b[0;1;37;48;2;255;255;255m");
