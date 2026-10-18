@@ -310,6 +310,13 @@ impl Session {
                 Action::Event(Event::FileStarted(info)) => {
                     let name = safe_name(info.name).unwrap_or_else(|| "upload.bin".into());
                     let too_big = max > 0 && info.size.is_some_and(|s| s.get() as u64 > max);
+                    // A sender that didn't hear our reply to its file header
+                    // sends the header again, and every copy starts the file
+                    // over: drop the unfinished one so the name stays free
+                    // (otherwise it arrives as NAME.1, NAME.2...).
+                    if let Some((_, old, _)) = file.take() {
+                        let _ = tokio::fs::remove_file(old).await;
+                    }
                     let path = unique_path(dir, &name);
                     if too_big {
                         tracing::info!("{}: upload {name} too large", self.user.handle);
