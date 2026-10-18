@@ -166,14 +166,14 @@ impl Session {
             "MS" => self.set_pointer_date().await?,
 
             // -- files
-            "FA" => self.list_fareas(false).await?,
+            "FA" => self.list_fareas(false, None).await?,
             "FC" => {
                 let ok = match param.trim().parse::<u32>() {
                     Ok(n) => self.change_farea(n).await?,
                     Err(_) => false,
                 };
                 if !ok {
-                    self.list_fareas(true).await?;
+                    self.list_fareas(true, None).await?;
                 }
             }
             "F#" => self.jump_area(false, param).await?,

@@ -153,6 +153,10 @@ impl Session {
         if !changed {
             return self.say_line("AreaNotFound").await;
         }
+        // An area with sub-areas opens, to pick one of them.
+        if let Some(n) = target.filter(|&n| !msg && !self.farea_children(Some(n)).is_empty()) {
+            return self.list_fareas(true, Some(n)).await;
+        }
         let (name, key) = if msg {
             (self.current_area().map(|a| a.area.name).unwrap_or_default(), "MsgChangedAreas")
         } else {

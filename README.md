@@ -301,6 +301,28 @@ directory (the importer says where).
 
 New users start at access level A until voted in or validated with `*U`.
 
+## Sub-areas
+
+New, not in the original: a file area can sit under another one, to any
+depth, e.g. a "Zines" area with an area per zine title. In `*F`, set
+"Sub-area of" (`K`) to the parent's storage key, or in `fileareas.toml`:
+
+    [[area]]
+    name = "Phrack"
+    file = "PHRACK"
+    path = "files/zines/phrack"
+    parent = "ZINES"
+
+The change-area list (`FC`, `A` on the file menu) shows one level at a
+time: an area with sub-areas is marked `/` (`FaGroupSuffix`) and counts
+the files under it, and choosing it changes to it and opens it, where
+Enter stays put. `#` to such an area opens it too. `FA` lists every area
+with sub-areas indented, and `[`/`]`, numbering and `*F` follow the
+tree. A sub-area needs the access of every area above it, so a parent's
+ACS hides a whole branch. A parent is still an area of its own, with a
+directory and room for files. Everything else (newscan, search,
+uploads, conferences) treats sub-areas like any other area.
+
 ## File transfers
 
 Zmodem is built in, so SyncTERM and other BBS terminals can upload and

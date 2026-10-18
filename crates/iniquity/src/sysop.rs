@@ -49,6 +49,7 @@ fn new_file_area(areas: &FileAreas) -> FileArea {
         password: String::new(),
         sort: SortBy::None,
         sort_descending: false,
+        parent: String::new(),
     }
 }
 
@@ -576,7 +577,10 @@ impl Session {
         self.newline();
         self.rule().await?;
         let mut lines = 3;
-        for (i, a) in areas.areas.iter().enumerate() {
+        // Tree order, each sub-area under its own; the numbers are still
+        // positions in the file, which insert, delete and move use.
+        for (n, depth) in areas.tree() {
+            let (i, a) = (n as usize - 1, &areas.areas[n as usize - 1]);
             let count = self.state.files.count(&a.file).map_err(io_err)?;
             self.set_slot(Slot::Info);
             let sort = match a.sort {
@@ -586,7 +590,7 @@ impl Session {
             self.write(&format!(
                 " {} {} {} {} {} {} {} {}",
                 resize(&(i + 1).to_string(), 4),
-                resize(&a.name, 26),
+                resize(&format!("{}{}", "  ".repeat(depth), a.name), 26),
                 resize(&a.file, 9),
                 resize(&a.acs, 6),
                 resize(&a.upload_acs, 6),
@@ -632,6 +636,10 @@ impl Session {
         }
         let Some(which) = self.cfg_ask_number("Delete which file area?", 1, n).await? else { return Ok(()) };
         let gone = areas.areas.remove(which as usize - 1);
+        // Its sub-areas move up a level.
+        for a in areas.areas.iter_mut().filter(|a| a.parent.eq_ignore_ascii_case(&gone.file)) {
+            a.parent = gone.parent.clone();
+        }
         // Keep the records if another area still uses the same key.
         let shared = areas.areas.iter().any(|a| a.file.eq_ignore_ascii_case(&gone.file));
         let records = self.state.files.count(&gone.file).map_err(io_err)?;
@@ -690,6 +698,7 @@ impl Session {
             f.item('H', "Password", 20, &a.password, "Password required to access this area (blank for none).");
             f.item('I', "Sort method", 20, a.sort.label(), "How *S sorts this file area.");
             f.item('J', "Sort direction", 20, directions[a.sort_descending as usize], "Direction to sort files.");
+            f.item('K', "Sub-area of", 8, &a.parent, "Storage key of the area this is listed under (blank for the top level).");
             f.label("Files", 6, files.to_string());
             f.item('[', "Previous area", 0, "", "");
             f.item(']', "Next area", 0, "", "");
@@ -712,6 +721,9 @@ impl Session {
                                 self.cfg_set(&mut f, key, &a.file);
                             } else {
                                 self.state.files.rename_area(&a.file, &v).map_err(io_err)?;
+                                for o in areas.areas.iter_mut().filter(|o| o.parent.eq_ignore_ascii_case(&a.file)) {
+                                    o.parent = v.clone();
+                                }
                                 a.file = v;
                                 // Save now: the records already moved.
                                 areas.areas[idx] = a.clone();
@@ -758,6 +770,23 @@ impl Session {
                     }
                     'J' => {
                         a.sort_descending = self.cfg_option(&mut f, key, &directions, a.sort_descending as usize).await? == 1;
+                    }
+                    'K' => {
+                        let Some(v) = self.cfg_text(&mut f, key, Field::KEY).await? else { continue };
+                        let v = v.to_ascii_uppercase();
+                        let parent = areas.areas.iter().position(|o| o.file.eq_ignore_ascii_case(&v)).map(|i| i as u32 + 1);
+                        if v.is_empty() {
+                            a.parent.clear();
+                        } else if parent.is_none() {
+                            self.cfg_info(&mut f, "No area has that storage key.");
+                            self.cfg_set(&mut f, key, &a.parent);
+                        } else if areas.subtree(num).contains(&parent.unwrap()) {
+                            self.cfg_info(&mut f, "That's this area or one of its own sub-areas.");
+                            self.cfg_set(&mut f, key, &a.parent);
+                        } else {
+                            a.parent = areas.areas[parent.unwrap() as usize - 1].file.clone();
+                            self.cfg_set(&mut f, key, &a.parent);
+                        }
                     }
                     '[' => break -1,
                     ']' => break 1,

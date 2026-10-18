@@ -141,7 +141,7 @@ impl Session {
     /// `faChangeArea`.
     pub async fn change_farea(&mut self, n: u32) -> io::Result<bool> {
         let Some(a) = self.farea(n) else { return Ok(false) };
-        if !self.acs(&a.area.acs) {
+        if !self.farea_visible(n) {
             return Ok(false);
         }
         if !a.area.password.is_empty() {
@@ -158,95 +158,170 @@ impl Session {
 
     /// `faFindAreaWithAccess`.
     pub fn find_farea_with_access(&mut self) {
-        if self.current_farea().is_some_and(|a| self.acs(&a.area.acs)) {
+        let visible = self.visible_fareas();
+        if visible.iter().any(|&(n, _)| n == self.user.cur_file_area) {
             return;
         }
-        if let Some(n) = (1..=self.farea_count()).find(|&n| self.farea(n).is_some_and(|a| self.acs(&a.area.acs))) {
+        if let Some(&(n, _)) = visible.first() {
             self.user.cur_file_area = n;
         }
     }
 
     /// `faPrevArea` / `faNextArea`.
+    /// Areas go in tree order, so this walks into and out of sub-areas.
     pub async fn step_farea(&mut self, forward: bool) -> io::Result<()> {
-        let total = self.farea_count();
-        let mut n = self.user.cur_file_area;
-        loop {
-            n = if forward { n + 1 } else { n.saturating_sub(1) };
-            if n == 0 || n > total {
-                return self.say_line(if forward { "FaHighestArea" } else { "FaLowestArea" }).await;
-            }
+        let order: Vec<u32> = self.state.fareas().tree().into_iter().map(|(n, _)| n).collect();
+        let candidates: Vec<u32> = match order.iter().position(|&n| n == self.user.cur_file_area) {
+            Some(p) if forward => order[p + 1..].to_vec(),
+            Some(p) => order[..p].iter().rev().copied().collect(),
+            None if forward => order,
+            None => Vec::new(),
+        };
+        for n in candidates {
             if self.change_farea(n).await? {
                 let name = self.farea(n).map(|a| a.area.name).unwrap_or_default();
                 let s = self.strings().fmt("FaChangedAreas", &[&name]);
                 return self.show_line(&s).await;
             }
         }
+        self.say_line(if forward { "FaHighestArea" } else { "FaLowestArea" }).await
+    }
+
+    /// The file areas the caller can use, as (number, depth) in tree
+    /// order. A sub-area needs the access of every area above it.
+    pub(crate) fn visible_fareas(&self) -> Vec<(u32, usize)> {
+        let fa = self.state.fareas();
+        let mut ok_at: Vec<bool> = Vec::new();
+        let mut out = Vec::new();
+        for (n, depth) in fa.tree() {
+            ok_at.truncate(depth);
+            let ok = ok_at.last().copied().unwrap_or(true) && fa.get(n).is_some_and(|a| self.acs(&a.acs));
+            ok_at.push(ok);
+            if ok {
+                out.push((n, depth));
+            }
+        }
+        out
+    }
+
+    pub(crate) fn farea_visible(&self, n: u32) -> bool {
+        self.visible_fareas().iter().any(|&(m, _)| m == n)
+    }
+
+    /// Visible sub-areas directly under `of` (top-level areas for `None`).
+    pub(crate) fn farea_children(&self, of: Option<u32>) -> Vec<u32> {
+        let visible = self.visible_fareas();
+        self.state.fareas().children(of).into_iter().filter(|n| visible.iter().any(|&(m, _)| m == *n)).collect()
     }
 
     /// (number shown, area number) for each file area the caller can use.
     pub(crate) fn file_area_labels(&self) -> Vec<(u32, u32)> {
         let compress = self.state.config().messages.compress_area_numbers;
         let mut out = Vec::new();
-        for (i, a) in self.state.fareas().areas.iter().enumerate() {
-            let n = i as u32 + 1;
-            if self.acs(&a.acs) {
-                out.push((if compress { out.len() as u32 + 1 } else { n }, n));
-            }
+        for (n, _) in self.visible_fareas() {
+            out.push((if compress { out.len() as u32 + 1 } else { n }, n));
         }
         out
     }
 
-    /// `faListAreas` (`FA`, and `FC` without a number).
-    pub async fn list_fareas(&mut self, change: bool) -> io::Result<()> {
-        let fareas = self.state.fareas();
-        let rows: Vec<_> =
-            self.file_area_labels().into_iter().map(|(label, n)| (label, n, fareas.areas[n as usize - 1].clone())).collect();
-        let mut rep = self.repeat_begin("FAREA", true).await?;
-        if rep.is_none() {
-            self.clear_screen();
-            self.newline();
-            self.set_slot(Slot::Info);
-            self.show_line(" Num    Area Title                     Files   Sponsor").await?;
-            self.rule().await?;
-        }
-        let mut lines = 4;
-        for (label, n, a) in &rows {
-            let count = self.state.files.count(&a.file).map_err(io_err)?;
-            let here = *n == self.user.cur_file_area;
-            let more = match rep.as_mut() {
-                Some(r) => {
-                    let w = waves([("AT", a.name.clone()), ("AN", label.to_string()), ("NF", count.to_string()), ("SP", a.sponsor.clone())]);
-                    self.repeat_row(r, &w, here).await?
-                }
-                None => {
-                    self.set_slot(if here { Slot::TextHi } else { Slot::Text });
-                    self.write(&format!(" {} {} {} {}", resize(&label.to_string(), 6), resize(&a.name, 30), resize(&count.to_string(), 7), squish(&a.sponsor, 36)));
-                    self.newline();
-                    lines += 1;
-                    self.more(&mut lines).await?
-                }
+    /// `faListAreas` (`FA`, and `FC` without a number). `FA` lists every
+    /// area, sub-areas indented under theirs; `FC` shows one level at a
+    /// time from `start` (the top for `None`). Choosing an area with
+    /// sub-areas changes to it and opens it; Enter stays where you are.
+    pub async fn list_fareas(&mut self, change: bool, start: Option<u32>) -> io::Result<()> {
+        let mut level = start;
+        loop {
+            let fareas = self.state.fareas();
+            let labels = self.file_area_labels();
+            let visible = self.visible_fareas();
+            let shown: Vec<(u32, usize)> = if change {
+                self.farea_children(level).into_iter().map(|n| (n, 0)).collect()
+            } else {
+                visible.clone()
             };
-            if !more {
-                break;
+            let suffix = self.strings().get("FaGroupSuffix").to_string();
+            let mut rows = Vec::new();
+            for (n, depth) in shown {
+                let label = labels.iter().find(|&&(_, m)| m == n).map_or(n, |l| l.0);
+                let subs = self.farea_children(Some(n));
+                // One level at a time, a group counts everything under it;
+                // in the full list each area counts its own.
+                let counted = if change { fareas.subtree(n).into_iter().filter(|m| visible.iter().any(|&(v, _)| v == *m)).collect() } else { vec![n] };
+                let mut count = 0;
+                for m in counted {
+                    if let Some(a) = fareas.get(m) {
+                        count += self.state.files.count(&a.file).map_err(io_err)?;
+                    }
+                }
+                let mut name = format!("{}{}", "  ".repeat(depth), fareas.areas[n as usize - 1].name);
+                if !subs.is_empty() {
+                    name.push_str(&suffix);
+                }
+                rows.push((label, n, name, count, fareas.areas[n as usize - 1].sponsor.clone()));
             }
-        }
-        match rep {
-            Some(r) => self.repeat_end(r).await?,
-            None => self.rule().await?,
-        }
-        if change {
+            let mut rep = self.repeat_begin("FAREA", true).await?;
+            if rep.is_none() {
+                self.clear_screen();
+                self.newline();
+                self.set_slot(Slot::Info);
+                self.show_line(" Num    Area Title                     Files   Sponsor").await?;
+                self.rule().await?;
+            }
+            let mut lines = 4;
+            for (label, n, name, count, sponsor) in &rows {
+                let here = *n == self.user.cur_file_area;
+                let more = match rep.as_mut() {
+                    Some(r) => {
+                        let w = waves([("AT", name.clone()), ("AN", label.to_string()), ("NF", count.to_string()), ("SP", sponsor.clone())]);
+                        self.repeat_row(r, &w, here).await?
+                    }
+                    None => {
+                        self.set_slot(if here { Slot::TextHi } else { Slot::Text });
+                        self.write(&format!(" {} {} {} {}", resize(&label.to_string(), 6), resize(name, 30), resize(&count.to_string(), 7), squish(sponsor, 36)));
+                        self.newline();
+                        lines += 1;
+                        self.more(&mut lines).await?
+                    }
+                };
+                if !more {
+                    break;
+                }
+            }
+            match rep {
+                Some(r) => self.repeat_end(r).await?,
+                None => self.rule().await?,
+            }
+            if !change {
+                return Ok(());
+            }
+            if let Some(g) = level.and_then(|g| self.farea(g)) {
+                let s = self.strings().fmt("FaInGroup", &[&g.area.name]);
+                self.show_line(&s).await?;
+            }
             self.say("FaAskChangeArea").await?;
             let s = self.read_string(ReadOpts::new(4).allowed(DIGITS)).await?;
             self.newline();
-            let pick = s.parse::<u32>().ok().and_then(|l| rows.iter().find(|(label, _, _)| *label == l)).map(|r| r.1);
-            if let Some(n) = pick
-                && self.change_farea(n).await? {
-                    let name = self.farea(n).map(|a| a.area.name).unwrap_or_default();
-                    let s = self.strings().fmt("FaChangedAreas", &[&name]);
-                    self.show_line(&s).await?;
+            let pick = s.parse::<u32>().ok().and_then(|l| labels.iter().find(|&&(label, _)| label == l)).map(|r| r.1);
+            let Some(n) = pick else {
+                if level.is_some() {
+                    self.announce_farea().await?;
                 }
+                return Ok(());
+            };
+            if !self.change_farea(n).await? {
+                return Ok(());
+            }
+            if self.farea_children(Some(n)).is_empty() {
+                return self.announce_farea().await;
+            }
+            level = Some(n);
         }
-        Ok(())
+    }
+
+    async fn announce_farea(&mut self) -> io::Result<()> {
+        let name = self.current_farea().map(|a| a.area.name).unwrap_or_default();
+        let s = self.strings().fmt("FaChangedAreas", &[&name]);
+        self.show_line(&s).await
     }
 
     // ---- finding files --------------------------------------------------

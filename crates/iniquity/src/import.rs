@@ -203,6 +203,7 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
                 password: a.password.clone(),
                 sort: SortBy::from_legacy(a.sort_type),
                 sort_descending: !a.sort_ascending,
+                parent: String::new(),
             })
             .collect();
     }
