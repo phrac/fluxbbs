@@ -66,6 +66,16 @@ impl Strings {
         self.map.get(name).map_or("", String::as_str)
     }
 
+    /// The built-in text of a string.
+    pub fn stock(&self, name: &str) -> &str {
+        self.stock.get(name).map_or("", String::as_str)
+    }
+
+    /// Has the SysOp changed this string from stock?
+    pub fn changed(&self, name: &str) -> bool {
+        self.map.get(name).map(String::as_str) != self.stock.get(name).map(String::as_str)
+    }
+
     /// `strCode`: a string with `%S1`, `%S2`... replaced by `args`.
     pub fn fmt(&self, name: &str, args: &[&str]) -> String {
         substitute(self.get(name), args)
@@ -103,6 +113,18 @@ mod tests {
         let s = Strings::load(Path::new("/nonexistent")).unwrap();
         assert!(s.get("Pause").contains("use"));
         assert!(s.fmt("InvalidMnuCmd", &["ZZ"]).contains("ZZ"));
+    }
+
+    #[test]
+    fn changed_strings_remember_stock() {
+        let mut s = Strings::load(Path::new("/nonexistent")).unwrap();
+        let stock = s.get("Pause").to_string();
+        assert!(!s.changed("Pause"));
+        s.set("Pause", "wait".into());
+        assert!(s.changed("Pause"));
+        assert_eq!(s.stock("Pause"), stock);
+        s.set("Pause", stock);
+        assert!(!s.changed("Pause"));
     }
 
     #[test]

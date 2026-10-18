@@ -219,7 +219,8 @@ impl Session {
     // ---- *E: prompt strings -------------------------------------------------
 
     /// `cfgStringEditor`: the strings a page at a time, with search and
-    /// jump. Saved to strings.toml as they change.
+    /// jump; each shown as written and as callers see it, changed ones
+    /// marked. Saved to strings.toml as they change.
     pub async fn string_editor(&mut self) -> io::Result<()> {
         tracing::info!("{}: string edit", self.user.handle);
         let names = stock_names();
@@ -229,13 +230,15 @@ impl Session {
         loop {
             let strings = self.strings();
             self.clear_screen();
-            let mut rows = Vec::new();
             for (i, name) in names.iter().enumerate().skip(top).take(STRINGS_PER_PAGE) {
-                self.write_with_controls(&format!("|U1{}|U2:|U1{:03}|U2, |U4{name}", i - top + 1, i + 1));
+                let mark = if strings.changed(name) { " |U6(changed)" } else { "" };
+                self.write_with_controls(&format!("|U1{}|U2:|U1{:03}|U2, |U4{name}{mark}", i - top + 1, i + 1));
                 self.newline();
-                rows.push(self.screen.where_y());
                 self.set_slot(Slot::Info);
                 self.write(&squish(strings.get(name), 79));
+                self.newline();
+                self.write("  ");
+                self.string_preview(strings.get(name), 76);
                 self.newline();
                 self.newline();
             }
@@ -252,7 +255,7 @@ impl Session {
                     }
                 }
                 Some('/') => {
-                    self.show("|U2-- |U1Text to search for |U5[|U6enter|U5/|U4again|U5]: |U3").await?;
+                    self.show("|U2-- |U1Search names and text |U5[|U6enter|U5=|U4again|U5]: |U3").await?;
                     let want = self.read_string(crate::input::ReadOpts::new(60)).await?;
                     self.newline();
                     if !want.is_empty() {
@@ -267,20 +270,150 @@ impl Session {
                     }
                 }
                 Some(c @ '1'..='5') => {
-                    let row = c as usize - '1' as usize;
-                    let Some(&y) = rows.get(row) else { continue };
-                    let name = names[top + row];
-                    let field = Field { max: 255, ..Field::TEXT };
-                    if let Some(v) = self.edit_line(1, y, 79, strings.get(name), field).await? {
-                        let mut new = (*self.strings()).clone();
-                        new.set(name, v);
-                        self.state.set_strings(new).map_err(io_err)?;
-                        tracing::info!("{}: changed string {name}", self.user.handle);
+                    let i = top + (c as usize - '1' as usize);
+                    if i < total {
+                        self.string_edit(i + 1, names[i]).await?;
                     }
                 }
                 Some(_) => {}
             }
         }
+    }
+
+    /// A string as callers see it, on one line of at most `width`
+    /// characters: colours applied, %S1.. shown as «1».., MCI codes filled
+    /// in. Codes that would pause, move the cursor, show a file or run a
+    /// script are left out, so previewing one is always safe.
+    fn string_preview(&mut self, s: &str, width: usize) {
+        use iniquity_term::{Color, Control, Source, Token, tokenize};
+        if let Some(rest) = s.strip_prefix("%%").or_else(|| s.strip_prefix("%!")) {
+            self.set_slot(Slot::Info);
+            let what = if s.starts_with("%%") { "shows the file" } else { "runs the script" };
+            self.write(&squish(&format!("({what} {})", rest.trim()), width));
+            self.screen.set_color(Color::DEFAULT);
+            return;
+        }
+        let body = s.strip_prefix("%|").or_else(|| s.strip_prefix("%>")).unwrap_or(s);
+        let samples: Vec<String> = (1..=9).map(|n| format!("\u{ab}{n}\u{bb}")).collect();
+        let args: Vec<&str> = samples.iter().map(String::as_str).collect();
+        let text = crate::strings::substitute(body, &args);
+        let start = self.screen.color();
+        self.screen.set_color(Color::DEFAULT);
+        let mut left = width;
+        for t in tokenize(&iniquity_term::cp437::encode(&text), Source::String) {
+            let cur = self.screen.color();
+            match t {
+                Token::Text(bytes) => {
+                    // Escape sequences in a string aren't shown here.
+                    let plain: Vec<u8> = bytes.iter().copied().filter(|&b| b >= 0x20).collect();
+                    let n = plain.len().min(left);
+                    self.screen.write_bytes(&plain[..n]);
+                    left -= n;
+                }
+                Token::Ctrl(Control::Fore(n)) => self.screen.set_color(Color { fore: n, ..cur }),
+                Token::Ctrl(Control::Back(n)) => self.screen.set_color(Color { back: n, ..cur }),
+                Token::Ctrl(Control::Theme(n)) => {
+                    if let Some(col) = self.user.palette.index(n) {
+                        self.screen.set_color(col);
+                    }
+                }
+                Token::Mci(code) => {
+                    let v = self.mci_value(code).unwrap_or_else(|| format!("%{}{}", code[0] as char, code[1] as char));
+                    let v: String = v.chars().take(left).collect();
+                    left -= v.chars().count();
+                    self.write(&v);
+                }
+                _ => {}
+            }
+            if left == 0 {
+                break;
+            }
+        }
+        self.screen.set_color(start);
+    }
+
+    /// Edit one string on a screen of its own: the stock text above for
+    /// reference, the preview below updating as you type. Ctrl-R puts
+    /// back the stock text.
+    async fn string_edit(&mut self, number: usize, name: &str) -> io::Result<()> {
+        use crate::input::Key;
+        let strings = self.strings();
+        let stock = strings.stock(name).to_string();
+        let mut buf: Vec<char> = strings.get(name).chars().collect();
+        let mut cur = buf.len();
+        let mut scroll = 0usize;
+        const W: usize = 79;
+        const EDIT_Y: u16 = 8;
+        const PREVIEW_Y: u16 = 11;
+        self.clear_screen();
+        self.write_with_controls(&format!("|U1String |U3{number}|U2: |U4{name}"));
+        self.newline();
+        self.rule().await?;
+        self.show_line("|U1Stock|U2:").await?;
+        self.set_slot(Slot::Info);
+        self.write(&squish(&stock, W));
+        self.newline();
+        self.write("  ");
+        self.string_preview(&stock, W - 3);
+        self.newline();
+        self.rule().await?;
+        self.show_line("|U1Text|U2:").await?;
+        self.screen.goto(1, PREVIEW_Y - 1);
+        self.show("|U1Preview|U2:").await?;
+        self.screen.goto(1, PREVIEW_Y + 2);
+        self.rule().await?;
+        self.show("|U5[|U6enter|U5] |U4save  |U5[|U6esc|U5] |U4cancel  |U5[|U6ctrl-r|U5] |U4stock text  |U5[|U6arrows/home/end|U5] |U4move").await?;
+        let saved = loop {
+            // The edit line scrolls sideways to keep the cursor in view.
+            if cur < scroll {
+                scroll = cur;
+            } else if cur >= scroll + W {
+                scroll = cur + 1 - W;
+            }
+            let shown: String = buf.iter().skip(scroll).take(W).collect();
+            self.screen.goto(1, EDIT_Y);
+            self.set_slot(Slot::Edit);
+            self.write(&shown);
+            self.screen.set_color(iniquity_term::Color::DEFAULT);
+            self.screen.clear_eol();
+            let text: String = buf.iter().collect();
+            self.screen.goto(3, PREVIEW_Y);
+            self.screen.clear_eol();
+            self.string_preview(&text, W - 3);
+            self.screen.goto((cur - scroll + 1) as u16, EDIT_Y);
+            self.flush().await?;
+            match self.read_key().await? {
+                Key::Enter => break Some(text),
+                Key::Esc => break None,
+                Key::Left => cur = cur.saturating_sub(1),
+                Key::Right => cur = (cur + 1).min(buf.len()),
+                Key::Home => cur = 0,
+                Key::End => cur = buf.len(),
+                Key::Backspace if cur > 0 => {
+                    cur -= 1;
+                    buf.remove(cur);
+                }
+                Key::Del if cur < buf.len() => {
+                    buf.remove(cur);
+                }
+                Key::Char(0x12) => {
+                    buf = stock.chars().collect();
+                    cur = buf.len();
+                }
+                Key::Char(c) if c >= 0x20 && buf.len() < 255 => {
+                    buf.insert(cur, iniquity_term::cp437::TO_UNICODE[c as usize]);
+                    cur += 1;
+                }
+                _ => {}
+            }
+        };
+        if let Some(v) = saved.filter(|v| v != strings.get(name)) {
+            let mut new = (*self.strings()).clone();
+            new.set(name, v);
+            self.state.set_strings(new).map_err(io_err)?;
+            tracing::info!("{}: changed string {name}", self.user.handle);
+        }
+        Ok(())
     }
 }
 
