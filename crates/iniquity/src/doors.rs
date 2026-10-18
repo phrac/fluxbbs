@@ -311,7 +311,7 @@ impl Pty {
     fn open(cols: u16, rows: u16) -> io::Result<(Self, OwnedFd)> {
         let (mut m, mut s) = (0, 0);
         let mut ws = winsize(cols, rows);
-        cvt(unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null_mut(), &mut ws) })?;
+        cvt(unsafe { libc::openpty(&mut m, &mut s, std::ptr::null_mut(), std::ptr::null_mut(), std::ptr::addr_of_mut!(ws)) })?;
         let (m, s) = unsafe { (OwnedFd::from_raw_fd(m), OwnedFd::from_raw_fd(s)) };
         for fd in [&m, &s] {
             cvt(unsafe { libc::fcntl(fd.as_raw_fd(), libc::F_SETFD, libc::FD_CLOEXEC) })?;
