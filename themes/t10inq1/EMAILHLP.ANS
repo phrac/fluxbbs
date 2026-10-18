@@ -1,0 +1,15 @@
+[40m[2J[2;1H[21C[0;1;30m([32miNiQUiTY Email Reading Command Help[s
+[u[30m)[3;1H--------------------------------------------------------------[s
+[u-----------------[4;1H[32mEmail Reading Commands[30m:[5;1H[6;1H[7C[s
+[u[32m?[6C[0;32mDisplay this help screen[7;1H[7C[1m-[6C[0;32mBacks t[s
+[uo the previous message[8;1H[7C[1mEnter  [0;32mAdvance to the next mess[s
+[uage[9;1H[7C[1mA[6C[0;32mDisplay the current message over again[10;1H[s
+[u[7C[1mR[6C[0;32mReply to the current message (private)[11;1H[7C[1mD[s
+[u[6C[0;32mDelete or undelete the current message[12;1H[7C[1mQ[6C[s
+[u[0;32mQuit reading email[13;1H[7C[1mE[6C[0;32mEdit current message  [s
+[u(only when reading ALL mail)[14;1H[7C[1mX[6C[0;32mExtract message to [s
+[ufile for download[15;1H[7C[1mU[6C[0;32mEdit author of message (sysops[s
+[u only)[16;1H[17;1H[7C[1m###    [0;32mYou may also type the number of [s
+[uany message to jump[18;1H[17Cdirectly to that message[19;1H[20;1H    N[s
+[uote[1;30m:  [32mPlease delete your email when you are through reading it
+[21;1H[0;32m--[22;1H[23;1H[0m[255D

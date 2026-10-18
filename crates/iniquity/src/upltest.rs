@@ -321,6 +321,8 @@ impl Session {
         if self.test_screen {
             self.test_screen = false;
             self.delay(800).await?;
+            // A screen can leave a background colour set; don't clear with it.
+            self.screen.set_color(iniquity_term::Color::DEFAULT);
             self.clear_screen();
         }
         Ok(())

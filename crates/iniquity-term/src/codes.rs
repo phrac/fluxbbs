@@ -35,6 +35,8 @@ pub enum Control {
     Pause,
     /// User colour scheme slot `|U0`..`|U9`.
     Theme(u8),
+    /// `|SA`: the STOCK screen (a shared header) drawn here. New.
+    StockArt,
 }
 
 impl Control {
@@ -74,6 +76,7 @@ impl Control {
             (b'P', b'A') => PromptKey,
             (b'P', b'K') => ReadKey,
             (b'P', b'S') => Pause,
+            (b'S', b'A') => StockArt,
             (b'S', b'C') => SaveCursor,
             (b'U', b'0'..=b'9') => Theme(b - b'0'),
             _ => return None,
@@ -211,6 +214,7 @@ mod tests {
         assert_eq!(Control::parse(*b"24"), None);
         assert_eq!(Control::parse(*b"cs"), Some(Control::ClearScreen));
         assert_eq!(Control::parse(*b"U4"), Some(Control::Theme(4)));
+        assert_eq!(Control::parse(*b"SA"), Some(Control::StockArt));
         assert_eq!(Control::parse(*b"ZZ"), None);
     }
 

@@ -1,0 +1,18 @@
+[40m[2J[25C[0;1;30m([32mMessage Reading Command Help[30m)[2;1H---[s
+[u--------------------------------------------------------------------------[s
+[u---[3;1H[32mMessage Reading Commands[30m:[4;1H[5;1H[7C[32mEnter  [s
+[u[0;32mAdvance to the next message[6;1H[7C[1m-[6C[0;32mBacks to the p[s
+[urevious message[7;1H[7C[1m?[6C[0;32mDisplay this help screen[8;1H[s
+[u[7C[1mA[6C[0;32mDisplay the current message over again[9;1H[7C[1mD[s
+[u[6C[0;32mDelete or undelete the current message (if yours)[10;1H[7C[s
+[u[1mE[6C[0;32mEdit current message (if yours)[11;1H[7C[1mH[6C[0;32m[s
+[uSet HiRead (NewScan pointer) to current message[12;1H[7C[1mI[6C[0;32m[s
+[uIgnore remaining messages (quit ans set pointer to newest)[13;1H[7C[1mL[s
+[u[6C[0;32mList messages[14;1H[7C[1mP[6C[0;32mPosts a message in the [s
+[ucurrent message area[15;1H[7C[1mQ[6C[0;32mQuit reading messages
+[16;1H[7C[1mR[6C[0;32mReply to the current message (private or public)
+[17;1H[7C[1mX[6C[0;32mExtract message to file for download[18;1H[7C[s
+[u[1mU[6C[0;32mEdit author of current message (sysops only)[19;1H[7C[s
+[u[1mS[6C[0;32mSkip this area and goto next (newscan)[20;1H[21;1H[7C[s
+[u[1m###    [0;32mYou may also type the number of any message to jump
+[22;1H[17Cdirectly to that message[23;1H--[0m[255D

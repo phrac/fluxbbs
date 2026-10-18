@@ -295,6 +295,15 @@ impl Session {
     /// `?B` (`iXprompt`): a horizontal lightbar of choices. The parameter
     /// is `choice;choice;...;default`; the pick goes in the input string.
     pub(crate) async fn x_prompt(&mut self, semis: &[&str]) -> io::Result<()> {
+        self.x_pick(semis).await?;
+        if !self.input_string.is_empty() {
+            self.newline();
+        }
+        Ok(())
+    }
+
+    /// [`Session::x_prompt`] without the line break after it.
+    pub(crate) async fn x_pick(&mut self, semis: &[&str]) -> io::Result<()> {
         self.input_string.clear();
         let Some((def, opts)) = semis.split_last() else { return Ok(()) };
         let def: usize = def.trim().parse().unwrap_or(0);
@@ -329,7 +338,6 @@ impl Session {
             }
         }
         self.set_slot(Slot::Info);
-        self.newline();
         self.input_string = opts[cur].to_string();
         Ok(())
     }

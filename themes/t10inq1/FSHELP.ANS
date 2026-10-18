@@ -1,0 +1,25 @@
+[40m[2J[18C[0;1;30m([32miniquity full screen message editor help[s
+[u[30m)[2;1H--------------------------------------------------------------[s
+[u-----------------[3;1H  [32mcommands[30m:   [32m/a   [0;32mabort mess[s
+[uage[12C[1m/q   [0;32mquote message (reply)[4;1H[14C[1m/c   [0;32mco[s
+[untinue editing[9C[1m/s   [0;32msave message[5;1H[14C[1m/i   [0;32mi[s
+[unclude file[13C[1m/t   [0;32mchange message title[6;1H[14C[1m/n   [s
+[u[0;32mtoggle anonymous[9C[1m/u   [0;32mtoggle autosig use[7;1H[8;1H [s
+[u [1mkeys[30m:   [32mctrl-b   [0;32mbreak line[11C[1mctrl-u   [0;32m[s
+[upaste line (from cut)[9;1H[10C[1mctrl-d   [0;32mdelete character[5C[s
+[u[1mctrl-v   [0;32mtoggle insert mode[10;1H[10C[1mctrl-k   [0;32mcut [s
+[ucurrent line[5C[1mctrl-x   [0;32msave message[11;1H[10C[1mctrl-l   [s
+[u[0;32mredraw screen[8C[1mctrl-y   [0;32mdelete current line[12;1H
+[13;1H  [1mforeground colors[30m:  |00 black  |[0;31m04 red[5C[1;30m|08[s
+[u dark grey |[31m12 lt red[14;1H[22C[30m|[0;34m01 blue   [1;30m|[s
+[u[0;35m05 magenta [1;30m|[34m09 lt blue   [30m|[35m13 lt magenta
+[15;1H[22C[30m|[0;32m02 green  [1;30m|[0;33m06 brown   [1;30m|[32m10 [s
+[ult green  [30m|[33m14 yellow[16;1H[22C[30m|[0;36m03 cyan   [1;30m|[s
+[u[0m07 grey    [1;30m|[36m11 lt cyan   [30m|[37m15 white[17;1H[18;1H[s
+[u  [32mbackground colors[30m:  |B0 black  |[0;32mB2 [42m [1mgreen[40m[s
+[u[42m [1C[30;40m|[0;31mB4 [41m [1mred     [1C[30;40m|[0;33mB6 [s
+[u[43m [1mbrown [19;1H[22C[30;40m|[0;34mB1 [44m [1mblue [1C[40m[s
+[u[30;40m|[0;36mB3 [46m [1mcyan  [1C[30;40m|[0;35mB5 [45m [1mm[40m[s
+[u[45magenta [1C[30;40m|[0mB7 [47m [1mgrey  [20;1H[30;40m-----------[s
+[u--------------------------------------------------------------------
+[21;1H[22;1H[23;1H[0m[255D

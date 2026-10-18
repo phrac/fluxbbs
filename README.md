@@ -12,6 +12,7 @@ same.
 
     tools/setup_host.sh                      # first time: stock data, build
     cargo run --release                      # serves iniquity.toml
+    cargo run --release -- --wfc             # ... with the waiting-for-caller screen
     ssh -p 2222 anyname@localhost            # UTF-8 terminal
     syncterm ssh://anyname@localhost:2222    # CP437 BBS terminal
     syncterm telnet://localhost:2323         # plain telnet (unencrypted)
@@ -84,8 +85,12 @@ Neither is in git.
   tag on messages but never used it, so this follows the manual.
 - Files: areas and conferences, the lightbar file lister, downloads
   (single and batch, with points, ratios and daily limits), uploads
-  (blind or named, with FILE_ID.DIZ import), search and newscan, archive
-  viewing, local upload. Zmodem built in; other protocols and archivers
+  (blind or named, with FILE_ID.DIZ import, or for a single piece of
+  art, alone or alone in a ZIP, a description from its SAUCE: title,
+  artist/group and date, comments), search and newscan, archive
+  browsing (a ZIP, tar or tar.gz opens as a list of its files; Enter
+  shows one: text and ANSI in the viewer, pictures as ANSI), local
+  upload. Zmodem built in; other protocols and archivers
   (RAR, 7Z, LHA via bsdtar/7-Zip) are external programs. Before a
   download the caller can ask to be logged off when it's done (a
   countdown afterwards; `*C`, Transfers).
@@ -127,6 +132,17 @@ Neither is in git.
   email.
 - `*X` protocols, `*Z` archivers, `*B` BBS list, `*H` statistics, `*I`
   infoforms, `*T` themes.
+- The waiting-for-caller screen (WAIT4CAL, ANSIWFCS), with `--wfc`:
+  the original's screen on the console while the server runs. F1-F8
+  (or 1-8) and the arrow keys pick from six pages of commands: local
+  logon, a shell, the SysOp editors (run as user #1, the SysOp), launch
+  a menu, read or view email, edit a text file, and stats pages (system,
+  totals, today, last callers). The node and event fields show callers
+  on and the next event; the window that echoed the modem shows the log
+  (all of it goes to `data/iniquity.log`). ESC exits unless `[wfc]
+  esc_to_exit` is off; `*C` has the settings. Modem commands, modem setup
+  and MicroDOS are left out. WAIT4CAL.PAS is damaged, so the stats pages
+  are rebuilt from their titles and fragments.
 - `*G` security: current bans and recent failed logins and bot checks;
   lift a ban.
 - `*V` events: jobs run once a day at a set time, by one scheduler in
@@ -151,9 +167,8 @@ libraries (unpacked into themes).
 **Not planned:** Tetris (`TP`, `TS`; the game's source isn't in this
 release, `tetris.pas` being a misnamed terminal unit), modem setup
 (`*M`), MicroDOS (`*D`, a shell on the host),
-the local console and wait-for-call screen (ANSIWFCS, STATBAR,
-WAIT4CAL), and the Oblivion/Renegade converters (OBV2INIQ, REN2INIQ). A
-web or terminal SysOp dashboard could replace the local console later.
+the local console's status bar (STATBAR), and the Oblivion/Renegade
+converters (OBV2INIQ, REN2INIQ).
 
 ## Configuration
 
@@ -355,6 +370,17 @@ the list rows, `~FN`/`~FS`/`~FD` the name, size and description columns,
 and back, `~C1`-`~C6` its colours, the `~S`/`~E` scroll bar, and `~FA`
 for where you are). Without either it draws a plain screen.
 
+Pictures (`.gif`, `.png`, `.jpg`) are listed too and shown as ANSI:
+half-blocks fitted to the screen, in 24-bit colour (SyncTERM and UTF-8
+terminals) or else the nearest of xterm's 256. Animated GIFs play with
+their own timing until a key; P replays, D downloads the file as it is.
+Picture uploads are decoded first and refused past `[files]`
+`max_image_bytes`, `max_image_pixels` or `max_gif_frames` (`*C`, Upload
+Tests); an animated one gets a note that it plays in the gallery, and a
+picture with no description gets one ("GIF image, 220x166, 22 frames").
+Art made with modern tools (UTF-8 text, LF line ends) is shown as CP437
+art.
+
 ## Website feed
 
 New: `[web]` (off by default; "Website Feed" in `*C`) serves a read-only
@@ -475,6 +501,18 @@ can set a user's theme in `*U`. `%LD` and `%LA` show the current theme's
 description and author. Imported `.TFL` libraries are unpacked into
 theme directories.
 
+The release shipped two libraries it never installed (no TEXTLIB.DAT),
+and they're here, unpacked, as `themes/t10inq1/` ("Menuset #1", ANSI by
+tosh10!acid, 85 screens including the only stock SYSOP and DOOR
+screens) and `themes/ex-iq2/` ("True Blue", 11). Like the stock board,
+the repo doesn't list them in `themes.toml`, so callers see `text/`; add
+one with `*T` (insert, then set its directory to `t10inq1`). Or set
+`[paths] stock_theme` to its directory: then any screen that neither the
+board's `text/` nor the stock screens have (SYSOP, DOOR) comes from the
+library. Screens sharing a header can start
+with `|SA`, which draws `STOCK.ANS` in place, so the header lives in one
+file.
+
 ## Terminal handling
 
 Callers whose TERM is a BBS terminal (`syncterm`, `ansi-bbs`, ...) get
@@ -498,9 +536,10 @@ gets UTF-8, with DOS behaviour emulated: hard wrap at column 80 and
     `infoform.rs`, `multinode.rs`, `users.rs`.
   - SysOp: `cfgedit.rs` (the editors' screen, from CONFIG.PAS),
     `sysop.rs`, `useredit.rs`, `sysmisc.rs`, `menuedit.rs`,
-    `sysconfig.rs`, `extprog.rs`.
+    `sysconfig.rs`, `extprog.rs`, `themes.rs`, `wfc.rs` (the
+    waiting-for-caller screen).
   - `import.rs`: the legacy importer.
-- `menus/`, `text/`, `*.toml`: the stock r5 setup, imported.
+- `menus/`, `text/`, `themes/`, `*.toml`: the stock r5 setup, imported.
 - `crates/iniquity/assets/strings.toml`: the stock prompt strings, built
   in.
 - `docs/ARTWORK.md`: checklist of screens to replace with custom art.

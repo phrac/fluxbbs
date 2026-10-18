@@ -57,7 +57,7 @@ pub fn text_part(b: &[u8]) -> &[u8] {
 /// against that rather than ruling a file out, since ANSI editors save
 /// some blank cells as NUL (a blank in CP437), while programs and other
 /// binaries are full of them. Any byte above 127 is fine, CP437 or UTF-8.
-fn looks_like_text(b: &[u8]) -> bool {
+pub(crate) fn looks_like_text(b: &[u8]) -> bool {
     let b = text_part(b);
     let odd = b.iter().filter(|&&c| c < 0x20 && !matches!(c, b'\t' | b'\n' | b'\r' | 0x0c | 0x1a | 0x1b | 0x07 | 0x08)).count();
     !b.is_empty() && odd * 100 <= b.len()

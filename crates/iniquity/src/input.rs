@@ -230,6 +230,11 @@ impl Session {
     /// Has the caller pressed something? Waits a moment at most (40ms),
     /// so output can be paced by it and stopped by a key.
     pub async fn key_waiting(&mut self) -> io::Result<bool> {
+        // The LF or NUL after a CR (telnet's Enter) isn't a key.
+        if self.last_cr && matches!(self.input.front(), Some(b'\n' | 0)) {
+            self.input.pop_front();
+            self.last_cr = false;
+        }
         if !self.input.is_empty() {
             return Ok(true);
         }

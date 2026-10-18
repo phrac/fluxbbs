@@ -20,6 +20,11 @@ pub struct LegacyConfig {
     pub acs_cosysop: String,
     pub real_name_system: bool,
     pub default_colors: [Color; 11],
+    /// Wait-for-call: ESC exits, screen saver delay (0 if disabled) and
+    /// the stats shown at first.
+    pub esc_to_exit: bool,
+    pub blank_seconds: u16,
+    pub def_wfc_stat: u8,
     pub matrix_login: bool,
     pub ask_apply: bool,
     pub time_limit_per_call: bool,
@@ -159,7 +164,12 @@ impl LegacyConfig {
         r.skip(7); // status bar settings
         let default_colors = std::array::from_fn(|_| r.color());
         r.skip(MAX_ADDRESS * 8);
-        r.skip(7); // ESCtoExit .. DefWFCstat (incl. BlankSeconds word)
+        let esc_to_exit = r.bool();
+        r.skip(2); // OffhookLocal, VgaEffects
+        let screen_saver = r.u8();
+        let blank_seconds = r.u16();
+        let blank_seconds = if screen_saver > 1 { blank_seconds } else { 0 };
+        let def_wfc_stat = r.u8();
         r.skip(10 * 41); // paths
         r.skip(4 + 3); // logging, swapping
         r.skip(21 * 2); // BbsAccessPw, NoBaudPW
@@ -286,7 +296,7 @@ impl LegacyConfig {
         debug_assert_eq!(r.pos(), 5992);
         Ok(Self {
             bbs_name, bbs_phone, sysop_alias, sysop_name, system_pw, acs_sysop, acs_cosysop,
-            real_name_system, default_colors, matrix_login, ask_apply, time_limit_per_call,
+            real_name_system, default_colors, esc_to_exit, blank_seconds, def_wfc_stat, matrix_login, ask_apply, time_limit_per_call,
             acs_system_pw_login, calls_birth, calls_phone, login_tries, origins, pw_echo_char,
             remove_pause, num_last_calls, new_user_pw, alias_format, default_page_len,
             new_expert, new_yes_no_bars, new_hot_keys, new_ask_expert, new_ask_yes_no_bars,

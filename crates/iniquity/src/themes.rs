@@ -211,12 +211,19 @@ impl Session {
                         let field = Field { allowed: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-", ..Field::TEXT };
                         let Some(v) = self.cfg_text(&mut f, key, field).await? else { continue };
                         let clash = themes.list.iter().enumerate().any(|(i, o)| i != idx && o.dir.eq_ignore_ascii_case(&v));
-                        if v.is_empty() || clash || root.join(&v).exists() && !v.eq_ignore_ascii_case(&t.dir) {
+                        let (old, new) = (root.join(&t.dir), root.join(&v));
+                        // An unlisted directory (an uninstalled library) can be
+                        // taken over by a theme that has no screens of its own.
+                        let adopt = new.is_dir() && !v.eq_ignore_ascii_case(&t.dir) && count_files(&old) == 0;
+                        if v.is_empty() || clash || new.exists() && !v.eq_ignore_ascii_case(&t.dir) && !adopt {
                             self.cfg_info(&mut f, "That directory is taken.");
                             self.cfg_set(&mut f, key, &t.dir);
                         } else if v != t.dir {
-                            let (old, new) = (root.join(&t.dir), root.join(&v));
-                            if old.is_dir() {
+                            if adopt {
+                                if old.is_dir() {
+                                    std::fs::remove_dir(&old)?;
+                                }
+                            } else if old.is_dir() {
                                 std::fs::rename(&old, &new)?;
                             }
                             // Users who picked it follow it.

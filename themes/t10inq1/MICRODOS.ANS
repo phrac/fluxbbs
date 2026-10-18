@@ -1,0 +1,16 @@
+[40m[2J[28C[0;1;30m([32mMicroDOS Command Help[30m)[2;1H----------[s
+[u----------------------------------------------------------------------
+[3;1H[32mMicroDOS Commands[30m:[4;1H[5;1H[5C[32mHELP[7C[0;32mDisplay[s
+[u this help screen[6;1H[5C[1mEXIT[7C[0;32mExit iNiQUiTY's DOS emulator
+[7;1H[5C[1mDEL x[6C[0;32mDelete file(s)[8;1H[5C[1mTYPE x[5C[0;32mDi[s
+[usplay a text file[9;1H[5C[1mREN x[6C[0;32mRename a file[10;1H[5C[s
+[u[1mDIR x[6C[0;32mFile directory[11;1H[5C[1mCD x[7C[0;32mChange cur[s
+[urent directory[12;1H[5C[1mMD x[7C[0;32mCreate (make) a directory
+[13;1H[5C[1mRD x[7C[0;32mRemove a directory[14;1H[5C[1mx:[9C[0;32mC[s
+[uhange the current drive[15;1H[5C[1mCLS[8C[0;32mClear the screen
+[16;1H[5C[1mSEND x[5C[0;32mTransmit file(s)[17;1H[5C[1mRECEIVE x  [s
+[u[0;32mReceive file(s)[18;1H[5C[1mVER[8C[0;32mDisplay MicroDOS versio[s
+[un info[19;1H[5C[1mDIRSIZE x  [0;32mShow directory info[20;1H[5C[1mE[s
+[uDIT x[5C[0;32mEdit a text file (w/FsEditor)[21;1H[5C[1mEXT x[6C[s
+[u[0;32mExecute external program (use with caution!)[22;1H[37m--[23;1H[A
+[0m[255D

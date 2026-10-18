@@ -28,6 +28,8 @@ fn config() {
     assert_eq!(c.pmt_yes_word, "Yes");
     assert_eq!(c.inact_seconds, 180);
     assert!(c.matrix_login && c.multi_node);
+    assert!(c.esc_to_exit);
+    assert_eq!((c.blank_seconds, c.def_wfc_stat), (180, 8));
     assert_eq!((c.acs_post_email.as_str(), c.acs_anonymous.as_str()), ("s25", "s50"));
     assert_eq!(c.max_quote_lines, 11);
     assert!(c.ask_post_in_area && c.conf_ignore_msg && c.comp_msg_areas);

@@ -63,6 +63,41 @@ pub fn zip_description(path: &Path, names: &[String]) -> Option<Vec<String>> {
     None
 }
 
+/// A description from the SAUCE of a single piece of art: the file
+/// itself, or the only file in a ZIP (bar any description file).
+pub fn art_description(path: &Path, desc_files: &[String]) -> Option<Vec<String>> {
+    use std::io::{Read, Seek, SeekFrom};
+    // Enough for a SAUCE record and a full comment block.
+    const TAIL: u64 = 128 + 5 + 255 * 64;
+    let data = if is_zip(path) {
+        let mut zip = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
+        let files: Vec<usize> = (0..zip.len())
+            .filter(|&i| {
+                zip.by_index(i).is_ok_and(|e| {
+                    let name = e.name().unwrap_or_default().rsplit('/').next().unwrap_or_default().to_string();
+                    e.is_file() && !desc_files.iter().any(|d| d.eq_ignore_ascii_case(&name))
+                })
+            })
+            .collect();
+        let [only] = files[..] else { return None };
+        let entry = zip.by_index(only).ok()?;
+        if !crate::gallery::is_art(&entry.name().ok()?) {
+            return None;
+        }
+        let mut raw = Vec::new();
+        entry.take(8 << 20).read_to_end(&mut raw).ok()?;
+        raw
+    } else {
+        let mut f = std::fs::File::open(path).ok()?;
+        let len = f.metadata().ok()?.len();
+        f.seek(SeekFrom::Start(len.saturating_sub(TAIL))).ok()?;
+        let mut raw = Vec::new();
+        f.read_to_end(&mut raw).ok()?;
+        raw
+    };
+    crate::gallery::sauce_description(&data, DESC_WIDTH, MAX_DESC_LINES)
+}
+
 /// Description lines from a FILE_ID.DIZ-style file.
 pub fn parse_description(raw: &[u8]) -> Vec<String> {
     // Split before decoding: CP437 decoding turns CR/LF into glyphs.
@@ -400,7 +435,17 @@ impl Session {
             };
             w.insert(crate::session::pos_code(i), line);
         }
-        if !self.show_file_with("FILEINFO", &w).await? {
+        // Older screens (Menuset #1) have no ~01.. lines: the description
+        // goes under them.
+        let has_desc = self.find_text_file("FILEINFO").and_then(|p| std::fs::read(p).ok()).is_some_and(|d| d.windows(3).any(|w| w == b"~01"));
+        if self.show_file_with("FILEINFO", &w).await? {
+            if !has_desc {
+                for l in &f.description {
+                    self.write_with_controls(&format!("|U1 {l}"));
+                    self.newline();
+                }
+            }
+        } else {
             let rows = [
                 format!("|U5{}", "─".repeat(79)),
                 format!("|U4 Filename      |U5: |U6{}", f.name),
@@ -1293,6 +1338,8 @@ impl Session {
 
     pub(crate) async fn view_archive_file(&mut self, a: &FAreaRef, f: &FileRec) -> io::Result<()> {
         let path = self.farea_dir(&a.area).join(&f.name);
+        // Don't carry the lister's bar colour into a fresh screen.
+        self.screen.set_color(Color::DEFAULT);
         match crate::upscan::kind_of(&f.name) {
             crate::upscan::Kind::Text => return self.view_text_file(&path, &f.name).await,
             k @ (crate::upscan::Kind::TarGz | crate::upscan::Kind::Tar | crate::upscan::Kind::Gzip) => {
@@ -1301,8 +1348,11 @@ impl Session {
                 let listed = tokio::task::spawn_blocking(move || crate::upscan::tar_listing(&p, k, cap)).await.map_err(io::Error::other)?;
                 return match listed {
                     Ok(entries) => {
-                        let rows = entries.into_iter().map(|(n, size, d)| (n, size, None, d.map(|d| d.format("%m/%d/%y").to_string()).unwrap_or_default())).collect();
-                        self.view_listing(&f.name, rows).await
+                        let rows = entries
+                            .into_iter()
+                            .map(|(name, size, d)| crate::archview::Entry { name, size, packed: None, date: d.map(|d| d.format("%m/%d/%y").to_string()).unwrap_or_default() })
+                            .collect();
+                        self.archive_browse(&f.name, &path, k, rows).await
                     }
                     Err(e) => self.show_line(&format!("|U6{}|U5: |U4Couldn't read it ({e})|U5.", f.name)).await,
                 };
@@ -1313,6 +1363,9 @@ impl Session {
             (0..z.len())
                 .filter_map(|i| {
                     let e = z.by_index(i).ok()?;
+                    if e.is_dir() {
+                        return None;
+                    }
                     let date = e.last_modified().map(|d| format!("{:02}/{:02}/{:02}", d.month(), d.day(), d.year() % 100)).unwrap_or_default();
                     Some((e.name().ok()?.to_string(), e.size(), e.compressed_size(), date))
                 })
@@ -1321,32 +1374,8 @@ impl Session {
         let Some(entries) = entries else {
             return self.view_with_archiver(&path, &f.name).await;
         };
-        let rows = entries.into_iter().map(|(n, size, comp, d)| (n, size, Some(comp), d)).collect();
-        self.view_listing(&f.name, rows).await
-    }
-
-    /// An archive's contents: (name, size, packed size if known, date).
-    async fn view_listing(&mut self, archive: &str, entries: Vec<(String, u64, Option<u64>, String)>) -> io::Result<()> {
-        let packed_known = entries.iter().all(|e| e.2.is_some());
-        self.set_slot(Slot::Info);
-        self.show_line(&format!("|U4 Archive|U5: |U6{archive}")).await?;
-        self.show_line(if packed_known { "|U4 Size        Packed      Date      Name" } else { "|U4 Size        Date      Name" }).await?;
-        self.rule().await?;
-        let mut lines = 4;
-        let (mut total, mut packed) = (0u64, 0u64);
-        for (name, size, comp, date) in &entries {
-            total += size;
-            packed += comp.unwrap_or(0);
-            let comp = comp.map(|c| format!("{} ", resize(&commas(c), 11))).unwrap_or_default();
-            self.show_line(&format!("|U1 {} {comp}{} |U3{}", resize(&commas(*size), 11), resize(date, 9), name)).await?;
-            lines += 1;
-            if !self.more(&mut lines).await? {
-                break;
-            }
-        }
-        self.rule().await?;
-        let comp = if packed_known { format!("{} ", resize(&commas(packed), 11)) } else { String::new() };
-        self.show_line(&format!("|U1 {} {comp}|U3{} files", resize(&commas(total), 11), entries.len())).await
+        let rows = entries.into_iter().map(|(name, size, comp, date)| crate::archview::Entry { name, size, packed: Some(comp), date }).collect();
+        self.archive_browse(&f.name, &path, crate::upscan::Kind::Zip, rows).await
     }
 
     /// Show an uploaded text file (ASCII or ANSI) in the scrolling
@@ -1469,19 +1498,88 @@ impl Session {
         Ok(lines)
     }
 
+    /// A picture upload within `[files]`'s picture limits, decoded to make
+    /// sure; None (having said why) if it's refused.
+    async fn check_picture(&mut self, path: &Path, name: &str) -> io::Result<Option<crate::picture::Picture>> {
+        let lim = self.state.config().files.image_limits();
+        let p = path.to_path_buf();
+        let loaded = tokio::task::spawn_blocking(move || -> io::Result<Result<crate::picture::Picture, String>> {
+            let data = std::fs::read(&p)?;
+            Ok(crate::picture::load(&data, 80, 24, lim))
+        })
+        .await
+        .map_err(io::Error::other)??;
+        match loaded {
+            Ok(p) => Ok(Some(p)),
+            Err(why) => {
+                tracing::info!("{}: upload {name} refused: {why}", self.user.handle);
+                let s = self.strings().fmt("FaULimageRefused", &[name, &why]);
+                self.show_line(&s).await?;
+                Ok(None)
+            }
+        }
+    }
+
+    /// Clear the upload prompt line and start at its beginning.
+    fn upload_line(&mut self, y: u16) {
+        self.screen.set_color(Color::DEFAULT);
+        self.screen.goto(1, y);
+        self.screen.clear_eol();
+    }
+
+    /// A message on the upload prompt line, held a moment.
+    async fn upload_note_at(&mut self, y: u16, s: &str) -> io::Result<()> {
+        self.upload_line(y);
+        self.show(s).await?;
+        self.flush().await?;
+        self.delay(1500).await
+    }
+
+    /// The protocol on the upload prompt line, as `[Z]modem ...`; the
+    /// usual list when they won't fit.
+    async fn upload_protocol(&mut self, y: u16) -> io::Result<Option<Proto>> {
+        let protos = self.protocols(true);
+        let list: String = protos.iter().map(|(k, p)| format!("|U5[|U6{k}|U5]|U4{} ", p.name())).collect();
+        let ask = self.strings().get("XferSelectProtocol").to_string();
+        let width = self.visible_len(&iniquity_term::cp437::encode(&format!("{list}{ask}")));
+        if width > 70 {
+            self.upload_line(y);
+            return self.select_protocol(true).await;
+        }
+        self.upload_line(y);
+        self.show(&format!("{list}{ask}")).await?;
+        loop {
+            match self.read_key().await? {
+                Key::Enter | Key::Esc => {
+                    self.upload_line(y);
+                    return Ok(None);
+                }
+                k => {
+                    if let Some(found) = k.upper().and_then(|c| protos.iter().find(|(key, _)| *key == c)) {
+                        self.write(&found.0.to_string());
+                        self.newline();
+                        return Ok(Some(found.1.clone()));
+                    }
+                }
+            }
+        }
+    }
+
     /// `faUpload` (`FU`).
     pub async fn upload(&mut self) -> io::Result<()> {
-        self.newline();
+        // The prompts share one line, each replacing the last, so the menu
+        // stays on screen. New; the original scrolled.
+        let y = self.screen.where_y();
         let Some(a) = self.current_farea() else { return Ok(()) };
         if !self.acs(&a.area.upload_acs) {
+            self.upload_line(y);
             return self.say_line("FaULnoAccess").await;
         }
         let allow_blind = self.state.config().files.allow_blind_upload;
         let blind = if allow_blind {
+            self.upload_line(y);
             self.say("FaULaskBlind").await?;
-            let b = self.yes_no(false).await?;
-            self.newline();
-            b
+            self.yes_no(false).await?
         } else {
             false
         };
@@ -1489,14 +1587,12 @@ impl Session {
         let mut planned: Vec<(String, Vec<String>)> = Vec::new();
         if !blind {
             let s = self.strings().fmt("FaULenterFiles", &[&MAX_UPLOAD_NAMES.to_string()]);
-            self.show_line(&s).await?;
-            self.say_line("FaULenterToEnd").await?;
-            self.newline();
+            self.upload_note_at(y, &s).await?;
             while planned.len() < MAX_UPLOAD_NAMES {
+                self.upload_line(y);
                 let s = self.strings().fmt("FaULenterFilename", &[&(planned.len() + 1).to_string()]);
                 self.show(&s).await?;
                 let raw = self.read_string(ReadOpts::new(64)).await?;
-                self.newline();
                 if raw.is_empty() {
                     break;
                 }
@@ -1506,28 +1602,35 @@ impl Session {
                 }
                 if self.upload_dupe(&name)? {
                     let s = self.strings().fmt("FaULfileExists", &[&name]);
-                    self.show_line(&s).await?;
+                    self.upload_note_at(y, &s).await?;
                     continue;
                 }
-                if !crate::upscan::type_allowed(&self.state.config().files.allowed_types, &name) {
-                    self.say_type_refused(&name).await?;
+                let types = self.state.config().files.allowed_types.clone();
+                if !crate::upscan::type_allowed(&types, &name) {
+                    tracing::info!("{}: upload {name} refused: not one of {}", self.user.handle, types.join(", "));
+                    let s = self.strings().fmt("FaULtypeRefused", &[&name, &types.join(", ")]);
+                    self.upload_note_at(y, &s).await?;
                     continue;
                 }
                 planned.push((name, Vec::new()));
             }
             if planned.is_empty() {
+                self.upload_line(y);
                 return Ok(());
             }
-            self.newline();
+            self.upload_line(y);
             self.say("FaULaskDescNow").await?;
-            self.x_prompt(&["Now", "Later", "1"]).await?;
+            self.x_pick(&["Now", "Later", "1"]).await?;
             if self.input_string == "Now" {
+                self.newline();
                 for (name, desc) in planned.iter_mut() {
                     *desc = self.ask_description(name).await?;
                 }
+                self.newline();
             }
         }
-        let Some(proto) = self.select_protocol(true).await? else { return Ok(()) };
+        let y = self.screen.where_y();
+        let Some(proto) = self.upload_protocol(y).await? else { return Ok(()) };
         let temp = self.state.config().resolve(&self.state.config().paths.temp).join(format!("node{}", self.node.number()));
         let _ = std::fs::remove_dir_all(&temp);
         let got = self.receive_files(&proto, &temp).await?;
@@ -1565,21 +1668,44 @@ impl Session {
                 let _ = std::fs::remove_file(&path);
                 continue;
             };
+            let picture = if crate::picture::is_image(&name) {
+                match self.check_picture(&path, &name).await? {
+                    Some(p) => Some(p),
+                    None => {
+                        let _ = std::fs::remove_file(&path);
+                        continue;
+                    }
+                }
+            } else {
+                None
+            };
             if !self.test_upload(&path, &name).await? {
                 let _ = std::fs::remove_file(&path);
                 continue;
+            }
+            if picture.as_ref().is_some_and(|p| p.frames.len() > 1) {
+                let s = self.strings().get("FaULimageAnimated").to_string();
+                self.upload_note(&s).await?;
             }
             let mut desc = plan.map(|i| planned[i].1.clone()).unwrap_or_default();
             if desc.is_empty() && import {
                 let screen = self.test_screen;
                 self.light(screen, b"L8").await?;
-                let found = self.archive_description(&path, &desc_files).await;
+                let found = match self.archive_description(&path, &desc_files).await {
+                    Some(d) => Some(d),
+                    None => art_description(&path, &desc_files),
+                };
                 self.light_done(screen, b"L8", found.is_some());
                 if let Some(d) = found {
                     let s = self.strings().get("FaTestDescFound").to_string();
                     self.upload_note(&s).await?;
                     desc = d;
                 }
+            }
+            if desc.is_empty()
+                && let Some(p) = &picture
+            {
+                desc = vec![p.describe()];
             }
             if desc.is_empty() {
                 self.end_test_screen().await?;
@@ -1680,7 +1806,16 @@ impl Session {
                 valid: true,
                 description: Vec::new(),
             };
-            rec.description = self.archive_description(&path, &desc_files).await.unwrap_or_default();
+            rec.description = match self.archive_description(&path, &desc_files).await {
+                Some(d) => d,
+                None => art_description(&path, &desc_files).unwrap_or_default(),
+            };
+            if rec.description.is_empty() && crate::picture::is_image(&name) {
+                let lim = self.state.config().files.image_limits();
+                if let Ok(p) = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|d| crate::picture::load(&d, 80, 24, lim)) {
+                    rec.description = vec![p.describe()];
+                }
+            }
             self.state.files.add(&mut rec).map_err(io_err)?;
             let s = self.strings().fmt("FaULfileAdded", &[&name, &rec.description.len().to_string()]);
             self.show_line(&s).await?;
@@ -1735,6 +1870,33 @@ fn lister_shown_name(name: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn art_descriptions_from_one_piece() {
+        use std::io::Write;
+        let dir = std::env::temp_dir().join(format!("iqartdesc{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let mut art = b"art\r\n\x1aSAUCE00".to_vec();
+        art.extend(format!("{:35}{:20}{:20}20261018", "disflux", "phrac", "").as_bytes());
+        art.resize(art.len() + 128 - 90, 0);
+        std::fs::write(dir.join("FILE.ANS"), &art).unwrap();
+        let diz = ["FILE_ID.DIZ".to_string()];
+        let want = ["disflux", "by phrac, 2026-10-18"];
+        assert_eq!(art_description(&dir.join("FILE.ANS"), &diz).unwrap(), want);
+        let zip = |name: &str, entries: &[&str]| {
+            let mut w = zip::ZipWriter::new(std::fs::File::create(dir.join(name)).unwrap());
+            for e in entries {
+                w.start_file(*e, zip::write::SimpleFileOptions::default()).unwrap();
+                w.write_all(&art).unwrap();
+            }
+            w.finish().unwrap();
+            dir.join(name)
+        };
+        assert_eq!(art_description(&zip("one.zip", &["FILE.ANS", "file_id.diz"]), &diz).unwrap(), want);
+        assert!(art_description(&zip("pack.zip", &["A.ANS", "B.ANS"]), &diz).is_none(), "a pack has no one piece");
+        assert!(art_description(&zip("prog.zip", &["PROG.EXE"]), &diz).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
 
     #[test]
     fn lister_names() {

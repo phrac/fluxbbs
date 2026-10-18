@@ -1,0 +1,15 @@
+[40m[2J[2;1H[26C[0;1;30m([32mFile Listing Command Help[30m)[3;1H[s
+[u--------------------------------------------------------------------------[s
+[u-----[4;1H[32mFile Listing Commands[30m:[5;1H[6;1H[5C[32mnext[6C[s
+[u[0;32mmove to the next page[7;1H[5C[1mprevious  [0;32mmove to the pre[s
+[uvious page[8;1H   [1;5m* [0;1;32mflag[6C[0;32madd a file to your down[s
+[uload batch[9;1H   [1;5m* [0;1;32mdownload  [0;32mdownload a file
+[10;1H   [1;5m* [0;1;32mview[6C[0;32mview an archive[11;1H   [1;5m* [s
+[u[0;1;32minfo[6C[0;32mdisplay information on a file[12;1H   [1;5m* [s
+[u[0;1;32medit[6C[0;32medit a file (sysops only)[13;1H[5C[1mhelp[6C[s
+[u[0;32mthis help screen[14;1H[5C[1mskip[6C[0;32mskip to the next file[s
+[u area (newscan)[15;1H   [1;5m* [0;1;32mquit[6C[0;32mquit file listing[s
+[us[16;1H[17;1H[5C[1mup/down   [0;32mmove file selection bar to hilight[s
+[u a file[18;1H[5C[1mescape    [0;32mquit file listings[19;1H[20;1H   [s
+[u[1;5m* [0;1;32mthese commands may be used on specific files via the file[s
+[u selection bar[21;1H[0;32m--[22;1H[23;1H[0m[255D

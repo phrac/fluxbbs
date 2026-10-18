@@ -84,6 +84,11 @@ impl Screen {
         self.truecolor = on;
     }
 
+    /// A CP437 terminal known to take 24-bit colour.
+    pub fn truecolor(&self) -> bool {
+        self.truecolor
+    }
+
     /// Switch character sets mid-call (the caller says detection got it
     /// wrong).
     pub fn set_charset(&mut self, charset: Charset) {

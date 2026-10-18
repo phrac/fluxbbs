@@ -240,6 +240,9 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('K', "Max unpacked bytes", 14, "Refuse archives unpacking to more than this (0 = any).", Num(|c| c.files.max_unpacked_bytes, |c, v| c.files.max_unpacked_bytes = v, 0, u64::MAX / 2)),
             set('L', "Refuse unsafe paths", 3, "Refuse archives with names like ../ or /etc/ that point outside their folder?", Bool(|c| &mut c.files.refuse_unsafe_paths)),
             set('M', "BBS ad file", 12, "File in the data directory added to every uploaded ZIP (an ad for the board); blank = off.", Text(|c| &mut c.files.bbs_ad, TEXT.max(40))),
+            set('N', "Max picture bytes", 10, "Refuse GIF/PNG/JPEG uploads bigger than this (0 = any).", Num(|c| c.files.max_image_bytes, |c, v| c.files.max_image_bytes = v, 0, u64::MAX / 2)),
+            set('O', "Max picture pixels", 10, "Refuse pictures with more pixels than this, width times height (0 = any).", Num(|c| c.files.max_image_pixels, |c, v| c.files.max_image_pixels = v, 0, u64::MAX / 2)),
+            set('P', "Max GIF frames", 5, "Refuse animated GIFs with more frames than this (0 = any).", Num(|c| c.files.max_gif_frames as u64, |c, v| c.files.max_gif_frames = v as u32, 0, 100_000)),
         ]),
         ("Chat Mode", false, vec![
             set('A', "Override password", 20, "Password to page outside chat hours (blank = none).", Text(|c| &mut c.chat.override_password, Field::UPPER)),
@@ -250,6 +253,15 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('F', "Available until", 5, "End of chat hours (HH:MM).", Text(|c| &mut c.chat.end, Field { allowed: "0123456789:", ..TEXT.max(5) })),
             set('G', "Override ACS", 20, "Who may page outside chat hours.", Text(|c| &mut c.chat.override_acs, ACS)),
             set('H', "Ask leave email", 3, "Offer to leave the SysOp email when a page goes unanswered?", Bool(|c| &mut c.chat.ask_email)),
+        ]),
+        ("Wait-For-Call", false, vec![
+            set('A', "Allow ESC to exit", 3, "Does ESC at the WFC screen (--wfc) shut the BBS down?", Bool(|c| &mut c.wfc.esc_to_exit)),
+            set('B', "Blank after", 5, "Blank the WFC screen after this many idle seconds (0 = never).", Num(|c| c.wfc.blank_seconds as u64, |c, v| c.wfc.blank_seconds = v as u32, 0, 65_535)),
+            set('C', "Default WFC stat", 22, "Stats the WFC screen starts with.", Choice(
+                |c| [1, 3, 4, 5, 8].iter().position(|&n| n == c.wfc.default_stat).unwrap_or(4),
+                |c, v| c.wfc.default_stat = [1, 3, 4, 5, 8][v],
+                &["System information", "System totals", "Today's statistics", "Last few callers", "Iniquity information"],
+            )),
         ]),
         ("File System", false, vec![
             set('A', "Use file points", 3, "Charge file points for downloads?", Bool(|c| &mut c.files.use_file_points)),
@@ -266,7 +278,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
                 |c, v| c.files.upload_dupe_check = v as u8 + 1,
                 &["Never", "This area", "Every area"],
             )),
-            set('K', "Import DIZ", 3, "Take descriptions from files inside uploaded archives?", Bool(|c| &mut c.files.import_descriptions)),
+            set('K', "Import DIZ", 3, "Take descriptions from files inside uploaded archives, or from a single art file's SAUCE?", Bool(|c| &mut c.files.import_descriptions)),
             set('L', "Description files", 40, "Names to look for inside archives, in order.", List(|c| &mut c.files.description_files)),
             set('M', "No description", 40, "Shown for files without a description.", Text(|c| &mut c.files.no_description, TEXT.max(80))),
             set('N', "Wrap descriptions", 3, "Continue long descriptions on the lister's next page?", Bool(|c| &mut c.files.wrap_descriptions)),

@@ -26,6 +26,7 @@ anything after a code on the same line moves left by the code's width
 | `|CT` `|CB` | cursor to the top / bottom (25 rows) |
 | `|CH` `|CE` | cursor to the start / end of the line |
 | `|SC` / `|LC` | save / restore the cursor position |
+| `|SA` | draw the STOCK screen here (a header shared by many screens), then carry on (new) |
 | `|LF` | new line |
 | `|**` | after the whole string, come back to this spot |
 | `@NN` | move to column NN (two digits: `@40`) |
@@ -42,7 +43,7 @@ anything after a code on the same line moves left by the code's width
 
 ## Values: `%XX`
 
-Replaced by a value. An unknown `%XX` is shown as it is.
+Replaced by a value. An unknown `%XX` is shown as it is in prompts, and dropped in screens (as the original did) when both characters are letters.
 
 | Caller | |
 |---|---|

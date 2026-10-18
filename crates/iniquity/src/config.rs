@@ -30,6 +30,7 @@ pub struct Config {
     pub dos: Dos,
     pub qwk: Qwk,
     pub chat: Chat,
+    pub wfc: Wfc,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -210,6 +211,9 @@ pub struct Paths {
     /// Screens to fall back on when `text` doesn't have one, so a board's
     /// own art can live apart from the stock screens. Empty for none.
     pub stock_text: PathBuf,
+    /// A text library for any screen neither `text` nor `stock_text` has
+    /// (e.g. `themes/t10inq1`, for SYSOP and DOOR). Empty for none.
+    pub stock_theme: PathBuf,
     pub menus: PathBuf,
     pub data: PathBuf,
     /// Prompt string overrides; built-in stock strings fill any gaps.
@@ -247,6 +251,27 @@ pub enum CharsetPref {
     Auto,
     Cp437,
     Utf8,
+}
+
+/// The waiting-for-caller screen (`iniquity --wfc`): the original's
+/// "Wait-For-Call Configuration".
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Wfc {
+    /// ESC at the screen shuts the BBS down (`ESCtoExit`).
+    pub esc_to_exit: bool,
+    /// Blank the screen after this many idle seconds (0 = never).
+    pub blank_seconds: u32,
+    /// Stats shown at first (`DefWFCstat`): 1 system information, 3 system
+    /// totals, 4 today's statistics, 5 last few callers, 8 Iniquity
+    /// information.
+    pub default_stat: u8,
+}
+
+impl Default for Wfc {
+    fn default() -> Self {
+        Self { esc_to_exit: true, blank_seconds: 180, default_stat: 8 }
+    }
 }
 
 /// Paging the SysOp (`CP`): the original's chat mode setup.
@@ -560,7 +585,8 @@ pub struct Files {
     pub allow_blind_upload: bool,
     /// Check names before upload: 1 never, 2 this area, 3+ every area.
     pub upload_dupe_check: u8,
-    /// Take descriptions from these files inside uploaded archives.
+    /// Take descriptions from these files inside uploaded archives, or
+    /// from the SAUCE of a single piece of art.
     pub import_descriptions: bool,
     pub description_files: Vec<String>,
     pub no_description: String,
@@ -602,6 +628,11 @@ pub struct Files {
     /// limit for either).
     pub max_unpacked_ratio: u32,
     pub max_unpacked_bytes: u64,
+    /// Pictures (GIF, PNG, JPEG): refuse uploads bigger than this many
+    /// bytes, pixels a frame, or GIF frames (0 = no limit).
+    pub max_image_bytes: u64,
+    pub max_image_pixels: u64,
+    pub max_gif_frames: u32,
     /// Refuse archives with names that point outside the folder they'd
     /// unpack into (`../`, `/etc/...`).
     pub refuse_unsafe_paths: bool,
@@ -613,6 +644,12 @@ pub enum SummaryAt {
     Off,
     First,
     Last,
+}
+
+impl Files {
+    pub fn image_limits(&self) -> crate::picture::Limits {
+        crate::picture::Limits { max_bytes: self.max_image_bytes, max_pixels: self.max_image_pixels, max_frames: self.max_gif_frames as usize }
+    }
 }
 
 impl Default for Files {
@@ -649,6 +686,9 @@ impl Default for Files {
             scan_names: 0,
             max_unpacked_ratio: 100,
             max_unpacked_bytes: 4 << 30,
+            max_image_bytes: 10 << 20,
+            max_image_pixels: 2048 * 2048,
+            max_gif_frames: 300,
             refuse_unsafe_paths: true,
         }
     }
@@ -721,6 +761,7 @@ impl Default for Paths {
         Self {
             text: "text".into(),
             stock_text: PathBuf::new(),
+            stock_theme: PathBuf::new(),
             menus: "menus".into(),
             data: "data".into(),
             strings: "strings.toml".into(),

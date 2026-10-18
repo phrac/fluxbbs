@@ -65,7 +65,7 @@ async fn write_wire<W: AsyncWrite + Unpin>(w: &mut W, bytes: &[u8]) -> io::Resul
 
 impl Session {
     /// The protocols this caller may use.
-    fn protocols(&self, batch: bool) -> Vec<(char, Proto)> {
+    pub(crate) fn protocols(&self, batch: bool) -> Vec<(char, Proto)> {
         let mut out = vec![('Z', Proto::Zmodem)];
         for p in &self.state.protocols().list {
             if self.acs(&p.acs) && (!batch || p.batch) && !p.key.eq_ignore_ascii_case(&'Z') {

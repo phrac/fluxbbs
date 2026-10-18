@@ -62,9 +62,42 @@ pub fn decode(b: &[u8]) -> String {
     b.iter().map(|&c| TO_UNICODE[c as usize]).collect()
 }
 
+/// Art made with modern tools, as a BBS screen: UTF-8 text becomes CP437
+/// and bare LF line ends become CRLF. CP437 art (never valid UTF-8 once it
+/// has block characters) and DOS line ends are left alone. Anything from
+/// the DOS EOF byte on (SAUCE) is kept as it is.
+pub fn dos_art(b: &[u8]) -> std::borrow::Cow<'_, [u8]> {
+    let end = b.iter().position(|&c| c == 0x1a).unwrap_or(b.len());
+    let (text, rest) = b.split_at(end);
+    let utf8 = std::str::from_utf8(text).ok().filter(|t| !t.is_ascii());
+    let bare_lf = !text.contains(&b'\r') && text.contains(&b'\n');
+    if utf8.is_none() && !bare_lf {
+        return std::borrow::Cow::Borrowed(b);
+    }
+    let text = utf8.map_or_else(|| text.to_vec(), encode);
+    let mut out = Vec::with_capacity(text.len() + rest.len() + 64);
+    for &c in &text {
+        if c == b'\n' && bare_lf {
+            out.push(b'\r');
+        }
+        out.push(c);
+    }
+    out.extend_from_slice(rest);
+    std::borrow::Cow::Owned(out)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn modern_art_becomes_dos_art() {
+        let art = "\x1b[38;2;1;2;3m\u{2584}\u{2588}\n\u{2580}\n".as_bytes();
+        assert_eq!(&*dos_art(art), b"\x1b[38;2;1;2;3m\xdc\xdb\r\n\xdf\r\n");
+        let dos = b"\xdc\xdc\r\n\x1aSAUCE00";
+        assert!(matches!(dos_art(dos), std::borrow::Cow::Borrowed(_)), "CP437 art is left alone");
+        assert_eq!(&*dos_art(b"plain\nlines\n\x1a\n"), b"plain\r\nlines\r\n\x1a\n", "SAUCE untouched");
+    }
 
     #[test]
     fn round_trips_high_half() {

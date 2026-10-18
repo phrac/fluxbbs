@@ -25,3 +25,4 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 zmodem2 = "0.7.3"
+image = { version = "0.25.10", default-features = false, features = ["gif", "png", "jpeg"] }

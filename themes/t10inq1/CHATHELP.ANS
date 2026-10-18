@@ -1,0 +1,10 @@
+[40m[2J[0;1;30mþ [32mChathelp [30m([0;32mthese are the commands in[s
+[u chatmode[1;30m)[2;1H---------------------------------------------------[s
+[u-----------------------[3;1H[32m/send xxx   [0;32mtransmit specified fi[s
+[ule  [1m/receive xxx   [0;32mreceive specified file[4;1H[1m/sendbatch  [s
+[u[0;32msend files in batch[6C[1m/receivebatch  [0;32mreceive multiple f[s
+[uiles[5;1H[1m/type xxx   [0;32mdisplay textfile[9C[1m/time[10C[0;32m[s
+[ushow current time/date[6;1H[1m/cls[8C[0;32mclear the screen[9C[1m/by[s
+[ue[11C[0;32mterminate carrier[7;1H[1m/page[7C[0;32mpage sysop and use[s
+[ur[6C[1m/batch xxx[5C[0;32madd file to xfer batch[8;1H[1m/acs xxx    [s
+[u[0;32mquery user's access[6C[1m/q[13C[0;32mquit chatmode[9;1H[0m

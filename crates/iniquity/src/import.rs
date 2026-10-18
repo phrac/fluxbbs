@@ -345,6 +345,22 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
         println!("unpacked text library {file} into {} ({} files)", dir.display(), lib.files.len());
         themes.list.push(Theme { dir: dir_name, desc: lib.desc, author: lib.author });
     }
+    // Libraries that were never installed (stock ships LIBS\*.TFL with no
+    // TEXTLIB.DAT) are unpacked too, but left out of themes.toml so the
+    // board looks the same; `*T` can add them.
+    for path in all_tfl(src) {
+        let stem = path.file_stem().and_then(|s| s.to_str()).unwrap_or_default().to_string();
+        if lib_names.iter().any(|n| n.eq_ignore_ascii_case(&stem)) {
+            continue;
+        }
+        let lib = LegacyTextLib::parse(&std::fs::read(&path)?)?;
+        let dir = dest.join("themes").join(stem.to_ascii_lowercase());
+        std::fs::create_dir_all(&dir)?;
+        for (fname, data) in &lib.files {
+            std::fs::write(dir.join(fname.to_ascii_uppercase()), data)?;
+        }
+        println!("unpacked uninstalled text library {} into {} ({} files); add it with *T", path.display(), dir.display(), lib.files.len());
+    }
     if !themes.list.is_empty() {
         std::fs::write(dest.join("themes.toml"), themes.to_toml())?;
         // Users keep the library they had (the first is the default).
@@ -447,6 +463,11 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
         page_beeps: c.max_page_beeps,
         restore_time: c.restore_chat_time,
         ask_email: c.page_ask_email,
+    };
+    cfg.wfc = crate::config::Wfc {
+        esc_to_exit: c.esc_to_exit,
+        blank_seconds: c.blank_seconds as u32,
+        default_stat: if (1..=8).contains(&c.def_wfc_stat) { c.def_wfc_stat } else { 8 },
     };
     cfg.qwk = crate::config::Qwk {
         packet: c.qwk_filename.clone(),
@@ -719,4 +740,19 @@ fn find_tfl(src: &Path, file: &str) -> Option<std::path::PathBuf> {
     find_ci(src, file).or_else(|| {
         std::fs::read_dir(src).ok()?.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_dir()).find_map(|d| find_ci(&d, file))
     })
+}
+
+/// Every `.TFL` in the install, or a directory directly under it.
+fn all_tfl(src: &Path) -> Vec<std::path::PathBuf> {
+    let files = |d: &Path| -> Vec<std::path::PathBuf> {
+        let Ok(rd) = std::fs::read_dir(d) else { return Vec::new() };
+        rd.filter_map(Result::ok).map(|e| e.path()).collect()
+    };
+    let mut found: Vec<_> = files(src)
+        .into_iter()
+        .flat_map(|p| if p.is_dir() { files(&p) } else { vec![p] })
+        .filter(|p| p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("tfl")))
+        .collect();
+    found.sort();
+    found
 }

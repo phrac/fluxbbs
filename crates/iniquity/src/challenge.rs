@@ -56,7 +56,7 @@ impl Session {
     pub async fn bot_check(&mut self) -> io::Result<bool> {
         let sec = self.state.config().security.clone();
         let trusted = self.caller.remote.is_some_and(|a| self.state.guard.trusted(&sec, a.ip()));
-        if !sec.challenge || trusted {
+        if !sec.challenge || trusted || self.caller.transport == "local" {
             return Ok(true);
         }
         let deadline = tokio::time::Instant::now() + Duration::from_secs(sec.challenge_seconds.max(5) as u64);

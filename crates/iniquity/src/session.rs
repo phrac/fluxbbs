@@ -101,6 +101,8 @@ pub struct Session {
     pub use_tag: bool,
     /// Times the SysOp has been paged this call (`numPaged`).
     pub pages: u32,
+    /// Drawing the STOCK screen for `|SA`.
+    including: bool,
 }
 
 /// Run a caller from connect to disconnect.
@@ -147,6 +149,44 @@ pub async fn run(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Caller) 
         Ok(()) => tracing::info!("{who}: {} logged off", s.user.handle),
         Err(e) if is_hangup(&e) => tracing::info!("{who}: {} disconnected ({e})", s.user.handle),
         Err(e) => tracing::warn!("{who}: session error: {e}"),
+    }
+    let _ = s.flush().await;
+}
+
+/// What a session started from the WFC screen does.
+pub enum LocalJob {
+    /// `local logon`: a call like any other, at the console.
+    Logon,
+    /// A SysOp command, run as the SysOp, e.g. `*C`.
+    Command(&'static str, &'static str),
+    /// `wfcLaunchMenu`: the SysOp, at a menu asked for.
+    LaunchMenu,
+    /// `wfcViewMailbox`: read another user's email.
+    Mailbox,
+    /// `wfcEditTextfile`: a file in the text directory, in the editor.
+    EditText,
+}
+
+/// A session at the console (`LocalIO`), for the WFC screen.
+pub async fn run_local(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Caller, what: LocalJob) {
+    let Some(node) = state.nodes.acquire(caller.transport) else {
+        let _ = io.write_all(b"\r\nAll nodes are busy.\r\n").await;
+        let _ = io.flush().await;
+        return;
+    };
+    let mut s = Session::new(state, io, caller, node);
+    let result = match what {
+        LocalJob::Logon => {
+            let r = s.call().await;
+            s.logoff();
+            r
+        }
+        what => s.local_sysop(what).await,
+    };
+    match result {
+        Ok(()) => {}
+        Err(e) if is_hangup(&e) => {}
+        Err(e) => tracing::warn!("local: session error: {e}"),
     }
     let _ = s.flush().await;
 }
@@ -212,6 +252,7 @@ impl Session {
             read_tag: 0,
             use_tag: false,
             pages: 0,
+            including: false,
         }
     }
 
@@ -402,6 +443,10 @@ impl Session {
                         self.screen.write_str(&v);
                     }
                 }
+                // `mciProcessMCICode` swallows any %XX in a screen, known or
+                // not (Menuset #1 has a stray %SC); prompts keep it, so
+                // "50%" and the like still read right.
+                None if source == Source::File && code.iter().all(u8::is_ascii_alphabetic) => {}
                 None => {
                     self.screen.write_bytes(b"%");
                     self.screen.write_bytes(&code);
@@ -512,7 +557,7 @@ impl Session {
             Control::SaveCursor => self.screen.save_cursor(),
             Control::RestoreCursor => self.screen.restore_cursor(),
             Control::Newline => self.screen.newline(),
-            Control::Delay(_) | Control::PromptKey | Control::ReadKey | Control::Pause => return false,
+            Control::Delay(_) | Control::PromptKey | Control::ReadKey | Control::Pause | Control::StockArt => return false,
         }
         true
     }
@@ -528,6 +573,7 @@ impl Session {
                 self.read_key().await?;
             }
             Control::Pause => self.pause().await?,
+            Control::StockArt => self.include_stock().await?,
             _ => {}
         }
         Ok(())
@@ -580,6 +626,19 @@ impl Session {
         self.show_file_with(name, &Waves::new()).await
     }
 
+    /// `|SA`: the STOCK screen, in place, keeping the markers of the screen
+    /// it's in. Not inside itself.
+    async fn include_stock(&mut self) -> io::Result<()> {
+        if self.including {
+            return Ok(());
+        }
+        let Some(data) = self.read_text_file("STOCK").await? else { return Ok(()) };
+        self.including = true;
+        let r = Box::pin(self.display(&data, Source::File, None, true)).await;
+        self.including = false;
+        r
+    }
+
     /// Display a screen whose `~XX` codes take values from `waves`.
     pub async fn show_file_with(&mut self, name: &str, waves: &Waves) -> io::Result<bool> {
         let Some(data) = self.read_text_file(name).await? else {
@@ -592,7 +651,8 @@ impl Session {
     async fn read_text_file(&mut self, name: &str) -> io::Result<Option<Vec<u8>>> {
         // Resolve first: the session can't be borrowed across the await.
         match self.find_text_file(name) {
-            Some(path) => Ok(Some(tokio::fs::read(&path).await?)),
+            // Screens made with modern tools (UTF-8, LF) work too.
+            Some(path) => Ok(Some(iniquity_term::cp437::dos_art(&tokio::fs::read(&path).await?).into_owned())),
             None => Ok(None),
         }
     }
@@ -645,14 +705,21 @@ impl Session {
     /// screen may have random variants (`.AN1`-`.AN9`) and a weekday
     /// override (`.A0S`-`.A6S`, Sunday = 0). The caller's theme (text
     /// library) is looked in first, then the text directory, then the
-    /// stock screens (`stock_text`).
+    /// stock screens (`stock_text`), then a library for any screen stock
+    /// lacks (`stock_theme`).
     pub(crate) fn find_text_file(&self, name: &str) -> Option<PathBuf> {
         if name.is_empty() {
             return None;
         }
         let cfg = self.state.config();
-        let stock = (!cfg.paths.stock_text.as_os_str().is_empty()).then(|| cfg.resolve(&cfg.paths.stock_text));
-        let dirs: Vec<PathBuf> = self.theme_dir().into_iter().chain([cfg.resolve(&cfg.paths.text)]).chain(stock).collect();
+        let set = |p: &PathBuf| (!p.as_os_str().is_empty()).then(|| cfg.resolve(p));
+        let dirs: Vec<PathBuf> = self
+            .theme_dir()
+            .into_iter()
+            .chain([cfg.resolve(&cfg.paths.text)])
+            .chain(set(&cfg.paths.stock_text))
+            .chain(set(&cfg.paths.stock_theme))
+            .collect();
         if name.contains('.') {
             return dirs.iter().find_map(|d| find_ci(d, name));
         }

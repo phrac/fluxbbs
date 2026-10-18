@@ -1,9 +1,11 @@
 //! Iniquity BBS.
 //!
-//!     iniquity [iniquity.toml]                  run the BBS
+//!     iniquity [--wfc] [iniquity.toml]          run the BBS (--wfc: with the
+//!                                               waiting-for-caller screen)
 //!     iniquity import <old-install> [dest]      convert a DOS install
 
 mod acs;
+mod archview;
 mod attach;
 mod commands;
 mod cfgedit;
@@ -38,6 +40,7 @@ mod upscan;
 mod web;
 mod nodes;
 mod pager;
+mod picture;
 mod password;
 mod qwk;
 mod scripts;
@@ -54,6 +57,7 @@ mod sysmisc;
 mod user;
 mod useredit;
 mod users;
+mod wfc;
 
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -281,13 +285,24 @@ fn pack_files(path: PathBuf) -> anyhow::Result<()> {
 
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
-    tracing_subscriber::fmt()
-        .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,russh=warn".into()),
-        )
-        .init();
+    let mut args: Vec<String> = std::env::args().skip(1).collect();
+    let filter = || tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,russh=warn".into());
+    // The WFC screen has the terminal, so the log goes to its window and
+    // to data/iniquity.log.
+    let wfc_log = if let Some(i) = args.iter().position(|a| a == "--wfc") {
+        args.remove(i);
+        wfc::check()?;
+        let config = Config::load(&args.first().map(PathBuf::from).unwrap_or_else(|| "iniquity.toml".into()))?;
+        let data = config.resolve(&config.paths.data);
+        std::fs::create_dir_all(&data)?;
+        let log = wfc::LogTail::new(&data.join("iniquity.log"));
+        tracing_subscriber::fmt().with_env_filter(filter()).with_writer(log.clone()).with_ansi(false).without_time().with_target(false).init();
+        Some(log)
+    } else {
+        tracing_subscriber::fmt().with_env_filter(filter()).init();
+        None
+    };
 
-    let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "import") {
         return import::from_args(&args[1..]);
     }
@@ -391,7 +406,20 @@ async fn main() -> anyhow::Result<()> {
             }
         });
     }
+    let wfc = {
+        let state = state.clone();
+        async move {
+            match wfc_log {
+                Some(log) => wfc::run(state, log).await,
+                None => std::future::pending().await,
+            }
+        }
+    };
     tokio::select! {
+        r = wfc => {
+            tracing::info!("shutting down");
+            r
+        }
         r = ssh::serve(state) => r,
         r = telnet => r,
         _ = tokio::signal::ctrl_c() => {

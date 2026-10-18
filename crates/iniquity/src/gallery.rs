@@ -12,6 +12,7 @@ use iniquity_term::Slot;
 use iniquity_term::codes::{resize, squish};
 
 use crate::filebase::FileRec;
+use crate::picture::{self, is_image};
 use crate::files::{Layout, MenuBar};
 use crate::input::Key;
 use crate::session::{Session, waves};
@@ -48,6 +49,51 @@ pub fn parse_sauce(data: &[u8]) -> Option<Sauce> {
     Some(Sauce { title: field(&rec[7..42]), author: field(&rec[42..62]), group: field(&rec[62..82]), date })
 }
 
+/// The comment lines (`COMNT` block) before a SAUCE record.
+fn sauce_comments(data: &[u8]) -> Vec<String> {
+    let Some(rec) = data.len().checked_sub(128).and_then(|i| data.get(i..)) else { return Vec::new() };
+    let n = rec[104] as usize;
+    let Some(start) = data.len().checked_sub(128 + 5 + n * 64) else { return Vec::new() };
+    if n == 0 || !data[start..].starts_with(b"COMNT") {
+        return Vec::new();
+    }
+    data[start + 5..start + 5 + n * 64].chunks(64).map(field).collect()
+}
+
+/// An upload's description from its SAUCE: the title, who made it and
+/// when, then its comments, wrapped to `width`. None without any of them.
+pub fn sauce_description(data: &[u8], width: usize, max: usize) -> Option<Vec<String>> {
+    let s = parse_sauce(data)?;
+    let mut lines = Vec::new();
+    if !s.title.is_empty() {
+        lines.push(s.title.clone());
+    }
+    let by = match (byline(&s), s.date.is_empty()) {
+        (b, true) if b.is_empty() => String::new(),
+        (b, false) if b.is_empty() => s.date.clone(),
+        (b, true) => format!("by {b}"),
+        (b, false) => format!("by {b}, {}", s.date),
+    };
+    if !by.is_empty() {
+        lines.push(by);
+    }
+    for c in sauce_comments(data).iter().filter(|c| !c.is_empty()) {
+        let mut line = String::new();
+        for word in c.split_whitespace() {
+            if !line.is_empty() && line.chars().count() + 1 + word.chars().count() > width {
+                lines.push(std::mem::take(&mut line));
+            }
+            if !line.is_empty() {
+                line.push(' ');
+            }
+            line.push_str(word);
+        }
+        lines.push(line);
+    }
+    let lines: Vec<String> = lines.into_iter().map(|l| l.chars().take(width).collect()).take(max).collect();
+    (!lines.is_empty()).then_some(lines)
+}
+
 /// Where a folder is: a real directory, a file area (its sub-areas and
 /// files), or a path inside a ZIP.
 #[derive(Debug, Clone, PartialEq)]
@@ -74,7 +120,7 @@ enum Item {
     Art { name: String, size: u64, sauce: Option<Sauce>, src: Src, rec: Rec },
 }
 
-fn is_art(name: &str) -> bool {
+pub(crate) fn is_art(name: &str) -> bool {
     name.rsplit_once('.').is_some_and(|(_, e)| ART.iter().any(|a| a.eq_ignore_ascii_case(e)))
 }
 
@@ -109,6 +155,21 @@ fn read_piece(src: &Src) -> io::Result<Vec<u8>> {
     }
 }
 
+/// Up to `max` bytes of a piece (pictures can be bigger than art).
+fn read_limited(src: &Src, max: u64) -> io::Result<Vec<u8>> {
+    let mut out = Vec::new();
+    match src {
+        Src::Disk(p) => {
+            std::fs::File::open(p)?.take(max).read_to_end(&mut out)?;
+        }
+        Src::Zip(zip, name) => {
+            let mut z = zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(io::Error::other)?;
+            z.by_name(name).map_err(io::Error::other)?.take(max).read_to_end(&mut out)?;
+        }
+    }
+    Ok(out)
+}
+
 /// What's in a folder: folders and packs first, then pieces, by name.
 fn list(place: &Place) -> io::Result<Vec<Item>> {
     let mut folders = Vec::new();
@@ -125,9 +186,10 @@ fn list(place: &Place) -> io::Result<Vec<Item>> {
                     folders.push(Item::Folder { name, place: Place::Dir(path), pack: false, rec: None });
                 } else if is_zip(&name) {
                     folders.push(Item::Folder { name, place: Place::Zip { zip: path, prefix: String::new() }, pack: true, rec: None });
-                } else if is_art(&name) {
+                } else if is_art(&name) || is_image(&name) {
                     let size = e.metadata().map(|m| m.len()).unwrap_or(0);
-                    art.push(Item::Art { sauce: disk_sauce(&path), name, size, src: Src::Disk(path), rec: None });
+                    let sauce = if is_image(&name) { None } else { disk_sauce(&path) };
+                    art.push(Item::Art { sauce, name, size, src: Src::Disk(path), rec: None });
                 }
             }
         }
@@ -146,6 +208,8 @@ fn list(place: &Place) -> io::Result<Vec<Item>> {
                         let place = Place::Zip { zip: zip.clone(), prefix: format!("{prefix}{dir}/") };
                         folders.push(Item::Folder { name: dir.to_string(), place, pack: false, rec: None });
                     }
+                } else if !f.is_dir() && is_image(rest) {
+                    art.push(Item::Art { name: rest.to_string(), size: f.size(), sauce: None, src: Src::Zip(zip.clone(), full), rec: None });
                 } else if !f.is_dir() && is_art(rest) {
                     // Reading the piece for its SAUCE: art files are small.
                     let mut data = Vec::new();
@@ -250,7 +314,13 @@ impl Session {
                         Item::Folder { name, place, .. } => path.push((name.clone(), place.clone(), 0)),
                         Item::Art { name, sauce, src, .. } => {
                             // From the viewer, P plays and D downloads.
-                            match self.gallery_view(name, sauce.as_ref(), src).await? {
+                            let picked = if is_image(name) {
+                                self.gallery_picture(name, src).await?
+                            } else {
+                                self.gallery_view(name, sauce.as_ref(), src).await?
+                            };
+                            match picked {
+                                Some('P') if is_image(name) => {}
                                 Some('P') => self.gallery_play(src, speed).await?,
                                 Some('D') => self.gallery_download(&items[i]).await?,
                                 _ => {}
@@ -260,8 +330,14 @@ impl Session {
                 }
                 Pick::Play(i) => {
                     path.last_mut().expect("root").2 = i;
-                    if let Item::Art { src, .. } = &items[i] {
-                        self.gallery_play(src, speed).await?;
+                    if let Item::Art { src, name, .. } = &items[i] {
+                        if is_image(name) {
+                            if self.gallery_picture(name, src).await? == Some('D') {
+                                self.gallery_download(&items[i]).await?;
+                            }
+                        } else {
+                            self.gallery_play(src, speed).await?;
+                        }
                     }
                 }
                 Pick::Download(i) => {
@@ -298,8 +374,8 @@ impl Session {
             if is_zip(&f.name) {
                 let place = Place::Zip { zip: path, prefix: String::new() };
                 packs.push(Item::Folder { name: f.name.clone(), place, pack: true, rec: Some((*n, f)) });
-            } else if is_art(&f.name) {
-                let sauce = disk_sauce(&path);
+            } else if is_art(&f.name) || is_image(&f.name) {
+                let sauce = if is_image(&f.name) { None } else { disk_sauce(&path) };
                 art.push(Item::Art { name: f.name.clone(), size: f.size, sauce, src: Src::Disk(path), rec: Some((*n, f)) });
             }
         }
@@ -511,10 +587,112 @@ impl Session {
         self.page_grid_keys(&title, &grid, "GalleryViewHelp", &['P', 'D']).await
     }
 
+    /// A picture as ANSI, fitted to the screen; an animated GIF plays until
+    /// a key (or five minutes). P plays it again; D is passed back to
+    /// download it.
+    async fn gallery_picture(&mut self, name: &str, src: &Src) -> io::Result<Option<char>> {
+        let (file, inner) = match src {
+            Src::Disk(p) => (p.clone(), String::new()),
+            Src::Zip(z, n) => (z.clone(), n.clone()),
+        };
+        let max = self.state.config().files.image_limits().max_bytes.max(MAX_PIECE) + 1;
+        let src = src.clone();
+        self.show_picture(name, file, inner, move || read_limited(&src, max)).await
+    }
+
+    /// A picture whose bytes `read` gets (off the async threads), cached
+    /// by `file` and `inner` (a name inside it, if any). See
+    /// [`Session::gallery_picture`].
+    pub(crate) async fn show_picture(
+        &mut self,
+        name: &str,
+        file: PathBuf,
+        inner: String,
+        read: impl FnOnce() -> io::Result<Vec<u8>> + Send + 'static,
+    ) -> io::Result<Option<char>> {
+        let (cols, rows) = (80usize, self.screen.rows().saturating_sub(1).max(2) as usize);
+        let lim = self.state.config().files.image_limits();
+        let stamp = std::fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
+        let key = (file, inner, stamp, cols, rows);
+        let pic = match picture::cached(&key) {
+            Some(p) => p,
+            None => {
+                let loaded = tokio::task::spawn_blocking(move || -> io::Result<Result<picture::Picture, String>> {
+                    let data = read()?;
+                    Ok(picture::load(&data, cols, rows, lim))
+                })
+                .await
+                .map_err(io::Error::other)??;
+                match loaded {
+                    Ok(p) => {
+                        let p = std::sync::Arc::new(p);
+                        picture::remember(key, p.clone());
+                        p
+                    }
+                    Err(why) => {
+                        self.screen.goto(1, self.screen.rows());
+                        self.screen.set_color(iniquity_term::Color::DEFAULT);
+                        self.screen.clear_eol();
+                        let s = self.strings().fmt("GalleryPictureBad", &[name, &why]);
+                        self.show(&s).await?;
+                        self.prompt_key().await?;
+                        return Ok(None);
+                    }
+                }
+            }
+        };
+        let truecolor = self.screen.truecolor() || self.screen.charset() == iniquity_term::Charset::Utf8;
+        let first = &pic.frames[0];
+        let left = ((cols - first.w) / 2 + 1) as u16;
+        let top = ((rows - first.h / 2) / 2 + 1) as u16;
+        loop {
+            self.screen.set_color(iniquity_term::Color::DEFAULT);
+            self.clear_screen();
+            self.screen.goto(1, self.screen.rows());
+            // Kept to one line: the bottom row mustn't scroll.
+            let mut s = self.strings().fmt("GalleryPicture", &[name, &pic.describe()]);
+            if self.visible_len(&iniquity_term::cp437::encode(&s)) > 79 {
+                s = self.strings().fmt("GalleryPicture", &[&squish(name, 16), &pic.describe()]);
+            }
+            self.show(&s).await?;
+            let mut prev = None;
+            let started = std::time::Instant::now();
+            let key = 'play: loop {
+                for f in &pic.frames {
+                    self.screen.write_bytes(&picture::draw(f, prev, truecolor, left, top));
+                    self.screen.set_color(iniquity_term::Color::DEFAULT);
+                    self.screen.goto(1, self.screen.rows());
+                    self.flush().await?;
+                    prev = Some(f);
+                    if pic.frames.len() == 1 {
+                        break 'play self.read_key().await?;
+                    }
+                    let until = std::time::Instant::now() + std::time::Duration::from_millis(f.delay_ms);
+                    loop {
+                        if self.key_waiting().await? {
+                            break 'play self.read_key().await?;
+                        }
+                        if std::time::Instant::now() >= until {
+                            break;
+                        }
+                    }
+                }
+                if started.elapsed() > std::time::Duration::from_secs(300) {
+                    break 'play Key::Esc;
+                }
+            };
+            match key.upper() {
+                Some('P') => continue,
+                Some('D') => return Ok(Some('D')),
+                _ => return Ok(None),
+            }
+        }
+    }
+
     /// Send a piece as it is, paced to a modem speed; any key stops it.
     async fn gallery_play(&mut self, src: &Src, speed: u32) -> io::Result<()> {
         let data = match read_piece(src) {
-            Ok(d) => playable(&d),
+            Ok(d) => playable(&iniquity_term::cp437::dos_art(&d)),
             Err(e) => return self.show_line(&format!("|U0{e}")).await,
         };
         self.screen.set_color(iniquity_term::Color::DEFAULT);
@@ -652,6 +830,27 @@ mod tests {
         let s = parse_sauce(&art).unwrap();
         assert_eq!((s.title.as_str(), s.author.as_str(), s.group.as_str(), s.date.as_str()), ("The PowerGrid", "Somms", "ACiD Productions", "1995-06-01"));
         assert!(parse_sauce(b"no sauce here").is_none());
+    }
+
+    #[test]
+    fn descriptions_from_sauce() {
+        let mut art = b"art\r\n\x1aCOMNT".to_vec();
+        for c in ["for the disflux file menu", "thanks for looking at this one, it took a while"] {
+            let mut l = c.as_bytes().to_vec();
+            l.resize(64, b' ');
+            art.extend(l);
+        }
+        let mut rec = sauce_rec("disflux", "phrac", "", "20261018");
+        rec[104] = 2;
+        art.extend(rec);
+        assert_eq!(
+            sauce_description(&art, 30, 20).unwrap(),
+            ["disflux", "by phrac, 2026-10-18", "for the disflux file menu", "thanks for looking at this", "one, it took a while"]
+        );
+        assert_eq!(sauce_description(&art, 30, 2).unwrap().len(), 2);
+        let mut blank = b"art\x1a".to_vec();
+        blank.extend(sauce_rec("", "", "", ""));
+        assert!(sauce_description(&blank, 50, 20).is_none(), "an empty SAUCE says nothing");
     }
 
     #[test]
