@@ -529,6 +529,29 @@ pub struct Files {
     pub strict_age: bool,
     pub delete_list: String,
     pub archive_comment: String,
+    /// Upload types allowed, as suffixes (`zip`, `tar.gz`); empty = any.
+    /// The contents have to match the name too.
+    pub allowed_types: Vec<String>,
+    /// Where the summary of what's inside goes in the description.
+    pub scan_summary: SummaryAt,
+    /// File names from inside an archive to list under the summary.
+    pub scan_names: u8,
+    /// Refuse archives that unpack to more than this many times their
+    /// size (past a megabyte), or more than `max_unpacked_bytes` (0 = no
+    /// limit for either).
+    pub max_unpacked_ratio: u32,
+    pub max_unpacked_bytes: u64,
+    /// Refuse archives with names that point outside the folder they'd
+    /// unpack into (`../`, `/etc/...`).
+    pub refuse_unsafe_paths: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum SummaryAt {
+    Off,
+    First,
+    Last,
 }
 
 impl Default for Files {
@@ -559,6 +582,12 @@ impl Default for Files {
             strict_age: false,
             delete_list: String::new(),
             archive_comment: String::new(),
+            allowed_types: Vec::new(),
+            scan_summary: SummaryAt::Last,
+            scan_names: 0,
+            max_unpacked_ratio: 100,
+            max_unpacked_bytes: 4 << 30,
+            refuse_unsafe_paths: true,
         }
     }
 }

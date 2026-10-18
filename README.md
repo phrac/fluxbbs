@@ -370,6 +370,36 @@ default `bsdtar` lists and extracts RAR, 7Z and LHA/LZH, `rar`/`7z` put
 descriptions back, and ARJ needs 7-Zip. They're used for description
 import, the archive viewer and the file editor.
 
+### Screening uploads
+
+New, in `[files]` or "Upload Tests" in `*C`:
+
+- **`allowed_types`** (empty = any), e.g. `["zip", "tar.gz", "tgz",
+  "txt"]`. A named upload of another type is refused before the
+  transfer, a blind one when it arrives. The contents must match the
+  name: a `.zip` has to be a ZIP, a `.tar.gz` gzip, a `.txt` text (no
+  binary), so a renamed program doesn't get in.
+- **Summary line** (`scan_summary = "last"`, `"first"` or `"off"`):
+  what's inside is added to the description, e.g. `[ 14 files, 1.2 MB
+  unpacked, newest 10/12/26 ]`, `[ text, 342 lines ]`, plus
+  `[ password-protected ]` where it applies and, with `scan_names`, the
+  first few names inside. ZIP and tar/gzip are read in the server;
+  other archives are counted with `bsdtar`. The lines are `FaScan...`
+  strings for `*E`. Uploads themselves are never changed (no
+  FILE_ID.DIZ is added; `+` in `*Y` puts a description into a ZIP when
+  you want one).
+- **Zip bombs**: archives unpacking to more than `max_unpacked_ratio`
+  (100) times their size, past a megabyte, or more than
+  `max_unpacked_bytes` (4 GB) are refused. The size is read as far as
+  the limit and no further.
+- **`refuse_unsafe_paths`** (on): archives with names that point outside
+  their folder (`../`, `/etc/...`, `C:`) are refused.
+- **Virus scanning**: set `test_command = "clamscan --no-summary %F"`
+  (ClamAV) and infected uploads fail the test.
+
+Archives are read where they are, not unpacked (other than pulling a
+FILE_ID.DIZ out of a non-ZIP archive for its description).
+
 ## Infoforms and new user voting
 
 An infoform is a text file in `text/` with input points in it (see

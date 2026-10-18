@@ -14,19 +14,27 @@ use chrono::{Datelike, Local, NaiveDate};
 
 use crate::extprog::shell_quote;
 use crate::filebase::wildcard;
-use crate::files::{commas, is_zip};
+use crate::config::SummaryAt;
+use crate::files::{DESC_WIDTH, MAX_DESC_LINES, commas, is_zip};
+use crate::upscan::{Limits, Refused, Scan, check_contents, human_size, kind_of, type_allowed};
 use crate::session::{Session, waves};
 
 /// Read every entry (which checks each CRC) and give (name, date).
-pub fn zip_entries(path: &Path) -> anyhow::Result<Vec<(String, Option<NaiveDate>)>> {
+/// Unpacking stops past `cap` bytes, whatever the headers claimed.
+pub fn zip_entries(path: &Path, cap: u64) -> anyhow::Result<Vec<(String, Option<NaiveDate>)>> {
     let mut z = zip::ZipArchive::new(std::fs::File::open(path)?)?;
     let mut out = Vec::new();
+    let mut left = cap;
     for i in 0..z.len() {
         let mut f = z.by_index(i)?;
         let date = f.last_modified().and_then(|d| NaiveDate::from_ymd_opt(d.year() as i32, d.month() as u32, d.day() as u32));
         let name = f.name().map(|n| n.into_owned()).unwrap_or_default();
         if !f.is_dir() {
-            io::copy(&mut f, &mut io::sink())?;
+            let n = io::copy(&mut io::Read::take(&mut f, left.saturating_add(1)), &mut io::sink())?;
+            if n > left {
+                anyhow::bail!("unpacks to more than {cap} bytes");
+            }
+            left -= n;
         }
         out.push((name, date));
     }
@@ -86,6 +94,76 @@ pub fn read_list(path: &Path) -> Vec<String> {
 }
 
 impl Session {
+    /// An upload whose type isn't allowed here.
+    pub(crate) async fn say_type_refused(&mut self, name: &str) -> io::Result<()> {
+        let types = self.state.config().files.allowed_types.join(", ");
+        tracing::info!("{}: upload {name} refused: not one of {types}", self.user.handle);
+        let s = self.strings().fmt("FaULtypeRefused", &[name, &types]);
+        self.show_line(&s).await
+    }
+
+    /// The checks before `test_upload`: an allowed type, contents that
+    /// match the name, and a look inside (which also catches zip bombs
+    /// and unsafe paths). `None` if refused, having said why; otherwise
+    /// what was found, if anything.
+    pub(crate) async fn screen_upload(&mut self, path: &Path, name: &str) -> io::Result<Option<Option<Scan>>> {
+        let f = self.state.config().files.clone();
+        if !type_allowed(&f.allowed_types, name) {
+            self.say_type_refused(name).await?;
+            return Ok(None);
+        }
+        let kind = kind_of(name);
+        if let Err(what) = check_contents(path, kind)? {
+            tracing::info!("{}: upload {name} refused: not really {what}", self.user.handle);
+            let s = self.strings().fmt("FaULnotWhatItSays", &[name, what]);
+            self.show_line(&s).await?;
+            return Ok(None);
+        }
+        let limits = Limits::from_config(&f);
+        let p = path.to_path_buf();
+        let found = tokio::task::spawn_blocking(move || crate::upscan::scan(&p, kind, &limits)).await.map_err(io::Error::other)??;
+        let (refused, why) = match found {
+            Ok(scan) => return Ok(Some(scan)),
+            Err(Refused::Bomb) => (self.strings().fmt("FaULbomb", &[name]), "unpacks too large".to_string()),
+            Err(Refused::Unsafe(inside)) => (self.strings().fmt("FaULunsafe", &[name, &inside]), format!("unsafe path {inside:?}")),
+            Err(Refused::Damaged(e)) => (self.strings().fmt("FaULdamaged", &[name, &e]), format!("unreadable: {e}")),
+        };
+        tracing::info!("{}: upload {name} refused: {why}", self.user.handle);
+        self.show_line(&refused).await?;
+        Ok(None)
+    }
+
+    /// Put the summary of what's inside into a description, first or
+    /// last as `[files] scan_summary` says, within the line limit.
+    pub(crate) fn add_summary(&self, desc: &mut Vec<String>, scan: Option<&Scan>) {
+        let at = self.state.config().files.scan_summary;
+        let Some(s) = scan.filter(|_| at != SummaryAt::Off) else { return };
+        let st = self.strings();
+        let mut lines = Vec::new();
+        if let Some(n) = s.lines {
+            lines.push(st.fmt("FaScanText", &[&commas(n)]));
+        } else {
+            let files = if s.files == 1 { "1 file".to_string() } else { format!("{} files", commas(s.files)) };
+            lines.push(match (s.unpacked, s.newest) {
+                (0, _) => st.fmt("FaScanCount", &[&files]),
+                (_, Some(d)) => st.fmt("FaScanArchive", &[&files, &human_size(s.unpacked), &d.format("%m/%d/%y").to_string()]),
+                (_, None) => st.fmt("FaScanUndated", &[&files, &human_size(s.unpacked)]),
+            });
+            if s.encrypted {
+                lines.push(st.get("FaScanLocked").to_string());
+            }
+            lines.extend(s.names.iter().map(|n| st.fmt("FaScanName", &[n])));
+        }
+        let lines: Vec<String> = lines.into_iter().map(|l| l.chars().take(DESC_WIDTH).collect()).collect();
+        desc.truncate(MAX_DESC_LINES.saturating_sub(lines.len()));
+        match at {
+            SummaryAt::First => {
+                desc.splice(0..0, lines);
+            }
+            _ => desc.extend(lines),
+        }
+    }
+
     /// Test an upload, with its lights and lines on FILETEST. Ok(false):
     /// the file is to be refused.
     pub async fn test_upload(&mut self, path: &Path, name: &str) -> io::Result<bool> {
@@ -107,7 +185,8 @@ impl Session {
         let mut entries = Vec::new();
         if zip {
             self.light(screen, b"L1").await?;
-            match zip_entries(path) {
+            let cap = crate::upscan::Limits::from_config(&f).cap(size);
+            match zip_entries(path, cap) {
                 Ok(e) => {
                     entries = e;
                     self.light_done(screen, b"L1", true);
@@ -254,7 +333,7 @@ mod tests {
             w.write_all(b"MZ").unwrap();
             w.finish().unwrap();
         }
-        let e = zip_entries(&path).unwrap();
+        let e = zip_entries(&path, u64::MAX).unwrap();
         assert_eq!(e.len(), 3);
         assert_eq!(e[0], ("README.TXT".to_string(), Some(d(1995, 3, 4))));
         let list = dir.join("DELETE.LST");
@@ -271,7 +350,7 @@ mod tests {
         let mut bytes = std::fs::read(&path).unwrap();
         bytes[41] ^= 0xFF; // inside the first entry's data (30-byte header + 10-byte name)
         std::fs::write(&path, bytes).unwrap();
-        assert!(zip_entries(&path).is_err());
+        assert!(zip_entries(&path, u64::MAX).is_err());
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

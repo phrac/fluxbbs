@@ -88,6 +88,13 @@ with the scripted callers in `tools/`:
         '(?i)password=>SYSOP\r' 'system\s*:=>SYSTEM\r' ...
     python3 tools/drive_telnet.py 127.0.0.1:2323 'in order=>@solve' ...
 
+`PORT=3222` points `drive_ssh.py` at a test server while a live board
+holds 2222. For uploads without lrzsz, `cargo build --release --examples`
+gives `target/release/examples/zsend FILE...`, a Zmodem sender on the
+same library (`'(?i)initiate=>!/abs/path/zsend a.zip'`, with `XFER_DIR`
+as its working directory). Remember `cargo build --release` for the
+server itself: `--examples` alone leaves a stale binary.
+
 Each step is `regex=>keys`: wait for the regex in the de-ANSI'd output, then
 send. `opt:` makes a step optional, `long:` waits 45s, `@solve` passes the
 bot check, `!cmd` runs a program on the connection (e.g. `rz`/`sz` for

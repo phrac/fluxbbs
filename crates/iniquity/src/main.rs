@@ -33,6 +33,7 @@ mod filebase;
 mod files;
 mod transfer;
 mod upltest;
+mod upscan;
 mod nodes;
 mod password;
 mod qwk;

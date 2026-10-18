@@ -17,8 +17,8 @@ use crate::transfer::{Proto, safe_name};
 use crate::user::{fmt_date, parse_date};
 
 pub const MAX_BATCH: usize = 20;
-const MAX_DESC_LINES: usize = 20;
-const DESC_WIDTH: usize = 50;
+pub(crate) const MAX_DESC_LINES: usize = 20;
+pub(crate) const DESC_WIDTH: usize = 50;
 const MAX_UPLOAD_NAMES: usize = 60;
 
 /// A file area being worked on: its number and definition.
@@ -1463,6 +1463,10 @@ impl Session {
                     self.show_line(&s).await?;
                     continue;
                 }
+                if !crate::upscan::type_allowed(&self.state.config().files.allowed_types, &name) {
+                    self.say_type_refused(&name).await?;
+                    continue;
+                }
                 planned.push((name, Vec::new()));
             }
             if planned.is_empty() {
@@ -1510,6 +1514,10 @@ impl Session {
                     continue;
                 }
             }
+            let Some(scan) = self.screen_upload(&path, &name).await? else {
+                let _ = std::fs::remove_file(&path);
+                continue;
+            };
             if !self.test_upload(&path, &name).await? {
                 let _ = std::fs::remove_file(&path);
                 continue;
@@ -1523,6 +1531,7 @@ impl Session {
             if desc.is_empty() {
                 desc = self.ask_description(&name).await?;
             }
+            self.add_summary(&mut desc, scan.as_ref());
             self.newline();
             let s = self.strings().fmt("FaULaddingFile", &[&name]);
             self.show_line(&s).await?;

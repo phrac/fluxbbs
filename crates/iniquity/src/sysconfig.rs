@@ -7,7 +7,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 use crate::cfgedit::{Field, Form, yes_no};
-use crate::config::{CharsetPref, Config};
+use crate::config::{CharsetPref, Config, SummaryAt};
 use crate::session::Session;
 
 fn io_err(e: anyhow::Error) -> io::Error {
@@ -46,6 +46,7 @@ const TEXT: Field = Field::TEXT;
 const ACS: Field = Field::LOWER;
 
 const CHARSETS: [&str; 3] = ["Auto (by TERM)", "CP437 always", "UTF-8 always"];
+const SUMMARY_AT: [&str; 3] = ["Off", "First", "Last"];
 const ALIAS_FORMATS: [&str; 8] =
     ["As typed", "First letter up", "UPPER CASE", "lower case", "Each Word Up", "WeiRD (MiKe)", "wARPED (mIkE)", "CooL (FiEND)"];
 
@@ -212,6 +213,16 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('D', "Strict age test", 3, "Every file must be newer than the limit (else just the newest)?", Bool(|c| &mut c.files.strict_age)),
             set('E', "Delete list", 12, "File in the data directory listing names (wildcards) to strip from uploaded ZIPs.", Text(|c| &mut c.files.delete_list, TEXT.max(40))),
             set('F', "Archive comment", 12, "File in the data directory whose text becomes each uploaded ZIP's comment.", Text(|c| &mut c.files.archive_comment, TEXT.max(40))),
+            set('G', "Allowed types", 50, "Upload types allowed (zip, tar.gz, txt...), checked against the contents; empty = any.", List(|c| &mut c.files.allowed_types)),
+            set('H', "Summary line", 5, "Add what's inside (files, size, newest date) to the description: first, last or not.", Choice(
+                |c| c.files.scan_summary as usize,
+                |c, v| c.files.scan_summary = [SummaryAt::Off, SummaryAt::First, SummaryAt::Last][v],
+                &SUMMARY_AT,
+            )),
+            set('I', "Names listed", 2, "File names from inside an archive to list under the summary.", Num(|c| c.files.scan_names as u64, |c, v| c.files.scan_names = v as u8, 0, 18)),
+            set('J', "Max unpack ratio", 6, "Refuse archives unpacking to more than this many times their size (0 = any).", Num(|c| c.files.max_unpacked_ratio as u64, |c, v| c.files.max_unpacked_ratio = v as u32, 0, 1_000_000)),
+            set('K', "Max unpacked bytes", 14, "Refuse archives unpacking to more than this (0 = any).", Num(|c| c.files.max_unpacked_bytes, |c, v| c.files.max_unpacked_bytes = v, 0, u64::MAX / 2)),
+            set('L', "Refuse unsafe paths", 3, "Refuse archives with names like ../ or /etc/ that point outside their folder?", Bool(|c| &mut c.files.refuse_unsafe_paths)),
         ]),
         ("Chat Mode", false, vec![
             set('A', "Override password", 20, "Password to page outside chat hours (blank = none).", Text(|c| &mut c.chat.override_password, Field::UPPER)),
