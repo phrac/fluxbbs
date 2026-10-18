@@ -223,8 +223,8 @@ pub fn set_user_field(u: &mut User, name: &str, v: Field) -> Result<(), String> 
         "sex" => {
             let s = want_str(name, v)?.to_ascii_uppercase();
             u.sex = match s.as_str() {
-                "M" | "F" => s.chars().next().unwrap_or('M'),
-                _ => return Err("user.sex must be \"M\" or \"F\"".into()),
+                "M" | "F" | "O" | "P" => s.chars().next().unwrap_or('P'),
+                _ => return Err("user.sex must be \"M\", \"F\", \"O\" (other) or \"P\" (not given)".into()),
             };
         }
         "birth_date" => {

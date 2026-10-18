@@ -420,9 +420,9 @@ impl Session {
         if nu.ask_sex {
             self.say("NuAskSex").await?;
             u.sex = loop {
-                if let Some(c @ ('M' | 'F')) = self.read_key().await?.upper() { break c }
+                if let Some(c @ ('M' | 'F' | 'O' | 'P')) = self.read_key().await?.upper() { break c }
             };
-            self.write(if u.sex == 'M' { "Male" } else { "Female" });
+            self.write(crate::user::gender_name(u.sex));
             self.newline();
         }
         self.new_user_prefs(&mut u).await?;

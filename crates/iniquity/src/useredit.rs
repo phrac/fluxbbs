@@ -12,7 +12,7 @@ use crate::cfgedit::{Field, Form, color_name, flags_text, yes_no};
 use crate::config::Level;
 use crate::input::Case;
 use crate::session::Session;
-use crate::user::{User, fmt_date, parse_date};
+use crate::user::{GENDERS, User, fmt_date, gender_name, parse_date};
 
 fn io_err(e: anyhow::Error) -> io::Error {
     io::Error::other(e)
@@ -116,7 +116,6 @@ fn handle_shown(u: &User) -> String {
     if u.deleted { "[Deleted]".into() } else { u.handle.clone() }
 }
 
-const GENDERS: [&str; 2] = ["Male", "Female"];
 
 /// The colour slots in the order the original listed them.
 const COLOR_ITEMS: [(char, &str, Slot); 11] = [
@@ -294,7 +293,7 @@ impl Session {
                 let pw = if u.password_hash.is_empty() { "(none)" } else { "(set)" };
                 f.item_xy(A2.0, 2, A2.1, 'B', "Password", 22, pw, "Type a new password to change it (blank keeps the old one).");
                 f.item_xy(A1.0, 6, A1.1, '=', "User flags", 28, flags_text(&u.flags), "User's flags.");
-                f.item_xy(B2.0, 7, B2.1, 'J', "Gender", 6, GENDERS[(u.sex == 'F') as usize], "User's sex.");
+                f.item_xy(B2.0, 7, B2.1, 'J', "Gender", 9, gender_name(u.sex), "User's gender (or not given).");
                 f.item_xy(B1.0, 8, B1.1, 'L', "Level ID", 1, u.level.to_string(), "User's access level (A-Z).");
                 f.item_xy(B3.0, 17, B3.1, '^', "Time bank", 12, bank_shown(&u), "Minutes and kilobytes in the user's time bank.");
                 for s in &fields {
@@ -378,8 +377,9 @@ impl Session {
                             u.flags = flags;
                         }
                         'J' => {
-                            let pick = self.cfg_option(&mut f, key, &GENDERS, (u.sex == 'F') as usize).await?;
-                            u.sex = if pick == 1 { 'F' } else { 'M' };
+                            let names: Vec<&str> = GENDERS.iter().map(|g| g.1).collect();
+                            let cur = GENDERS.iter().position(|g| g.0 == u.sex).unwrap_or(3);
+                            u.sex = GENDERS[self.cfg_option(&mut f, key, &names, cur).await?].0;
                         }
                         'L' => {
                             let field = Field { case: Case::Upper, allowed: "ABCDEFGHIJKLMNOPQRSTUVWXYZ", max: 1 };

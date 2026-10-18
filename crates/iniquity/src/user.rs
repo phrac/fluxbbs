@@ -99,7 +99,7 @@ impl Default for User {
             zip_code: String::new(),
             note: "None".into(),
             sysop_note: "None".into(),
-            sex: 'M',
+            sex: 'P',
             sl: 25,
             dsl: 25,
             level: 'A',
@@ -151,6 +151,15 @@ impl Default for User {
             bank_kb_out: 0,
         }
     }
+}
+
+/// Genders: the letter stored (and tested by the `g` ACS) and how it's
+/// shown. Iniquity had only M and F; P is "prefer not to say", also what
+/// users the board never asked get.
+pub const GENDERS: [(char, &str); 4] = [('M', "Male"), ('F', "Female"), ('O', "Other"), ('P', "Not given")];
+
+pub fn gender_name(c: char) -> &'static str {
+    GENDERS.iter().find(|g| g.0 == c.to_ascii_uppercase()).map_or("Not given", |g| g.1)
 }
 
 impl User {

@@ -84,7 +84,7 @@ impl Session {
             b"SN" => cfg.sysop_alias.clone(),
             b"SO" => u.sysop_note.clone(),
             b"SR" => cfg.sysop_name.clone(),
-            b"SX" => if u.sex == 'F' { "Female" } else { "Male" }.into(),
+            b"SX" => crate::user::gender_name(u.sex).into(),
             b"TI" => now.format("%-I:%M%P").to_string(),
             b"TL" => self.minutes_left().to_string(),
             b"TM" => now.format("%H:%M").to_string(),
