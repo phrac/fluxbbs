@@ -130,6 +130,47 @@ Things that trip tests up:
 - In zsh, an unmatched glob aborts the whole command; and `pkill -f` with a
   pattern that also appears in your own command line kills your shell.
 
+## Status, 18 Oct 2026: the board is live, dev moves to rzn
+
+`disfluxbbs.com` runs on `rzn` in Docker (`~/code/inq/iniquity` is the
+checkout, `~/code/disflux_bbs` the board, SSH 2222, telnet 23; update with
+`git pull && docker compose -f deploy/docker-compose.yml up -d --build`,
+logs with `docker logs -f iniquity`). The board directory was copied from
+ryzen (every file hash-checked); the ryzen board still runs and is now a
+separate copy, so don't develop or post there. `cargo` on rzn is in
+`~/.cargo/bin`; `original/inqa26r5.zip` is in git, so `tools/setup_host.sh`
+works there.
+
+Open bugs seen on the live board, to fix first:
+
+1. **Main menu `J` (AI chat) drops the caller.** `docker logs` shows
+   `session error: builder error` right after `phrac: ai chat`: the
+   `reqwest::Client::builder()` in `aichat.rs` (`ai_chat`, ~line 400) fails
+   because the image has no CA certificates (`/etc/ssl/certs` doesn't exist
+   in `debian:bookworm-slim`), and the error is `?`'d out of the session.
+   Two fixes: `apt-get install -y ca-certificates` in the runtime stage of
+   the `Dockerfile`, and make `ai_chat` report "AI chat isn't available" and
+   return to the menu instead of ending the session on any client or
+   request error. Also: the board's `[ai]` points at `http://vega:8080/v1`
+   and `search_url = "http://reflux:8888"`, names from the home network;
+   from rzn's container they won't resolve, so the live board needs either
+   reachable addresses or `enabled = false`.
+2. **The logon screens freeze** ("real life freezes during the login
+   screens", from SyncTERM over SSH). Not diagnosed. Things to check: is it
+   the bot check's wait (30 s `challenge_seconds`)? screen pacing
+   (`Screen::flush` with a slow-baud or `transfer_cps` sleep)? a blocking
+   call in the logon path on a host without reverse DNS (lookups of the
+   caller's address)? the SSH keepalive/window handling in `ssh.rs` with
+   large ANSI screens? Reproduce with `HOST=disfluxbbs.com PORT=2222
+   python3 tools/drive_ssh.py ...` and `RAW_OUT`, timing each step.
+3. The live config still has `[dos] emulator = "dosbox-staging ..."`;
+   the container has no DOSBox. Set `emulator = ""` for the built-in DOS
+   machine before trying doors there.
+4. The `[ NOW ]` web feed (`~/code/disflux_bbs/web/CADDY.md`) assumed Caddy
+   in Docker; on rzn Caddy is a host process (`/etc/caddy/Caddyfile`, needs
+   sudo). Publish the feed port as `127.0.0.1:8099:8099` in the compose
+   file and `reverse_proxy localhost:8099` in a `disfluxbbs.com` block.
+
 ## Next
 
 Feature parity with the manual is done bar echomail/netmail (a FidoNet
