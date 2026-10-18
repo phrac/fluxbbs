@@ -106,5 +106,7 @@ Things that trip tests up:
 
 ## Next
 
-The rest of the README's "What's left to port" table: doors, QWK and
-scripting (Lua, `scripts.rs`, in place of IPL) are done.
+Feature parity with the manual is done bar echomail/netmail (a FidoNet
+mailer/tosser bridge) and the "not planned" items in the README. New
+work is improvements rather than ports: a web or terminal SysOp
+dashboard in place of the local console, for instance.
