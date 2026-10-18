@@ -330,7 +330,7 @@ mod tests {
             assert_eq!(store.find(key, false).unwrap().unwrap().handle, "Fiend");
         }
         let mut got = store.find("fiend", false).unwrap().unwrap();
-        assert!(got.check_password("PASS"));
+        assert!(got.check_password("pass") && !got.check_password("PASS"));
         assert!(got.flags.contains(&'A'));
         assert_eq!(got.palette.0[3], Color::new(14, 1));
 

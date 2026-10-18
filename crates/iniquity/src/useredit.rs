@@ -364,7 +364,7 @@ impl Session {
                         }
                         'B' => {
                             f.set(key, "");
-                            match self.cfg_text(&mut f, key, Field::UPPER.max(20)).await? {
+                            match self.cfg_text(&mut f, key, Field::TEXT.max(crate::password::MAX_LEN)).await? {
                                 Some(v) if !v.is_empty() => {
                                     u.set_password(&v);
                                     self.cfg_set(&mut f, key, "(changed)");

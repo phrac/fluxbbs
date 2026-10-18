@@ -696,7 +696,8 @@ fn convert_user(l: &LegacyUser) -> User {
         bank_kb_in: 0,
         bank_kb_out: 0,
     };
-    u.set_password(&l.password);
+    // Iniquity upper-cased passwords; `check_password` accepts any case.
+    u.set_password(&l.password.to_uppercase());
     u
 }
 

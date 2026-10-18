@@ -153,23 +153,20 @@ impl Default for User {
     }
 }
 
-/// Iniquity passwords are case-insensitive (always upper-cased on entry),
-/// and imported ones are stored that way.
-fn normalize(pw: &str) -> String {
-    pw.to_uppercase()
-}
-
 impl User {
+    /// Passwords are case-sensitive (new: Iniquity upper-cased them).
     pub fn set_password(&mut self, pw: &str) {
-        self.password_hash = Argon2::default()
-            .hash_password(normalize(pw).as_bytes())
-            .expect("argon2 hashing")
-            .to_string();
+        self.password_hash = Argon2::default().hash_password(pw.as_bytes()).expect("argon2 hashing").to_string();
     }
 
+    /// Passwords set before they were case-sensitive (imported ones, and
+    /// any set by earlier versions) were stored upper-cased, so the
+    /// upper-cased guess is tried too. That only lets a password in when
+    /// it was all capitals to begin with.
     pub fn check_password(&self, pw: &str) -> bool {
-        PasswordHash::new(&self.password_hash)
-            .is_ok_and(|h| Argon2::default().verify_password(normalize(pw).as_bytes(), &h).is_ok())
+        let Ok(h) = PasswordHash::new(&self.password_hash) else { return false };
+        let ok = |p: &str| Argon2::default().verify_password(p.as_bytes(), &h).is_ok();
+        ok(pw) || (pw != pw.to_uppercase() && ok(&pw.to_uppercase()))
     }
 
     /// `levelSet`: apply an access level's limits.
@@ -227,11 +224,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn passwords_are_case_insensitive() {
+    fn passwords_are_case_sensitive() {
         let mut u = User::default();
         u.set_password("Secret");
-        assert!(u.check_password("SECRET"));
+        assert!(u.check_password("Secret"));
+        assert!(!u.check_password("SECRET"));
+        assert!(!u.check_password("secret"));
+        // An old, upper-cased one still takes any case.
+        u.set_password("SECRET");
         assert!(u.check_password("secret"));
+        assert!(u.check_password("SECRET"));
         assert!(!u.check_password("other"));
     }
 

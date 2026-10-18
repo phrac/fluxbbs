@@ -69,6 +69,10 @@ CREATE TABLE IF NOT EXISTS bans (
     until   TEXT NOT NULL,
     strikes INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS signups (
+    at TEXT NOT NULL,
+    ip TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS security_log (
     id   INTEGER PRIMARY KEY,
     at   TEXT NOT NULL,
@@ -399,6 +403,25 @@ impl SysData {
         Ok(())
     }
 
+    /// A new account was made from `ip` (empty if unknown).
+    pub fn record_signup(&self, ip: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        let now = chrono::Local::now().naive_local();
+        db.execute("INSERT INTO signups (at, ip) VALUES (?1, ?2)", params![now, ip])?;
+        db.execute("DELETE FROM signups WHERE at < ?1", [now - chrono::Duration::days(30)])?;
+        Ok(())
+    }
+
+    /// Sign-ups since `when`: from `ip`, and in all.
+    pub fn signups_since(&self, ip: &str, when: NaiveDateTime) -> anyhow::Result<(u32, u32)> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row(
+            "SELECT COALESCE(SUM(ip = ?1), 0), COUNT(*) FROM signups WHERE at > ?2",
+            params![ip, when],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?)
+    }
+
     /// The latest security events, newest first: (when, address, what).
     pub fn security_events(&self, limit: u32) -> anyhow::Result<Vec<(NaiveDateTime, String, String)>> {
         let db = self.db.lock().unwrap();
@@ -535,6 +558,10 @@ mod tests {
     fn bans_and_security_log() {
         let sys = SysData::open_memory().unwrap();
         let t = chrono::NaiveDate::from_ymd_opt(2026, 10, 17).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        let past = chrono::Local::now().naive_local() - chrono::Duration::hours(1);
+        sys.record_signup("10.0.0.5").unwrap();
+        sys.record_signup("10.0.0.6").unwrap();
+        assert_eq!(sys.signups_since("10.0.0.5", past).unwrap(), (1, 2));
         sys.log_security("10.0.0.5", "wrong password").unwrap();
         sys.log_security("10.0.0.5", "banned for 15 minutes").unwrap();
         sys.set_ban("10.0.0.5", t, 1).unwrap();

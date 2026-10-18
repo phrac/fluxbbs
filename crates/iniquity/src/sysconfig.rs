@@ -147,6 +147,15 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('J', "Allow list", 50, "Never limited or checked: addresses, prefixes (10.0.) or ranges (/24).", List(|c| &mut c.security.allow)),
             set('K', "Deny list", 50, "Always refused: addresses, prefixes or ranges.", List(|c| &mut c.security.deny)),
         ]),
+        ("Passwords and Sign-ups", false, vec![
+            set('A', "Min. password length", 3, "Shortest password allowed.", Num(|c| c.passwords.min_length as u64, |c, v| c.passwords.min_length = v as u8, 1, 64)),
+            set('B', "Refuse weak ones", 3, "Refuse common passwords, the user's handle, one character repeated?", Bool(|c| &mut c.passwords.refuse_common)),
+            set('C', "Enforce at login", 3, "Make callers with a password that breaks the rules change it at login?", Bool(|c| &mut c.passwords.enforce_at_login)),
+            set('D', "Sign-ups per address", 3, "New accounts from one address per day (0 = no limit).", Num(|c| c.newuser.per_address_per_day as u64, |c, v| c.newuser.per_address_per_day = v as u32, 0, 1000)),
+            set('E', "Sign-ups per day", 4, "New accounts on the whole board per day (0 = no limit).", Num(|c| c.newuser.per_day as u64, |c, v| c.newuser.per_day = v as u32, 0, 10000)),
+            set('F', "Reserved handles", 50, "Handles nobody may apply with.", List(|c| &mut c.newuser.reserved_handles)),
+            set('G', "Purge after days", 4, "Delete level-A accounts that never called back after this many days (0 = never).", Num(|c| c.newuser.purge_after_days as u64, |c, v| c.newuser.purge_after_days = v as u32, 0, 3650)),
+        ]),
         ("New User Questions", false, vec![
             set('A', "Real name", 3, "Ask for a real name? (If not, the handle is used.)", Bool(|c| &mut c.newuser.ask_real_name)),
             set('B', "Birth date", 3, "Ask for a date of birth? (ACS age checks need it.)", Bool(|c| &mut c.newuser.ask_birth_date)),

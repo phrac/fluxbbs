@@ -112,9 +112,11 @@ impl ReadOpts {
         self
     }
 
+    /// Echo the password character. Input keeps its case (the original
+    /// upper-cased it): account passwords are case-sensitive now, and the
+    /// other passwords are compared ignoring case.
     pub fn password(mut self) -> Self {
         self.password = true;
-        self.case = Case::Upper;
         self
     }
 

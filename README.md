@@ -301,6 +301,34 @@ directory (the importer says where).
 
 New users start at access level A until voted in or validated with `*U`.
 
+### Passwords and sign-ups
+
+New, in `[passwords]` and `[newuser]`, or "Passwords and Sign-ups" in
+`*C`:
+
+- **Passwords** are case-sensitive and up to 64 characters (Iniquity
+  upper-cased them and stopped at 20). Ones set before this, imported
+  ones included, were stored upper-cased and still work in any case
+  until changed.
+- **Rules**: at least `min_length` characters (8), and with
+  `refuse_common` not on the list of most-used passwords
+  (`assets/common-passwords.txt`, also catching `password1!` and the
+  like), not containing the handle, and not one character repeated.
+  They apply when applying and changing a password; the SysOp setting
+  one in `*U` isn't held to them.
+- **`enforce_at_login`**: a caller whose password breaks the rules
+  (the stock `SYSOP`, say) has to choose a new one before going on.
+- **Sign-up limits**: `per_address_per_day` (2) new accounts from one
+  address and `per_day` (10) on the whole board, over the last 24 hours;
+  addresses on the `allow` list aren't limited. Refusals go in the
+  security log.
+- **`reserved_handles`**: handles nobody may apply with (sysop, admin,
+  root, guest...). As in the original, a handle can't start with a
+  digit either.
+- **`purge_after_days`** (0 = off): accounts still at level A that never
+  called back are marked deleted after that many days, checked every 10
+  minutes.
+
 ## Sub-areas
 
 New, not in the original: a file area can sit under another one, to any

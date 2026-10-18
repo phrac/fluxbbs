@@ -8,6 +8,7 @@ use chrono::Local;
 
 use crate::input::{Case, DIGITS, Key, ReadOpts};
 use crate::menu::Menu;
+use crate::password;
 use crate::session::Session;
 use crate::user::{User, parse_date};
 
@@ -148,7 +149,7 @@ impl Session {
                 None => {}
                 Some(user) => {
                     self.say("LoginPassword").await?;
-                    let pw = self.read_string(ReadOpts::new(20).password()).await?;
+                    let pw = self.read_string(ReadOpts::new(password::MAX_LEN).password()).await?;
                     self.newline();
                     ok = user.check_password(&pw);
                     if !ok {
@@ -175,6 +176,16 @@ impl Session {
                         self.logged_in = true;
                         if let Some(addr) = self.caller.remote {
                             self.state.guard.success(addr.ip());
+                        }
+                        let rules = self.state.config().passwords.clone();
+                        if rules.enforce_at_login && let Err(weak) = password::check(&rules, &pw, &self.user.handle) {
+                            tracing::info!("{}: password breaks the rules ({weak:?}), must change it", self.user.handle);
+                            self.say_line("PwMustChange").await?;
+                            self.say_weak(&weak).await?;
+                            let new = self.ask_new_password(&self.user.handle.clone(), "PwNewPassword", "PwValidate", "PwNoMatch").await?;
+                            self.user.set_password(&new);
+                            self.state.users.save(&self.user).map_err(io::Error::other)?;
+                            self.say_line("PwChanged").await?;
                         }
                     } else {
                         self.user = prelogon;
@@ -318,6 +329,10 @@ impl Session {
                 return Ok(());
             }
         }
+        if let Some(refused) = self.signup_refused()? {
+            self.say_line(refused).await?;
+            return Ok(());
+        }
 
         let mut u = User { palette: self.state.config().colors.clone(), ..User::default() };
         // Details the application doesn't ask for are left blank, not
@@ -336,7 +351,8 @@ impl Session {
                 self.say("NuHandle").await?;
                 let h = self.read_string(ReadOpts::new(36).case(case).required()).await?;
                 self.newline();
-                if h.eq_ignore_ascii_case("NEW") || h.eq_ignore_ascii_case("ALL") || h.starts_with(|c: char| c.is_ascii_digit()) {
+                let reserved = nu.reserved_handles.iter().any(|r| r.trim().eq_ignore_ascii_case(h.trim()));
+                if reserved || h.eq_ignore_ascii_case("NEW") || h.eq_ignore_ascii_case("ALL") || h.starts_with(|c: char| c.is_ascii_digit()) {
                     self.say_line("NuBadAlias").await?;
                 } else if self.name_taken(&h)? {
                     self.say_line("NuDupUser").await?;
@@ -410,7 +426,7 @@ impl Session {
             self.newline();
         }
         self.new_user_prefs(&mut u).await?;
-        let pw = self.ask_new_password("NuPassword", "NuSmallPassword", "NuValidatePW", "NuPWnoMatch").await?;
+        let pw = self.ask_new_password(&u.handle.clone(), "NuPassword", "NuValidatePW", "NuPWnoMatch").await?;
         u.set_password(&pw);
 
         u.first_call = Some(today);
@@ -423,6 +439,10 @@ impl Session {
         self.newline();
         self.state.users.insert(&mut u).map_err(io::Error::other)?;
         tracing::info!("new user {} (#{}) applied", u.handle, u.id);
+        let ip = self.caller.remote.map(|a| a.ip().to_string()).unwrap_or_default();
+        if let Err(e) = self.state.sys.record_signup(&ip) {
+            tracing::error!("recording sign-up: {e}");
+        }
         self.user = u;
         // `newConfig`: let them check what they entered.
         if nu.config {
@@ -505,18 +525,56 @@ impl Session {
         Ok(self.state.users.find(name, true).map_err(io::Error::other)?.is_some())
     }
 
-    /// Ask for a new password (at least 4 characters) twice.
-    async fn ask_new_password(&mut self, ask: &str, short: &str, again: &str, mismatch: &str) -> io::Result<String> {
+    /// Too many sign-ups lately, from this address or overall: the string
+    /// to show, if so. Addresses on the allow list aren't limited.
+    fn signup_refused(&self) -> io::Result<Option<&'static str>> {
+        let nu = self.state.config().newuser.clone();
+        let ip = self.caller.remote.map(|a| a.ip());
+        if ip.is_some_and(|ip| self.state.guard.trusted(&self.state.config().security, ip)) {
+            return Ok(None);
+        }
+        let ip_str = ip.map(|ip| ip.to_string()).unwrap_or_default();
+        let since = Local::now().naive_local() - chrono::Duration::days(1);
+        let (here, all) = self.state.sys.signups_since(&ip_str, since).map_err(io::Error::other)?;
+        let refused = if nu.per_address_per_day > 0 && ip.is_some() && here >= nu.per_address_per_day {
+            Some(("NuLimitAddress", "sign-up refused: daily limit for this address"))
+        } else if nu.per_day > 0 && all >= nu.per_day {
+            Some(("NuLimitBoard", "sign-up refused: daily limit for the board"))
+        } else {
+            None
+        };
+        Ok(refused.map(|(string, what)| {
+            tracing::warn!("{ip_str}: {what}");
+            if let Err(e) = self.state.sys.log_security(&ip_str, what) {
+                tracing::error!("security log: {e}");
+            }
+            string
+        }))
+    }
+
+    /// Why a password was refused.
+    async fn say_weak(&mut self, weak: &password::Weak) -> io::Result<()> {
+        let n = match weak {
+            password::Weak::Short(n) => n.to_string(),
+            _ => String::new(),
+        };
+        let s = self.strings().fmt(weak.string(), &[&n]);
+        self.show_line(&s).await
+    }
+
+    /// Ask for a new password twice, held to the `[passwords]` rules.
+    async fn ask_new_password(&mut self, handle: &str, ask: &str, again: &str, mismatch: &str) -> io::Result<String> {
         loop {
             self.say(ask).await?;
-            let pw = self.read_string(ReadOpts::new(20).password()).await?;
+            let pw = self.read_string(ReadOpts::new(password::MAX_LEN).password()).await?;
             self.newline();
-            if pw.chars().count() < 4 {
-                self.say_line(short).await?;
+            let rules = self.state.config().passwords.clone();
+            if let Err(weak) = password::check(&rules, &pw, handle) {
+                self.say_weak(&weak).await?;
                 continue;
             }
             self.say(again).await?;
-            let check = self.read_string(ReadOpts::new(20).password()).await?;
+            let check = self.read_string(ReadOpts::new(password::MAX_LEN).password()).await?;
             self.newline();
             if check == pw {
                 return Ok(pw);
@@ -529,13 +587,13 @@ impl Session {
     pub(crate) async fn change_password(&mut self) -> io::Result<()> {
         self.newline();
         self.say("PwAskOld").await?;
-        let old = self.read_string(ReadOpts::new(20).password()).await?;
+        let old = self.read_string(ReadOpts::new(password::MAX_LEN).password()).await?;
         self.newline();
         if !self.user.check_password(&old) {
             self.say_line("PwWrong").await?;
             return Ok(());
         }
-        let pw = self.ask_new_password("PwNewPassword", "PwTooSmall", "PwValidate", "PwNoMatch").await?;
+        let pw = self.ask_new_password(&self.user.handle.clone(), "PwNewPassword", "PwValidate", "PwNoMatch").await?;
         self.user.set_password(&pw);
         self.state.users.save(&self.user).map_err(io::Error::other)?;
         self.say_line("PwChanged").await

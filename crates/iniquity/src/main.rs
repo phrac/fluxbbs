@@ -34,6 +34,7 @@ mod files;
 mod transfer;
 mod upltest;
 mod nodes;
+mod password;
 mod qwk;
 mod scripts;
 mod session;
@@ -222,6 +223,26 @@ fn write_atomic(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `[newuser] purge_after_days`: delete accounts still at the new-user
+/// level (A) that never called back after their first day, once they're
+/// that many days old. New; the original left them for the SysOp.
+fn purge_unvalidated(state: &BbsState) -> anyhow::Result<()> {
+    let days = state.config().newuser.purge_after_days;
+    if days == 0 {
+        return Ok(());
+    }
+    let cutoff = chrono::Local::now().date_naive() - chrono::Duration::days(days as i64);
+    for mut u in state.users.list()? {
+        let stale = u.first_call.is_some_and(|d| d <= cutoff);
+        if !u.deleted && u.level == 'A' && u.total_calls <= 1 && stale && !state.nodes.online().iter().any(|(_, n)| n.user.eq_ignore_ascii_case(&u.handle)) {
+            u.deleted = true;
+            state.users.save(&u)?;
+            tracing::info!("purged {} (#{}): never validated or called back in {days} days", u.handle, u.id);
+        }
+    }
+    Ok(())
+}
+
 /// `iniquity unban ADDRESS|all [config]`: lift a ban from outside the
 /// board (for a SysOp locked out of it). Takes effect when the server
 /// (re)starts, or at once if it isn't running.
@@ -332,7 +353,8 @@ async fn main() -> anyhow::Result<()> {
     }
     tokio::spawn(events::scheduler(state.clone()));
 
-    // Forget idle addresses now and then.
+    // Forget idle addresses now and then, and clear out abandoned
+    // applications.
     {
         let state = state.clone();
         tokio::spawn(async move {
@@ -340,6 +362,9 @@ async fn main() -> anyhow::Result<()> {
             loop {
                 tick.tick().await;
                 state.guard.tidy();
+                if let Err(e) = purge_unvalidated(&state) {
+                    tracing::error!("purging new users: {e:#}");
+                }
             }
         });
     }

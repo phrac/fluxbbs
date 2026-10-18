@@ -15,6 +15,7 @@ pub struct Config {
     pub ssh: Ssh,
     pub telnet: Telnet,
     pub security: Security,
+    pub passwords: Passwords,
     pub paths: Paths,
     pub terminal: Terminal,
     pub acs: Acs,
@@ -108,6 +109,25 @@ impl Default for Security {
             allow: Vec::new(),
             deny: Vec::new(),
         }
+    }
+}
+
+/// Password rules (new; the original asked only for four characters).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Passwords {
+    pub min_length: u8,
+    /// Refuse common passwords, the user's handle, and one character
+    /// repeated.
+    pub refuse_common: bool,
+    /// Make a caller whose password breaks the rules choose a new one when
+    /// they log in.
+    pub enforce_at_login: bool,
+}
+
+impl Default for Passwords {
+    fn default() -> Self {
+        Self { min_length: 8, refuse_common: true, enforce_at_login: true }
     }
 }
 
@@ -332,6 +352,15 @@ pub struct NewUser {
     /// City, country/state and zip code.
     pub ask_location: bool,
     pub ask_sex: bool,
+    /// New accounts allowed from one address in a day, and on the whole
+    /// board in a day (0 = no limit).
+    pub per_address_per_day: u32,
+    pub per_day: u32,
+    /// Handles nobody may apply with (ignoring case).
+    pub reserved_handles: Vec<String>,
+    /// Delete accounts still at the new-user level (A) after this many
+    /// days that never called back (0 = keep them).
+    pub purge_after_days: u32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -677,6 +706,12 @@ impl Default for NewUser {
             ask_address: true,
             ask_location: true,
             ask_sex: true,
+            per_address_per_day: 2,
+            per_day: 10,
+            reserved_handles: ["sysop", "cosysop", "admin", "administrator", "root", "guest", "new", "all", "staff", "moderator", "system", "iniquity"]
+                .map(String::from)
+                .to_vec(),
+            purge_after_days: 0,
         }
     }
 }
