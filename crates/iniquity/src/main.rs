@@ -7,6 +7,7 @@ mod acs;
 mod commands;
 mod cfgedit;
 mod challenge;
+mod chat;
 mod config;
 mod doors;
 mod engine;

@@ -38,9 +38,11 @@ impl Session {
         self.say("InitBBS").await?;
         self.user_logon_init();
         tracing::info!("{} ({}) logged in", self.user.handle, self.user.real_name);
+        let sysop = self.is_sysop();
         self.node.update(|n| {
             n.user = self.user.handle.clone();
             n.location = self.user.location.clone();
+            n.sysop = sysop;
         });
 
         let start = &self.user.start_menu;

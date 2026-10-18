@@ -60,6 +60,14 @@ pub struct LegacyConfig {
     pub pmt_no_bar: String,
     pub chat_start: String,
     pub chat_end: String,
+    /// Paging the SysOp (Chat mode setup).
+    pub no_chat_pw: String,
+    pub chat_page_noise: bool,
+    pub max_page_times: u8,
+    pub max_page_beeps: u8,
+    pub restore_chat_time: bool,
+    pub chat_over_acs: String,
+    pub page_ask_email: bool,
     pub inact_time: bool,
     pub inact_seconds: u16,
     pub inact_warning: u16,
@@ -150,7 +158,10 @@ impl LegacyConfig {
         let calls_phone = r.u8();
         let login_tries = r.u8();
         let origins = (0..MAX_ORIGIN).map(|_| r.string(75)).filter(|s| !s.is_empty()).collect();
-        r.skip(21 + 3); // NoChatPW, ChatPageNoise, maxPageTimes, maxPageBeeps
+        let no_chat_pw = r.string(20);
+        let chat_page_noise = r.bool();
+        let max_page_times = r.u8();
+        let max_page_beeps = r.u8();
         let pw_echo_char = r.char();
         let remove_pause = r.bool();
         r.skip(1); // AddLocalCalls
@@ -190,7 +201,8 @@ impl LegacyConfig {
         r.skip(1 + 41 + 21 * 2); // iniqAsDoor, pathAtch, acsAttach*
         let conf_ignore_msg = r.bool();
         let comp_msg_areas = r.bool();
-        r.skip(2); // compFileAreas, RestoreChatTime
+        r.skip(1); // compFileAreas
+        let restore_chat_time = r.bool();
         let kb_per_file_point = r.u16();
         let use_file_points = r.bool();
         let import_descs = r.bool();
@@ -229,14 +241,15 @@ impl LegacyConfig {
         let desc_wrap = r.bool();
         let chat_start = r.string(5);
         let chat_end = r.string(5);
-        r.skip(21); // chatOverAcs
+        let chat_over_acs = r.string(20);
         let adv_file_bar = r.bool();
         let inact_time = r.bool();
         r.skip(1); // inactInChat
         let inact_seconds = r.u16();
         let inact_warning = r.u16();
         let ansi_string = r.string(75);
-        r.skip(3); // pageAskEmail, soundRestrict, inactLocal
+        let page_ask_email = r.bool();
+        r.skip(2); // soundRestrict, inactLocal
         let allow_blind = r.bool();
         let nuv_votes_yes = r.u8();
         let nuv_votes_no = r.u8();
@@ -266,7 +279,8 @@ impl LegacyConfig {
             no_desc_line, ul_search, auto_validate, file_points_per, use_uldl_ratio, use_kb_ratio,
             file_desc1, file_desc2, desc_wrap, adv_file_bar, allow_blind, acs_anon_automsg,
             qwk_filename, qwk_welcome, qwk_news, qwk_goodbye, qwk_local_path, qwk_ignore_time,
-            qwk_strip_sigs,
+            qwk_strip_sigs, no_chat_pw, chat_page_noise, max_page_times, max_page_beeps,
+            restore_chat_time, chat_over_acs, page_ask_email,
         })
     }
 }

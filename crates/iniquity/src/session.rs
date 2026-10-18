@@ -91,6 +91,8 @@ pub struct Session {
     pub email_tag: u16,
     pub read_tag: u16,
     pub use_tag: bool,
+    /// Times the SysOp has been paged this call (`numPaged`).
+    pub pages: u32,
 }
 
 /// Run a caller from connect to disconnect.
@@ -195,6 +197,7 @@ impl Session {
             email_tag: 0,
             read_tag: 0,
             use_tag: false,
+            pages: 0,
         }
     }
 

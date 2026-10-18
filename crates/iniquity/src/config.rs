@@ -26,6 +26,7 @@ pub struct Config {
     pub nuv: Nuv,
     pub dos: Dos,
     pub qwk: Qwk,
+    pub chat: Chat,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -163,6 +164,42 @@ pub enum CharsetPref {
     Auto,
     Cp437,
     Utf8,
+}
+
+/// Paging the SysOp (`CP`): the original's chat mode setup.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Chat {
+    /// Hours a SysOp who's online can be paged (HH:MM; equal = always).
+    pub start: String,
+    pub end: String,
+    /// Who may page outside those hours, and the password they need
+    /// (blank = none).
+    pub override_acs: String,
+    pub override_password: String,
+    /// Pages per call (0 = no limit), and how many five-second rounds a
+    /// page lasts.
+    pub max_page_times: u8,
+    pub page_beeps: u8,
+    /// Give the caller back the time a chat took.
+    pub restore_time: bool,
+    /// Offer to leave the SysOp email when a page goes unanswered.
+    pub ask_email: bool,
+}
+
+impl Default for Chat {
+    fn default() -> Self {
+        Self {
+            start: "11:00".into(),
+            end: "20:00".into(),
+            override_acs: "s150".into(),
+            override_password: String::new(),
+            max_page_times: 3,
+            page_beeps: 6,
+            restore_time: true,
+            ask_email: true,
+        }
+    }
 }
 
 /// QWK offline mail (`QD`, `QU`).

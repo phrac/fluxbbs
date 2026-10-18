@@ -35,6 +35,14 @@ Neither is in git.
   for everything else; aixterm bright colours and iCE backgrounds; 256
   and 24-bit colour art passes through.
 - Nodes, with who's online, node messages, broadcasts and multinode chat.
+- Paging the SysOp (`CP`, `>C` from the matrix): the page goes to a node
+  where a SysOp is logged in, who is asked, wherever they are, whether
+  to chat; the two then chat on the split screen (CHATMODE.ANS), each
+  keystroke sent as it's typed. `/q` ends it, `/bye` from the SysOp
+  hangs the caller up, `/cls` clears the windows. Chat hours, the
+  override ACS and password, pages per call and how long a page lasts
+  are `[chat]` in `iniquity.toml`; outside the hours, or with no SysOp
+  online, the caller is offered email instead.
 
 **Keeping bots out**
 - Key-combination bot check before anything else, on SSH and telnet.
@@ -112,7 +120,6 @@ libraries (unpacked into themes).
 
 | Feature | Original | Commands | Notes |
 |---|---|---|---|
-| Paging the SysOp / SysOp chat | CHATMODE.PAS | `CP`, `>C` | The original split-screen chat assumed a local console; here it would page a SysOp who is logged in on another node, then chat. |
 | Tetris | tetris.pas | `TP`, `TS` | The built-in game and its high scores. |
 | Message attachments | ATTACH.PAS | | Files attached to messages and email. |
 | Echomail / netmail | echomail.pas, INIQMAIL.PAS | | FidoNet-style networking; would need a mailer/tosser bridge today. |
@@ -131,7 +138,7 @@ web or terminal SysOp dashboard could replace the local console later.
 
 | File | What | Edited with |
 |---|---|---|
-| `iniquity.toml` | system settings, `[security]`, `[nuv]`, `[telnet]` | `*C` |
+| `iniquity.toml` | system settings, `[security]`, `[nuv]`, `[telnet]`, `[chat]`, `[qwk]`, `[dos]` | `*C` |
 | `levels.toml` | access levels A–Z | `*L` |
 | `msgareas.toml` | message conferences and areas | `*A`, `*@` |
 | `fileareas.toml` | file conferences and areas | `*F`, `*!` |

@@ -181,7 +181,17 @@ impl Session {
                             self.show_node_messages();
                             self.flush().await?;
                         }
+                        // Someone paging the SysOp here: ask, chat, then
+                        // carry on waiting for whatever was being typed.
+                        if !self.hold_node_msgs && let Some((from, user, reason)) = self.node.take_page() {
+                            Box::pin(self.answer_page(from, user, reason)).await?;
+                            self.flush().await?;
+                            continue;
+                        }
                         let waker = self.node.waker();
+                        // Chat loops wait on the waker themselves (and
+                        // hold node messages), so leave it to them.
+                        let listen = !self.hold_node_msgs;
                         let timeout = async {
                             match deadline {
                                 Some(d) => tokio::time::sleep_until(d).await,
@@ -190,7 +200,7 @@ impl Session {
                         };
                         tokio::select! {
                             r = self.io.read(&mut buf) => break r?,
-                            _ = waker.notified() => continue,
+                            _ = waker.notified(), if listen => continue,
                             _ = timeout => {
                                 // Not `show`: that can wait for keys itself.
                                 let msg = self.strings().get("TimeInactive").to_string();

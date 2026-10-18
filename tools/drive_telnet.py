@@ -117,7 +117,9 @@ for step in steps:
     pat, _, out = step.partition('=>')
     optional = pat.startswith('opt:')
     pat = pat.removeprefix('opt:')
-    deadline = time.time() + (2.5 if optional else 10)
+    long = pat.startswith('long:')
+    pat = pat.removeprefix('long:')
+    deadline = time.time() + (2.5 if optional else 45 if long else 10)
     m = None
     while time.time() < deadline:
         m = re.search(pat, clean()[cmark:], re.S)
@@ -138,5 +140,5 @@ for step in steps:
     send(out.encode('cp437').replace(b'\r', b'\r\x00'))
     time.sleep(0.05)
 pump(1.5)
-open(os.path.join(os.path.dirname(__file__), 'tlast.raw'), 'wb').write(raw)
+open(os.environ.get('RAW_OUT', os.path.join(os.path.dirname(__file__), 'tlast.raw')), 'wb').write(raw)
 print('options seen:', sorted(set(log)))

@@ -179,6 +179,16 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('O', "Compress numbers", 3, "Number listed areas 1, 2, 3... counting only visible ones?", Bool(|c| &mut c.messages.compress_area_numbers)),
             set('P', "ANSI quote text", 40, "Shown instead of quoted lines that contain ANSI.", Text(|c| &mut c.messages.ansi_quote, TEXT.max(100))),
         ]),
+        ("Chat Mode", false, vec![
+            set('A', "Override password", 20, "Password to page outside chat hours (blank = none).", Text(|c| &mut c.chat.override_password, Field::UPPER)),
+            set('B', "Max page times", 3, "Pages allowed per call (0 = no limit).", Num(|c| c.chat.max_page_times as u64, |c, v| c.chat.max_page_times = v as u8, 0, 255)),
+            set('C', "Page beeps", 3, "How many five-second rounds a page lasts.", Num(|c| c.chat.page_beeps as u64, |c, v| c.chat.page_beeps = v as u8, 1, 255)),
+            set('D', "Restore chat time", 3, "Give callers back the time a chat took?", Bool(|c| &mut c.chat.restore_time)),
+            set('E', "Available from", 5, "Start of chat hours (HH:MM); same as the end means always.", Text(|c| &mut c.chat.start, Field { allowed: "0123456789:", ..TEXT.max(5) })),
+            set('F', "Available until", 5, "End of chat hours (HH:MM).", Text(|c| &mut c.chat.end, Field { allowed: "0123456789:", ..TEXT.max(5) })),
+            set('G', "Override ACS", 20, "Who may page outside chat hours.", Text(|c| &mut c.chat.override_acs, ACS)),
+            set('H', "Ask leave email", 3, "Offer to leave the SysOp email when a page goes unanswered?", Bool(|c| &mut c.chat.ask_email)),
+        ]),
         ("File System", false, vec![
             set('A', "Use file points", 3, "Charge file points for downloads?", Bool(|c| &mut c.files.use_file_points)),
             set('B', "Kb per point", 5, "One file point per this many kb.", Num(|c| c.files.kb_per_point as u64, |c, v| c.files.kb_per_point = v as u16, 1, 65_535)),

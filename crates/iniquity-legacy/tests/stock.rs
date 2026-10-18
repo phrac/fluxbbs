@@ -42,6 +42,9 @@ fn config() {
     assert_eq!(c.qwk_filename, "INIQUITY");
     assert_eq!((c.qwk_welcome.as_str(), c.qwk_news.as_str(), c.qwk_goodbye.as_str()), ("WELCOME.ANS", "NEWS.ANS", "LOGOFF.ANS"));
     assert!(c.qwk_strip_sigs);
+    assert_eq!((c.chat_start.as_str(), c.chat_end.as_str(), c.chat_over_acs.as_str()), ("11:00", "20:00", "s150"));
+    assert_eq!((c.max_page_times, c.max_page_beeps), (3, 6));
+    assert!(c.chat_page_noise && c.restore_chat_time && c.page_ask_email && c.no_chat_pw.is_empty());
     assert_eq!((c.light_char, c.light_char_ok, c.light_char_fail), ('■', '√', 'x'));
 }
 

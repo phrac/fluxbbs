@@ -12,7 +12,7 @@ use crate::session::Session;
 /// Commands the original had that aren't ported yet. They report that,
 /// rather than "invalid command", so stock menus degrade honestly.
 const NOT_YET: &[&str] = &[
-    "TP", "TS", "CP", ">C",
+    "TP", "TS",
 ];
 
 impl Session {
@@ -109,6 +109,8 @@ impl Session {
             // -- matrix logon
             ">A" => self.apply().await?,
             ">H" => self.hangup = true,
+            ">C" => self.page_sysop(true).await?,
+            "CP" => self.page_sysop(false).await?,
             ">L" => self.logon_system().await?,
 
             // -- logoff

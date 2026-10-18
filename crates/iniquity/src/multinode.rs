@@ -205,6 +205,8 @@ impl Session {
                         let name = if broadcast { "NodeBCreceived" } else { "NodeMsgReceived" };
                         format!("{}{text}", self.strings().fmt(name, &[&user, &from.to_string()]))
                     }
+                    // Pages and SysOp chat wait in the inbox for their takers.
+                    _ => continue,
                 };
                 self.chat_out(&layout, &mut lines, &line);
             }

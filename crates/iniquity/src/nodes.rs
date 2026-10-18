@@ -18,6 +18,13 @@ pub enum NodeEvent {
     ChatPart { user: String },
     /// Disconnect, after showing `text` (a forced event).
     Kick { text: String },
+    /// Someone paging the SysOp on this node (`CP`), their answer, a
+    /// keystroke in a SysOp chat, and its end (`hangup`: the SysOp said
+    /// `/bye`).
+    Page { from: usize, user: String, reason: String },
+    PageAnswer { from: usize, accept: bool },
+    ChatKey { from: usize, key: u8 },
+    ChatEnd { from: usize, hangup: bool },
 }
 
 impl NodeEvent {
@@ -37,6 +44,8 @@ pub struct NodeInfo {
     pub transport: &'static str,
     /// In multinode chat (chat lines only go to these nodes).
     pub in_chat: bool,
+    /// A SysOp is logged in here (pages come to this node).
+    pub sysop: bool,
 }
 
 pub struct Nodes {
@@ -132,9 +141,11 @@ impl NodeGuard {
     pub fn take(&self, chat: bool) -> Vec<NodeEvent> {
         let mut boxes = self.nodes.inboxes.lock().unwrap();
         let q = &mut boxes[self.index];
-        // Kicks wait for `take_kick`, except in chat, which handles them.
-        let (take, keep): (Vec<_>, Vec<_>) =
-            q.drain(..).partition(|e| chat || !(e.is_chat() || matches!(e, NodeEvent::Kick { .. })));
+        // Kicks wait for `take_kick` (multinode chat handles them itself);
+        // pages and SysOp chat events wait for `take_page` / `take_if`.
+        let (take, keep): (Vec<_>, Vec<_>) = q
+            .drain(..)
+            .partition(|e| matches!(e, NodeEvent::Message { .. }) || (chat && (e.is_chat() || matches!(e, NodeEvent::Kick { .. }))));
         q.extend(keep);
         take
     }
@@ -146,6 +157,33 @@ impl NodeGuard {
         let i = q.iter().position(|e| matches!(e, NodeEvent::Kick { .. }))?;
         match q.remove(i) {
             Some(NodeEvent::Kick { text }) => Some(text),
+            _ => None,
+        }
+    }
+
+    /// The first event `pred` picks, taken out of the inbox.
+    pub fn take_if(&self, pred: impl Fn(&NodeEvent) -> bool) -> Option<NodeEvent> {
+        let mut boxes = self.nodes.inboxes.lock().unwrap();
+        let q = &mut boxes[self.index];
+        let i = q.iter().position(pred)?;
+        q.remove(i)
+    }
+
+    /// A page waiting for this node. Chat events from before it (an
+    /// earlier chat's leftovers) are dropped.
+    pub fn take_page(&self) -> Option<(usize, String, String)> {
+        let mut boxes = self.nodes.inboxes.lock().unwrap();
+        let q = &mut boxes[self.index];
+        let i = q.iter().position(|e| matches!(e, NodeEvent::Page { .. }))?;
+        let stale: Vec<usize> = (0..i)
+            .filter(|&j| matches!(q[j], NodeEvent::ChatKey { .. } | NodeEvent::ChatEnd { .. } | NodeEvent::PageAnswer { .. }))
+            .collect();
+        for j in stale.into_iter().rev() {
+            q.remove(j);
+        }
+        let i = q.iter().position(|e| matches!(e, NodeEvent::Page { .. }))?;
+        match q.remove(i) {
+            Some(NodeEvent::Page { from, user, reason }) => Some((from, user, reason)),
             _ => None,
         }
     }
@@ -196,6 +234,21 @@ mod tests {
         assert_eq!(a.take_kick().as_deref(), Some("bye"));
         assert_eq!(a.take_kick(), None);
         assert_eq!(b.take(true), [NodeEvent::Kick { text: "bye".into() }], "chat takes it");
+    }
+
+    #[test]
+    fn pages_and_chat_keys_wait_for_their_takers() {
+        let n = Nodes::new(2);
+        let a = n.acquire("ssh").unwrap();
+        let _b = n.acquire("ssh").unwrap();
+        n.send(1, NodeEvent::ChatEnd { from: 2, hangup: false });
+        n.send(1, NodeEvent::Page { from: 2, user: "phrac".into(), reason: "hi".into() });
+        n.send(1, NodeEvent::ChatKey { from: 2, key: b'x' });
+        assert!(a.take(false).is_empty() && !a.has_messages());
+        assert_eq!(a.take_page(), Some((2, "phrac".into(), "hi".into())), "the stale ChatEnd before it went");
+        assert_eq!(a.take_if(|e| matches!(e, NodeEvent::ChatEnd { .. })), None);
+        assert_eq!(a.take_if(|e| matches!(e, NodeEvent::ChatKey { .. })), Some(NodeEvent::ChatKey { from: 2, key: b'x' }));
+        assert_eq!(a.take_page(), None);
     }
 
     #[test]

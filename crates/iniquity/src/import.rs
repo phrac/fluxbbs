@@ -437,6 +437,16 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
     p.light = c.light_char;
     p.light_ok = c.light_char_ok;
     p.light_fail = c.light_char_fail;
+    cfg.chat = crate::config::Chat {
+        start: c.chat_start.clone(),
+        end: c.chat_end.clone(),
+        override_acs: c.chat_over_acs.clone(),
+        override_password: c.no_chat_pw.clone(),
+        max_page_times: c.max_page_times,
+        page_beeps: c.max_page_beeps,
+        restore_time: c.restore_chat_time,
+        ask_email: c.page_ask_email,
+    };
     cfg.qwk = crate::config::Qwk {
         packet: c.qwk_filename.clone(),
         welcome: c.qwk_welcome.clone(),

@@ -127,6 +127,19 @@ advance_bar_on_flag = true
 max_upload_bytes = 104857600
 transfer_cps = 500000
 
+# Paging the SysOp (CP): the hours a SysOp who's online can be paged
+# (equal times = always), who may page outside them and with what
+# password, pages per call, how many five-second rounds a page lasts.
+[chat]
+start = "11:00"
+end = "20:00"
+override_acs = "s150"
+override_password = ""
+max_page_times = 3
+page_beeps = 6
+restore_time = true
+ask_email = true
+
 # QWK offline mail: packets are PACKET.QWK, replies PACKET.REP; the
 # screens come from the text directory.
 [qwk]
