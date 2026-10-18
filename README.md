@@ -62,7 +62,12 @@ Neither is in git.
   access levels and daily limits.
 - Messages: areas and conferences, the reader, posting and replying,
   quoting, the full-screen editor, newscans and mandatory messages,
-  email, auto-signatures. Email tags: `E/ n` tags the email written
+  email, auto-signatures. A file can be attached to a message (ACS per
+  public/email in `*C`; nothing in this release's source called
+  ATTACH.PAS, so this follows the manual): uploaded after posting, or
+  named on disk by a SysOp, kept under `data/attach` by the message's
+  row id, offered for download when the message is read, and removed
+  when packing drops the message. Email tags: `E/ n` tags the email written
   this call, `E\ n` with `E+` shows only email tagged `n` (`E-` shows
   it all), e.g. for a separate support mailbox; this release kept the
   tag on messages but never used it, so this follows the manual.
@@ -120,8 +125,6 @@ libraries (unpacked into themes).
 
 | Feature | Original | Commands | Notes |
 |---|---|---|---|
-| Tetris | tetris.pas | `TP`, `TS` | The built-in game and its high scores. |
-| Message attachments | ATTACH.PAS | | Files attached to messages and email. |
 | Echomail / netmail | echomail.pas, INIQMAIL.PAS | | FidoNet-style networking; would need a mailer/tosser bridge today. |
 
 Smaller gaps:
@@ -129,7 +132,9 @@ Smaller gaps:
 - Wrong-password and bot-check failures aren't shown to the SysOp
   anywhere but the log.
 
-**Not planned:** modem setup (`*M`), MicroDOS (`*D`, a shell on the host),
+**Not planned:** Tetris (`TP`, `TS`; the game's source isn't in this
+release, `tetris.pas` being a misnamed terminal unit), modem setup
+(`*M`), MicroDOS (`*D`, a shell on the host),
 the local console and wait-for-call screen (ANSIWFCS, STATBAR,
 WAIT4CAL), and the Oblivion/Renegade converters (OBV2INIQ, REN2INIQ). A
 web or terminal SysOp dashboard could replace the local console later.

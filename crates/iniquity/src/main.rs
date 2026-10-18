@@ -4,6 +4,7 @@
 //!     iniquity import <old-install> [dest]      convert a DOS install
 
 mod acs;
+mod attach;
 mod commands;
 mod cfgedit;
 mod challenge;

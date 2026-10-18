@@ -472,6 +472,8 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
     m.compress_area_numbers = c.comp_msg_areas;
     m.ansi_quote = c.ansi_string.clone();
     m.acs_anon_automsg = c.acs_anon_automsg.clone();
+    m.acs_attach_public = c.acs_attach_public.clone();
+    m.acs_attach_email = c.acs_attach_email.clone();
     cfg.logon.last_callers = c.num_last_calls as u32;
     let f = &mut cfg.files;
     f.use_file_points = c.use_file_points;
@@ -552,6 +554,7 @@ fn convert_message(area: &str, num: u32, h: &LegacyMsgHeader, dat: &[u8]) -> Mes
     // a26's sigPos is the line before the signature.
     let sig_pos = if h.sig_pos > 0 && (h.sig_pos as usize) < lines.len() { h.sig_pos as u32 + 1 } else { 0 };
     Message {
+        id: 0,
         area: area.to_string(),
         num,
         from: convert_party(&h.from),

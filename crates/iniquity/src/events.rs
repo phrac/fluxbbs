@@ -145,6 +145,7 @@ async fn run_command(state: &BbsState, cmd: &str) -> anyhow::Result<()> {
             for a in &state.areas().areas {
                 total += state.msgs.pack(&a.file, a.max_msgs)?;
             }
+            crate::attach::remove_orphans(state)?;
             tracing::info!("event: packed message areas, {total} messages removed");
             Ok(())
         }

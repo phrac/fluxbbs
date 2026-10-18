@@ -104,6 +104,8 @@ max_quote_lines = 11
 mandatory_all_confs = true
 compress_area_numbers = true
 ansi_quote = "(ansi codes detected; line not displayed)"
+acs_attach_public = "s50"
+acs_attach_email = "s50"
 
 [files]
 use_file_points = false

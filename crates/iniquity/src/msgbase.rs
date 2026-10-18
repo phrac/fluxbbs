@@ -25,6 +25,8 @@ pub struct Party {
 
 #[derive(Debug, Clone)]
 pub struct Message {
+    /// Row id: stable across packing, which renumbers `num`.
+    pub id: i64,
     pub area: String,
     pub num: u32,
     pub from: Party,
@@ -40,6 +42,15 @@ pub struct Message {
     /// Email tag (`msgTag`): set from the writer's `E/` tag.
     pub tag: u16,
     pub lines: Vec<String>,
+}
+
+/// A file attached to a message (`tAttachRec`).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Attachment {
+    pub name: String,
+    pub desc: String,
+    pub size: u64,
+    pub uploaded: chrono::NaiveDate,
 }
 
 impl Message {
@@ -78,6 +89,13 @@ CREATE TABLE IF NOT EXISTS messages (
     tag        INTEGER NOT NULL DEFAULT 0,
     UNIQUE (area, num)
 );
+CREATE TABLE IF NOT EXISTS attachments (
+    msg_id   INTEGER PRIMARY KEY,
+    name     TEXT NOT NULL,
+    desc     TEXT NOT NULL,
+    size     INTEGER NOT NULL,
+    uploaded TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS lastread (
     user_id INTEGER NOT NULL,
     area    TEXT NOT NULL COLLATE NOCASE,
@@ -99,6 +117,7 @@ fn party(r: &Row, p: &str) -> rusqlite::Result<Party> {
 fn from_row(r: &Row) -> rusqlite::Result<Message> {
     let body: String = r.get("body")?;
     Ok(Message {
+        id: r.get("id")?,
         area: r.get("area")?,
         num: r.get("num")?,
         from: party(r, "from")?,
@@ -176,7 +195,46 @@ impl MsgBase {
                 m.deleted, m.private, m.anonymous, m.replies, m.sig_pos, m.lines.join("\n"), m.tag
             ],
         )?;
+        m.id = db.last_insert_rowid();
         Ok(())
+    }
+
+    // ---- attachments ----------------------------------------------------
+
+    pub fn attachment(&self, msg_id: i64) -> anyhow::Result<Option<Attachment>> {
+        let db = self.db.lock().unwrap();
+        Ok(db
+            .query_row("SELECT name, desc, size, uploaded FROM attachments WHERE msg_id = ?1", [msg_id], |r| {
+                Ok(Attachment { name: r.get(0)?, desc: r.get(1)?, size: r.get::<_, i64>(2)?.max(0) as u64, uploaded: r.get(3)? })
+            })
+            .optional()?)
+    }
+
+    pub fn set_attachment(&self, msg_id: i64, a: &Attachment) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute(
+            "INSERT OR REPLACE INTO attachments (msg_id, name, desc, size, uploaded) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![msg_id, a.name, a.desc, a.size as i64, a.uploaded],
+        )?;
+        Ok(())
+    }
+
+    pub fn remove_attachment(&self, msg_id: i64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("DELETE FROM attachments WHERE msg_id = ?1", [msg_id])?;
+        Ok(())
+    }
+
+    /// Forget attachments whose message no longer exists; returns their
+    /// (message id, file name) so the files can go too.
+    pub fn orphan_attachments(&self) -> anyhow::Result<Vec<(i64, String)>> {
+        let db = self.db.lock().unwrap();
+        let gone: Vec<(i64, String)> = {
+            let mut stmt = db.prepare("SELECT msg_id, name FROM attachments WHERE msg_id NOT IN (SELECT id FROM messages)")?;
+            stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?
+        };
+        db.execute("DELETE FROM attachments WHERE msg_id NOT IN (SELECT id FROM messages)", [])?;
+        Ok(gone)
     }
 
     /// Save changes to an existing message (flags, replies, text).
@@ -307,6 +365,7 @@ mod tests {
 
     fn msg(area: &str, to: &str, text: &str) -> Message {
         Message {
+            id: 0,
             area: area.into(),
             num: 0,
             from: Party { user_id: 1, alias: "SysOp".into(), real_name: "System Operator".into(), name: "SysOp".into(), note: String::new() },
@@ -342,6 +401,28 @@ mod tests {
         let mb = MsgBase::open(&path).unwrap();
         assert_eq!(mb.get("EMAIL", 1).unwrap().unwrap().tag, 0);
         std::fs::remove_file(&path).unwrap();
+    }
+
+    #[test]
+    fn attachments_follow_their_message_through_packing() {
+        let mb = MsgBase::open_memory().unwrap();
+        let mut a = msg("GEN", "All", "first");
+        a.deleted = true;
+        mb.add(&mut a).unwrap();
+        let mut b = msg("GEN", "All", "second");
+        mb.add(&mut b).unwrap();
+        assert!(a.id > 0 && b.id > a.id);
+        let file = Attachment { name: "X.ZIP".into(), desc: "x".into(), size: 5, uploaded: chrono::NaiveDate::from_ymd_opt(2026, 10, 17).unwrap() };
+        mb.set_attachment(a.id, &file).unwrap();
+        mb.set_attachment(b.id, &file).unwrap();
+        mb.pack("GEN", 0).unwrap();
+        let kept = mb.get("GEN", 1).unwrap().unwrap();
+        assert_eq!((kept.id, kept.lines[0].as_str()), (b.id, "second"), "renumbered, same row");
+        assert_eq!(mb.attachment(kept.id).unwrap(), Some(file.clone()));
+        assert_eq!(mb.orphan_attachments().unwrap(), [(a.id, "X.ZIP".to_string())]);
+        assert!(mb.orphan_attachments().unwrap().is_empty());
+        mb.remove_attachment(kept.id).unwrap();
+        assert_eq!(mb.attachment(kept.id).unwrap(), None);
     }
 
     #[test]

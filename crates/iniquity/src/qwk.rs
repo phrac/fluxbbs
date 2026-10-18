@@ -647,6 +647,7 @@ impl Session {
         // The original took the last line starting "--" as the signature.
         let sig_pos = lines.iter().rposition(|l| l.chars().take(4).collect::<String>().contains("--")).map_or(0, |i| i as u32 + 1);
         let mut m = Message {
+            id: 0,
             area: a.area.file.clone(),
             num: 0,
             from,

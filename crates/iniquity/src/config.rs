@@ -156,6 +156,8 @@ pub struct Paths {
     pub scripts: PathBuf,
     /// Scheduled events (`*V`).
     pub events: PathBuf,
+    /// Files attached to messages (`pathAtch`).
+    pub attach: PathBuf,
 }
 
 #[derive(Debug, Deserialize, Serialize, Clone, Copy, PartialEq, Eq)]
@@ -348,6 +350,9 @@ pub struct Messages {
     pub acs_anon_automsg: String,
     /// May append their auto-signature.
     pub acs_autosig: String,
+    /// May attach a file to a public message, or to email.
+    pub acs_attach_public: String,
+    pub acs_attach_email: String,
     /// Callers may quit reading mandatory messages.
     pub abort_mandatory_ok: bool,
     pub ask_private: bool,
@@ -377,6 +382,8 @@ impl Default for Messages {
             acs_anonymous: "s50".into(),
             acs_anon_automsg: "s50".into(),
             acs_autosig: "s25".into(),
+            acs_attach_public: "s50".into(),
+            acs_attach_email: "s50".into(),
             abort_mandatory_ok: false,
             ask_private: true,
             ask_private_reply: true,
@@ -563,6 +570,7 @@ impl Default for Paths {
             doors: "data/doors".into(),
             scripts: "scripts".into(),
             events: "events.toml".into(),
+            attach: "data/attach".into(),
         }
     }
 }

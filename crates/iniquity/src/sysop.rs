@@ -337,6 +337,7 @@ impl Session {
                         self.show(&format!("|U1Delete this area's {msgs} messages? ")).await?;
                         if self.yes_no(false).await? {
                             self.state.msgs.delete_area(&gone.file).map_err(io_err)?;
+                            crate::attach::remove_orphans(&self.state).map_err(io_err)?;
                         }
                     }
                 }
@@ -495,6 +496,11 @@ impl Session {
             total += self.state.msgs.pack(&a.file, a.max_msgs).map_err(io_err)?;
             let s = self.strings().fmt("MsgPackEnd", &[&a.name, &count.to_string()]);
             self.show_line(&s).await?;
+        }
+        match crate::attach::remove_orphans(&self.state) {
+            Ok(n) if n > 0 => tracing::info!("{}: {n} orphaned attachment(s) removed", self.user.handle),
+            Err(e) => tracing::error!("removing orphaned attachments: {e}"),
+            _ => {}
         }
         tracing::info!("{}: packed message areas, {total} messages removed", self.user.handle);
         Ok(())

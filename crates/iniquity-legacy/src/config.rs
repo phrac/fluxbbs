@@ -68,6 +68,8 @@ pub struct LegacyConfig {
     pub restore_chat_time: bool,
     pub chat_over_acs: String,
     pub page_ask_email: bool,
+    pub acs_attach_public: String,
+    pub acs_attach_email: String,
     pub inact_time: bool,
     pub inact_seconds: u16,
     pub inact_warning: u16,
@@ -198,7 +200,9 @@ impl LegacyConfig {
         let ask_auto_quote = r.bool();
         let default_quote_num = r.bool();
         let max_quote_lines = r.u8();
-        r.skip(1 + 41 + 21 * 2); // iniqAsDoor, pathAtch, acsAttach*
+        r.skip(1 + 41); // iniqAsDoor, pathAtch
+        let acs_attach_public = r.string(20);
+        let acs_attach_email = r.string(20);
         let conf_ignore_msg = r.bool();
         let comp_msg_areas = r.bool();
         r.skip(1); // compFileAreas
@@ -280,7 +284,7 @@ impl LegacyConfig {
             file_desc1, file_desc2, desc_wrap, adv_file_bar, allow_blind, acs_anon_automsg,
             qwk_filename, qwk_welcome, qwk_news, qwk_goodbye, qwk_local_path, qwk_ignore_time,
             qwk_strip_sigs, no_chat_pw, chat_page_noise, max_page_times, max_page_beeps,
-            restore_chat_time, chat_over_acs, page_ask_email,
+            restore_chat_time, chat_over_acs, page_ask_email, acs_attach_public, acs_attach_email,
         })
     }
 }

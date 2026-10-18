@@ -408,7 +408,7 @@ impl Session {
                 break;
             }
         }
-        Ok(())
+        self.offer_attachment(m).await
     }
 
     // ---- reading --------------------------------------------------------
@@ -789,6 +789,7 @@ impl Session {
             lines.extend(self.user.autosig.iter().cloned());
         }
         let mut m = Message {
+            id: 0,
             area: a.key().to_string(),
             num: 0,
             from,
@@ -804,6 +805,12 @@ impl Session {
             lines,
         };
         self.state.msgs.add(&mut m).map_err(io_err)?;
+        if self.may_attach(a) {
+            self.say("AtchAskAttach").await?;
+            if self.yes_no(false).await? {
+                self.attach_file(&m).await?;
+            }
+        }
         if private {
             self.user.email += 1;
             self.bump(crate::sysdata::Stat::Email);
