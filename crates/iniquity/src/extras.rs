@@ -241,7 +241,8 @@ impl Session {
             return self.say_line("NoAutoMsg").await;
         };
         let author = if m.anonymous { self.strings().get("Anonymous").to_string() } else { m.author.clone() };
-        if self.show_file_with("AUTOTOP", &waves([("MT", m.title.clone())])).await? {
+        let w = waves([("MT", m.title.clone()), ("SN", author.clone())]);
+        if self.show_file_with("AUTOTOP", &w).await? {
             self.goto_pos(*b"TL");
         } else {
             self.newline();
@@ -253,7 +254,7 @@ impl Session {
             self.write_with_controls(l);
             self.newline();
         }
-        if !self.show_file_with("AUTOBOT", &waves([("SN", author.clone())])).await? {
+        if !self.show_file_with("AUTOBOT", &w).await? {
             self.rule().await?;
             self.show_line(&format!("|U4Posted by|U5: |U6{author}")).await?;
         }

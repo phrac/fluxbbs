@@ -39,7 +39,7 @@ Neither is in git.
   where a SysOp is logged in, who is asked, wherever they are, whether
   to chat; the two then chat on the split screen (CHATMODE.ANS), each
   keystroke sent as it's typed. `/q` ends it, `/bye` from the SysOp
-  hangs the caller up, `/cls` clears the windows. Chat hours, the
+  hangs the caller up, `/cls` clears the windows, `/?` shows CHATHELP. Chat hours, the
   override ACS and password, pages per call and how long a page lasts
   are `[chat]` in `iniquity.toml`; outside the hours, or with no SysOp
   online, the caller is offered email instead.

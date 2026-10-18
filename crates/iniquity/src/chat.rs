@@ -6,7 +6,8 @@
 //! (CHATMODE.ANS: `~st`-`~sb` is the SysOp's window, `~ut`-`~ub` the
 //! caller's), each keystroke sent to the other node as it's typed, so
 //! both see the same two windows. `/q` ends the chat; `/bye` from the
-//! SysOp hangs the caller up; `/cls` clears both windows.
+//! SysOp hangs the caller up; `/cls` clears both windows; `/?` shows
+//! CHATHELP.
 //!
 //! Availability (`mSysOpAvail` isn't in the surviving source) is the chat
 //! hours in the config, and a SysOp being online.
@@ -359,6 +360,21 @@ impl Session {
                                 mine.clear(&mut self.screen);
                                 theirs.clear(&mut self.screen);
                                 send(KEY_CLS);
+                            }
+                            // CHATHELP, then the screen again (only this
+                            // side's windows start over).
+                            Some("?") => {
+                                self.set_slot(Slot::Text);
+                                self.clear_screen();
+                                if self.show_file("CHATHELP").await? {
+                                    self.prompt_key().await?;
+                                }
+                                let (s_win, u_win) = self.chat_windows(peer_name, i_am_sysop).await?;
+                                let (m, t) = if i_am_sysop { (s_win, u_win) } else { (u_win, s_win) };
+                                mine = m;
+                                theirs = t;
+                                mine.clear(&mut self.screen);
+                                theirs.clear(&mut self.screen);
                             }
                             _ => {}
                         }
