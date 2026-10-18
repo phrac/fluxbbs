@@ -44,10 +44,16 @@ git: copy `data/` and `files/` across if the board should move with you.
   stock NEWUSER menu auto-validated everyone outside area code 902; level
   "lower" wrapped to the top level). Mention when you deviate.
 - Don't make ANSI art for them; they supply their own (see
-  `docs/ARTWORK.md`). Their main menu is a 24-bit colour graffiti logo with
-  a generated command list.
-- This board: handles kept as typed (`phrac`, not `Phrac`), new users asked
-  only for handle and password, bot protection on SSH and telnet.
+  `docs/ARTWORK.md`). Adding a menu's command list or lightbar markers
+  (`~01^01`...) under their art is fine.
+- Keep the repo stock: their board (disflux) lives in
+  `~/code/disflux_bbs`, outside the repo, with its own `iniquity.toml`,
+  `data/`, `files/` and `text/` (their screens; `art/` holds the
+  originals), using the repo's `text/` as `stock_text` and its `menus/`.
+  Board settings go there, not in the repo's `iniquity.toml`: handles
+  kept as typed (`alias_format = 1`), new users asked only for handle and
+  password. Run it with `iniquity ~/code/disflux_bbs/iniquity.toml`. The
+  repo's own `data/` is just a dev copy.
 
 ## Conventions
 

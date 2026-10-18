@@ -630,13 +630,15 @@ impl Session {
     /// `sfGetTextFile`: with no extension, prefer `.ANS` then `.ASC`. An ANSI
     /// screen may have random variants (`.AN1`-`.AN9`) and a weekday
     /// override (`.A0S`-`.A6S`, Sunday = 0). The caller's theme (text
-    /// library) is looked in first, then the text directory.
+    /// library) is looked in first, then the text directory, then the
+    /// stock screens (`stock_text`).
     pub(crate) fn find_text_file(&self, name: &str) -> Option<PathBuf> {
         if name.is_empty() {
             return None;
         }
-        let text = self.state.config().resolve(&self.state.config().paths.text);
-        let dirs: Vec<PathBuf> = self.theme_dir().into_iter().chain(std::iter::once(text)).collect();
+        let cfg = self.state.config();
+        let stock = (!cfg.paths.stock_text.as_os_str().is_empty()).then(|| cfg.resolve(&cfg.paths.stock_text));
+        let dirs: Vec<PathBuf> = self.theme_dir().into_iter().chain([cfg.resolve(&cfg.paths.text)]).chain(stock).collect();
         if name.contains('.') {
             return dirs.iter().find_map(|d| find_ci(d, name));
         }

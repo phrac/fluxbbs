@@ -48,7 +48,7 @@ def render(data, rows_max=60):
                     elif p == 5: blink = True
                     elif 30 <= p <= 37: fg = ANSI2DOS[p-30]
                     elif 40 <= p <= 47: bg = ANSI2DOS[p-40]
-                    elif 90 <= p <= 97: fg = ANSI2DOS[p-90]; bold = True
+                    elif 90 <= p <= 97: fg = ANSI2DOS[p-90] | 8
                     elif 100 <= p <= 107: bg = ANSI2DOS[p-100] | 8
                     elif p == 22: bold = False
             elif f in b'Hf':

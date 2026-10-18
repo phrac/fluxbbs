@@ -177,6 +177,25 @@ Files that don't exist yet use built-in defaults; the editors create
 them. Most changes apply at once; SSH, telnet and path settings need a
 restart.
 
+### Running a board outside the repo
+
+Paths in `iniquity.toml` are relative to that file, so a board can live
+in its own directory, apart from the code, and be started with
+`iniquity /path/to/board/iniquity.toml`. Copy `iniquity.toml`,
+`msgareas.toml` and `fileareas.toml` there, and point the shared parts back
+at the repo:
+
+    [paths]
+    text = "text"                          # the board's own screens
+    stock_text = "../iniquity/text"        # stock screens, for the rest
+    menus = "../iniquity/menus"
+    scripts = "../iniquity/scripts"
+
+A screen in the board's `text/` replaces the stock one of the same name;
+anything it doesn't have comes from `stock_text`. `data/`, `files/` and
+whatever the editors create then stay with the board, and the repo stays
+stock. (Copy `menus/` too once you want to change menus with `*#`.)
+
 ## Doors
 
 A door is a menu command `D0`–`D4` or `DZ` whose parameter is a shell

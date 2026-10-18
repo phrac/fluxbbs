@@ -129,6 +129,9 @@ impl Default for Telnet {
 #[serde(default, deny_unknown_fields)]
 pub struct Paths {
     pub text: PathBuf,
+    /// Screens to fall back on when `text` doesn't have one, so a board's
+    /// own art can live apart from the stock screens. Empty for none.
+    pub stock_text: PathBuf,
     pub menus: PathBuf,
     pub data: PathBuf,
     /// Prompt string overrides; built-in stock strings fill any gaps.
@@ -593,6 +596,7 @@ impl Default for Paths {
     fn default() -> Self {
         Self {
             text: "text".into(),
+            stock_text: PathBuf::new(),
             menus: "menus".into(),
             data: "data".into(),
             strings: "strings.toml".into(),

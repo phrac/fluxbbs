@@ -117,10 +117,17 @@ impl Session {
         if name.is_empty() || name.contains(['/', '\\']) || name.starts_with('.') {
             return Ok(());
         }
-        let dir = self.state.config().resolve(&self.state.config().paths.text);
+        let cfg = self.state.config();
+        let dir = cfg.resolve(&cfg.paths.text);
         let path = crate::session::find_ci(&dir, name).unwrap_or_else(|| dir.join(name));
+        // A stock file the board hasn't written yet starts from the stock copy.
+        let from = if path.exists() || cfg.paths.stock_text.as_os_str().is_empty() {
+            path.clone()
+        } else {
+            crate::session::find_ci(&cfg.resolve(&cfg.paths.stock_text), name).unwrap_or_else(|| path.clone())
+        };
         let _guard = self.state.text_lock.lock().unwrap();
-        let mut lines: Vec<Vec<u8>> = match std::fs::read(&path) {
+        let mut lines: Vec<Vec<u8>> = match std::fs::read(&from) {
             Ok(b) => {
                 let b = b.split(|&c| c == 0x1a).next().unwrap_or_default().to_vec();
                 b.split(|&c| c == b'\n').map(|l| l.strip_suffix(b"\r").unwrap_or(l).to_vec()).collect()

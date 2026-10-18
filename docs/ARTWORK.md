@@ -2,6 +2,14 @@
 
 Screens live in `text/` as `NAME.ANS`. Replace a file and the BBS uses it on
 the next display, with no restart needed. Tick each one off as it's done.
+To keep your art out of the repo, run the board from its own directory
+with `stock_text` pointing at the repo's screens (README, "Running a board
+outside the repo") and put your screens in the board's `text/`.
+
+Lightbar menus (MATRIX, GOODBYE) draw their options themselves: mark each
+option's place with `~01^01`, `~02^02`... in command order (`~NN` is where
+it's drawn highlighted, `^NN` where it's drawn plain), and optionally
+`~HP` for the help line.
 
 ## What a caller sees, in order
 
