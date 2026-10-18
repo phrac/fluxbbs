@@ -53,7 +53,7 @@ pub fn safe_name(raw: &[u8]) -> Option<String> {
         .collect::<String>()
         .trim_start_matches('.')
         .chars()
-        .take(64)
+        .take(128)
         .collect();
     (!clean.is_empty()).then_some(clean)
 }

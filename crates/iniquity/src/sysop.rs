@@ -376,7 +376,7 @@ impl Session {
             let mut f = Form::new(&format!("{} Message Area Editor", self.state.config().bbs.name));
             f.value_col(20);
             f.label("Current area", 12, format!("{num} of {n}"));
-            f.item('A', "Description", 40, &a.name, "This message area's description (shown in message area lists, etc).");
+            f.item('A', "Description", 40, &a.name, "This message area's description (shown in message area lists, etc); up to 80 characters.");
             f.item('B', "Storage key", 8, &a.file, "Name the area's messages are kept under (letters and digits).");
             f.item('G', "Area sponsor", 36, &a.sponsor, "Creator or manager of this message area (usually the SysOp).");
             f.item('H', "Access ACS", 20, &a.acs, "ACS required to access or read messages in this area.");
@@ -398,7 +398,7 @@ impl Session {
                 let Some(key) = self.cfg_command(&mut f).await? else { break 0 };
                 match key {
                     'A' => {
-                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(80)).await? {
                             a.name = v;
                         }
                     }
@@ -688,7 +688,7 @@ impl Session {
             let files = self.state.files.count(&a.file).map_err(io_err)?;
             let mut f = Form::new(&format!("{} File Area Editor", self.state.config().bbs.name));
             f.label("Current area", 12, format!("{num} of {n}"));
-            f.item('A', "Description", 40, &a.name, "This file area's description (shown in file area lists, etc).");
+            f.item('A', "Description", 40, &a.name, "This file area's description (shown in file area lists, etc); up to 80 characters.");
             f.item('B', "Storage key", 8, &a.file, "Name the area's file records are kept under (letters and digits).");
             f.item('C', "File path", 40, a.path.display().to_string(), "Directory the files are stored in (relative to the config).");
             f.item('D', "Area sponsor", 36, &a.sponsor, "Creator or manager of this file area (usually the SysOp).");
@@ -707,7 +707,7 @@ impl Session {
                 let Some(key) = self.cfg_command(&mut f).await? else { break 0 };
                 match key {
                     'A' => {
-                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(80)).await? {
                             a.name = v;
                         }
                     }
@@ -838,7 +838,7 @@ impl Session {
             f.item('/', "Current file #", 30, format!("{cur} of {total}{missing}"), "");
             f.item_beside(40, '[', "Prev", 0, "", "");
             f.item_beside(60, ']', "Next", 0, "", "");
-            f.item('A', "Filename", 12, &fr.name, "Filename; the file itself is renamed too.");
+            f.item('A', "Filename", 40, &fr.name, "Filename; the file itself is renamed too.");
             f.item('B', "Size", 12, fr.size.to_string(), "Size of this file in bytes (should not normally be altered).");
             f.item('C', "Date", 8, fmt_date(fr.date), "File's date [mm/dd/yy].");
             f.item('D', "Downloads", 5, fr.downloads.to_string(), "Number of times this file has been downloaded.");
@@ -893,7 +893,7 @@ impl Session {
                         continue 'files;
                     }
                     'A' => {
-                        let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(64)).await? else { continue };
+                        let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(255)).await? else { continue };
                         let Some(name) = safe_name(v.as_bytes()).filter(|n| *n != fr.name) else {
                             self.cfg_set(&mut f, key, &fr.name);
                             continue;

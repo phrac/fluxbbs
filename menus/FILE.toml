@@ -101,13 +101,12 @@ off = "|B0Join file conf"
 
 [[command]]
 keys = "L"
-command = "FL"
-param = "Ask"
+command = "FW"
 acs = "s25"
-desc = "List files"
-help = "List files in current file area (if there are any)"
-on = "|B1List files"
-off = "|B0List files"
+desc = "Browse files"
+help = "Browse the file areas: open archives, view text, art and pictures"
+on = "|B1Browse files"
+off = "|B0Browse files"
 
 [[command]]
 keys = "N"

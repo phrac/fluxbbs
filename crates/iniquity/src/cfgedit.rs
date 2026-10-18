@@ -162,6 +162,7 @@ impl Form {
 impl Session {
     /// `cfgInit` + items + `cfgBar` + `cfgDrawAllItems`.
     pub fn cfg_draw(&mut self, f: &Form) {
+        self.full_screen_done();
         self.set_slot(Slot::Text);
         self.clear_screen();
         self.write_with_controls("|U5▐▄");

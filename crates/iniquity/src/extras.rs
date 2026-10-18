@@ -625,6 +625,7 @@ impl Session {
     /// The configuration screen with a given layout file (NEWCFG for new
     /// users checking their application).
     pub async fn user_config_screen(&mut self, screen: &str) -> io::Result<()> {
+        self.full_screen_done();
         // Enter saves; Escape puts everything back (a password change,
         // confirmed on its own, stays).
         let (original, charset) = (self.user.clone(), self.screen.charset());

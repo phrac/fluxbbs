@@ -87,10 +87,14 @@ Neither is in git.
   (single and batch, with points, ratios and daily limits), uploads
   (blind or named, with FILE_ID.DIZ import, or for a single piece of
   art, alone or alone in a ZIP, a description from its SAUCE: title,
-  artist/group and date, comments), search and newscan, archive
-  browsing (a ZIP, tar or tar.gz opens as a list of its files; Enter
-  shows one: text and ANSI in the viewer, pictures as ANSI), local
-  upload. Zmodem built in; other protocols and archivers
+  artist/group and date, comments), search and newscan, local upload.
+  Browsing (`FW`, L on the file menu; new) works like the art gallery
+  over the file areas: areas are folders (with their file counts and
+  newest upload), archives (ZIP, tar, tar.gz) open as folders in place,
+  and Enter shows a file: text and ANSI in the viewer, pictures as ANSI
+  (animated GIFs play); D downloads, with the area's usual checks. `FV`
+  opens an archive the same way. Names are shown whole, sizes as
+  "4.5 KB", and typed names keep their case. Zmodem built in; other protocols and archivers
   (RAR, 7Z, LHA via bsdtar/7-Zip) are external programs. Before a
   download the caller can ask to be logged off when it's done (a
   countdown afterwards; `*C`, Transfers).
@@ -544,6 +548,9 @@ gets UTF-8, with DOS behaviour emulated: hard wrap at column 80 and
   in.
 - `docs/ARTWORK.md`: checklist of screens to replace with custom art.
 - `tools/ansi2png.py`: renders an ANSI file to PNG for previews.
+- `tools/menuscreen.py`: makes menu screens (and the user config forms,
+  the lister frame and the file area list) in one style from the menus,
+  with a shared `|SA` header.
 - `tools/drive_ssh.py`, `tools/drive_telnet.py`: scripted callers for
   testing a running board (see `CLAUDE.md`).
 - `CLAUDE.md`: notes for picking the work up (conventions, testing).

@@ -494,6 +494,7 @@ impl Session {
             match key {
                 'Q' => {
                     if may_quit {
+                        self.full_screen_done();
                         return Ok(false);
                     }
                     self.say_line("MsgReadMandatory").await?;
@@ -1058,7 +1059,10 @@ impl Session {
                 continue;
             }
             match key {
-                'Q' => break,
+                'Q' => {
+                    self.full_screen_done();
+                    break;
+                }
                 '\r' => {
                     if cur < total {
                         cur += 1;

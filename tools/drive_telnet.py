@@ -111,7 +111,7 @@ def solve(wrong=False):
         send(b'\x1b' if k == 'ESC' else k.encode())
         time.sleep(0.15)
 
-keys = {'\\r': '\r', '\\e': '\x1b', '\\x15': '\x15', '{RIGHT}': '\x1b[C', '{LEFT}': '\x1b[D'}
+keys = {'\\r': '\r', '\\e': '\x1b', '\\x15': '\x15', '{RIGHT}': '\x1b[C', '{LEFT}': '\x1b[D', '{UP}': '\x1b[A', '{DOWN}': '\x1b[B'}
 cmark = 0
 for step in steps:
     pat, _, out = step.partition('=>')

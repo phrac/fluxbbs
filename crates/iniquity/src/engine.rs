@@ -28,6 +28,10 @@ pub struct MenuState {
     pub exec_first: bool,
     do_help: bool,
     pub(crate) last_cmd_good: bool,
+    /// The last command ended in a full-screen view the caller quit
+    /// (lister, viewer, editor): no "press any key" before the menu. New;
+    /// the original paused after every command.
+    pub(crate) skip_pause: bool,
     /// Set by `-^ -/ -\` to stop running stacked commands (`Done`).
     pub(crate) done: bool,
     /// A menu change is pending (`NewMnuToLoad`).
@@ -110,6 +114,12 @@ impl Session {
         Ok(())
     }
 
+    /// A full-screen view the caller has just quit: there's nothing left
+    /// to read, so the menu comes back without a pause.
+    pub(crate) fn full_screen_done(&mut self) {
+        self.menu.skip_pause = true;
+    }
+
     /// After entering a menu, queue its FIRSTCMD commands.
     pub fn queue_first_cmd(&mut self) {
         let first = self.menu.commands().iter().any(|c| c.keys == FIRST_CMD && self.acs(&c.acs));
@@ -169,10 +179,11 @@ impl Session {
         };
         self.nonstop = false;
         self.check_expert();
-        if menu.pause_before && self.menu.do_help && self.menu.last_cmd_good {
+        if menu.pause_before && self.menu.do_help && self.menu.last_cmd_good && !self.menu.skip_pause {
             self.prompt_key().await?;
         }
         self.menu.last_cmd_good = false;
+        self.menu.skip_pause = false;
         let lightbar = menu.menu_type == MenuType::Lightbar && self.text_file_exists(&menu.help_file);
         if self.menu.do_help && !lightbar {
             self.menu_show(&menu).await?;

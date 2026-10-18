@@ -11,14 +11,14 @@ use iniquity_term::{Color, Slot};
 use crate::editor::EditCtx;
 use crate::fileareas::FileArea;
 use crate::filebase::{FileRec, wildcard};
-use crate::input::{Case, DIGITS, Key, ReadOpts};
+use crate::input::{DIGITS, Key, ReadOpts};
 use crate::session::{Session, Waves, waves};
 use crate::transfer::{Proto, safe_name};
 use crate::user::{fmt_date, parse_date};
 
 pub const MAX_BATCH: usize = 20;
 pub(crate) const MAX_DESC_LINES: usize = 20;
-pub(crate) const DESC_WIDTH: usize = 50;
+pub(crate) const DESC_WIDTH: usize = 70;
 const MAX_UPLOAD_NAMES: usize = 60;
 
 /// A file area being worked on: its number and definition.
@@ -140,6 +140,15 @@ pub(crate) struct Layout {
     pub(crate) cl: [Color; 6],
     /// Scroll bar: start x, end x, y, empty char/colour, full char/colour.
     scroll: Option<(u16, u16, u16, char, Color, char, Color)>,
+}
+
+impl Layout {
+    /// Room for a name before the next column (less the flag brackets).
+    pub(crate) fn name_width(&self) -> usize {
+        let x = self.name_x.unwrap_or(2);
+        let next = [self.size_x, self.pts_x, self.desc_x].into_iter().flatten().filter(|&n| n > x).min().unwrap_or(80);
+        (next - x).saturating_sub(2).max(8) as usize
+    }
 }
 
 pub(crate) struct MenuBar {
@@ -284,16 +293,20 @@ impl Session {
                 // in the full list each area counts its own.
                 let counted = if change { fareas.subtree(n).into_iter().filter(|m| visible.iter().any(|&(v, _)| v == *m)).collect() } else { vec![n] };
                 let mut count = 0;
+                let mut newest: Option<chrono::NaiveDate> = None;
                 for m in counted {
                     if let Some(a) = fareas.get(m) {
                         count += self.state.files.count(&a.file).map_err(io_err)?;
+                        let latest = self.state.files.list(&a.file).map_err(io_err)?.into_iter().filter(|f| f.valid).filter_map(|f| f.uploaded).max();
+                        newest = newest.max(latest);
                     }
                 }
+                let newest = newest.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
                 let mut name = format!("{}{}", "  ".repeat(depth), fareas.areas[n as usize - 1].name);
                 if !subs.is_empty() {
                     name.push_str(&suffix);
                 }
-                rows.push((label, n, name, count, fareas.areas[n as usize - 1].sponsor.clone()));
+                rows.push((label, n, name, count, fareas.areas[n as usize - 1].sponsor.clone(), newest));
             }
             let mut rep = self.repeat_begin("FAREA", true).await?;
             if rep.is_none() {
@@ -304,11 +317,11 @@ impl Session {
                 self.rule().await?;
             }
             let mut lines = 4;
-            for (label, n, name, count, sponsor) in &rows {
+            for (label, n, name, count, sponsor, newest) in &rows {
                 let here = *n == self.user.cur_file_area;
                 let more = match rep.as_mut() {
                     Some(r) => {
-                        let w = waves([("AT", name.clone()), ("AN", label.to_string()), ("NF", count.to_string()), ("SP", sponsor.clone())]);
+                        let w = waves([("AT", name.clone()), ("AN", label.to_string()), ("NF", count.to_string()), ("SP", sponsor.clone()), ("NW", newest.clone())]);
                         self.repeat_row(r, &w, here).await?
                     }
                     None => {
@@ -385,7 +398,7 @@ impl Session {
     async fn locate_file(&mut self, param: &str, ask: &str) -> io::Result<Option<(FAreaRef, FileRec)>> {
         self.say(ask).await?;
         let name = if param.trim().is_empty() {
-            let s = self.read_string(ReadOpts::new(64).case(Case::Upper)).await?;
+            let s = self.read_string(ReadOpts::new(128)).await?;
             self.newline();
             s
         } else {
@@ -819,7 +832,7 @@ impl Session {
     fn lister_name(&mut self, l: &Layout, f: &FileRec, y: u16, hi: bool, flagged: bool) {
         let Some(x) = l.name_x else { return };
         // A name too long for the column gets the row to itself.
-        let shown = lister_shown_name(&f.name).unwrap_or_else(|| squish(&f.name, 78usize.saturating_sub(x as usize)));
+        let shown = lister_shown_name(&f.name, l.name_width()).unwrap_or_else(|| squish(&f.name, 78usize.saturating_sub(x as usize)));
         let (text, mark) = if hi { (l.cl[3], l.cl[5]) } else { (l.cl[0], l.cl[2]) };
         self.screen.goto(x.saturating_sub(1).max(1), y);
         self.screen.set_color(if flagged { mark } else { text });
@@ -882,7 +895,7 @@ impl Session {
         for (idx, f) in files.iter().enumerate().skip(first) {
             let desc: Vec<String> = if f.description.is_empty() { vec![no_desc.clone()] } else { f.description.clone() };
             // A long name has its own row; the rest starts below it.
-            let below = lister_shown_name(&f.name).is_none() as usize;
+            let below = lister_shown_name(&f.name, l.name_width()).is_none() as usize;
             let need = desc.len().max(1) + below;
             // A file always gets the first row, even if its description
             // must be cut short.
@@ -905,7 +918,7 @@ impl Session {
             if let Some(x) = l.size_x {
                 self.screen.goto(x, y);
                 self.screen.set_color(l.cl[0]);
-                self.write(&format!("{}k", f.size / 1024));
+                self.write(&short_size(f.size));
             }
             if let Some(x) = l.pts_x {
                 self.screen.goto(x, y);
@@ -944,6 +957,7 @@ impl Session {
     /// `faListFiles`: browse files with the LISTFILE screen. Returns false
     /// if the caller quit (ending a multi-area scan).
     pub async fn file_lister(&mut self, a: &FAreaRef, files: &[FileRec], skip_ok: bool) -> io::Result<bool> {
+        self.full_screen_done();
         if files.is_empty() {
             return Ok(true);
         }
@@ -1205,7 +1219,7 @@ impl Session {
         let mut files = self.state.files.list(&a.area.file).map_err(io_err)?;
         if param.trim().eq_ignore_ascii_case("ASK") {
             self.say("FaAskListFiles").await?;
-            let spec = self.read_string(ReadOpts::new(64).case(Case::Upper)).await?;
+            let spec = self.read_string(ReadOpts::new(128)).await?;
             self.newline();
             if !matches!(spec.as_str(), "" | "*" | "*.*") {
                 files.retain(|f| wildcard(&spec, &f.name));
@@ -1277,7 +1291,7 @@ impl Session {
     pub async fn search_files(&mut self, by_name: bool) -> io::Result<()> {
         self.newline();
         self.say(if by_name { "FaSearchAskFile" } else { "FaSearchAskDesc" }).await?;
-        let what = self.read_string(ReadOpts::new(50).case(if by_name { Case::Upper } else { Case::Normal })).await?;
+        let what = self.read_string(ReadOpts::new(if by_name { 128 } else { 70 })).await?;
         self.newline();
         if what.is_empty() {
             return Ok(());
@@ -1341,41 +1355,12 @@ impl Session {
         // Don't carry the lister's bar colour into a fresh screen.
         self.screen.set_color(Color::DEFAULT);
         match crate::upscan::kind_of(&f.name) {
-            crate::upscan::Kind::Text => return self.view_text_file(&path, &f.name).await,
-            k @ (crate::upscan::Kind::TarGz | crate::upscan::Kind::Tar | crate::upscan::Kind::Gzip) => {
-                let cap = crate::upscan::Limits::from_config(&self.state.config().files).cap(std::fs::metadata(&path)?.len());
-                let p = path.clone();
-                let listed = tokio::task::spawn_blocking(move || crate::upscan::tar_listing(&p, k, cap)).await.map_err(io::Error::other)?;
-                return match listed {
-                    Ok(entries) => {
-                        let rows = entries
-                            .into_iter()
-                            .map(|(name, size, d)| crate::archview::Entry { name, size, packed: None, date: d.map(|d| d.format("%m/%d/%y").to_string()).unwrap_or_default() })
-                            .collect();
-                        self.archive_browse(&f.name, &path, k, rows).await
-                    }
-                    Err(e) => self.show_line(&format!("|U6{}|U5: |U4Couldn't read it ({e})|U5.", f.name)).await,
-                };
+            crate::upscan::Kind::Text => self.view_text_file(&path, &f.name).await,
+            k @ (crate::upscan::Kind::Zip | crate::upscan::Kind::TarGz | crate::upscan::Kind::Tar | crate::upscan::Kind::Gzip) => {
+                self.browse_archive(&path, &f.name, k).await
             }
-            _ => {}
+            _ => self.view_with_archiver(&path, &f.name).await,
         }
-        let entries = std::fs::File::open(&path).ok().and_then(|file| zip::ZipArchive::new(file).ok()).map(|mut z| {
-            (0..z.len())
-                .filter_map(|i| {
-                    let e = z.by_index(i).ok()?;
-                    if e.is_dir() {
-                        return None;
-                    }
-                    let date = e.last_modified().map(|d| format!("{:02}/{:02}/{:02}", d.month(), d.day(), d.year() % 100)).unwrap_or_default();
-                    Some((e.name().ok()?.to_string(), e.size(), e.compressed_size(), date))
-                })
-                .collect::<Vec<_>>()
-        });
-        let Some(entries) = entries else {
-            return self.view_with_archiver(&path, &f.name).await;
-        };
-        let rows = entries.into_iter().map(|(name, size, comp, date)| crate::archview::Entry { name, size, packed: Some(comp), date }).collect();
-        self.archive_browse(&f.name, &path, crate::upscan::Kind::Zip, rows).await
     }
 
     /// Show an uploaded text file (ASCII or ANSI) in the scrolling
@@ -1857,16 +1842,27 @@ pub fn text_lines(bytes: &[u8]) -> Vec<String> {
 }
 
 
-/// A file name as the lister's 12-column name field shows it: DOS-style
-/// names spaced as the original did (`FILE     ZIP`), others as they are,
-/// or None when it won't fit.
-fn lister_shown_name(name: &str) -> Option<String> {
-    match name.split_once('.') {
-        Some((base, ext)) if base.len() <= 8 && ext.len() <= 3 && !ext.contains('.') => Some(format!("{}{ext}", resize(base, 9))),
-        None if name.len() <= 8 => Some(name.to_string()),
-        _ => (name.chars().count() <= 12).then(|| name.to_string()),
-    }
+/// A name as the lister shows it: whole, if it fits the name column;
+/// None and it gets a row of its own.
+fn lister_shown_name(name: &str, width: usize) -> Option<String> {
+    (name.chars().count() <= width).then(|| name.to_string())
 }
+
+/// A size in at most seven columns: "512 B", "4.5 KB", "12 MB".
+pub(crate) fn short_size(n: u64) -> String {
+    if n < 1024 {
+        return format!("{n} B");
+    }
+    let mut v = n as f64 / 1024.0;
+    for unit in ["KB", "MB", "GB"] {
+        if v < 1024.0 {
+            return if v < 10.0 { format!("{v:.1} {unit}") } else { format!("{v:.0} {unit}") };
+        }
+        v /= 1024.0;
+    }
+    format!("{v:.0} TB")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1900,11 +1896,9 @@ mod tests {
 
     #[test]
     fn lister_names() {
-        assert_eq!(lister_shown_name("PHRACK1.ZIP").as_deref(), Some("PHRACK1  ZIP"));
-        assert_eq!(lister_shown_name("readme").as_deref(), Some("readme"));
-        assert_eq!(lister_shown_name("p2.tar.gz").as_deref(), Some("p2.tar.gz"));
-        assert_eq!(lister_shown_name("notes.text").as_deref(), Some("notes.text"));
-        assert_eq!(lister_shown_name("phrack2.tar.gz"), None);
+        assert_eq!(lister_shown_name("PHRACK1.ZIP", 12).as_deref(), Some("PHRACK1.ZIP"), "names are shown whole");
+        assert_eq!(lister_shown_name("phrack2.tar.gz", 12), None, "too long: a row of its own");
+        assert_eq!((short_size(512), short_size(4608), short_size(12 << 20)), ("512 B".into(), "4.5 KB".into(), "12 MB".into()));
     }
 
     #[test]

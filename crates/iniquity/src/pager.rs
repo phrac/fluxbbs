@@ -184,6 +184,7 @@ impl Session {
     /// The same, with `extra` keys that also end it (returned, upper
     /// case) and `help` naming the status line's string.
     pub(crate) async fn page_grid_keys(&mut self, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char]) -> io::Result<Option<char>> {
+        self.full_screen_done();
         let rows = self.screen.rows().max(5) as usize;
         let height = rows - 2;
         let total = grid.len();

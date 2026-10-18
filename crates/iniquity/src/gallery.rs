@@ -16,6 +16,7 @@ use crate::picture::{self, is_image};
 use crate::files::{Layout, MenuBar};
 use crate::input::Key;
 use crate::session::{Session, waves};
+use crate::upscan::Kind;
 
 /// Art the gallery shows; anything else in a pack is skipped.
 const ART: [&str; 7] = ["ans", "ice", "asc", "txt", "nfo", "diz", "cia"];
@@ -100,7 +101,11 @@ pub fn sauce_description(data: &[u8], width: usize, max: usize) -> Option<Vec<St
 enum Place {
     Dir(PathBuf),
     Area(u32),
+    /// The top-level file areas the caller can see.
+    Areas,
     Zip { zip: PathBuf, prefix: String },
+    /// A tar, tar.gz or .gz, read in place like a ZIP.
+    Tar { tar: PathBuf, kind: Kind, prefix: String },
 }
 
 /// Where a piece is.
@@ -108,6 +113,32 @@ enum Place {
 enum Src {
     Disk(PathBuf),
     Zip(PathBuf, String),
+    Tar(PathBuf, Kind, String),
+}
+
+/// What a browse lists: art and pictures (the gallery), or every file (an
+/// archive opened from a file area). `cap` bounds reading a tar.
+#[derive(Clone, Copy)]
+struct Mode {
+    all: bool,
+    cap: u64,
+}
+
+/// What a file is, for the description column of a file that isn't art.
+fn kind_word(name: &str) -> &'static str {
+    let n = name.to_ascii_lowercase();
+    let ext = n.rsplit_once('.').map_or("", |(_, e)| e);
+    if is_image(name) {
+        "picture"
+    } else if is_art(name) || ["txt", "doc", "md", "me", "1st", "log", "cfg", "ini", "bat"].contains(&ext) {
+        "text"
+    } else if ["zip", "gz", "tgz", "tar", "rar", "7z", "arj", "lha", "lzh", "bz2", "xz"].contains(&ext) {
+        "archive"
+    } else if ["exe", "com"].contains(&ext) {
+        "program"
+    } else {
+        "file"
+    }
 }
 
 /// A file area's record for an item that is one of its files: downloads
@@ -152,6 +183,7 @@ fn read_piece(src: &Src) -> io::Result<Vec<u8>> {
             z.by_name(name).map_err(io::Error::other)?.take(MAX_PIECE).read_to_end(&mut out)?;
             Ok(out)
         }
+        Src::Tar(tar, kind, name) => crate::archview::read_entry(tar, *kind, name, MAX_PIECE),
     }
 }
 
@@ -166,12 +198,13 @@ fn read_limited(src: &Src, max: u64) -> io::Result<Vec<u8>> {
             let mut z = zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(io::Error::other)?;
             z.by_name(name).map_err(io::Error::other)?.take(max).read_to_end(&mut out)?;
         }
+        Src::Tar(tar, kind, name) => return crate::archview::read_entry(tar, *kind, name, max),
     }
     Ok(out)
 }
 
 /// What's in a folder: folders and packs first, then pieces, by name.
-fn list(place: &Place) -> io::Result<Vec<Item>> {
+fn list(place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
     let mut folders = Vec::new();
     let mut art = Vec::new();
     match place {
@@ -194,7 +227,7 @@ fn list(place: &Place) -> io::Result<Vec<Item>> {
             }
         }
         // Listed by the session, which knows what the caller may see.
-        Place::Area(_) => {}
+        Place::Area(_) | Place::Areas => {}
         Place::Zip { zip, prefix } => {
             let mut z = zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(io::Error::other)?;
             let mut seen = Vec::new();
@@ -208,13 +241,30 @@ fn list(place: &Place) -> io::Result<Vec<Item>> {
                         let place = Place::Zip { zip: zip.clone(), prefix: format!("{prefix}{dir}/") };
                         folders.push(Item::Folder { name: dir.to_string(), place, pack: false, rec: None });
                     }
-                } else if !f.is_dir() && is_image(rest) {
+                } else if !f.is_dir() && (is_image(rest) || mode.all && !is_art(rest)) {
                     art.push(Item::Art { name: rest.to_string(), size: f.size(), sauce: None, src: Src::Zip(zip.clone(), full), rec: None });
                 } else if !f.is_dir() && is_art(rest) {
                     // Reading the piece for its SAUCE: art files are small.
                     let mut data = Vec::new();
                     let _ = (&mut f).take(MAX_PIECE).read_to_end(&mut data);
                     art.push(Item::Art { name: rest.to_string(), size: f.size(), sauce: parse_sauce(&data), src: Src::Zip(zip.clone(), full), rec: None });
+                }
+            }
+        }
+        Place::Tar { tar, kind, prefix } => {
+            let mut seen = Vec::new();
+            for (full, size, _) in crate::upscan::tar_listing(tar, *kind, mode.cap)? {
+                // Tars often name everything "./something".
+                let shown = full.trim_start_matches("./");
+                let Some(rest) = shown.strip_prefix(prefix.as_str()) else { continue };
+                if let Some((dir, _)) = rest.split_once('/') {
+                    if !seen.contains(&dir.to_string()) {
+                        seen.push(dir.to_string());
+                        let place = Place::Tar { tar: tar.clone(), kind: *kind, prefix: format!("{prefix}{dir}/") };
+                        folders.push(Item::Folder { name: dir.to_string(), place, pack: false, rec: None });
+                    }
+                } else if !rest.is_empty() && (mode.all || is_art(rest) || is_image(rest)) {
+                    art.push(Item::Art { name: rest.to_string(), size, sauce: None, src: Src::Tar(tar.clone(), *kind, full.clone()), rec: None });
                 }
             }
         }
@@ -265,9 +315,10 @@ fn playable(data: &[u8]) -> Vec<u8> {
 impl Session {
     /// `AG`: browse the art gallery.
     pub async fn art_gallery(&mut self) -> io::Result<()> {
+        self.full_screen_done();
         let cfg = self.state.config();
         let dir = cfg.resolve(&cfg.gallery.path);
-        let (acs, area, mut speed) = (cfg.gallery.acs.clone(), cfg.gallery.area.trim().to_string(), cfg.gallery.speed);
+        let (acs, area, speed) = (cfg.gallery.acs.clone(), cfg.gallery.area.trim().to_string(), cfg.gallery.speed);
         drop(cfg);
         if !self.acs(&acs) {
             return self.say_line("GalleryNoAccess").await;
@@ -291,14 +342,54 @@ impl Session {
         };
         tracing::info!("{}: art gallery", self.user.handle);
         self.node.update(|n| n.activity = "Art gallery".into());
+        self.gallery_browse(root, "art gallery", Mode { all: false, cap: MAX_PIECE }, speed).await
+    }
+
+    /// An archive from a file area, browsed like the gallery but with
+    /// every file listed: folders open, Enter shows a file (text, ANSI or a
+    /// picture), D downloads one.
+    pub(crate) async fn browse_archive(&mut self, path: &Path, name: &str, kind: Kind) -> io::Result<()> {
+        let cap = crate::upscan::Limits::from_config(&self.state.config().files).cap(std::fs::metadata(path)?.len());
+        let root = match kind {
+            Kind::Zip => Place::Zip { zip: path.to_path_buf(), prefix: String::new() },
+            _ => Place::Tar { tar: path.to_path_buf(), kind, prefix: String::new() },
+        };
+        let speed = self.state.config().gallery.speed;
+        self.gallery_browse(root, name, Mode { all: true, cap }, speed).await
+    }
+
+    /// `FW`: the file areas, browsed like the gallery (new; it replaces the
+    /// lister on the file menu). It opens in the current area; back from
+    /// there goes up to the list of areas.
+    pub async fn file_browser(&mut self) -> io::Result<()> {
+        let cap = crate::upscan::Limits::from_config(&self.state.config().files).max_unpacked;
+        let mode = Mode { all: true, cap: if cap == 0 { u64::MAX } else { cap } };
+        let speed = self.state.config().gallery.speed;
+        let cur = self.user.cur_file_area;
+        let start = self.farea(cur).map(|a| (a.area.name.clone(), Place::Area(cur)));
+        self.node.update(|n| n.activity = "Browsing files".into());
+        self.gallery_browse_from(Place::Areas, "file areas", mode, speed, start).await
+    }
+
+    async fn gallery_browse(&mut self, root: Place, title: &str, mode: Mode, speed: u32) -> io::Result<()> {
+        self.gallery_browse_from(root, title, mode, speed, None).await
+    }
+
+    /// Browse from `root`, starting one level down at `start` if given.
+    async fn gallery_browse_from(&mut self, root: Place, title: &str, mode: Mode, mut speed: u32, start: Option<(String, Place)>) -> io::Result<()> {
+        self.full_screen_done();
         // Where we are, and the cursor in each level above.
         let mut path: Vec<(String, Place, usize)> = vec![(String::new(), root, 0)];
+        if let Some((name, place)) = start {
+            path.push((name, place, 0));
+        }
         loop {
             let (_, place, _) = path.last().cloned().expect("root");
-            let items = self.gallery_list(&place).await?;
+            let items = self.gallery_list(&place, mode).await?;
             let crumbs: Vec<String> = path.iter().skip(1).map(|(n, _, _)| n.clone()).collect();
             let at = path.last().map(|l| l.2).unwrap_or(0);
-            match self.gallery_pick(&crumbs.join("/"), &items, at, &mut speed).await? {
+            let place = if crumbs.is_empty() { title.to_string() } else { format!("{title}/{}", crumbs.join("/")) };
+            match self.gallery_pick(&place, &items, at, &mut speed).await? {
                 Pick::Back if path.len() > 1 => {
                     path.pop();
                 }
@@ -316,12 +407,14 @@ impl Session {
                             // From the viewer, P plays and D downloads.
                             let picked = if is_image(name) {
                                 self.gallery_picture(name, src).await?
-                            } else {
+                            } else if is_art(name) {
                                 self.gallery_view(name, sauce.as_ref(), src).await?
+                            } else {
+                                self.gallery_file(name, src).await?
                             };
                             match picked {
                                 Some('P') if is_image(name) => {}
-                                Some('P') => self.gallery_play(src, speed).await?,
+                                Some('P') => self.gallery_played(&items[i], speed).await?,
                                 Some('D') => self.gallery_download(&items[i]).await?,
                                 _ => {}
                             }
@@ -336,7 +429,7 @@ impl Session {
                                 self.gallery_download(&items[i]).await?;
                             }
                         } else {
-                            self.gallery_play(src, speed).await?;
+                            self.gallery_played(&items[i], speed).await?;
                         }
                     }
                 }
@@ -350,10 +443,18 @@ impl Session {
 
     /// What's in a place. A file area shows the sub-areas the caller can
     /// see, then its validated files: packs as folders, art as pieces.
-    async fn gallery_list(&mut self, place: &Place) -> io::Result<Vec<Item>> {
+    async fn gallery_list(&mut self, place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
+        if *place == Place::Areas {
+            let fa = self.state.fareas();
+            return Ok(self
+                .farea_children(None)
+                .into_iter()
+                .map(|c| Item::Folder { name: fa.areas[c as usize - 1].name.clone(), place: Place::Area(c), pack: false, rec: None })
+                .collect());
+        }
         let Place::Area(n) = place else {
             let p = place.clone();
-            return tokio::task::spawn_blocking(move || list(&p)).await.map_err(io::Error::other)?;
+            return tokio::task::spawn_blocking(move || list(&p, mode)).await.map_err(io::Error::other)?;
         };
         let fa = self.state.fareas();
         let mut out = Vec::new();
@@ -371,9 +472,18 @@ impl Session {
             if !path.is_file() {
                 continue;
             }
+            let tar = match crate::upscan::kind_of(&f.name) {
+                k @ (Kind::Tar | Kind::TarGz | Kind::Gzip) if mode.all => Some(k),
+                _ => None,
+            };
             if is_zip(&f.name) {
                 let place = Place::Zip { zip: path, prefix: String::new() };
                 packs.push(Item::Folder { name: f.name.clone(), place, pack: true, rec: Some((*n, f)) });
+            } else if let Some(kind) = tar {
+                let place = Place::Tar { tar: path, kind, prefix: String::new() };
+                packs.push(Item::Folder { name: f.name.clone(), place, pack: true, rec: Some((*n, f)) });
+            } else if mode.all && !is_art(&f.name) {
+                art.push(Item::Art { name: f.name.clone(), size: f.size, sauce: None, src: Src::Disk(path), rec: Some((*n, f)) });
             } else if is_art(&f.name) || is_image(&f.name) {
                 let sauce = if is_image(&f.name) { None } else { disk_sauce(&path) };
                 art.push(Item::Art { name: f.name.clone(), size: f.size, sauce, src: Src::Disk(path), rec: Some((*n, f)) });
@@ -390,7 +500,7 @@ impl Session {
     /// ~C1-~C6 the colours, ~FA where we are), else a plain screen. Up and
     /// down move the bar, left and right the menu; Enter runs the menu's
     /// choice, or a key its first letter.
-    async fn gallery_pick(&mut self, crumbs: &str, items: &[Item], start: usize, speed: &mut u32) -> io::Result<Pick> {
+    async fn gallery_pick(&mut self, place: &str, items: &[Item], start: usize, speed: &mut u32) -> io::Result<Pick> {
         let mut menu = MenuBar { items: &["open", "play", "speed", "get", "back"], off: vec![false; 5], pos: 0, xs: Vec::new() };
         let mut cur = start.min(items.len().saturating_sub(1));
         let mut first = 0usize;
@@ -398,7 +508,6 @@ impl Session {
         let mut redraw = true;
         // A word in place of the info line, after a key that can't act.
         let mut note: Option<String> = None;
-        let place = if crumbs.is_empty() { "art gallery".to_string() } else { crumbs.to_string() };
         loop {
             let height = (l.bot - l.top + 1) as usize;
             if cur < first || cur >= first + height {
@@ -412,7 +521,7 @@ impl Session {
                 }
                 self.screen.set_color(iniquity_term::Color::DEFAULT);
                 self.clear_screen();
-                let w = waves([("FA", place.clone())]);
+                let w = waves([("FA", place.to_string())]);
                 let mut from_screen = self.show_file_with("GALLERY", &w).await?;
                 if !from_screen {
                     from_screen = self.show_file_with("LISTFILE", &w).await?;
@@ -506,7 +615,7 @@ impl Session {
                 }
                 match c {
                     "open" if !items.is_empty() => return Ok(Pick::Open(cur)),
-                    "play" if matches!(items.get(cur), Some(Item::Art { .. })) => return Ok(Pick::Play(cur)),
+                    "play" if matches!(items.get(cur), Some(Item::Art { name, .. }) if is_art(name) || is_image(name)) => return Ok(Pick::Play(cur)),
                     "play" => note = Some(self.strings().get("GalleryPlayWhat").to_string()),
                     "get" if items.get(cur).is_some_and(downloadable) => return Ok(Pick::Download(cur)),
                     "get" => note = Some(self.strings().get("GalleryNotFile").to_string()),
@@ -535,17 +644,38 @@ impl Session {
         let desc_x = l.desc_x.unwrap_or(30).max(name_x + 13);
         let name_w = (size_x.unwrap_or(desc_x) - name_x).saturating_sub(1) as usize;
         let (name, size, title, by) = match item {
+            Item::Folder { name, place: Place::Area(c), .. } => {
+                // A file area: how many files, and the newest.
+                let (count, newest) = match self.farea(*c) {
+                    Some(a) => {
+                        let files = self.state.files.list(&a.area.file).unwrap_or_default();
+                        let valid: Vec<_> = files.iter().filter(|f| f.valid).collect();
+                        (valid.len(), valid.iter().filter_map(|f| f.uploaded).max())
+                    }
+                    None => (0, None),
+                };
+                let count = if count == 1 { "1 file".to_string() } else { format!("{count} files") };
+                let newest = newest.map(|d| format!("newest {}", d.format("%Y-%m-%d"))).unwrap_or_else(|| "empty".into());
+                (format!("{name}/"), count, newest, String::new())
+            }
             Item::Folder { name, pack, rec, .. } => {
                 let what = match rec {
                     Some((_, f)) if !f.description.is_empty() => crate::web::blurb(&f.description),
-                    _ if *pack => "<pack>".to_string(),
-                    _ => "<folder>".to_string(),
+                    _ if *pack => "archive".to_string(),
+                    _ => "folder".to_string(),
                 };
-                (format!("{name}/"), String::new(), what, String::new())
+                let size = rec.as_ref().map(|(_, f)| crate::files::short_size(f.size)).unwrap_or_default();
+                (format!("{name}/"), size, what, String::new())
             }
-            Item::Art { name, size, sauce, .. } => {
-                let (title, by) = sauce.as_ref().map_or((String::new(), String::new()), |s| (s.title.clone(), byline(s)));
-                (name.clone(), format!("{}k", size.div_ceil(1024)), title, by)
+            Item::Art { name, size, sauce, rec, .. } => {
+                let (title, by) = match (sauce, rec) {
+                    (Some(s), _) if !s.title.is_empty() => (s.title.clone(), byline(s)),
+                    // A file of a file area: its description.
+                    (_, Some((_, f))) if !f.description.is_empty() => (crate::web::blurb(&f.description), String::new()),
+                    (Some(s), _) => (s.title.clone(), byline(s)),
+                    (None, _) => (kind_word(name).to_string(), String::new()),
+                };
+                (name.clone(), crate::files::short_size(*size), title, by)
             }
         };
         self.screen.goto(name_x.saturating_sub(1).max(1), y);
@@ -568,6 +698,23 @@ impl Session {
         }
         self.screen.set_color(l.cl[0]);
         self.screen.clear_eol();
+    }
+
+    /// Any other file: text in the viewer, else a word that it can't be
+    /// shown. D is passed back to download it.
+    async fn gallery_file(&mut self, name: &str, src: &Src) -> io::Result<Option<char>> {
+        let data = match read_piece(src) {
+            Ok(d) => d,
+            Err(e) => return self.archive_note(&format!("|U6{name}|U5: |U4Couldn't read it ({e})|U5.")).await.map(|_| None),
+        };
+        let text = crate::upscan::text_part(&data);
+        if !crate::upscan::looks_like_text(text) {
+            let s = self.strings().fmt("ArchiveCantShow", &[name]);
+            return self.archive_note(&s).await.map(|_| None);
+        }
+        let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
+        let grid = crate::pager::render(text, utf8);
+        self.page_grid_keys(name, &grid, "GalleryViewHelp", &['D']).await
     }
 
     /// A piece in the scrolling viewer, titled from its SAUCE.
@@ -593,7 +740,7 @@ impl Session {
     async fn gallery_picture(&mut self, name: &str, src: &Src) -> io::Result<Option<char>> {
         let (file, inner) = match src {
             Src::Disk(p) => (p.clone(), String::new()),
-            Src::Zip(z, n) => (z.clone(), n.clone()),
+            Src::Zip(z, n) | Src::Tar(z, _, n) => (z.clone(), n.clone()),
         };
         let max = self.state.config().files.image_limits().max_bytes.max(MAX_PIECE) + 1;
         let src = src.clone();
@@ -699,22 +846,46 @@ impl Session {
         self.clear_screen();
         // Bytes per 40ms tick (a modem sends a byte in 10 bits).
         let chunk = if speed == 0 { data.len().max(1) } else { (speed as usize / 250).max(1) };
-        let mut stopped = false;
         for piece in data.chunks(chunk) {
             self.screen.write_bytes(piece);
             self.flush().await?;
             if speed > 0 && self.key_waiting().await? {
                 self.read_key().await?;
-                stopped = true;
                 break;
             }
         }
         self.screen.set_color(iniquity_term::Color::DEFAULT);
-        if !stopped {
-            self.screen.goto(1, self.screen.rows());
-            self.prompt_key().await?;
-        }
         Ok(())
+    }
+
+    /// Play a piece, then offer what's next on the bottom line (new; the
+    /// original just paused): R plays it again, V (or the arrow and page
+    /// keys) opens it in the scrolling viewer, D downloads it.
+    async fn gallery_played(&mut self, item: &Item, speed: u32) -> io::Result<()> {
+        let Item::Art { name, sauce, src, .. } = item else { return Ok(()) };
+        loop {
+            self.gallery_play(src, speed).await?;
+            self.screen.goto(1, self.screen.rows());
+            self.screen.set_color(iniquity_term::Color::DEFAULT);
+            self.screen.clear_eol();
+            let bar = self.strings().get("GalleryPlayed").to_string();
+            self.show(&bar).await?;
+            let key = self.read_key().await?;
+            let next = match key {
+                Key::Up | Key::Down | Key::PgUp | Key::PgDn | Key::Home | Key::End => Some('V'),
+                k => k.upper(),
+            };
+            match next {
+                Some('R' | 'P') => continue,
+                Some('V' | 'S') => match self.gallery_view(name, sauce.as_ref(), src).await? {
+                    Some('P') => continue,
+                    Some('D') => return self.gallery_download(item).await,
+                    _ => return Ok(()),
+                },
+                Some('D') => return self.gallery_download(item).await,
+                _ => return Ok(()),
+            }
+        }
     }
 
     /// Download a piece (pulled out of its pack if need be) or a pack.
@@ -744,7 +915,12 @@ impl Session {
             Item::Art { name, src, .. } => {
                 std::fs::create_dir_all(&temp)?;
                 let out = temp.join(crate::transfer::safe_name(name.rsplit('/').next().unwrap_or(name).as_bytes()).unwrap_or_else(|| "art.ans".into()));
-                std::fs::write(&out, read_piece(src)?)?;
+                // Out of its archive, within the upload screening's unpack limit.
+                let (Src::Zip(arc, _) | Src::Tar(arc, _, _) | Src::Disk(arc)) = src;
+                let cap = crate::upscan::Limits::from_config(&self.state.config().files).cap(std::fs::metadata(arc)?.len());
+                let src = src.clone();
+                let data = tokio::task::spawn_blocking(move || read_limited(&src, cap)).await.map_err(io::Error::other)??;
+                std::fs::write(&out, data)?;
                 out
             }
         };
@@ -772,6 +948,15 @@ fn byline(s: &Sauce) -> String {
 fn gallery_info(item: Option<&Item>, speed: u32) -> String {
     let speed = if speed == 0 { "instant".to_string() } else { speed.to_string() };
     match item {
+        Some(Item::Art { rec: Some((_, f)), .. }) => {
+            let date = f.uploaded.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
+            let dls = if f.downloads == 1 { "1 download".to_string() } else { format!("{} downloads", f.downloads) };
+            format!("|U3{} |U5- |U1{} |U5- |U1up by |U3{}|U1 {date} |U5- |U1{dls}", squish(&f.name, 30), crate::files::short_size(f.size), squish(&f.uploader, 16))
+        }
+        Some(Item::Art { name, size, .. }) if !is_art(name) => {
+            let what = if is_image(name) { "|U3enter|U1 shows it" } else { "|U3enter|U1 views, |U3d|U1 downloads" };
+            format!("|U3{} |U5- |U1{} |U5- |U1{} |U5- {what}", squish(name, 40), crate::files::short_size(*size), kind_word(name))
+        }
         Some(Item::Art { name, size, sauce, .. }) => {
             let s = sauce.clone().unwrap_or_default();
             let mut line = if s.title.is_empty() { name.clone() } else { s.title.clone() };
@@ -781,7 +966,7 @@ fn gallery_info(item: Option<&Item>, speed: u32) -> String {
             if !s.date.is_empty() {
                 line.push_str(&format!(" |U5({})", s.date));
             }
-            format!("|U3{} |U5- |U1{}k |U5- |U1play at |U3{speed}", squish(&line, 52), size.div_ceil(1024))
+            format!("|U3{} |U5- |U1{} |U5- |U1play at |U3{speed}", squish(&line, 52), crate::files::short_size(*size))
         }
         Some(Item::Folder { name, pack: true, .. }) => format!("|U3{name} |U5- |U1a pack; |U3enter|U1 opens it"),
         Some(Item::Folder { name, .. }) => format!("|U3{name} |U5- |U1a folder; |U3enter|U1 opens it"),
@@ -872,13 +1057,14 @@ mod tests {
         let names = |items: &[Item]| -> Vec<String> {
             items.iter().map(|i| match i { Item::Folder { name, .. } => format!("{name}/"), Item::Art { name, .. } => name.clone() }).collect()
         };
-        let top = list(&Place::Dir(dir.clone())).unwrap();
+        let art = Mode { all: false, cap: u64::MAX };
+        let top = list(&Place::Dir(dir.clone()), art).unwrap();
         assert_eq!(names(&top), ["1995/", "acdu0895.zip/"]);
         let Item::Folder { place, .. } = &top[1] else { panic!() };
-        let pack = list(place).unwrap();
+        let pack = list(place, art).unwrap();
         assert_eq!(names(&pack), ["extra/", "FILE_ID.DIZ", "SO-PG1.ANS"], "programs are skipped");
         let Item::Folder { place, .. } = &top[0] else { panic!() };
-        let Item::Art { sauce, .. } = &list(place).unwrap()[0] else { panic!() };
+        let Item::Art { sauce, .. } = &list(place, art).unwrap()[0] else { panic!() };
         assert_eq!(sauce.as_ref().unwrap().author, "phrac");
         std::fs::remove_dir_all(dir).unwrap();
     }
