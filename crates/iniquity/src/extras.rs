@@ -611,13 +611,19 @@ impl Session {
     /// `~XY`: X is the field (A password .. O zip code), Y the key that
     /// edits it. `~**` is where the command key is read.
     pub async fn user_config(&mut self) -> io::Result<()> {
+        self.user_config_screen("USERCFG").await
+    }
+
+    /// The configuration screen with a given layout file (NEWCFG for new
+    /// users checking their application).
+    pub async fn user_config_screen(&mut self, screen: &str) -> io::Result<()> {
         // Enter saves; Escape puts everything back (a password change,
         // confirmed on its own, stays).
         let original = self.user.clone();
         loop {
             self.screen.set_color(iniquity_term::Color::DEFAULT);
             self.clear_screen();
-            if !self.show_file("USERCFG").await? {
+            if !self.show_file(screen).await? {
                 return self.user_config_plain().await;
             }
             // Field letter -> (hotkey, position).

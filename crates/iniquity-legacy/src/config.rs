@@ -70,6 +70,8 @@ pub struct LegacyConfig {
     pub page_ask_email: bool,
     pub acs_attach_public: String,
     pub acs_attach_email: String,
+    pub ask_upload_reply: bool,
+    pub ask_upload_email: bool,
     pub inact_time: bool,
     pub inact_seconds: u16,
     pub inact_warning: u16,
@@ -177,7 +179,8 @@ impl LegacyConfig {
         let ask_private_msg = r.bool();
         let ask_private_reply = r.bool();
         let ask_post_in_area = r.bool();
-        r.skip(2); // AskUploadReply, AskUploadEmail
+        let ask_upload_reply = r.bool();
+        let ask_upload_email = r.bool();
         let ask_kill_msg = r.bool();
         let ask_kill_all_msg = r.bool();
         let new_user_pw = r.string(20);
@@ -285,6 +288,7 @@ impl LegacyConfig {
             qwk_filename, qwk_welcome, qwk_news, qwk_goodbye, qwk_local_path, qwk_ignore_time,
             qwk_strip_sigs, no_chat_pw, chat_page_noise, max_page_times, max_page_beeps,
             restore_chat_time, chat_over_acs, page_ask_email, acs_attach_public, acs_attach_email,
+            ask_upload_reply, ask_upload_email,
         })
     }
 }

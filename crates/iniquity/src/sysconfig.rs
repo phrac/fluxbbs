@@ -99,6 +99,8 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('I', "Real names", 3, "Are handles real names?", Bool(|c| &mut c.logon.real_names)),
             set('J', "Time per call", 3, "Reset time limits every call instead of every day?", Bool(|c| &mut c.logon.time_per_call)),
             set('K', "Last callers", 3, "How many calls the last-callers list shows.", Num(|c| c.logon.last_callers as u64, |c, v| c.logon.last_callers = v as u32, 1, 100)),
+            set('L', "Birth date check", 3, "Ask the birth date again every this many calls (0 = never).", Num(|c| c.logon.calls_birth as u64, |c, v| c.logon.calls_birth = v as u8, 0, 255)),
+            set('M', "Phone check", 3, "Ask the last four phone digits every this many calls (0 = never).", Num(|c| c.logon.calls_phone as u64, |c, v| c.logon.calls_phone = v as u8, 0, 255)),
         ]),
         ("New User Configuration", false, vec![
             set('A', "Apply password", 20, "Password needed to apply (blank = none).", Text(|c| &mut c.newuser.password, Field::UPPER)),
@@ -120,6 +122,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('M', "Ask autoquote", 3, "Ask new users about autoquoting?", Bool(|c| &mut c.newuser.ask_quote)),
             set('N', "Yes/no bars", 3, "Yes/no bars on by default?", Bool(|c| &mut c.newuser.yes_no_bars)),
             set('O', "Ask yes/no bars", 3, "Ask new users about yes/no bars?", Bool(|c| &mut c.newuser.ask_yes_no_bars)),
+            set('P', "Config screen", 3, "Show the NEWCFG screen after applying, to check the entries?", Bool(|c| &mut c.newuser.config)),
         ]),
         ("Prompts", false, vec![
             set('A', "Yes prompt", 50, "Shown for a yes/no question that defaults to yes.", Text(|c| &mut c.prompts.yes, TEXT.max(200))),
@@ -178,8 +181,19 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('N', "Mandatory all confs", 3, "Should the mandatory scan ignore conferences?", Bool(|c| &mut c.messages.mandatory_all_confs)),
             set('O', "Compress numbers", 3, "Number listed areas 1, 2, 3... counting only visible ones?", Bool(|c| &mut c.messages.compress_area_numbers)),
             set('P', "ANSI quote text", 40, "Shown instead of quoted lines that contain ANSI.", Text(|c| &mut c.messages.ansi_quote, TEXT.max(100))),
-            set('Q', "Public attach ACS", 20, "ACS to attach a file to a public message.", Text(|c| &mut c.messages.acs_attach_public, ACS)),
-            set('R', "Email attach ACS", 20, "ACS to attach a file to email.", Text(|c| &mut c.messages.acs_attach_email, ACS)),
+        ]),
+        ("Attachments and Uploaded Messages", false, vec![
+            set('A', "Public attach ACS", 20, "ACS to attach a file to a public message.", Text(|c| &mut c.messages.acs_attach_public, ACS)),
+            set('B', "Email attach ACS", 20, "ACS to attach a file to email.", Text(|c| &mut c.messages.acs_attach_email, ACS)),
+            set('C', "Upload msg ACS", 20, "ACS to upload a prepared message instead of typing it.", Text(|c| &mut c.messages.acs_upload_message, ACS)),
+            set('D', "Ask upload reply", 3, "Offer to upload a prepared message when replying?", Bool(|c| &mut c.messages.ask_upload_reply)),
+            set('E', "Ask upload email", 3, "Offer to upload a prepared message for email?", Bool(|c| &mut c.messages.ask_upload_email)),
+        ]),
+        ("Transfers", false, vec![
+            set('A', "Max upload bytes", 12, "Largest upload accepted (0 = no limit).", Num(|c| c.files.max_upload_bytes, |c, v| c.files.max_upload_bytes = v, 0, u64::MAX / 2)),
+            set('B', "Transfer cps", 9, "Bytes per second assumed when estimating transfer time.", Num(|c| c.files.transfer_cps, |c, v| c.files.transfer_cps = v, 1, 1_000_000_000)),
+            set('C', "Ask auto-logoff", 3, "Offer to log off when a download finishes?", Bool(|c| &mut c.files.ask_auto_logoff)),
+            set('D', "Auto-logoff secs", 3, "Countdown before the auto-logoff hangs up.", Num(|c| c.files.auto_logoff_seconds as u64, |c, v| c.files.auto_logoff_seconds = v as u16, 1, 600)),
         ]),
         ("Chat Mode", false, vec![
             set('A', "Override password", 20, "Password to page outside chat hours (blank = none).", Text(|c| &mut c.chat.override_password, Field::UPPER)),
@@ -211,8 +225,6 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('M', "No description", 40, "Shown for files without a description.", Text(|c| &mut c.files.no_description, TEXT.max(80))),
             set('N', "Wrap descriptions", 3, "Continue long descriptions on the lister's next page?", Bool(|c| &mut c.files.wrap_descriptions)),
             set('O', "Advance on flag", 3, "Move the lister's bar down after flagging a file?", Bool(|c| &mut c.files.advance_bar_on_flag)),
-            set('P', "Max upload bytes", 12, "Largest upload accepted (0 = no limit).", Num(|c| c.files.max_upload_bytes, |c, v| c.files.max_upload_bytes = v, 0, u64::MAX / 2)),
-            set('Q', "Transfer cps", 9, "Bytes per second assumed when estimating transfer time.", Num(|c| c.files.transfer_cps, |c, v| c.files.transfer_cps = v, 1, 1_000_000_000)),
         ]),
     ]
 }

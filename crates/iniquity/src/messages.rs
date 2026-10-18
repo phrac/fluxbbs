@@ -759,6 +759,20 @@ impl Session {
             auto_quote = self.yes_no(self.user.quote).await?;
         }
         let can_autosig = !self.user.autosig.is_empty() && self.acs(&acs_sig);
+        // A prepared message, uploaded, goes into the editor to look over.
+        let mut text = Vec::new();
+        let (acs_upload, ask_reply, ask_email) = {
+            let m = &self.state.config().messages;
+            (m.acs_upload_message.clone(), m.ask_upload_reply, m.ask_upload_email)
+        };
+        let offer_upload = self.acs(&acs_upload) && if reply.is_some() { ask_reply } else if a.is_email() { ask_email } else { true };
+        if offer_upload {
+            self.say("MsgAskUploadMsg").await?;
+            if self.yes_no(false).await?
+                && let Some(lines) = self.receive_text_file().await? {
+                    text = lines;
+                }
+        }
         let now = Local::now().naive_local();
         let ctx = EditCtx {
             subject,
@@ -771,7 +785,7 @@ impl Session {
             autosig: can_autosig && !anonymous,
             reply,
             auto_quote,
-            text: Vec::new(),
+            text,
         };
         self.node.update(|n| n.activity = format!("Writing a message in {}", a.area.name));
         let Some(done) = self.edit_message(ctx).await? else {

@@ -158,6 +158,9 @@ impl Session {
                         }
                     }
                     let prelogon = std::mem::replace(&mut self.user, user);
+                    if ok {
+                        ok = self.verify_identity().await?;
+                    }
                     let sys_pw = self.state.config().logon.system_password.clone();
                     if ok && !sys_pw.is_empty() && self.acs(&self.state.config().logon.system_password_acs.clone()) {
                         self.say("LoginSystemPW").await?;
@@ -185,6 +188,40 @@ impl Session {
                 return Ok(ok && !self.hangup);
             }
         }
+    }
+
+    /// Every `calls_birth` calls ask the birth date, every `calls_phone`
+    /// the last four phone digits (the login screen's "other
+    /// information"; the code for it isn't in the surviving source).
+    async fn verify_identity(&mut self) -> io::Result<bool> {
+        let cfg = self.state.config();
+        let (every_birth, every_phone) = (cfg.logon.calls_birth as u32, cfg.logon.calls_phone as u32);
+        drop(cfg);
+        let call = self.user.total_calls + 1;
+        if every_birth > 0 && call.is_multiple_of(every_birth) && let Some(birth) = self.user.birth_date {
+            self.say_line("LoginHelpBirth").await?;
+            self.say("LoginBDate").await?;
+            let s = self.read_string(ReadOpts::new(8).allowed("0123456789/")).await?;
+            self.newline();
+            if parse_date(&s) != Some(birth) {
+                tracing::info!("{}: wrong birth date at logon", self.user.handle);
+                self.record_failure("wrong birth date");
+                return Ok(false);
+            }
+        }
+        let digits: String = self.user.phone.chars().filter(char::is_ascii_digit).collect();
+        if every_phone > 0 && call.is_multiple_of(every_phone) && digits.len() >= 7 && !digits.ends_with("0000") {
+            self.say_line("LoginHelpPhone").await?;
+            self.say("LoginPhone").await?;
+            let s = self.read_string(ReadOpts::new(4).allowed(DIGITS)).await?;
+            self.newline();
+            if s != digits[digits.len() - 4..] {
+                tracing::info!("{}: wrong phone number at logon", self.user.handle);
+                self.record_failure("wrong phone number");
+                return Ok(false);
+            }
+        }
+        Ok(true)
     }
 
     /// Count a failed bot check or password against the caller's address.
@@ -387,6 +424,11 @@ impl Session {
         self.state.users.insert(&mut u).map_err(io::Error::other)?;
         tracing::info!("new user {} (#{}) applied", u.handle, u.id);
         self.user = u;
+        // `newConfig`: let them check what they entered.
+        if nu.config {
+            self.user_config_screen("NEWCFG").await?;
+            self.save_user();
+        }
         self.logged_in = true;
         self.new_user = true;
         Ok(())

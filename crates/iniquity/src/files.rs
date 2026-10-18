@@ -434,6 +434,46 @@ impl Session {
         Ok(())
     }
 
+    /// Receive one text file (a prepared message) and give its lines, or
+    /// None if nothing came.
+    pub async fn receive_text_file(&mut self) -> io::Result<Option<Vec<String>>> {
+        let Some(proto) = self.select_protocol(false).await? else { return Ok(None) };
+        let temp = self.state.config().resolve(&self.state.config().paths.temp).join(format!("text{}", self.node.number()));
+        let _ = std::fs::remove_dir_all(&temp);
+        let got = self.receive_files(&proto, &temp).await?;
+        let lines = got.first().and_then(|p| std::fs::read(p).ok()).map(|b| text_lines(&b));
+        let _ = std::fs::remove_dir_all(&temp);
+        Ok(lines.filter(|l| !l.is_empty()))
+    }
+
+    /// `s272`: ask before a download whether to log off after it.
+    async fn ask_auto_logoff(&mut self) -> io::Result<bool> {
+        if !self.state.config().files.ask_auto_logoff {
+            return Ok(false);
+        }
+        self.say("s272").await?;
+        self.yes_no(false).await
+    }
+
+    /// `s273`/`s274`: the countdown after a transfer. Enter stays online,
+    /// `H` or the time running out hangs up.
+    async fn auto_logoff(&mut self) -> io::Result<()> {
+        let secs = self.state.config().files.auto_logoff_seconds.max(1) as u64;
+        let s = self.strings().fmt("s273", &[&secs.to_string()]);
+        self.show_line(&s).await?;
+        self.flush().await?;
+        let stay = tokio::select! {
+            k = self.read_key() => !matches!(k?, Key::Char(b'h' | b'H')),
+            _ = tokio::time::sleep(std::time::Duration::from_secs(secs)) => false,
+        };
+        if !stay {
+            self.say_line("s274").await?;
+            tracing::info!("{}: auto-logoff after transfer", self.user.handle);
+            self.hangup = true;
+        }
+        Ok(())
+    }
+
     /// `faDownload` (`FD`): the batch if there is one (and no file was
     /// named), otherwise one file.
     pub async fn download(&mut self, param: &str) -> io::Result<()> {
@@ -455,12 +495,16 @@ impl Session {
             return Ok(());
         }
         let Some(proto) = self.confirm_and_pick(false).await? else { return Ok(()) };
+        let logoff = self.ask_auto_logoff().await?;
         let path = self.farea_dir(&a.area).join(&f.name);
         let ok = self.send_files(&proto, std::slice::from_ref(&path)).await?;
         if ok.first() == Some(&true) {
             self.count_download(&mut f)?;
             tracing::info!("{}: downloaded {} ({})", self.user.handle, f.name, a.area.name);
             self.say_line("FaXferSuccess").await?;
+            if logoff {
+                self.auto_logoff().await?;
+            }
         } else {
             tracing::info!("{}: download of {} failed", self.user.handle, f.name);
             self.say_line("FaXferFailed").await?;
@@ -494,6 +538,7 @@ impl Session {
         self.show_line(&s).await?;
         self.newline();
         let Some(proto) = self.confirm_and_pick(picked.len() > 1).await? else { return Ok(()) };
+        let logoff = self.ask_auto_logoff().await?;
         let paths: Vec<PathBuf> = picked.iter().map(|(a, f)| self.farea_dir(&a.area).join(&f.name)).collect();
         let ok = self.send_files(&proto, &paths).await?;
         let mut sent = (0u32, 0u64);
@@ -513,6 +558,9 @@ impl Session {
             let s = self.strings().fmt("FaXferFilesSent", &[&sent.0.to_string(), &commas(sent.1)]);
             self.show_line(&s).await?;
             self.batch.clear();
+            if logoff {
+                self.auto_logoff().await?;
+            }
         }
         Ok(())
     }
@@ -1494,9 +1542,45 @@ fn fmt_secs(s: u64) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
+/// Lines of an uploaded text file: UTF-8 or CP437, tabs expanded, long
+/// lines wrapped to the message width, at most 500 lines.
+pub fn text_lines(bytes: &[u8]) -> Vec<String> {
+    let utf8 = std::str::from_utf8(bytes).is_ok();
+    let mut out = Vec::new();
+    for src in bytes.split(|&b| b == b'\n') {
+        let mut raw: Vec<u8> = Vec::with_capacity(src.len());
+        for &b in src.iter().filter(|&&b| b != b'\r' && b != 0x1a) {
+            if b == b'\t' { raw.extend_from_slice(b"    ") } else { raw.push(b) }
+        }
+        let line = if utf8 { String::from_utf8_lossy(&raw).into_owned() } else { iniquity_term::cp437::decode(&raw) };
+        if line.chars().count() <= 79 {
+            out.push(line);
+        } else {
+            out.extend(crate::multinode::wrap(&line, 79));
+        }
+        if out.len() >= 500 {
+            break;
+        }
+    }
+    while out.last().is_some_and(String::is_empty) {
+        out.pop();
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn uploaded_text_is_decoded_and_wrapped() {
+        let l = text_lines(b"one\r\ntwo\tx\r\n\xb0 box\r\n\r\n\x1a");
+        assert_eq!(l, ["one", "two    x", "\u{2591} box"]);
+        let l = text_lines("caf\u{e9}\n".as_bytes());
+        assert_eq!(l, ["caf\u{e9}"]);
+        let long = text_lines(format!("{}\n", "word ".repeat(40)).as_bytes());
+        assert!(long.len() > 2 && long.iter().all(|l| l.chars().count() <= 79));
+    }
 
     #[test]
     fn thousands() {

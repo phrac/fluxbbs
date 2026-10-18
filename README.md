@@ -63,8 +63,12 @@ Neither is in git.
   commands, gosub/return, generic and lightbar menus, ACS expressions,
   passwords, fallbacks, command help.
 - Logon: the matrix menu, login, system password, new-user application
-  (each personal question can be switched off; handles kept as typed),
-  access levels and daily limits.
+  (each personal question can be switched off; handles kept as typed;
+  the NEWCFG screen to check the entries afterwards), access levels and
+  daily limits. Every N calls the caller is asked their birth date or
+  the last four digits of their phone number again (`*C`, Access and
+  Logon; the manual's "calls before check" options, whose code isn't in
+  the surviving source).
 - Messages: areas and conferences, the reader, posting and replying,
   quoting, the full-screen editor, newscans and mandatory messages,
   email, auto-signatures. A file can be attached to a message (ACS per
@@ -72,7 +76,9 @@ Neither is in git.
   ATTACH.PAS, so this follows the manual): uploaded after posting, or
   named on disk by a SysOp, kept under `data/attach` by the message's
   row id, offered for download when the message is read, and removed
-  when packing drops the message. Email tags: `E/ n` tags the email written
+  when packing drops the message. A prepared message can be uploaded
+  instead of typed (ACS and "ask" toggles in `*C`); it lands in the
+  editor to look over. Email tags: `E/ n` tags the email written
   this call, `E\ n` with `E+` shows only email tagged `n` (`E-` shows
   it all), e.g. for a separate support mailbox; this release kept the
   tag on messages but never used it, so this follows the manual.
@@ -80,7 +86,9 @@ Neither is in git.
   (single and batch, with points, ratios and daily limits), uploads
   (blind or named, with FILE_ID.DIZ import), search and newscan, archive
   viewing, local upload. Zmodem built in; other protocols and archivers
-  (RAR, 7Z, LHA via bsdtar/7-Zip) are external programs.
+  (RAR, 7Z, LHA via bsdtar/7-Zip) are external programs. Before a
+  download the caller can ask to be logged off when it's done (a
+  countdown afterwards; `*C`, Transfers).
 - Oneliners, the automessage, last callers, history and statistics, the
   BBS list, user configuration, user listing.
 - Infoforms (questionnaires, mandatory or not) and new user voting.

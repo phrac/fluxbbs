@@ -472,9 +472,15 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
     m.compress_area_numbers = c.comp_msg_areas;
     m.ansi_quote = c.ansi_string.clone();
     m.acs_anon_automsg = c.acs_anon_automsg.clone();
+    m.acs_upload_message = c.acs_upload_message.clone();
+    m.ask_upload_reply = c.ask_upload_reply;
+    m.ask_upload_email = c.ask_upload_email;
     m.acs_attach_public = c.acs_attach_public.clone();
     m.acs_attach_email = c.acs_attach_email.clone();
     cfg.logon.last_callers = c.num_last_calls as u32;
+    cfg.logon.calls_birth = c.calls_birth;
+    cfg.logon.calls_phone = c.calls_phone;
+    cfg.newuser.config = c.new_config;
     let f = &mut cfg.files;
     f.use_file_points = c.use_file_points;
     f.kb_per_point = c.kb_per_file_point;

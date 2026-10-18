@@ -290,6 +290,10 @@ pub struct Logon {
     pub time_per_call: bool,
     /// How many calls the last-callers list shows.
     pub last_callers: u32,
+    /// Every this many calls, ask the caller their birth date / the last
+    /// four digits of their phone number again (0 = never).
+    pub calls_birth: u8,
+    pub calls_phone: u8,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -315,6 +319,9 @@ pub struct NewUser {
     pub ask_yes_no_bars: bool,
     /// Which personal details the application asks for. Without a real
     /// name, the handle is used.
+    /// Show the NEWCFG configuration screen after applying, so new users
+    /// can check their entries.
+    pub config: bool,
     pub ask_real_name: bool,
     pub ask_birth_date: bool,
     pub ask_phone: bool,
@@ -353,6 +360,11 @@ pub struct Messages {
     /// May attach a file to a public message, or to email.
     pub acs_attach_public: String,
     pub acs_attach_email: String,
+    /// May upload a prepared message instead of typing one; whether to
+    /// offer that for replies and for email (new posts are always asked).
+    pub acs_upload_message: String,
+    pub ask_upload_reply: bool,
+    pub ask_upload_email: bool,
     /// Callers may quit reading mandatory messages.
     pub abort_mandatory_ok: bool,
     pub ask_private: bool,
@@ -384,6 +396,9 @@ impl Default for Messages {
             acs_autosig: "s25".into(),
             acs_attach_public: "s50".into(),
             acs_attach_email: "s50".into(),
+            acs_upload_message: "s25".into(),
+            ask_upload_reply: false,
+            ask_upload_email: true,
             abort_mandatory_ok: false,
             ask_private: true,
             ask_private_reply: true,
@@ -463,6 +478,10 @@ pub struct Files {
     pub max_upload_bytes: u64,
     /// Bytes per second assumed when estimating transfer time.
     pub transfer_cps: u64,
+    /// Offer to log the caller off when a download finishes, and how
+    /// long the countdown is.
+    pub ask_auto_logoff: bool,
+    pub auto_logoff_seconds: u16,
 }
 
 impl Default for Files {
@@ -485,6 +504,8 @@ impl Default for Files {
             advance_bar_on_flag: true,
             max_upload_bytes: 100 * 1024 * 1024,
             transfer_cps: 500_000,
+            ask_auto_logoff: true,
+            auto_logoff_seconds: 10,
         }
     }
 }
@@ -604,6 +625,8 @@ impl Default for Logon {
             real_names: false,
             time_per_call: false,
             last_callers: 10,
+            calls_birth: 10,
+            calls_phone: 5,
         }
     }
 }
@@ -627,6 +650,7 @@ impl Default for NewUser {
             yes_no_bars: true,
             ask_yes_no_bars: true,
             ask_real_name: true,
+            config: true,
             ask_birth_date: true,
             ask_phone: true,
             ask_address: true,
