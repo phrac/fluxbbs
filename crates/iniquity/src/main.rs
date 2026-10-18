@@ -34,6 +34,7 @@ mod files;
 mod transfer;
 mod upltest;
 mod upscan;
+mod web;
 mod nodes;
 mod pager;
 mod password;
@@ -381,6 +382,14 @@ async fn main() -> anyhow::Result<()> {
             }
         }
     };
+    if state.config().web.enabled {
+        let state = state.clone();
+        tokio::spawn(async move {
+            if let Err(e) = web::serve(state).await {
+                tracing::error!("status feed: {e:#}");
+            }
+        });
+    }
     tokio::select! {
         r = ssh::serve(state) => r,
         r = telnet => r,

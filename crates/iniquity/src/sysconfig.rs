@@ -149,6 +149,15 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('J', "Allow list", 50, "Never limited or checked: addresses, prefixes (10.0.) or ranges (/24).", List(|c| &mut c.security.allow)),
             set('K', "Deny list", 50, "Always refused: addresses, prefixes or ranges.", List(|c| &mut c.security.deny)),
         ]),
+        ("Website Feed", true, vec![
+            set('A', "Enabled", 3, "Serve who's online, last callers, new files and totals as JSON for a website? (restart)", Bool(|c| &mut c.web.enabled)),
+            set('B', "Listen", 30, "Address for the feed; keep 127.0.0.1 and have the web server pass /api/status.json to it (restart).", Text(|c| &mut c.web.listen, TEXT)),
+            set('C', "Allowed site", 40, "A site on another address allowed to fetch it (e.g. https://disfluxbbs.com); blank if proxied.", Text(|c| &mut c.web.allow_origin, TEXT.max(100))),
+            set('D', "Show handles", 3, "Show callers' handles (else \"a caller\")?", Bool(|c| &mut c.web.show_handles)),
+            set('E', "Show SysOp", 3, "List the SysOp among who's online?", Bool(|c| &mut c.web.show_sysop)),
+            set('F', "Last callers", 2, "How many recent callers to list.", Num(|c| c.web.last_callers as u64, |c, v| c.web.last_callers = v as u8, 0, 50)),
+            set('G', "New files", 2, "How many new files to list.", Num(|c| c.web.new_files as u64, |c, v| c.web.new_files = v as u8, 0, 50)),
+        ]),
         ("Passwords and Sign-ups", false, vec![
             set('A', "Min. password length", 3, "Shortest password allowed.", Num(|c| c.passwords.min_length as u64, |c, v| c.passwords.min_length = v as u8, 1, 64)),
             set('B', "Refuse weak ones", 3, "Refuse common passwords, the user's handle, one character repeated?", Bool(|c| &mut c.passwords.refuse_common)),

@@ -329,6 +329,21 @@ New, in `[passwords]` and `[newuser]`, or "Passwords and Sign-ups" in
   called back are marked deleted after that many days, checked every 10
   minutes.
 
+## Website feed
+
+New: `[web]` (off by default; "Website Feed" in `*C`) serves a read-only
+JSON status at `/status.json` and `/api/status.json` for a board's
+website: who's online (handle, a vague activity such as "browsing
+files", ssh/telnet), the last callers, the newest files (from areas a
+brand-new caller could open; the first description line with words in
+it), totals and today's numbers. It answers GET only, is rebuilt at most
+every 10 seconds, and can hide handles (`show_handles`) or the SysOp
+(`show_sysop`). Keep `listen` private and have the web server pass the
+path through (e.g. Caddy's `reverse_proxy`); `allow_origin` is for a
+site on another address. A page shows it with a few lines of script
+fetching that URL; insert the values as text, not HTML, since handles
+and descriptions are typed by callers.
+
 ## Sub-areas
 
 New, not in the original: a file area can sit under another one, to any

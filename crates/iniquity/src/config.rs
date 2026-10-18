@@ -14,6 +14,7 @@ pub struct Config {
     pub bbs: Bbs,
     pub ssh: Ssh,
     pub telnet: Telnet,
+    pub web: Web,
     pub security: Security,
     pub passwords: Passwords,
     pub paths: Paths,
@@ -128,6 +129,40 @@ pub struct Passwords {
 impl Default for Passwords {
     fn default() -> Self {
         Self { min_length: 8, refuse_common: true, enforce_at_login: true }
+    }
+}
+
+/// The status feed for a website (new): who's online, last callers,
+/// new files and totals as JSON, read-only, at `/status.json`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Web {
+    pub enabled: bool,
+    /// Keep it on 127.0.0.1 and let the web server pass
+    /// `/api/status.json` through to it.
+    pub listen: String,
+    /// A site allowed to fetch it from another address (CORS), e.g.
+    /// `https://disfluxbbs.com`; empty when it's served from the same site.
+    pub allow_origin: String,
+    /// Show handles (otherwise "a caller").
+    pub show_handles: bool,
+    /// List the SysOp among who's online.
+    pub show_sysop: bool,
+    pub last_callers: u8,
+    pub new_files: u8,
+}
+
+impl Default for Web {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            listen: "127.0.0.1:8099".into(),
+            allow_origin: String::new(),
+            show_handles: true,
+            show_sysop: true,
+            last_callers: 10,
+            new_files: 10,
+        }
     }
 }
 
