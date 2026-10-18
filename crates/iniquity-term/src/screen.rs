@@ -25,6 +25,8 @@ pub const COLUMNS: u16 = 80;
 pub struct Screen {
     charset: Charset,
     rows: u16,
+    /// The bottom of a scroll region, if one is set.
+    region: Option<u16>,
     out: Vec<u8>,
     /// 1-based cursor position.
     x: u16,
@@ -52,6 +54,7 @@ impl Screen {
         Self {
             charset,
             rows: rows.max(1),
+            region: None,
             out: Vec::new(),
             x: 1,
             y: 1,
@@ -287,8 +290,30 @@ impl Screen {
     }
 
     fn line_feed(&mut self) {
-        if self.y < self.rows {
+        // At the bottom of a scroll region the region scrolls instead.
+        if self.y < self.rows && Some(self.y) != self.region {
             self.y += 1;
+        }
+    }
+
+    /// Scroll only rows `top` to `bottom`, leaving those above and below
+    /// fixed (a header, a status line). The cursor goes home, as terminals
+    /// put it.
+    pub fn set_scroll_region(&mut self, top: u16, bottom: u16) {
+        let bottom = bottom.clamp(1, self.rows);
+        let top = top.clamp(1, bottom);
+        self.raw(format!("\x1b[{top};{bottom}r").as_bytes());
+        self.region = Some(bottom);
+        self.x = 1;
+        self.y = 1;
+    }
+
+    /// The whole screen scrolls again.
+    pub fn reset_scroll_region(&mut self) {
+        if self.region.take().is_some() {
+            self.raw(b"\x1b[r");
+            self.x = 1;
+            self.y = 1;
         }
     }
 
@@ -610,6 +635,19 @@ mod tests {
     fn ice_mode_at_connect() {
         let mut s = Screen::new(Charset::Cp437, 25);
         assert_eq!(s.take_output(), b"\x1b[?33h");
+    }
+
+    #[test]
+    fn scroll_regions_keep_the_bottom_line() {
+        let mut s = Screen::new(Charset::Cp437, 5);
+        s.set_scroll_region(1, 4);
+        s.write_bytes(b"\r\n\r\n\r\n\r\n\r\n");
+        assert_eq!(s.where_y(), 4, "the region scrolls; the cursor stays on its last row");
+        s.goto(1, 5);
+        s.write_bytes(b"status");
+        s.reset_scroll_region();
+        s.write_bytes(b"\r\n\r\n\r\n\r\n\r\n");
+        assert_eq!(s.where_y(), 5);
     }
 
     #[test]

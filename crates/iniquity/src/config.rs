@@ -31,6 +31,7 @@ pub struct Config {
     pub qwk: Qwk,
     pub chat: Chat,
     pub wfc: Wfc,
+    pub ai: Ai,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -251,6 +252,64 @@ pub enum CharsetPref {
     Auto,
     Cp437,
     Utf8,
+}
+
+/// AI chat (`AI`): an OpenAI-style chat completions endpoint.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Ai {
+    pub enabled: bool,
+    /// Up to and including `/v1`, e.g. `http://localhost:8080/v1`.
+    pub base_url: String,
+    pub model: String,
+    /// The environment variable holding an API key, if the server wants
+    /// one (kept out of this file).
+    pub api_key_env: String,
+    /// Who may use it: as stock, level 250 and up or flag I, which the
+    /// SysOp grants in the user editor.
+    pub acs: String,
+    /// What the AI is called on screen and in its prompt.
+    pub name: String,
+    /// Added to the built-in system prompt.
+    pub system_prompt: String,
+    pub max_tokens: u32,
+    /// `reasoning_effort` for models that think first (none, low...);
+    /// empty for the server's default.
+    pub reasoning_effort: String,
+    /// Messages a caller may send a day (0 = no limit; SysOps have none).
+    pub daily_limit: u32,
+    /// Let the model search the web...
+    pub web_search: bool,
+    /// ...and read pages it finds (public addresses only).
+    pub read_pages: bool,
+    /// A SearXNG instance to search with...
+    pub search_url: String,
+    /// ...else the environment variable holding a Brave Search API key;
+    /// with neither, DuckDuckGo (which turns away bots now and then).
+    pub search_key_env: String,
+    pub timeout_seconds: u64,
+}
+
+impl Default for Ai {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            base_url: String::new(),
+            model: String::new(),
+            api_key_env: String::new(),
+            acs: "s250|fI".into(),
+            name: "ai".into(),
+            system_prompt: String::new(),
+            max_tokens: 1000,
+            reasoning_effort: String::new(),
+            daily_limit: 100,
+            web_search: true,
+            read_pages: true,
+            search_url: String::new(),
+            search_key_env: String::new(),
+            timeout_seconds: 120,
+        }
+    }
 }
 
 /// The waiting-for-caller screen (`iniquity --wfc`): the original's

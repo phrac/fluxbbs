@@ -21,6 +21,15 @@ def rgb_of(c):
 def render(data, rows_max=60):
     data = data.split(b'\x1a')[0]
     grid = {}
+    # SCROLL=25: scroll like a 25-row screen instead of growing.
+    scroll = int(__import__('os').environ.get('SCROLL', '0'))
+
+    def scrolled(y):
+        nonlocal grid
+        if scroll and y >= scroll:
+            grid = {(cx, cy - 1): v for (cx, cy), v in grid.items() if cy > 0}
+            return scroll - 1
+        return y
     x = y = 0; fg, bg, bold, blink = 7, 0, False, False; saved = (0, 0)
     i = 0
     while i < len(data):
@@ -65,12 +74,12 @@ def render(data, rows_max=60):
             i += m.end(); continue
         if b == 8: x = max(0, x - 1)
         elif b == 13: x = 0
-        elif b == 10: y += 1
+        elif b == 10: y = scrolled(y + 1)
         elif b == 9: x = min(79, (x // 8 + 1) * 8)
         else:
             grid[(x, y)] = (b, fg if isinstance(fg, tuple) else (fg | (8 if bold else 0)), bg)
             x += 1
-            if x >= 80: x = 0; y += 1
+            if x >= 80: x = 0; y = scrolled(y + 1)
         i += 1
     rows = min(rows_max, max([p[1] for p in grid] + [0]) + 1)
     img = Image.new('RGB', (80 * W, rows * H), (0, 0, 0))

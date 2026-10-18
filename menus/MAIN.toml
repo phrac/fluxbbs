@@ -244,3 +244,12 @@ desc = "Art gallery"
 help = "Browse the art gallery"
 on = "|B1Art gallery"
 off = "|B0Art gallery"
+
+[[command]]
+keys = "J"
+command = "AI"
+acs = "s250|fI"
+desc = "AI chat"
+help = "Chat with the board's AI (for callers the SysOp has let in)"
+on = "|B1AI chat"
+off = "|B0AI chat"

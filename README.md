@@ -517,6 +517,26 @@ library. Screens sharing a header can start
 with `|SA`, which draws `STOCK.ANS` in place, so the header lives in one
 file.
 
+## AI chat
+
+New: `AI` (J on the main menu) is a chat with a language model, for
+callers the SysOp lets in. `[ai] acs` is `s250|fI` as stock: SysOps,
+and anyone given flag I in the user editor (`*U`). It talks to any
+OpenAI-style chat completions server (`base_url` up to `/v1`, `model`,
+and `api_key_env` naming an environment variable with a key, if the
+server needs one), streams replies as they're written, word-wrapped and
+without markdown or the model's thinking, and keeps the conversation for
+as long as the caller stays (`/new` starts over, `/quit` or ESC leaves).
+With `web_search` on, the model may search the web, up to four times a
+reply: through a SearXNG instance (`search_url`), else the Brave Search
+API (`search_key_env`), else DuckDuckGo's HTML page, which turns away
+bots now and then. With `read_pages` on too, it may read a page it
+found (as text, at most 8000 characters), but only from public
+addresses: never the board itself, the LAN or the tailnet. `daily_limit` caps a caller's messages a day (not
+the SysOp's); `name`, `system_prompt`, `max_tokens`, `reasoning_effort`
+and `timeout_seconds` do what they say. All of it is under "AI Chat" in
+`*C`.
+
 ## Terminal handling
 
 Callers whose TERM is a BBS terminal (`syncterm`, `ansi-bbs`, ...) get

@@ -138,6 +138,11 @@ def farea(part):
             + b'~NW@66' + other + b'{14~SP\x1b[0m\r\n')
 
 
+def aichat():
+    """The AI chat's header: the conversation scrolls below it."""
+    return b'\x1b[0m\x1b[2J|SA' + rule('ai chat')
+
+
 def screen(menu, name):
     cmds = [c for c in menu.get('command', [])
             if c.get('desc') and not c.get('hidden') and c.get('keys') != 'FIRSTCMD'
@@ -182,6 +187,8 @@ if __name__ == '__main__':
             data = form(name)
         elif name == 'LISTFILE':
             data = listfile()
+        elif name == 'AICHAT':
+            data = aichat()
         elif name.startswith('FAREA'):
             data = farea(name[5:])
         else:

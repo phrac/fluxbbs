@@ -5,6 +5,7 @@
 //!     iniquity import <old-install> [dest]      convert a DOS install
 
 mod acs;
+mod aichat;
 mod archview;
 mod attach;
 mod commands;
@@ -102,6 +103,8 @@ pub struct BbsState {
     pub nodes: Arc<Nodes>,
     /// Connection limits, failure counts and bans.
     pub guard: Arc<guard::Guard>,
+    /// AI chat messages today: (user, day) -> count.
+    pub ai_usage: std::sync::Mutex<std::collections::HashMap<(u32, chrono::NaiveDate), u32>>,
 }
 
 impl BbsState {
@@ -358,6 +361,7 @@ async fn main() -> anyhow::Result<()> {
         text_lock: std::sync::Mutex::new(()),
         nodes,
         guard: guard::Guard::new(),
+        ai_usage: Default::default(),
     });
     // Bans survive restarts.
     match state.sys.bans() {
@@ -455,6 +459,7 @@ pub mod tests {
             text_lock: std::sync::Mutex::new(()),
             nodes: Nodes::new(config.bbs.max_nodes),
             guard: guard::Guard::new(),
+            ai_usage: Default::default(),
             config: std::sync::RwLock::new(Arc::new(config)),
         })
     }

@@ -103,6 +103,10 @@ pub struct Session {
     pub pages: u32,
     /// Drawing the STOCK screen for `|SA`.
     including: bool,
+    /// The AI chat's help bar, redrawn as the chat scrolls.
+    pub(crate) ai_bar: String,
+    /// The colour the AI chat's text is in, to resume after the bar.
+    pub(crate) ai_ink: String,
 }
 
 /// Run a caller from connect to disconnect.
@@ -253,6 +257,8 @@ impl Session {
             use_tag: false,
             pages: 0,
             including: false,
+            ai_bar: String::new(),
+            ai_ink: String::new(),
         }
     }
 
