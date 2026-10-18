@@ -400,8 +400,9 @@ impl Default for Qwk {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Dos {
-    /// Runs the emulator (through `sh -c`); %C is the config written for
-    /// each door.
+    /// Empty: the built-in machine runs DOS doors. Otherwise a DOSBox
+    /// command (through `sh -c`), %C being the config written for each
+    /// door, for a door the built-in one can't run.
     pub emulator: String,
     /// Mounted as C:, on the PATH: the doors and their batch files.
     pub drive: PathBuf,
@@ -414,7 +415,7 @@ pub struct Dos {
 impl Default for Dos {
     fn default() -> Self {
         Self {
-            emulator: "dosbox-staging -noprimaryconf -nolocalconf -conf %C".into(),
+            emulator: String::new(),
             drive: "doors/dos".into(),
             setup: Vec::new(),
             config: Vec::new(),

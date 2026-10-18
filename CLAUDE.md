@@ -31,6 +31,19 @@ git: copy `data/` and `files/` across if the board should move with you.
   strings, menus, records and callers; say so when doing the same.
 - Turbo Pascal files are CP437 with CRLF: read them with
   `iconv -f cp437 -t utf-8 FILE.PAS | tr -d '\r'`.
+- `crates/iniquity-dos`: the DOS machine DOS doors run in (real-mode x86
+  core, BIOS, FOSSIL, DOS, batch files). `tests/dos/*.asm` are test
+  programs built with nasm (`tests/dos/build.sh`; the `.com` files are
+  committed). The CPU core is checked against the SingleStepTests 8088
+  suite: unpack its `v2/*.json.gz` and `metadata.json` somewhere and run
+  `SST8088_DIR=dir cargo test -p iniquity-dos --release --test sst8088
+  -- --ignored --nocapture`.
+- `Dockerfile` and `deploy/docker-compose.yml` run a board in a
+  container: the image holds the server and the stock `text/`, `themes/`,
+  `menus/`, `scripts/` at `/srv/inq/iniquity`, and the board directory is
+  mounted at `/srv/board`. The live board is `disfluxbbs.com` on `rzn`
+  (SSH 2222, telnet 23), from `~/code/disflux_bbs` there with the repo at
+  `~/code/inq/iniquity`; the test board is the same layout on `ryzen`.
 
 ## How the user likes to work
 
@@ -120,6 +133,9 @@ Things that trip tests up:
 ## Next
 
 Feature parity with the manual is done bar echomail/netmail (a FidoNet
-mailer/tosser bridge) and the "not planned" items in the README. New
-work is improvements rather than ports: a web or terminal SysOp
-dashboard in place of the local console, for instance.
+mailer/tosser bridge) and the "not planned" items in the README. Next:
+real doors (LORD, TW2002, Usurper, BRE) in the DOS machine, fixing what
+they trip over; then the MeshCore bridge (a mesh channel mapped to a
+message area). New work after that is improvements rather than ports: a
+web or terminal SysOp dashboard in place of the local console, for
+instance.

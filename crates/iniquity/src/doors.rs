@@ -15,11 +15,17 @@
 
 use std::io;
 use std::os::fd::{AsRawFd, FromRawFd, OwnedFd};
-use std::path::Path;
+use std::os::unix::process::ExitStatusExt;
+use std::path::{Path, PathBuf};
 use std::process::{ExitStatus, Stdio};
-use std::time::Duration;
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::mpsc::{self as sync_mpsc, RecvTimeoutError, TryRecvError};
+use std::time::{Duration, Instant};
 
 use chrono::{Local, NaiveDate, Timelike};
+use iniquity_dos::batch::Batch;
+use iniquity_dos::machine::{Machine, Status, TICK_INSTRUCTIONS};
 use iniquity_term::{Charset, cp437};
 use tokio::io::unix::AsyncFd;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -427,6 +433,16 @@ enum Line {
     Pty(Pty),
     /// DOSBox's COM1.
     Com(tokio::net::TcpStream),
+    /// The built-in DOS machine, on its thread.
+    Dos(Builtin),
+}
+
+/// Our side of a door in the built-in machine: bytes to it, bytes from
+/// it. Dropping the sender tells the machine the caller has gone.
+struct Builtin {
+    to_door: sync_mpsc::Sender<Vec<u8>>,
+    from_door: tokio::sync::mpsc::Receiver<Vec<u8>>,
+    pending: Vec<u8>,
 }
 
 impl Line {
@@ -434,6 +450,18 @@ impl Line {
         match self {
             Line::Pty(p) => p.read(buf).await,
             Line::Com(s) => s.read(buf).await,
+            Line::Dos(b) => {
+                if b.pending.is_empty() {
+                    match b.from_door.recv().await {
+                        Some(v) => b.pending = v,
+                        None => return Ok(0),
+                    }
+                }
+                let n = buf.len().min(b.pending.len());
+                buf[..n].copy_from_slice(&b.pending[..n]);
+                b.pending.drain(..n);
+                Ok(n)
+            }
         }
     }
 
@@ -441,6 +469,11 @@ impl Line {
         match self {
             Line::Pty(p) => p.write_all(buf).await,
             Line::Com(s) => s.write_all(buf).await,
+            Line::Dos(b) => {
+                // The machine gone is seen on the read side.
+                let _ = b.to_door.send(buf.to_vec());
+                Ok(())
+            }
         }
     }
 
@@ -454,10 +487,150 @@ impl Line {
     /// carrier when its socket closes, so DOS doors are stopped instead.
     fn hangup_signal(&self) -> libc::c_int {
         match self {
-            Line::Pty(_) => libc::SIGHUP,
+            Line::Pty(_) | Line::Dos(_) => libc::SIGHUP,
             Line::Com(_) => libc::SIGTERM,
         }
     }
+}
+
+/// The door itself: a process of ours, or the machine thread.
+enum Proc {
+    Child(Child),
+    Machine {
+        task: tokio::task::JoinHandle<Result<MachineEnd, String>>,
+        /// Its result, once in: a join handle isn't polled twice.
+        done: Option<io::Result<ExitStatus>>,
+        /// The door dropped DTR: the caller is to be hung up.
+        hangup: Arc<AtomicBool>,
+    },
+}
+
+impl Proc {
+    fn id(&self) -> Option<u32> {
+        match self {
+            Proc::Child(c) => c.id(),
+            Proc::Machine { .. } => None,
+        }
+    }
+
+    /// Wait for the door to end; a machine door's exit code becomes a
+    /// status like a process's.
+    async fn wait(&mut self) -> io::Result<ExitStatus> {
+        match self {
+            Proc::Child(c) => c.wait().await,
+            Proc::Machine { task, done, hangup } => {
+                if done.is_none() {
+                    let r = match task.await {
+                        Ok(Ok(MachineEnd::Exited(code))) => Ok(ExitStatus::from_raw((code as i32) << 8)),
+                        Ok(Ok(MachineEnd::Hangup)) => {
+                            hangup.store(true, Ordering::Relaxed);
+                            Ok(ExitStatus::from_raw(0))
+                        }
+                        Ok(Err(e)) => Err(io::Error::other(e)),
+                        Err(e) => Err(io::Error::other(e)),
+                    };
+                    *done = Some(r);
+                }
+                match done {
+                    Some(Ok(st)) => Ok(*st),
+                    Some(Err(e)) => Err(io::Error::new(e.kind(), e.to_string())),
+                    None => unreachable!(),
+                }
+            }
+        }
+    }
+}
+
+/// How a door in the built-in machine ended.
+enum MachineEnd {
+    Exited(u8),
+    Hangup,
+}
+
+/// Run `cmd` (a program or batch file) in the built-in DOS machine with
+/// `drive` as C: and the drop directory `dir` as D:, until it ends or
+/// the caller goes. The machine's clock follows real time: it sleeps
+/// when it gets ahead of 18.2 ticks a second and takes ticks in a lump
+/// when it has been waiting for input.
+fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, from_caller: sync_mpsc::Receiver<Vec<u8>>, to_caller: tokio::sync::mpsc::Sender<Vec<u8>>) -> Result<MachineEnd, String> {
+    const TICK: Duration = Duration::from_micros(54_925);
+    /// How long a door gets to notice carrier has dropped.
+    const GRACE: Duration = Duration::from_secs(5);
+    let mut m = Machine::new(&drive, Some(&dir));
+    m.sys.dos.set_drive(3);
+    let mut batch = Batch::new(&mut m, &cmd)?;
+    let started = Instant::now();
+    let mut lost: Option<Instant> = None;
+    let mut code = 0;
+    let send = |m: &mut Machine| -> Result<(), String> {
+        for l in m.sys.log.drain(..) {
+            tracing::debug!("dos: {l}");
+        }
+        let out = m.take_output();
+        if out.is_empty() || to_caller.blocking_send(out).is_ok() { Ok(()) } else { Err("the caller has gone".into()) }
+    };
+    while let Some((prog, args)) = batch.next(&mut m)? {
+        send(&mut m)?;
+        m.start(&prog, &args)?;
+        loop {
+            loop {
+                match from_caller.try_recv() {
+                    Ok(b) => m.feed(&b),
+                    Err(TryRecvError::Empty) => break,
+                    Err(TryRecvError::Disconnected) => {
+                        if lost.is_none() {
+                            lost = Some(Instant::now());
+                            m.set_carrier(false);
+                        }
+                        break;
+                    }
+                }
+            }
+            if lost.is_some_and(|t| t.elapsed() > GRACE) {
+                return Err("the caller hung up and the door didn't notice".into());
+            }
+            let st = m.run(TICK_INSTRUCTIONS / 8);
+            send(&mut m)?;
+            if m.sys.hangup {
+                return Ok(MachineEnd::Hangup);
+            }
+            // Keep the machine's clock on real time.
+            let wall = (started.elapsed().as_nanos() / TICK.as_nanos()) as u64;
+            if m.ticks + 1 < wall {
+                m.advance_ticks((wall - m.ticks).min(182) as u32);
+            }
+            match st {
+                Status::Running => {
+                    let due = started + TICK * m.ticks as u32;
+                    let now = Instant::now();
+                    if due > now {
+                        std::thread::sleep(due - now);
+                    }
+                }
+                Status::Idle => match from_caller.recv_timeout(TICK) {
+                    Ok(b) => m.feed(&b),
+                    Err(RecvTimeoutError::Timeout) => {}
+                    Err(RecvTimeoutError::Disconnected) => std::thread::sleep(TICK),
+                },
+                Status::Exited(c) => {
+                    code = c;
+                    break;
+                }
+                Status::Fault(e) => return Err(format!("{prog}: {e}")),
+            }
+        }
+    }
+    send(&mut m)?;
+    Ok(MachineEnd::Exited(code))
+}
+
+/// Start a DOS door in the built-in machine.
+fn spawn_builtin(cmd: &str, dir: &Path, drive: &Path) -> (Line, Proc) {
+    let (to_door, from_caller) = sync_mpsc::channel();
+    let (to_caller, from_door) = tokio::sync::mpsc::channel(64);
+    let (drive, dir, cmd) = (drive.to_path_buf(), dir.to_path_buf(), cmd.to_string());
+    let task = tokio::task::spawn_blocking(move || run_machine(drive, dir, cmd, from_caller, to_caller));
+    (Line::Dos(Builtin { to_door, from_door, pending: Vec::new() }), Proc::Machine { task, done: None, hangup: Arc::new(AtomicBool::new(false)) })
 }
 
 /// Start a DOS door under DOSBox, with COM1 connected back to us.
@@ -551,8 +724,15 @@ impl Session {
         let cmd = self.door_command(cmd, &dir, dos);
         self.node.update(|n| n.activity = "Running a door".into());
         self.flush().await?;
-        let result = match if dos { spawn_dos(&cfg.dos, &cmd, &dir, &drive).await } else { self.spawn_native(&cmd, &dir) } {
-            Ok((line, child)) => self.run_door(line, child).await,
+        let started = if dos && cfg.dos.emulator.is_empty() {
+            Ok(spawn_builtin(&cmd, &dir, &drive))
+        } else if dos {
+            spawn_dos(&cfg.dos, &cmd, &dir, &drive).await.map(|(l, c)| (l, Proc::Child(c)))
+        } else {
+            self.spawn_native(&cmd, &dir).map(|(l, c)| (l, Proc::Child(c)))
+        };
+        let result = match started {
+            Ok((line, proc)) => self.run_door(line, proc).await,
             Err(e) => Err(e),
         };
         self.input.clear();
@@ -690,7 +870,7 @@ impl Session {
 
     /// Pass bytes between the caller and a door until it exits, the caller
     /// hangs up, or their time runs out.
-    async fn run_door(&mut self, mut line: Line, mut child: Child) -> io::Result<DoorEnd> {
+    async fn run_door(&mut self, mut line: Line, mut child: Proc) -> io::Result<DoorEnd> {
         let pid = child.id();
         let mut input = DoorInput::new(self.screen.charset() == Charset::Utf8);
         let pending = self.take_pending_input();
@@ -747,14 +927,29 @@ impl Session {
         };
         let signal = line.hangup_signal();
         drop(line);
-        if matches!(end, DoorEnd::Exited(_)) {
-            // Like dropping carrier on anything the door left running.
-            signal_group(pid, libc::SIGHUP);
-        } else {
-            signal_group(pid, signal);
-            if tokio::time::timeout(Duration::from_secs(3), child.wait()).await.is_err() {
-                signal_group(pid, libc::SIGKILL);
-                let _ = child.wait().await;
+        match &child {
+            Proc::Child(_) => {
+                if matches!(end, DoorEnd::Exited(_)) {
+                    // Like dropping carrier on anything the door left running.
+                    signal_group(pid, libc::SIGHUP);
+                } else {
+                    signal_group(pid, signal);
+                    if tokio::time::timeout(Duration::from_secs(3), child.wait()).await.is_err() {
+                        signal_group(pid, libc::SIGKILL);
+                        let _ = child.wait().await;
+                    }
+                }
+            }
+            Proc::Machine { .. } => {
+                // The machine sees carrier drop and ends on its own.
+                if !matches!(end, DoorEnd::Exited(_)) {
+                    let _ = tokio::time::timeout(Duration::from_secs(8), child.wait()).await;
+                }
+                if let Proc::Machine { hangup, .. } = &child
+                    && hangup.load(Ordering::Relaxed)
+                {
+                    return Ok(DoorEnd::Hangup);
+                }
             }
         }
         Ok(end)

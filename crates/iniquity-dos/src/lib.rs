@@ -7,7 +7,14 @@
 //! space; a [`Bus`] supplies I/O ports and takes the interrupts the
 //! machine handles natively (DOS, BIOS, FOSSIL).
 
+pub mod batch;
+pub mod bios;
 pub mod cpu;
+pub mod dos;
+pub mod fossil;
+pub mod machine;
+pub mod serial;
+pub mod video;
 
 /// Linear address space: 1 MB plus the 64 KB the A20 line reaches.
 pub struct Memory {

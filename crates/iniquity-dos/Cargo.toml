@@ -5,6 +5,7 @@ edition = "2024"
 description = "A real-mode x86 and DOS emulator for running DOS door programs inside Iniquity"
 
 [dependencies]
+chrono = "0.4.45"
 
 [dev-dependencies]
 serde = { version = "1.0.229", features = ["derive"] }

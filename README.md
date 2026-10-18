@@ -26,6 +26,22 @@ SSH host keys (Ed25519, ECDSA and RSA) are made in `data/` on first run.
 The database is `data/iniquity.db`; uploaded files live under `files/`.
 Neither is in git.
 
+## Running in a container
+
+`Dockerfile` builds an image with the server and the stock screens,
+menus, themes and scripts at `/srv/inq/iniquity`; a board directory
+(its `iniquity.toml`, `data/`, `files/`, own screens) is mounted at
+`/srv/board`, so a board whose config points at `../inq/iniquity/...`
+works the same inside. `deploy/docker-compose.yml` runs one board,
+SSH on the host's 2222 and telnet on 23:
+
+    docker compose -f deploy/docker-compose.yml up -d --build
+
+`BOARD` is the board directory (default `~/code/disflux_bbs` for a
+checkout at `~/code/inq/iniquity`), `BBS_UID`/`BBS_GID` who the server
+runs as (default 1000, which must own the board directory). Logs go to
+`docker logs iniquity`.
+
 ## What's done
 
 **Connections**
@@ -120,7 +136,7 @@ Neither is in git.
 - QWK offline mail: `QD` packs new messages (email as conference 0)
   for an offline reader, `QU` posts the replies (`[qwk]` in
   `iniquity.toml`). See [QWK](#qwk-offline-mail).
-- Doors, native and DOS (under DOSBox): `D1` DORINFO1.DEF, `D2` DOOR.SYS,
+- Doors, native and DOS (in the built-in DOS machine): `D1` DORINFO1.DEF, `D2` DOOR.SYS,
   `D3` CHAIN.TXT, `D4` DOOR32.SYS, `DZ` DOOR.SYS and DORINFO1.DEF, `D0`
   none. See [Doors](#doors).
 
@@ -238,21 +254,32 @@ The parameter can use `%PN` (the node's drop directory), `%PD`, `%PT`,
 Every value goes in shell-quoted, so don't put quotes around codes.
 
 **DOS doors.** A command whose program ends in `.BAT`, `.COM` or `.EXE`
-(the stock menus' `LORD.BAT`, say) runs under DOSBox (`[dos]` in
-`iniquity.toml`; dosbox-staging by default). Its COM1 is a null modem
-back to the BBS, so doors that drive the UART themselves just work; for
-FOSSIL doors put a FOSSIL driver (BNU, X00) on the DOS drive and in
-`setup`. The DOS drive, `doors/dos`, is C: and on the PATH, and holds the
-doors and their batch files, as `pathDoor` did; the node's drop
-directory is D:, the current drive, so `LORD.BAT` finds DOOR.SYS where
-the original left it. In DOS commands `%PN` is `D:\`, and values lose
-the characters DOS would act on (`<>|"%`). DOSBox's own output goes to
-`dosbox.log` in the drop directory.
+(the stock menus' `LORD.BAT`, say) runs in the built-in DOS machine
+(`crates/iniquity-dos`): a real-mode x86 with 640 KB, the BIOS video,
+keyboard and timer services, a FOSSIL (revision 5) and an 8250 COM1
+wired to the caller, and enough of DOS 5 for door programs (files,
+directories, memory, exec, batch files). Drop a door into a directory
+under the DOS drive (`doors/dos`, which is C: and on the PATH), point a
+menu command at its batch file, and it runs: no DOSBox and no FOSSIL
+driver to install. The node's drop directory is D:, the current drive,
+so `LORD.BAT` finds DOOR.SYS where the original left it. What a door
+prints on its own screen before it opens the port is mirrored to the
+caller, as a door run in local mode would want. A door that lowers DTR
+hangs the caller up, as it would have; the machine's clock keeps 18.2
+ticks a second whatever the host's speed; a caller going away drops
+carrier, and a door that doesn't notice within a few seconds is
+stopped. In DOS commands `%PN` is `D:\`, and values lose the characters
+DOS would act on (`<>|"%`).
 
-DOSBox doesn't drop carrier when its socket closes, so when a caller
-hangs up or runs out of time in a DOS door, DOSBox is stopped (TERM,
-then KILL after 3 seconds) rather than the door noticing: a turn in
-progress may not be saved.
+Not in the machine: protected mode (DPMI doors), EMS/XMS, the FPU,
+sound. For a door that needs one, `[dos] emulator` names a DOSBox
+command (`dosbox-staging -noprimaryconf -nolocalconf -conf %C`), with
+`setup` for DOS commands run before each door (a FOSSIL driver such as
+BNU or X00, kept on the DOS drive) and `config` for extra dosbox.conf
+lines; COM1 is then a null modem back to the BBS, DOSBox's output goes
+to `dosbox.log` in the drop directory, and since DOSBox doesn't drop
+carrier when its socket closes, a caller hanging up stops DOSBox (TERM,
+then KILL) rather than the door noticing.
 
 Changes from the original: each node gets its own drop directory; the
 DOOR.SYS password line is empty; CHAIN.TXT has real times and transfer

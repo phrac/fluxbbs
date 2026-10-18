@@ -1,0 +1,24 @@
+# One board in a container, built from this checkout. From the repo:
+#
+#     docker compose -f deploy/docker-compose.yml up -d --build
+#
+# BOARD is the board directory (config, data, files, own screens); the
+# default is ~/code/disflux_bbs for a checkout at ~/code/inq/iniquity,
+# so the board's `../inq/iniquity/...` paths resolve inside the container
+# as they do outside. It is mounted writable and the server runs as
+# BBS_UID:BBS_GID (default 1000:1000), so match the directory's owner.
+# SSH is on 2222 and telnet on 23 of the host.
+services:
+  iniquity:
+    build: ..
+    image: iniquity
+    container_name: iniquity
+    restart: unless-stopped
+    user: "${BBS_UID:-1000}:${BBS_GID:-1000}"
+    working_dir: /srv/board
+    volumes:
+      - ${BOARD:-../../../disflux_bbs}:/srv/board
+    ports:
+      - "2222:2222"
+      - "23:2323"
+    stop_grace_period: 15s

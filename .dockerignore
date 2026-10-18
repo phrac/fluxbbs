@@ -1,0 +1,10 @@
+target
+original
+data
+files
+doors
+tools
+docs
+.git
+*.raw
+*.png

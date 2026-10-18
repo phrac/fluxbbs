@@ -149,10 +149,26 @@ fn sst8088() {
                         why += &format!(" {k}: got {got:#x} want {want:#x}");
                     }
                 }
+                // A divide exception pushes the flags, undefined bits and
+                // all: mask that word in memory too.
+                let divides = matches!((op.as_str(), reg), ("D4", _) | ("F6" | "F7", Some(6 | 7)));
+                let pushed_flags = divides.then(|| {
+                    let reg = |k: &str| t.end.regs.0.get(k).or(t.initial.regs.0.get(k)).copied().unwrap_or(0);
+                    let (ss, sp) = (reg("ss"), reg("sp"));
+                    ((ss << 4) + ((sp + 4) & 0xFFFF)) & 0xFFFFF
+                });
                 for (a, b) in &t.end.ram {
-                    if mem.read8(*a) != *b {
+                    let (mut got, mut want) = (mem.read8(*a), *b);
+                    if let Some(f) = pushed_flags
+                        && (*a == f || *a == f + 1)
+                    {
+                        let m = (mask >> (8 * (*a - f))) as u8;
+                        got &= m;
+                        want &= m;
+                    }
+                    if got != want {
                         ok = false;
-                        why += &format!(" [{a:#x}]: got {:#x} want {:#x}", mem.read8(*a), b);
+                        why += &format!(" [{a:#x}]: got {got:#x} want {want:#x}");
                     }
                 }
             } else {

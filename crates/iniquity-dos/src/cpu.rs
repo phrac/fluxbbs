@@ -75,10 +75,18 @@ const FLAGS_FIXED: u32 = 0x0002;
 const FLAGS_WRITABLE: u32 = CF | PF | AF | ZF | SF | TF | IF | DF | OF;
 
 /// Where native interrupt handlers live: an interrupt vector pointing
-/// at `CALLBACK_SEG:(n*4)` means the bus handles interrupt `n`.
+/// at `CALLBACK_SEG:(n*16)` means the bus handles interrupt `n`. The 16
+/// bytes per entry leave room for data a program looks for at the
+/// handler (the FOSSIL signature at offset 6).
 pub const CALLBACK_SEG: u16 = 0xF000;
+pub const CALLBACK_STRIDE: u16 = 16;
 /// A bare `IRET` for handlers that chain to another interrupt.
-pub const IRET_STUB: u16 = 0x0FF0;
+pub const IRET_STUB: u16 = 0x1FF0;
+
+/// The callback offset for interrupt `n`.
+pub const fn callback_offset(n: u8) -> u16 {
+    n as u16 * CALLBACK_STRIDE
+}
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum CpuError {
@@ -352,6 +360,11 @@ impl Cpu {
         self.ip = mem.read16(v);
         self.sregs[CS] = mem.read16(v + 2);
         self.halted = false;
+    }
+
+    /// Return from the interrupt being handled natively (pop the frame).
+    pub fn do_iret(&mut self, mem: &Memory) {
+        self.iret(mem, Size::W);
     }
 
     fn iret(&mut self, mem: &Memory, size: Size) {
@@ -664,8 +677,8 @@ impl Cpu {
         self.idle_hint = false;
         // Native interrupt handlers: the vector pointed into the callback ROM.
         if self.sregs[CS] == CALLBACK_SEG {
-            if self.ip < 0x400 && self.ip.is_multiple_of(4) {
-                let n = (self.ip / 4) as u8;
+            if self.ip < 0x1000 && self.ip.is_multiple_of(CALLBACK_STRIDE) {
+                let n = (self.ip / CALLBACK_STRIDE) as u8;
                 self.instructions += 1;
                 match bus.native_interrupt(n, self, mem) {
                     After::Iret => self.iret(mem, Size::W),
@@ -1213,7 +1226,9 @@ impl Cpu {
                         }
                     }
                     _ => {
-                        if !self.idiv(v, size) {
+                        // On the 8086 a REP prefix negates IDIV's quotient.
+                        let negate = self.model_8086 && p.rep != Rep::None;
+                        if !self.idiv(v, size, negate) {
                             if !self.model_8086 {
                                 self.ip = start_ip;
                             }
@@ -1271,6 +1286,8 @@ impl Cpu {
                     }
                     6 => {
                         let v = self.read_op(mem, rm, wd);
+                        // The 8086 pushed SP after decrementing it.
+                        let v = if self.model_8086 && matches!(rm, Operand::Reg(4)) { v.wrapping_sub(2) } else { v };
                         self.push(mem, wd, v);
                     }
                     _ => return Err(self.unsupported(op, None, start_ip)),
@@ -1551,7 +1568,7 @@ impl Cpu {
         true
     }
 
-    fn idiv(&mut self, v: u32, size: Size) -> bool {
+    fn idiv(&mut self, v: u32, size: Size, negate: bool) -> bool {
         let d = Self::sext(v, size);
         if d == 0 {
             return false;
@@ -1561,12 +1578,19 @@ impl Cpu {
             Size::W => ((self.dx() as u32) << 16 | self.ax() as u32) as i32 as i64,
             Size::D => ((self.regs[DX] as u64) << 32 | self.regs[AX] as u64) as i64,
         };
-        let (q, r) = (num / d, num % d);
-        let (qmin, qmax): (i64, i64) = match size {
+        let (mut q, r) = (num / d, num % d);
+        if negate {
+            q = -q;
+        }
+        let (mut qmin, qmax): (i64, i64) = match size {
             Size::B => (-128, 127),
             Size::W => (-32768, 32767),
             Size::D => (i32::MIN as i64, i32::MAX as i64),
         };
+        if self.model_8086 {
+            // The 8086 traps on the most negative quotient too.
+            qmin += 1;
+        }
         if q < qmin || q > qmax {
             return false;
         }
