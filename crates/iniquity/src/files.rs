@@ -766,17 +766,14 @@ impl Session {
 
     fn lister_name(&mut self, l: &Layout, f: &FileRec, y: u16, hi: bool, flagged: bool) {
         let Some(x) = l.name_x else { return };
-        let (dot, ext) = match f.name.rsplit_once('.') {
-            Some((n, e)) => (n, e),
-            None => (f.name.as_str(), ""),
-        };
-        let shown = format!("{}{}", resize(&squish(dot, 8), 9), squish(ext, 3));
+        // A name too long for the column gets the row to itself.
+        let shown = lister_shown_name(&f.name).unwrap_or_else(|| squish(&f.name, 78usize.saturating_sub(x as usize)));
         let (text, mark) = if hi { (l.cl[3], l.cl[5]) } else { (l.cl[0], l.cl[2]) };
         self.screen.goto(x.saturating_sub(1).max(1), y);
         self.screen.set_color(if flagged { mark } else { text });
         self.write(if flagged { "(" } else { " " });
         self.screen.set_color(text);
-        self.write(&resize(&shown, 12));
+        self.write(&resize(&shown, shown.chars().count().max(12)));
         self.screen.set_color(if flagged { mark } else { text });
         self.write(if flagged { ")" } else { " " });
     }
@@ -832,7 +829,9 @@ impl Session {
         let mut used = 0;
         for (idx, f) in files.iter().enumerate().skip(first) {
             let desc: Vec<String> = if f.description.is_empty() { vec![no_desc.clone()] } else { f.description.clone() };
-            let need = desc.len().max(1);
+            // A long name has its own row; the rest starts below it.
+            let below = lister_shown_name(&f.name).is_none() as usize;
+            let need = desc.len().max(1) + below;
             // A file always gets the first row, even if its description
             // must be cut short.
             if used > 0 && used + need > lines {
@@ -846,6 +845,11 @@ impl Session {
                 self.write(&f.num.to_string());
             }
             self.lister_name(l, f, y, false, flagged);
+            if below > 0 && used + 1 >= lines {
+                rows.push(Row { idx, y });
+                break;
+            }
+            let (y, used_name) = (y + below as u16, used + below);
             if let Some(x) = l.size_x {
                 self.screen.goto(x, y);
                 self.screen.set_color(l.cl[0]);
@@ -857,13 +861,13 @@ impl Session {
                 self.write(&f.points.to_string());
             }
             if let Some(x) = l.desc_x {
-                for (i, d) in desc.iter().take(lines - used).enumerate() {
+                for (i, d) in desc.iter().take(lines - used_name).enumerate() {
                     self.screen.goto(x, y + i as u16);
                     self.screen.set_color(l.cl[0]);
                     self.write_with_controls(&squish(d, 79usize.saturating_sub(x as usize)));
                 }
             }
-            rows.push(Row { idx, y });
+            rows.push(Row { idx, y: y - below as u16 });
             used += need.min(lines - used);
             if used >= lines {
                 break;
@@ -1656,9 +1660,29 @@ pub fn text_lines(bytes: &[u8]) -> Vec<String> {
     out
 }
 
+
+/// A file name as the lister's 12-column name field shows it: DOS-style
+/// names spaced as the original did (`FILE     ZIP`), others as they are,
+/// or None when it won't fit.
+fn lister_shown_name(name: &str) -> Option<String> {
+    match name.split_once('.') {
+        Some((base, ext)) if base.len() <= 8 && ext.len() <= 3 && !ext.contains('.') => Some(format!("{}{ext}", resize(base, 9))),
+        None if name.len() <= 8 => Some(name.to_string()),
+        _ => (name.chars().count() <= 12).then(|| name.to_string()),
+    }
+}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn lister_names() {
+        assert_eq!(lister_shown_name("PHRACK1.ZIP").as_deref(), Some("PHRACK1  ZIP"));
+        assert_eq!(lister_shown_name("readme").as_deref(), Some("readme"));
+        assert_eq!(lister_shown_name("p2.tar.gz").as_deref(), Some("p2.tar.gz"));
+        assert_eq!(lister_shown_name("notes.text").as_deref(), Some("notes.text"));
+        assert_eq!(lister_shown_name("phrack2.tar.gz"), None);
+    }
 
     #[test]
     fn uploaded_text_is_decoded_and_wrapped() {
