@@ -693,10 +693,11 @@ impl Cpu {
                 0x2E => p.seg = Some(CS),
                 0x36 => p.seg = Some(SS),
                 0x3E => p.seg = Some(DS),
-                0x64 => p.seg = Some(FS),
-                0x65 => p.seg = Some(GS),
-                0x66 => p.op32 = true,
-                0x67 => p.ad32 = true,
+                // 386 prefixes; jump aliases on an 8086.
+                0x64 if !self.model_8086 => p.seg = Some(FS),
+                0x65 if !self.model_8086 => p.seg = Some(GS),
+                0x66 if !self.model_8086 => p.op32 = true,
+                0x67 if !self.model_8086 => p.ad32 = true,
                 0xF0 => {}
                 0xF2 => p.rep = Rep::Nz,
                 0xF3 => p.rep = Rep::Z,
@@ -1074,21 +1075,24 @@ impl Cpu {
             0xCF => self.iret(mem, wd),
             0xD4 => {
                 let base = self.fetch8(mem) as u32;
-                if base == 0 {
-                    // Flags as for a zero result, then the divide fault.
-                    self.szp(0, Size::B);
-                    self.set_flag(CF, false);
-                    self.set_flag(OF, false);
-                    self.set_flag(AF, false);
-                    if !self.model_8086 {
-                        self.ip = start_ip;
+                let al = self.al() as u32;
+                match al.checked_div(base) {
+                    Some(q) => {
+                        self.set_ah(q as u8);
+                        self.set_al((al % base) as u8);
+                        self.szp(al % base, Size::B);
                     }
-                    self.interrupt(mem, 0);
-                } else {
-                    let al = self.al() as u32;
-                    self.set_ah((al / base) as u8);
-                    self.set_al((al % base) as u8);
-                    self.szp(al % base, Size::B);
+                    None => {
+                        // Flags as for a zero result, then the divide fault.
+                        self.szp(0, Size::B);
+                        self.set_flag(CF, false);
+                        self.set_flag(OF, false);
+                        self.set_flag(AF, false);
+                        if !self.model_8086 {
+                            self.ip = start_ip;
+                        }
+                        self.interrupt(mem, 0);
+                    }
                 }
             }
             0xD5 => {
