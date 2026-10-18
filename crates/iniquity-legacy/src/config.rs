@@ -72,6 +72,16 @@ pub struct LegacyConfig {
     pub acs_attach_email: String,
     pub ask_upload_reply: bool,
     pub ask_upload_email: bool,
+    /// The file tester: scanner command and its pass level, age limit
+    /// (years) and strictness, the delete/add list and comment files.
+    pub virus_scan: String,
+    pub scan_level: u8,
+    pub age_limit: u8,
+    pub strict_age: bool,
+    pub del_list: String,
+    pub add_list: String,
+    pub com_file: String,
+    pub ext_maint: bool,
     pub inact_time: bool,
     pub inact_seconds: u16,
     pub inact_warning: u16,
@@ -228,7 +238,14 @@ impl LegacyConfig {
         let light_char = r.char();
         let light_char_ok = r.char();
         let light_char_fail = r.char();
-        r.skip(51 + 3 + 13 * 3 + 1); // virusScan .. extMaint
+        let virus_scan = r.string(50);
+        let scan_level = r.u8();
+        let age_limit = r.u8();
+        let strict_age = r.bool();
+        let del_list = r.string(12);
+        let add_list = r.string(12);
+        let com_file = r.string(12);
+        let ext_maint = r.bool();
         let ul_search = r.u8();
         let auto_validate = r.bool();
         let file_points_per = r.u16();
@@ -288,7 +305,8 @@ impl LegacyConfig {
             qwk_filename, qwk_welcome, qwk_news, qwk_goodbye, qwk_local_path, qwk_ignore_time,
             qwk_strip_sigs, no_chat_pw, chat_page_noise, max_page_times, max_page_beeps,
             restore_chat_time, chat_over_acs, page_ask_email, acs_attach_public, acs_attach_email,
-            ask_upload_reply, ask_upload_email,
+            ask_upload_reply, ask_upload_email, virus_scan, scan_level, age_limit, strict_age, del_list,
+            add_list, com_file, ext_maint,
         })
     }
 }

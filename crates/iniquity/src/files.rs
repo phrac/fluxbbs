@@ -1435,6 +1435,10 @@ impl Session {
                     continue;
                 }
             }
+            if !self.test_upload(&path, &name).await? {
+                let _ = std::fs::remove_file(&path);
+                continue;
+            }
             let mut desc = plan.map(|i| planned[i].1.clone()).unwrap_or_default();
             if desc.is_empty() && import
                 && let Some(d) = self.archive_description(&path, &desc_files).await {

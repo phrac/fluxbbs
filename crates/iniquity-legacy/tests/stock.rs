@@ -45,6 +45,8 @@ fn config() {
     assert_eq!((c.chat_start.as_str(), c.chat_end.as_str(), c.chat_over_acs.as_str()), ("11:00", "20:00", "s150"));
     assert_eq!((c.max_page_times, c.max_page_beeps), (3, 6));
     assert_eq!((c.acs_attach_public.as_str(), c.acs_attach_email.as_str()), ("s50", "s50"));
+    assert_eq!((c.age_limit, c.strict_age, c.del_list.as_str(), c.com_file.as_str()), (4, true, "DELETE.LST", "COMMENT.TXT"));
+    assert!(c.virus_scan.starts_with("SCAN"));
     assert!(c.chat_page_noise && c.restore_chat_time && c.page_ask_email && c.no_chat_pw.is_empty());
     assert_eq!((c.light_char, c.light_char_ok, c.light_char_fail), ('■', '√', 'x'));
 }

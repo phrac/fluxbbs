@@ -482,6 +482,17 @@ pub struct Files {
     /// long the countdown is.
     pub ask_auto_logoff: bool,
     pub auto_logoff_seconds: u16,
+    /// Upload tests: an outside command run on each upload (`%F`; blank
+    /// = none) and the exit code that means it passed; refuse archives
+    /// with files older than this many years (0 = don't), every file or
+    /// just the newest; files in the data directory listing names to
+    /// strip from uploaded ZIPs and holding the comment to put in them.
+    pub test_command: String,
+    pub test_success_code: i32,
+    pub age_limit_years: u8,
+    pub strict_age: bool,
+    pub delete_list: String,
+    pub archive_comment: String,
 }
 
 impl Default for Files {
@@ -506,6 +517,12 @@ impl Default for Files {
             transfer_cps: 500_000,
             ask_auto_logoff: true,
             auto_logoff_seconds: 10,
+            test_command: String::new(),
+            test_success_code: 0,
+            age_limit_years: 0,
+            strict_age: false,
+            delete_list: String::new(),
+            archive_comment: String::new(),
         }
     }
 }

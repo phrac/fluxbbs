@@ -32,6 +32,7 @@ mod fileareas;
 mod filebase;
 mod files;
 mod transfer;
+mod upltest;
 mod nodes;
 mod qwk;
 mod scripts;

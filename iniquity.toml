@@ -50,6 +50,8 @@ start_menu = "STARTUP"
 real_names = false
 time_per_call = false
 last_callers = 10
+calls_birth = 10
+calls_phone = 5
 
 [newuser]
 password = ""
@@ -67,6 +69,7 @@ quote = true
 ask_quote = true
 yes_no_bars = true
 ask_yes_no_bars = true
+config = true
 ask_real_name = false
 ask_birth_date = false
 ask_phone = false
@@ -106,6 +109,9 @@ compress_area_numbers = true
 ansi_quote = "(ansi codes detected; line not displayed)"
 acs_attach_public = "s50"
 acs_attach_email = "s50"
+acs_upload_message = "s25"
+ask_upload_reply = false
+ask_upload_email = true
 
 [files]
 use_file_points = false
@@ -128,6 +134,14 @@ wrap_descriptions = true
 advance_bar_on_flag = true
 max_upload_bytes = 104857600
 transfer_cps = 500000
+ask_auto_logoff = true
+auto_logoff_seconds = 10
+test_command = ""
+test_success_code = 0
+age_limit_years = 0
+strict_age = false
+delete_list = ""
+archive_comment = ""
 
 # Paging the SysOp (CP): the hours a SysOp who's online can be paged
 # (equal times = always), who may page outside them and with what

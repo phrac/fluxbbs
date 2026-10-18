@@ -89,6 +89,12 @@ Neither is in git.
   (RAR, 7Z, LHA via bsdtar/7-Zip) are external programs. Before a
   download the caller can ask to be logged off when it's done (a
   countdown afterwards; `*C`, Transfers).
+  Uploads are tested on the FILETEST screen (`*C`, Upload Tests): ZIPs
+  are read through (a CRC failure refuses the file) and can be held to
+  an age limit; an outside command can be run on every upload in place
+  of the DOS virus scanner (`clamscan --no-summary %F`, say); files on
+  the delete list (BBS ads) are stripped from ZIPs and the archive
+  comment added.
 - Oneliners, the automessage, last callers, history and statistics, the
   BBS list, user configuration, user listing.
 - Infoforms (questionnaires, mandatory or not) and new user voting.

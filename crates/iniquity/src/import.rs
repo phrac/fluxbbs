@@ -497,6 +497,10 @@ fn convert_config(c: &LegacyConfig, levels: &[LegacyLevel]) -> Config {
     f.no_description = c.no_desc_line.clone();
     f.wrap_descriptions = c.desc_wrap;
     f.advance_bar_on_flag = c.adv_file_bar;
+    f.age_limit_years = c.age_limit;
+    f.strict_age = c.strict_age;
+    f.delete_list = c.del_list.clone();
+    f.archive_comment = c.com_file.clone();
     cfg.nuv = crate::config::Nuv {
         enabled: c.nuv_validation,
         votes_yes: c.nuv_votes_yes,

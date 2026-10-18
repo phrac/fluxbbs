@@ -195,6 +195,14 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('C', "Ask auto-logoff", 3, "Offer to log off when a download finishes?", Bool(|c| &mut c.files.ask_auto_logoff)),
             set('D', "Auto-logoff secs", 3, "Countdown before the auto-logoff hangs up.", Num(|c| c.files.auto_logoff_seconds as u64, |c, v| c.files.auto_logoff_seconds = v as u16, 1, 600)),
         ]),
+        ("Upload Tests", false, vec![
+            set('A', "Test command", 50, "Run on each upload, %F the file (e.g. clamscan --no-summary %F); blank = none.", Text(|c| &mut c.files.test_command, TEXT.max(200))),
+            set('B', "Pass exit code", 3, "Exit code from the test command that means the file passed.", Num(|c| c.files.test_success_code.max(0) as u64, |c, v| c.files.test_success_code = v as i32, 0, 255)),
+            set('C', "Age limit (years)", 3, "Refuse ZIPs with files older than this many years (0 = don't).", Num(|c| c.files.age_limit_years as u64, |c, v| c.files.age_limit_years = v as u8, 0, 99)),
+            set('D', "Strict age test", 3, "Every file must be newer than the limit (else just the newest)?", Bool(|c| &mut c.files.strict_age)),
+            set('E', "Delete list", 12, "File in the data directory listing names (wildcards) to strip from uploaded ZIPs.", Text(|c| &mut c.files.delete_list, TEXT.max(40))),
+            set('F', "Archive comment", 12, "File in the data directory whose text becomes each uploaded ZIP's comment.", Text(|c| &mut c.files.archive_comment, TEXT.max(40))),
+        ]),
         ("Chat Mode", false, vec![
             set('A', "Override password", 20, "Password to page outside chat hours (blank = none).", Text(|c| &mut c.chat.override_password, Field::UPPER)),
             set('B', "Max page times", 3, "Pages allowed per call (0 = no limit).", Num(|c| c.chat.max_page_times as u64, |c, v| c.chat.max_page_times = v as u8, 0, 255)),
