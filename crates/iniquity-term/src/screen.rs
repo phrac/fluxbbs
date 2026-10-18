@@ -72,6 +72,15 @@ impl Screen {
         self.charset
     }
 
+    /// Switch character sets mid-call (the caller says detection got it
+    /// wrong).
+    pub fn set_charset(&mut self, charset: Charset) {
+        self.charset = charset;
+        if charset == Charset::Cp437 {
+            self.raw(b"\x1b[?33h");
+        }
+    }
+
     pub fn set_rows(&mut self, rows: u16) {
         self.rows = rows.max(1);
         self.y = self.y.min(self.rows);

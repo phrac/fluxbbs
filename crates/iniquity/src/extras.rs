@@ -5,7 +5,7 @@
 use std::io;
 
 use chrono::Local;
-use iniquity_term::Slot;
+use iniquity_term::{Charset, Slot};
 use iniquity_term::codes::{resize, squish};
 
 use crate::editor::EditCtx;
@@ -627,7 +627,7 @@ impl Session {
     pub async fn user_config_screen(&mut self, screen: &str) -> io::Result<()> {
         // Enter saves; Escape puts everything back (a password change,
         // confirmed on its own, stays).
-        let original = self.user.clone();
+        let (original, charset) = (self.user.clone(), self.screen.charset());
         loop {
             self.screen.set_color(iniquity_term::Color::DEFAULT);
             self.clear_screen();
@@ -648,6 +648,10 @@ impl Session {
                 self.screen.set_color(pos.2);
                 self.write_with_controls(&v);
             }
+            if self.goto_pos(*b"*A") {
+                let author = self.current_theme().map(|t| t.author).filter(|a| !a.is_empty()).unwrap_or_else(|| "n/a".into());
+                self.write_with_controls(&author);
+            }
             if !self.goto_pos(*b"**") {
                 self.screen.goto(1, self.screen.rows());
             }
@@ -657,6 +661,7 @@ impl Session {
                     let pw = std::mem::take(&mut self.user.password_hash);
                     self.user = original;
                     self.user.password_hash = pw;
+                    self.screen.set_charset(charset);
                 }
                 self.save_user();
                 self.screen.goto(1, self.screen.rows());
@@ -688,7 +693,7 @@ impl Session {
             'K' => yn(u.pause),
             'L' => yn(u.quote),
             'M' => self.emulation_name().into(),
-            'N' => "n/a".into(),
+            'N' => self.current_theme().map(|t| t.desc).unwrap_or_else(|| "n/a".into()),
             'O' => u.zip_code.clone(),
             _ => String::new(),
         }
@@ -714,6 +719,23 @@ impl Session {
             'J' => self.user.hot_keys = !self.user.hot_keys,
             'K' => self.user.pause = !self.user.pause,
             'L' => self.user.quote = !self.user.quote,
+            // Was ANSI/RIP/Avatar; today the choice that matters is the
+            // character set, when detection guessed wrong.
+            'M' => {
+                let next = match self.screen.charset() {
+                    Charset::Cp437 => Charset::Utf8,
+                    Charset::Utf8 => Charset::Cp437,
+                };
+                self.screen.set_charset(next);
+            }
+            // The next theme (text library), as `fLibraryInstall` cycled.
+            'N' => {
+                let themes = self.state.themes();
+                if !themes.list.is_empty() {
+                    let cur = self.current_theme().and_then(|c| themes.list.iter().position(|t| t.dir == c.dir)).unwrap_or(0);
+                    self.user.theme = themes.list[(cur + 1) % themes.list.len()].dir.clone();
+                }
+            }
             'O' => self.user.zip_code = self.read_string(text(10).case(Case::Upper).prefill(self.user.zip_code.clone())).await?,
             _ => {}
         }
@@ -733,6 +755,8 @@ impl Session {
             ('J', 'H', "Hot keys"),
             ('K', 'W', "Screen pausing"),
             ('L', 'Q', "Message autoquote"),
+            ('M', 'E', "Emulation"),
+            ('N', 'T', "Theme"),
         ];
         loop {
             self.newline();
@@ -749,7 +773,7 @@ impl Session {
             self.newline();
             let Some(c) = key.upper().filter(|_| !matches!(key, Key::Enter | Key::Esc)) else { return Ok(()) };
             if let Some(&(f, _, name)) = items.iter().find(|(_, k, _)| *k == c) {
-                if !"AHIJKL".contains(f) {
+                if !"AHIJKLMN".contains(f) {
                     self.show(&format!("|U1{name}|U2: |U3")).await?;
                 }
                 self.edit_user_field(f).await?;
