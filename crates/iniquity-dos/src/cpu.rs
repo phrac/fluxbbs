@@ -780,24 +780,24 @@ impl Cpu {
             0x3F => self.aas(),
             // ---- INC/DEC/PUSH/POP reg
             0x40..=0x47 => {
-                let r = (op & 7) as u8;
+                let r = op & 7;
                 let v = self.inc(self.reg(r, wd), wd);
                 self.set_reg(r, wd, v);
             }
             0x48..=0x4F => {
-                let r = (op & 7) as u8;
+                let r = op & 7;
                 let v = self.dec(self.reg(r, wd), wd);
                 self.set_reg(r, wd, v);
             }
             0x50..=0x57 => {
-                let r = (op & 7) as u8;
+                let r = op & 7;
                 // PUSH SP pushes the value before the decrement (186+); the
                 // 8086 pushed the decremented one.
                 let v = if self.model_8086 && r == 4 { self.reg(r, wd).wrapping_sub(2) } else { self.reg(r, wd) };
                 self.push(mem, wd, v);
             }
             0x58..=0x5F => {
-                let r = (op & 7) as u8;
+                let r = op & 7;
                 let v = self.pop(mem, wd);
                 self.set_reg(r, wd, v);
             }
@@ -929,7 +929,7 @@ impl Cpu {
             }
             0x90 => {}
             0x91..=0x97 => {
-                let r = (op & 7) as u8;
+                let r = op & 7;
                 let a = self.reg(0, wd);
                 let b = self.reg(r, wd);
                 self.set_reg(0, wd, b);

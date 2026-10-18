@@ -1230,6 +1230,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "iniquity-dos"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "iniquity-legacy"
 version = "0.1.0"
 dependencies = [
