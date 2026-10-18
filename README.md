@@ -329,6 +329,26 @@ New, in `[passwords]` and `[newuser]`, or "Passwords and Sign-ups" in
   called back are marked deleted after that many days, checked every 10
   minutes.
 
+## Art gallery
+
+New, after Mystic's: `AG` (`R` on the main menu) browses `[gallery] path`
+(default `gallery/` beside the config) like a file manager, or, with
+`[gallery] area` set to a file area's storage key, that area: its
+sub-areas become folders and its validated files are listed from the
+file base (packs show their description), so uploads to the art areas
+appear in the gallery by themselves. Sub-folders (any depth) and ZIP
+packs open as folders (packs are read in place, not unpacked),
+and only art is listed (`.ans`, `.ice`, `.asc`, `.txt`, `.nfo`, `.diz`,
+`.cia`), with each piece's SAUCE title, artist and group. Enter views a
+piece in the scrolling viewer; P plays it as it was sent in its day, at
+the speed S cycles through (instant to 115200; `[gallery] speed` is where
+it starts), which is how animated ANSIs animate; any key stops it. D
+downloads the piece (pulled out of its pack) or a whole pack, for
+`download_acs`; a file of a file area downloads the usual way instead,
+with that area's access, points, limits and ratios. Like the viewer, playback passes only colour and cursor
+codes through. Settings are under "Art Gallery" in `*C`; the help line
+is the `GalleryHelp` string.
+
 ## Website feed
 
 New: `[web]` (off by default; "Website Feed" in `*C`) serves a read-only

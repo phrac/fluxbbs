@@ -107,7 +107,7 @@ fn activity(raw: &str) -> &'static str {
 
 /// A description's first line with words in it (FILE_ID.DIZ files often
 /// open with a line of art), trimmed.
-fn blurb(desc: &[String]) -> String {
+pub(crate) fn blurb(desc: &[String]) -> String {
     let wordy = |l: &&String| l.chars().filter(char::is_ascii_alphabetic).count() >= 3;
     desc.iter().find(wordy).or(desc.first()).map(|l| l.trim().to_string()).unwrap_or_default()
 }

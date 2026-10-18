@@ -560,13 +560,19 @@ impl Session {
                 return self.download_batch().await;
             }
         }
-        let Some((a, mut f)) = self.locate_file(param, "FaAskFileDownload").await? else { return Ok(()) };
+        let Some((a, f)) = self.locate_file(param, "FaAskFileDownload").await? else { return Ok(()) };
         if a.num != self.user.cur_file_area {
             let s = self.strings().fmt("FaFoundInArea", &[&f.name, &a.area.name]);
             self.show_line(&s).await?;
         }
         self.file_info(&f).await?;
-        if !self.may_download(&a, &f, (0, 0, 0, 0)).await? {
+        self.download_record(&a, f).await
+    }
+
+    /// Download one file of an area, with the usual checks (access,
+    /// points, limits, ratios) and accounting.
+    pub(crate) async fn download_record(&mut self, a: &FAreaRef, mut f: FileRec) -> io::Result<()> {
+        if !self.may_download(a, &f, (0, 0, 0, 0)).await? {
             return Ok(());
         }
         let Some(proto) = self.confirm_and_pick(false).await? else { return Ok(()) };

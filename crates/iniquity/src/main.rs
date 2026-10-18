@@ -14,6 +14,7 @@ mod doors;
 mod engine;
 mod events;
 mod extprog;
+mod gallery;
 mod guard;
 mod import;
 mod infoform;

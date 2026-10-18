@@ -227,6 +227,21 @@ impl Session {
         }
     }
 
+    /// Has the caller pressed something? Waits a moment at most (40ms),
+    /// so output can be paced by it and stopped by a key.
+    pub async fn key_waiting(&mut self) -> io::Result<bool> {
+        if !self.input.is_empty() {
+            return Ok(true);
+        }
+        Ok(match self.next_byte(Wait::Brief).await? {
+            Some(b) => {
+                self.input.push_front(b);
+                true
+            }
+            None => false,
+        })
+    }
+
     /// Next key from the caller. Enter is a single `\r` whatever the
     /// client sends; VT/ANSI cursor-key sequences are decoded.
     pub async fn read_key(&mut self) -> io::Result<Key> {

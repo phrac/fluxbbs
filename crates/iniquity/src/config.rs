@@ -15,6 +15,7 @@ pub struct Config {
     pub ssh: Ssh,
     pub telnet: Telnet,
     pub web: Web,
+    pub gallery: Gallery,
     pub security: Security,
     pub passwords: Passwords,
     pub paths: Paths,
@@ -129,6 +130,28 @@ pub struct Passwords {
 impl Default for Passwords {
     fn default() -> Self {
         Self { min_length: 8, refuse_common: true, enforce_at_login: true }
+    }
+}
+
+/// The art gallery (`AG`; new): a folder of art and art packs.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Gallery {
+    /// Folder of art; ZIP packs in it open as folders.
+    pub path: PathBuf,
+    /// Or a file area (its storage key): the gallery is then that area,
+    /// its sub-areas as folders and its files from the file list.
+    pub area: String,
+    /// Who may browse it, and who may download from it.
+    pub acs: String,
+    pub download_acs: String,
+    /// Starting play speed in bits per second (0 = all at once).
+    pub speed: u32,
+}
+
+impl Default for Gallery {
+    fn default() -> Self {
+        Self { path: "gallery".into(), area: String::new(), acs: String::new(), download_acs: "s25".into(), speed: 38400 }
     }
 }
 

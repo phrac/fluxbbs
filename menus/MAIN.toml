@@ -235,3 +235,12 @@ param = "timebank"
 acs = "s50"
 desc = "Time Bank"
 help = "None"
+
+[[command]]
+keys = "R"
+command = "AG"
+acs = "s25"
+desc = "Art gallery"
+help = "Browse the art gallery"
+on = "|B1Art gallery"
+off = "|B0Art gallery"

@@ -149,6 +149,13 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('J', "Allow list", 50, "Never limited or checked: addresses, prefixes (10.0.) or ranges (/24).", List(|c| &mut c.security.allow)),
             set('K', "Deny list", 50, "Always refused: addresses, prefixes or ranges.", List(|c| &mut c.security.deny)),
         ]),
+        ("Art Gallery", false, vec![
+            set('A', "Gallery folder", 40, "Folder of art (relative to the config); ZIP packs in it open as folders.", Path(|c| &mut c.gallery.path)),
+            set('B', "Or file area", 8, "Storage key of a file area to show instead of the folder (its sub-areas become folders); blank = the folder.", Text(|c| &mut c.gallery.area, Field::KEY)),
+            set('C', "Browse ACS", 20, "Who may browse the gallery.", Text(|c| &mut c.gallery.acs, ACS)),
+            set('D', "Download ACS", 20, "Who may download from it (files of a file area use that area's rules instead).", Text(|c| &mut c.gallery.download_acs, ACS)),
+            set('E', "Play speed", 6, "Starting speed (bps) for playing art; 0 = all at once. Callers change it with S.", Num(|c| c.gallery.speed as u64, |c, v| c.gallery.speed = v as u32, 0, 1_000_000)),
+        ]),
         ("Website Feed", true, vec![
             set('A', "Enabled", 3, "Serve who's online, last callers, new files and totals as JSON for a website? (restart)", Bool(|c| &mut c.web.enabled)),
             set('B', "Listen", 30, "Address for the feed; keep 127.0.0.1 and have the web server pass /api/status.json to it (restart).", Text(|c| &mut c.web.listen, TEXT)),

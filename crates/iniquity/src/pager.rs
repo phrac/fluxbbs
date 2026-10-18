@@ -178,6 +178,12 @@ impl Session {
     /// Show `grid` under a title line, with a status line at the bottom,
     /// until the caller quits.
     pub(crate) async fn page_grid(&mut self, title: &str, grid: &[Vec<Cell>]) -> io::Result<()> {
+        self.page_grid_keys(title, grid, "ViewerHelp", &[]).await.map(|_| ())
+    }
+
+    /// The same, with `extra` keys that also end it (returned, upper
+    /// case) and `help` naming the status line's string.
+    pub(crate) async fn page_grid_keys(&mut self, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char]) -> io::Result<Option<char>> {
         let rows = self.screen.rows().max(5) as usize;
         let height = rows - 2;
         let total = grid.len();
@@ -188,7 +194,9 @@ impl Session {
             if drawn != Some(top) {
                 self.clear_screen();
                 let range = format!("{}-{} of {}", top + 1, (top + height).min(total), total);
-                let s = self.strings().fmt("ViewerTitle", &[title, &range]);
+                // One line: a long name and SAUCE title mustn't wrap.
+                let title: String = title.chars().take(38).collect();
+                let s = self.strings().fmt("ViewerTitle", &[&title, &range]);
                 self.show(&s).await?;
                 for (k, line) in grid.iter().skip(top).take(height).enumerate() {
                     self.screen.goto(1, 2 + k as u16);
@@ -196,11 +204,16 @@ impl Session {
                 }
                 self.screen.goto(1, rows as u16);
                 self.screen.set_color(iniquity_term::Color::DEFAULT);
-                let help = self.strings().get("ViewerHelp").to_string();
+                let help = self.strings().get(help).to_string();
                 self.show(&help).await?;
                 drawn = Some(top);
             }
             let key = self.read_key().await?;
+            if let Some(c) = key.upper().filter(|c| extra.contains(c)) {
+                self.screen.set_color(iniquity_term::Color::DEFAULT);
+                self.clear_screen();
+                return Ok(Some(c));
+            }
             top = match key {
                 Key::Up => top.saturating_sub(1),
                 Key::Down | Key::Enter => (top + 1).min(last_top),
@@ -219,7 +232,7 @@ impl Session {
         }
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
-        Ok(())
+        Ok(None)
     }
 }
 
