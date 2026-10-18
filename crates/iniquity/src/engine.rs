@@ -390,10 +390,12 @@ impl Session {
                 self.lightbar_item(menu, &items, cur, true, has_help, &mut help_len).await?;
             }
         }
+        // Leave the highlight colour behind, and don't scroll the art away.
+        self.screen.set_color(iniquity_term::Color::DEFAULT);
         if !self.goto_pos(pos_code(LIGHTBAR_EXIT)) {
             self.screen.goto(1, self.screen.rows());
-            self.newline();
         }
+        self.screen.set_color(iniquity_term::Color::DEFAULT);
         Ok(menu.commands[items[cur - 1]].keys.to_uppercase())
     }
 

@@ -89,6 +89,9 @@ pub struct Session {
     pub nonstop: bool,
     /// FILETEST is on screen: upload messages go in its status field.
     pub test_screen: bool,
+    /// The row login prompts share, each replacing the last, when they
+    /// follow a lightbar menu (MATRIX) rather than scrolling it away.
+    pub login_line: Option<u16>,
     /// Scripts running inside scripts (`%!` in a string a script shows).
     pub(crate) script_depth: u8,
     /// Email tags for this call: what new email is tagged with (`E/`),
@@ -203,6 +206,7 @@ impl Session {
             positions2: HashMap::new(),
             nonstop: false,
             test_screen: false,
+            login_line: None,
             script_depth: 0,
             email_tag: 0,
             read_tag: 0,
