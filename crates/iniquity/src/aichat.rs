@@ -386,18 +386,27 @@ impl Session {
             self.newline();
             return self.say_line("AiNoAccess").await;
         }
+        // No client (say, no CA certificates on the host): say so and go
+        // back to the menu rather than dropping the caller.
+        let client = match reqwest::Client::builder().timeout(Duration::from_secs(cfg.timeout_seconds.max(10))).build() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("{}: ai chat: {e}", self.user.handle);
+                self.newline();
+                return self.say_line("AiUnavailable").await;
+            }
+        };
         self.full_screen_done();
-        let r = self.ai_session(&cfg).await;
+        let r = self.ai_session(&cfg, &client).await;
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
         r
     }
 
-    async fn ai_session(&mut self, cfg: &crate::config::Ai) -> io::Result<()> {
+    async fn ai_session(&mut self, cfg: &crate::config::Ai, client: &reqwest::Client) -> io::Result<()> {
         let cfg = cfg.clone();
         tracing::info!("{}: ai chat", self.user.handle);
         self.node.update(|n| n.activity = "Chatting with the AI".into());
-        let client = reqwest::Client::builder().timeout(Duration::from_secs(cfg.timeout_seconds.max(10))).build().map_err(io_err)?;
         let system = self.ai_system_prompt(&cfg);
         let mut history: Vec<Value> = Vec::new();
         self.ai_header(&cfg).await?;
@@ -435,7 +444,7 @@ impl Session {
             if history.len() > MAX_HISTORY {
                 history.drain(..history.len() - MAX_HISTORY);
             }
-            let replied = self.ai_reply(&client, &cfg, &system, &mut history).await;
+            let replied = self.ai_reply(client, &cfg, &system, &mut history).await;
             self.ai_bar(&cfg).await?;
             if let Err(e) = replied {
                 if e.kind() == io::ErrorKind::Other {
@@ -455,6 +464,7 @@ impl Session {
     fn ai_system_prompt(&self, cfg: &crate::config::Ai) -> String {
         let bbs = &self.state.config().bbs;
         let search = if cfg.web_search { " You can search the web with the web_search tool when you need current or specific information; say briefly where facts came from." } else { "" };
+        let search = format!(" You can look at this board itself with the board tools (its menus and keys, file areas, files, message areas): use them for questions about the board, and when saying how to do something here, give the exact keys from board_menus, menu by menu.{search}");
         format!(
             "You are {name}, the AI on {board}, a bulletin board system run by {sysop}. You're talking with {user} over a text terminal 80 columns wide. \
              Write plain text only: no markdown, no emoji, no tables. Keep replies short unless asked for more.{search} \
@@ -566,15 +576,18 @@ impl Session {
     async fn ai_reply(&mut self, client: &reqwest::Client, cfg: &crate::config::Ai, system: &str, history: &mut Vec<Value>) -> io::Result<()> {
         let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
         let key = (!cfg.api_key_env.is_empty()).then(|| std::env::var(&cfg.api_key_env).ok()).flatten();
-        let mut tools = vec![json!({
+        let mut tools = crate::aiboard::tool_specs();
+        if cfg.web_search {
+            tools.push(json!({
             "type": "function",
             "function": {
                 "name": "web_search",
                 "description": "Search the web. Returns the top results: title, address and a snippet.",
                 "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "What to search for"}}, "required": ["query"]}
             }
-        })];
-        if cfg.read_pages {
+            }));
+        }
+        if cfg.web_search && cfg.read_pages {
             tools.push(json!({
                 "type": "function",
                 "function": {
@@ -597,7 +610,7 @@ impl Session {
             if !cfg.reasoning_effort.is_empty() {
                 body["reasoning_effort"] = json!(cfg.reasoning_effort);
             }
-            if cfg.web_search && round < MAX_TOOL_ROUNDS {
+            if round < MAX_TOOL_ROUNDS {
                 body["tools"] = tools.clone();
             }
             let mut req = client.post(&url).json(&body);
@@ -682,6 +695,17 @@ impl Session {
                 if named {
                     self.ai_nl().await?;
                     named = false;
+                }
+                if let Some(result) = self.ai_board_tool(&c.name, &args) {
+                    let what = match args["area"].as_str().or(args["query"].as_str()) {
+                        Some(a) => format!("{} {a}", c.name.replace('_', " ")),
+                        None => c.name.replace('_', " "),
+                    };
+                    let s = self.strings().fmt("AiLooking", &[&what]);
+                    self.ai_line(&s).await?;
+                    tracing::info!("{}: ai {what}", self.user.handle);
+                    history.push(json!({"role": "tool", "tool_call_id": c.id, "content": result}));
+                    continue;
                 }
                 if c.name == "read_page" && cfg.read_pages {
                     let url = args["url"].as_str().unwrap_or_default().to_string();

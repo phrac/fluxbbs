@@ -396,7 +396,7 @@ impl Session {
                 self.screen.write_bytes(&iniquity_term::cp437::encode(line));
                 self.newline();
             } else {
-                let quote = line.chars().take(3).position(|c| c == '>').is_some();
+                let quote = line.chars().take(3).any(|c| c == '>');
                 let s = if quote {
                     format!("|U1{line}|U3")
                 } else if line.starts_with("---") && (line.len() == 3 || line.as_bytes()[3] == b' ') {

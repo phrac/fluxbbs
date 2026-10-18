@@ -377,6 +377,8 @@ New, in `[passwords]` and `[newuser]`, or "Passwords and Sign-ups" in
 
 ## Art gallery
 
+![The art gallery](docs/screenshots/gallery.png)
+
 New, after Mystic's: `AG` (`R` on the main menu) browses `[gallery] path`
 (default `gallery/` beside the config) like a file manager, or, with
 `[gallery] area` set to a file area's storage key, that area: its
@@ -404,7 +406,10 @@ for where you are). Without either it draws a plain screen.
 Pictures (`.gif`, `.png`, `.jpg`) are listed too and shown as ANSI:
 half-blocks fitted to the screen, in 24-bit colour (SyncTERM and UTF-8
 terminals) or else the nearest of xterm's 256. Animated GIFs play with
-their own timing until a key; P replays, D downloads the file as it is.
+their own timing until a key, but never faster than the terminal shows
+them: each frame asks where the cursor is (`ESC[6n`) and the next waits
+for the answer, so a slow link doesn't pile up frames ahead of the
+caller's keys. P replays, D downloads the file as it is.
 Picture uploads are decoded first and refused past `[files]`
 `max_image_bytes`, `max_image_pixels` or `max_gif_frames` (`*C`, Upload
 Tests); an animated one gets a note that it plays in the gallery, and a
@@ -559,10 +564,18 @@ reply: through a SearXNG instance (`search_url`), else the Brave Search
 API (`search_key_env`), else DuckDuckGo's HTML page, which turns away
 bots now and then. With `read_pages` on too, it may read a page it
 found (as text, at most 8000 characters), but only from public
-addresses: never the board itself, the LAN or the tailnet. `daily_limit` caps a caller's messages a day (not
+addresses: never the board itself, the LAN or the tailnet. It can always
+look at the board itself (`aiboard.rs`): the menus with their keys and
+where they lead, the file and message areas, and the files in them
+(listed or searched), all as the caller's own access allows, so it can
+say what's here and which keys to press. `daily_limit` caps a caller's messages a day (not
 the SysOp's); `name`, `system_prompt`, `max_tokens`, `reasoning_effort`
 and `timeout_seconds` do what they say. All of it is under "AI Chat" in
 `*C`.
+
+![The AI finding files on the board](docs/screenshots/ai-files.png)
+
+![The AI giving the keys to download a file](docs/screenshots/ai-howto.png)
 
 ## Terminal handling
 

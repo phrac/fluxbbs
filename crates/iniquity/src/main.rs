@@ -5,6 +5,7 @@
 //!     iniquity import <old-install> [dest]      convert a DOS install
 
 mod acs;
+mod aiboard;
 mod aichat;
 mod archview;
 mod attach;

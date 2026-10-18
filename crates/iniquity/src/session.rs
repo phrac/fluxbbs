@@ -65,6 +65,11 @@ pub struct Session {
     pub(crate) screen: Screen,
     pub(crate) input: VecDeque<u8>,
     pub(crate) last_cr: bool,
+    /// Cursor position questions asked and answers seen, for `sync_output`.
+    pub(crate) cursor_asks: u32,
+    pub(crate) cursor_reports: u32,
+    /// Bytes sent this call, for the stalled-output warning.
+    sent: u64,
     saved_color: Color,
     /// When this call's time accounting started (logon).
     pub time_on: Instant,
@@ -236,6 +241,9 @@ impl Session {
             screen,
             input: VecDeque::new(),
             last_cr: false,
+            cursor_asks: 0,
+            cursor_reports: 0,
+            sent: 0,
             saved_color: Color::DEFAULT,
             time_on: Instant::now(),
             logged_in: false,
@@ -334,11 +342,34 @@ impl Session {
 
     pub async fn flush(&mut self) -> io::Result<()> {
         let out = self.screen.take_output();
-        if !out.is_empty() {
-            self.io.write_all(&out).await?;
-            self.io.flush().await?;
+        if out.is_empty() {
+            return Ok(());
         }
-        Ok(())
+        self.sent += out.len() as u64;
+        // Say so if the caller's side stops taking output (a full SSH
+        // window, a stuck terminal): the session waits here, keys unread.
+        let (who, sent) = (&self.user.handle, self.sent);
+        let started = std::time::Instant::now();
+        let io = &mut self.io;
+        let mut write = std::pin::pin!(async move {
+            io.write_all(&out).await?;
+            io.flush().await
+        });
+        let mut warned = false;
+        loop {
+            tokio::select! {
+                r = &mut write => {
+                    if warned {
+                        tracing::warn!("{who}: output moving again after {:.0}s", started.elapsed().as_secs_f64());
+                    }
+                    return r;
+                }
+                _ = tokio::time::sleep(std::time::Duration::from_secs(10)), if !warned => {
+                    tracing::warn!("{who}: output stalled for 10s, {sent} bytes sent this call");
+                    warned = true;
+                }
+            }
+        }
     }
 
     pub fn newline(&mut self) {

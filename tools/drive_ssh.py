@@ -1,7 +1,9 @@
 """Drive an ssh session through a pty: drive_ssh.py USER TERM 'expect=>send' ...
 Each step waits (up to 8s) for the regex in the de-ANSI'd output, then sends.
 Sends understand \\r, \\e (ESC) and {UP}/{DOWN}/{LEFT}/{RIGHT}; '@solve' answers
-the bot check by replaying its cursor moves (as a terminal would)."""
+the bot check by replaying its cursor moves (as a terminal would).
+CPR=1 answers cursor position requests (ESC[6n) as a terminal does;
+READ_BPS=n reads the output at n bytes a second, like a slow link."""
 import os, pty, re, select, sys, time
 user, term, steps = sys.argv[1], sys.argv[2], sys.argv[3:]
 pid, fd = pty.fork()
@@ -10,6 +12,9 @@ if pid == 0:
     os.execvp('ssh', ['ssh', '-F', '/dev/null', '-tt', '-p', os.environ.get("PORT", "2222"), '-o', 'StrictHostKeyChecking=no',
                       '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR', f'{user}@{os.environ.get("HOST", "127.0.0.1")}'])
 raw = b''
+start = time.time()
+cpr = os.environ.get('CPR') == '1'
+read_bps = int(os.environ.get('READ_BPS', '0'))
 def clean(b):
     t = b.decode('utf-8', 'replace') if term != 'syncterm' else b.decode('cp437')
     return re.sub(r'\x1b\[[0-9;?]*[A-Za-z]', '', t)
@@ -19,10 +24,14 @@ def pump(t):
     while time.time() < end:
         r, _, _ = select.select([fd], [], [], 0.1)
         if r:
-            try: d = os.read(fd, 65536)
+            try: d = os.read(fd, max(1, read_bps // 10) if read_bps else 65536)
             except OSError: return False
             if not d: return False
+            if cpr:
+                for _ in range((raw[-3:] + d).count(b'\x1b[6n')):
+                    os.write(fd, b'\x1b[24;80R')
             raw += d
+            if read_bps: time.sleep(0.1)
     return True
 def solve(wrong=False):
     """Read the bot check like a terminal would: replay cursor moves."""
@@ -66,7 +75,7 @@ for step in steps:
         print(f'skipped: {pat!r}'); continue
     if not m:
         print(f'!! TIMEOUT waiting for {pat!r}\n--- tail:\n{clean(raw)[cmark:][-1500:]}'); break
-    print(f'ok: {pat!r}')
+    print(f'ok: {pat!r}' + (f' ({time.time() - start:.1f}s)' if read_bps or cpr else ''))
     cmark += m.end()
     if send in ('@solve', '@wrong'):
         solve(send == '@wrong')

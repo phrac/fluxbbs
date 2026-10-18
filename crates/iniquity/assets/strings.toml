@@ -407,3 +407,5 @@ AiHelp2 = "|U3 /quit|U1  leave (so do |U3esc|U1 and |U3q|U1); the conversation i
 AiHelp3 = "|U3 /help|U1  this list"
 AiHelp4 = "|U1 It can search the web when it needs to. Long messages wrap as you type."
 AiReading = "|U5  [|U4reading|U5: |U3%S1|U5]"
+AiUnavailable = "|U4AI chat isn't available right now|U5; |U4try again later|U5."
+AiLooking = "|U5  [|U4looking|U5: |U3%S1|U5]"

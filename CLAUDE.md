@@ -109,8 +109,10 @@ as its working directory). Remember `cargo build --release` for the
 server itself: `--examples` alone leaves a stale binary.
 
 Each step is `regex=>keys`: wait for the regex in the de-ANSI'd output, then
-send. `opt:` makes a step optional, `long:` waits 45s, `@solve` passes the
-bot check, `!cmd` runs a program on the connection (e.g. `rz`/`sz` for
+send. `CPR=1` answers cursor position requests as a terminal does and
+`READ_BPS=n` reads the output at n bytes a second (a slow link); either
+adds timestamps to the steps. `opt:` makes a step optional, `long:`
+waits 45s, `@solve` passes the bot check, `!cmd` runs a program on the connection (e.g. `rz`/`sz` for
 Zmodem), and keys understand `\r`, `\e`, `{UP}`/`{DOWN}`/`{LEFT}`/`{RIGHT}`,
 `\!` for a literal `!`. `RAW_OUT=file` saves the raw output;
 `tools/ansi2png.py` renders it to check layouts.
@@ -139,37 +141,30 @@ logs with `docker logs -f iniquity`). The board directory was copied from
 ryzen (every file hash-checked); the ryzen board still runs and is now a
 separate copy, so don't develop or post there. `cargo` on rzn is in
 `~/.cargo/bin`; `original/inqa26r5.zip` is in git, so `tools/setup_host.sh`
-works there.
+works there (once the stock install is unpacked; see below).
 
-Open bugs seen on the live board, to fix first:
+Fixed 18 Oct: AI chat (the image now has CA certificates, and a client
+that can't be built says `AiUnavailable` instead of dropping the caller;
+vega and reflux resolve from the container through Tailscale's search
+domain, so `[ai]` is fine as it is); `[dos] emulator = ""` on the live
+board; the `[ NOW ]` feed (`[web] listen = "0.0.0.0:8099"` in the board,
+published as `127.0.0.1:8099` by the compose file, where rzn's host Caddy
+already proxies `/api/status.json`). rzn has no `unzip`: unpack
+`original/inqa26r5.zip` and the `newinst.exe` inside it with Python's
+`zipfile` before running `tools/setup_host.sh`.
 
-1. **Main menu `J` (AI chat) drops the caller.** `docker logs` shows
-   `session error: builder error` right after `phrac: ai chat`: the
-   `reqwest::Client::builder()` in `aichat.rs` (`ai_chat`, ~line 400) fails
-   because the image has no CA certificates (`/etc/ssl/certs` doesn't exist
-   in `debian:bookworm-slim`), and the error is `?`'d out of the session.
-   Two fixes: `apt-get install -y ca-certificates` in the runtime stage of
-   the `Dockerfile`, and make `ai_chat` report "AI chat isn't available" and
-   return to the menu instead of ending the session on any client or
-   request error. Also: the board's `[ai]` points at `http://vega:8080/v1`
-   and `search_url = "http://reflux:8888"`, names from the home network;
-   from rzn's container they won't resolve, so the live board needs either
-   reachable addresses or `enabled = false`.
-2. **The logon screens freeze** ("real life freezes during the login
-   screens", from SyncTERM over SSH). Not diagnosed. Things to check: is it
-   the bot check's wait (30 s `challenge_seconds`)? screen pacing
-   (`Screen::flush` with a slow-baud or `transfer_cps` sleep)? a blocking
-   call in the logon path on a host without reverse DNS (lookups of the
-   caller's address)? the SSH keepalive/window handling in `ssh.rs` with
-   large ANSI screens? Reproduce with `HOST=disfluxbbs.com PORT=2222
-   python3 tools/drive_ssh.py ...` and `RAW_OUT`, timing each step.
-3. The live config still has `[dos] emulator = "dosbox-staging ..."`;
-   the container has no DOSBox. Set `emulator = ""` for the built-in DOS
-   machine before trying doors there.
-4. The `[ NOW ]` web feed (`~/code/disflux_bbs/web/CADDY.md`) assumed Caddy
-   in Docker; on rzn Caddy is a host process (`/etc/caddy/Caddyfile`, needs
-   sudo). Publish the feed port as `127.0.0.1:8099:8099` in the compose
-   file and `reverse_proxy localhost:8099` in a `disfluxbbs.com` block.
+Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
+- GIFs: output piled up ahead of the terminal (~450 KB queued on rzn).
+  Fixed: each frame asks where the cursor is and the next waits for the
+  answer (`sync_output` in `input.rs`, one frame in flight; reports are
+  stripped from the input). Use it for anything else that streams fast.
+- Logon: still open. Once, the server was at the main menu with nothing
+  queued, SyncTERM had acked everything and was still sending keys, but
+  showed a logon screen; the main menu had gone in two 16 KB SSH packets.
+  Capping packets at 4 KB made everything slow and was reverted. No
+  window adjusts ever come from SyncTERM. `flush` now logs "output
+  stalled" after 10 s; `RUST_LOG=info,russh=debug docker compose ... up
+  -d` shows the packets. Ask the SyncTERM version; try telnet.
 
 ## Next
 

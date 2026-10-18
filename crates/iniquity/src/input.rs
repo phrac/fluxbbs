@@ -223,8 +223,38 @@ impl Session {
                 let rows = self.caller.size.borrow_and_update().1;
                 self.screen.set_rows(rows);
             }
-            self.input.extend(&buf[..n]);
+            let (keys, reports) = strip_cursor_reports(&buf[..n]);
+            self.cursor_reports += reports;
+            self.input.extend(keys);
         }
+    }
+
+    /// Keep output from running ahead of the terminal: ask where the
+    /// cursor is (it answers only once it has shown everything before the
+    /// question) and wait, up to `wait`, until no more than `behind`
+    /// questions are unanswered. Keeps fast output (animations) from
+    /// piling up ahead of a slow link, where keys seem to do nothing
+    /// until it drains; `behind` 1 lets one frame travel while the last
+    /// is drawn. False if it timed out; true early if a key is waiting.
+    pub async fn sync_output(&mut self, wait: Duration, behind: u32) -> io::Result<bool> {
+        self.cursor_asks += 1;
+        self.screen.write_bytes(b"\x1b[6n");
+        let deadline = tokio::time::Instant::now() + wait;
+        while self.cursor_asks.saturating_sub(self.cursor_reports) > behind {
+            if !self.input.is_empty() {
+                return Ok(true);
+            }
+            if tokio::time::Instant::now() >= deadline {
+                // Stop waiting on the unanswered ones.
+                self.cursor_asks = self.cursor_reports + behind;
+                return Ok(false);
+            }
+            if let Some(b) = self.next_byte(Wait::Brief).await? {
+                self.input.push_front(b);
+            }
+        }
+        self.flush().await?;
+        Ok(true)
     }
 
     /// Has the caller pressed something? Waits a moment at most (40ms),
@@ -383,6 +413,28 @@ impl Session {
     }
 }
 
+/// Take cursor position reports (`ESC [ row ; col R`) out of what the
+/// caller sent: the keys, and how many reports there were.
+fn strip_cursor_reports(buf: &[u8]) -> (Vec<u8>, u32) {
+    let mut keys = Vec::with_capacity(buf.len());
+    let mut reports = 0;
+    let mut i = 0;
+    while i < buf.len() {
+        if buf[i] == 0x1B && buf.get(i + 1) == Some(&b'[') {
+            let body = buf[i + 2..].iter().take_while(|b| b.is_ascii_digit() || **b == b';').count();
+            let end = i + 2 + body;
+            if body > 0 && buf.get(end) == Some(&b'R') && buf[i + 2..end].contains(&b';') {
+                reports += 1;
+                i = end + 1;
+                continue;
+            }
+        }
+        keys.push(buf[i]);
+        i += 1;
+    }
+    (keys, reports)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -405,4 +457,13 @@ mod tests {
         assert_eq!(typed(Case::Cool, "fiend"), "FiEND");
         assert_eq!(Case::from_alias_format(2), Case::Capital);
     }
+
+    #[test]
+    fn cursor_reports() {
+        assert_eq!(strip_cursor_reports(b"a\x1b[24;80Rb"), (b"ab".to_vec(), 1));
+        assert_eq!(strip_cursor_reports(b"\x1b[1;1R\x1b[2;5R"), (Vec::new(), 2));
+        // Keys that look a little like one stay keys.
+        assert_eq!(strip_cursor_reports(b"\x1b[A\x1b[5~\x1b[R"), (b"\x1b[A\x1b[5~\x1b[R".to_vec(), 0));
+    }
 }
+

@@ -804,6 +804,10 @@ impl Session {
             self.show(&s).await?;
             let mut prev = None;
             let started = std::time::Instant::now();
+            // Frames go out no faster than the terminal shows them (one
+            // drawing, one on the way); one that never answers is paced by
+            // the clock alone.
+            let mut sync = true;
             let key = 'play: loop {
                 for f in &pic.frames {
                     self.screen.write_bytes(&picture::draw(f, prev, truecolor, left, top));
@@ -815,6 +819,13 @@ impl Session {
                         break 'play self.read_key().await?;
                     }
                     let until = std::time::Instant::now() + std::time::Duration::from_millis(f.delay_ms);
+                    if sync {
+                        let answering = self.cursor_reports > 0;
+                        let wait = std::time::Duration::from_secs(if answering { 30 } else { 3 });
+                        if !self.sync_output(wait, 1).await? && !answering {
+                            sync = false;
+                        }
+                    }
                     loop {
                         if self.key_waiting().await? {
                             break 'play self.read_key().await?;

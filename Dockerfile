@@ -18,7 +18,11 @@ RUN cargo build --release -p iniquity \
     && strip target/release/iniquity
 
 FROM debian:bookworm-slim
-RUN useradd -m -u 1000 bbs
+# CA certificates for HTTPS (the AI chat and web search clients).
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends ca-certificates \
+    && rm -rf /var/lib/apt/lists/* \
+    && useradd -m -u 1000 bbs
 COPY --from=build /src/target/release/iniquity /usr/local/bin/iniquity
 # The stock board files, where a board's config expects them.
 COPY text /srv/inq/iniquity/text
