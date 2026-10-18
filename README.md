@@ -346,8 +346,14 @@ it starts), which is how animated ANSIs animate; any key stops it. D
 downloads the piece (pulled out of its pack) or a whole pack, for
 `download_acs`; a file of a file area downloads the usual way instead,
 with that area's access, points, limits and ratios. Like the viewer, playback passes only colour and cursor
-codes through. Settings are under "Art Gallery" in `*C`; the help line
-is the `GalleryHelp` string.
+codes through. Settings are under "Art Gallery" in `*C`.
+
+It looks like the file lister: it shows `GALLERY.ANS` if there is one,
+else the lister's own `LISTFILE.ANS`, with the same markers (`~TL`/`~BL`
+the list rows, `~FN`/`~FS`/`~FD` the name, size and description columns,
+`~PI` the info line, `~PM` the lightbar menu of open, play, speed, get
+and back, `~C1`-`~C6` its colours, the `~S`/`~E` scroll bar, and `~FA`
+for where you are). Without either it draws a plain screen.
 
 ## Website feed
 

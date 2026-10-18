@@ -42,6 +42,9 @@ it's drawn highlighted, `^NN` where it's drawn plain), and optionally
 - [ ] `FILEINFO`: single-file details
 - [ ] `PROTLTOP` / `PROTLMID` / `PROTLBOT`: transfer protocol picker
 - [ ] `LISTHELP`: help inside the lister
+- [ ] `GALLERY`: the art gallery (optional; without it the gallery uses
+      `LISTFILE`, whose markers it shares, so copy that and relabel the
+      columns)
 
 ## Messaging
 

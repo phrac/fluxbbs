@@ -12,8 +12,9 @@ use iniquity_term::Slot;
 use iniquity_term::codes::{resize, squish};
 
 use crate::filebase::FileRec;
+use crate::files::{Layout, MenuBar};
 use crate::input::Key;
-use crate::session::Session;
+use crate::session::{Session, waves};
 
 /// Art the gallery shows; anything else in a pack is skipped.
 const ART: [&str; 7] = ["ans", "ice", "asc", "txt", "nfo", "diz", "cia"];
@@ -307,118 +308,189 @@ impl Session {
         Ok(out)
     }
 
-    /// The listing, with a bar to move; returns what the caller chose.
+    /// The listing, dressed like the file lister: GALLERY.ANS if there is
+    /// one, else LISTFILE.ANS (the same markers: ~TL/~BL the list rows,
+    /// ~FN/~FS/~FD the columns, ~PI the info line, ~PM the menu bar,
+    /// ~C1-~C6 the colours, ~FA where we are), else a plain screen. Up and
+    /// down move the bar, left and right the menu; Enter runs the menu's
+    /// choice, or a key its first letter.
     async fn gallery_pick(&mut self, crumbs: &str, items: &[Item], start: usize, speed: &mut u32) -> io::Result<Pick> {
-        let rows = self.screen.rows().max(8);
-        let height = (rows - 4) as usize;
+        let mut menu = MenuBar { items: &["open", "play", "speed", "get", "back"], off: vec![false; 5], pos: 0, xs: Vec::new() };
         let mut cur = start.min(items.len().saturating_sub(1));
-        let mut top = cur.saturating_sub(height / 2);
+        let mut first = 0usize;
+        let mut l = self.lister_layout(false);
         let mut redraw = true;
-        // A word in place of the help line, after a key that can't act.
+        // A word in place of the info line, after a key that can't act.
         let mut note: Option<String> = None;
+        let place = if crumbs.is_empty() { "art gallery".to_string() } else { crumbs.to_string() };
         loop {
-            if cur < top {
-                top = cur;
-            } else if cur >= top + height {
-                top = cur + 1 - height;
+            let height = (l.bot - l.top + 1) as usize;
+            if cur < first || cur >= first + height {
+                redraw = true;
             }
             if redraw {
+                if cur < first {
+                    first = cur;
+                } else if cur >= first + height {
+                    first = cur + 1 - height;
+                }
+                self.screen.set_color(iniquity_term::Color::DEFAULT);
                 self.clear_screen();
-                let title = if crumbs.is_empty() { String::new() } else { format!(": |U3{crumbs}") };
-                self.show(&format!("|U4 Art gallery{title}")).await?;
-                self.screen.goto(1, 2);
-                self.rule().await?;
-                for (k, item) in items.iter().enumerate().skip(top).take(height) {
-                    self.gallery_row(item, 3 + (k - top) as u16, k == cur);
+                let w = waves([("FA", place.clone())]);
+                let mut from_screen = self.show_file_with("GALLERY", &w).await?;
+                if !from_screen {
+                    from_screen = self.show_file_with("LISTFILE", &w).await?;
+                }
+                if !from_screen {
+                    self.screen.goto(1, 1);
+                    self.show(&format!("|U4 Art gallery |U5- |U6{place}")).await?;
+                    self.screen.goto(1, 2);
+                    self.set_slot(Slot::Border);
+                    self.write(&"─".repeat(79));
+                }
+                l = self.lister_layout(from_screen);
+                let height = (l.bot - l.top + 1) as usize;
+                if cur >= first + height {
+                    first = cur + 1 - height;
+                }
+                for y in l.top..=l.bot {
+                    self.screen.goto(1, y);
+                    self.screen.set_color(l.cl[0]);
+                    self.screen.clear_eol();
+                }
+                for (k, item) in items.iter().enumerate().skip(first).take(height) {
+                    self.gallery_row(&l, item, l.top + (k - first) as u16, k == cur);
                 }
                 if items.is_empty() {
-                    self.screen.goto(2, 3);
-                    self.set_slot(Slot::Info);
+                    self.screen.goto(l.name_x.unwrap_or(2), l.top);
+                    self.screen.set_color(l.cl[1]);
                     self.write("(nothing here)");
                 }
-                self.screen.goto(1, rows - 1);
-                self.rule().await?;
+                let last = (first + height).min(items.len()).saturating_sub(1);
+                self.lister_scroll(&l, first, last, items.len().max(1));
+                self.lister_menu(&l, &mut menu);
                 redraw = false;
             }
-            self.screen.goto(1, rows);
-            self.screen.set_color(iniquity_term::Color::DEFAULT);
-            self.screen.clear_eol();
-            let shown = if *speed == 0 { "instant".to_string() } else { format!("{speed}") };
-            let s = match note.take() {
+            let info = match note.take() {
                 Some(n) => n,
-                None => self.strings().fmt("GalleryHelp", &[&shown]),
+                None => gallery_info(items.get(cur), *speed),
             };
-            self.show(&s).await?;
+            self.lister_info(&l, &info).await?;
             let key = self.read_key().await?;
             let prev = cur;
-            match key {
-                Key::Up => cur = cur.saturating_sub(1),
-                Key::Down => cur = (cur + 1).min(items.len().saturating_sub(1)),
-                Key::PgUp => cur = cur.saturating_sub(height),
-                Key::PgDn => cur = (cur + height).min(items.len().saturating_sub(1)),
-                Key::Home => cur = 0,
-                Key::End => cur = items.len().saturating_sub(1),
-                Key::Enter | Key::Right if !items.is_empty() => return Ok(Pick::Open(cur)),
-                Key::Left | Key::Backspace | Key::Esc => return Ok(Pick::Back),
+            let height = (l.bot - l.top + 1) as usize;
+            let choice = match key {
+                Key::Up => {
+                    cur = cur.saturating_sub(1);
+                    None
+                }
+                Key::Down => {
+                    cur = (cur + 1).min(items.len().saturating_sub(1));
+                    None
+                }
+                Key::PgUp => {
+                    cur = cur.saturating_sub(height);
+                    None
+                }
+                Key::PgDn => {
+                    cur = (cur + height).min(items.len().saturating_sub(1));
+                    None
+                }
+                Key::Home => {
+                    cur = 0;
+                    None
+                }
+                Key::End => {
+                    cur = items.len().saturating_sub(1);
+                    None
+                }
+                Key::Left | Key::Right => {
+                    let n = menu.items.len();
+                    menu.pos = if key == Key::Right { (menu.pos + 1) % n } else { (menu.pos + n - 1) % n };
+                    self.lister_menu(&l, &mut menu);
+                    None
+                }
+                Key::Enter => Some(menu.items[menu.pos]),
+                Key::Esc | Key::Backspace => Some("back"),
                 k => match k.upper() {
-                    // Up a level, like Esc; out of the gallery from the top.
-                    Some('Q') => return Ok(Pick::Back),
-                    Some('P') if matches!(items.get(cur), Some(Item::Art { .. })) => return Ok(Pick::Play(cur)),
-                    Some('P') => note = Some(self.strings().get("GalleryPlayWhat").to_string()),
-                    Some('D') if items.get(cur).is_some_and(downloadable) => return Ok(Pick::Download(cur)),
-                    Some('D') => note = Some(self.strings().get("GalleryNotFile").to_string()),
-                    Some('S') => {
+                    Some('O') => Some("open"),
+                    Some('P') => Some("play"),
+                    Some('S') => Some("speed"),
+                    Some('G' | 'D') => Some("get"),
+                    Some('B' | 'Q') => Some("back"),
+                    _ => None,
+                },
+            };
+            if let Some(c) = choice {
+                if let Some(i) = menu.items.iter().position(|it| *it == c)
+                    && i != menu.pos
+                {
+                    menu.pos = i;
+                    self.lister_menu(&l, &mut menu);
+                }
+                match c {
+                    "open" if !items.is_empty() => return Ok(Pick::Open(cur)),
+                    "play" if matches!(items.get(cur), Some(Item::Art { .. })) => return Ok(Pick::Play(cur)),
+                    "play" => note = Some(self.strings().get("GalleryPlayWhat").to_string()),
+                    "get" if items.get(cur).is_some_and(downloadable) => return Ok(Pick::Download(cur)),
+                    "get" => note = Some(self.strings().get("GalleryNotFile").to_string()),
+                    "speed" => {
                         let i = SPEEDS.iter().position(|s| s == speed).map_or(0, |i| (i + 1) % SPEEDS.len());
                         *speed = SPEEDS[i];
                         let shown = if *speed == 0 { "instant".to_string() } else { format!("{speed}") };
                         note = Some(self.strings().fmt("GallerySpeed", &[&shown]));
                     }
+                    "back" => return Ok(Pick::Back),
                     _ => {}
-                },
-            }
-            if cur != prev {
-                if cur < top || cur >= top + height {
-                    redraw = true;
-                } else {
-                    self.gallery_row(&items[prev], 3 + (prev - top) as u16, false);
-                    self.gallery_row(&items[cur], 3 + (cur - top) as u16, true);
                 }
+            }
+            if cur != prev && cur >= first && cur < first + height {
+                self.gallery_row(&l, &items[prev], l.top + (prev - first) as u16, false);
+                self.gallery_row(&l, &items[cur], l.top + (cur - first) as u16, true);
             }
         }
     }
 
-    fn gallery_row(&mut self, item: &Item, y: u16, hi: bool) {
-        self.screen.goto(1, y);
-        self.set_slot(if hi { Slot::ItemSel } else { Slot::Item });
-        let line = match item {
+    /// One row in the lister's columns: name (highlighted when it's the
+    /// bar's), size, and title by artist (or a pack's description).
+    fn gallery_row(&mut self, l: &Layout, item: &Item, y: u16, hi: bool) {
+        let name_x = l.name_x.unwrap_or(2);
+        let size_x = l.size_x.filter(|&x| x > name_x);
+        let desc_x = l.desc_x.unwrap_or(30).max(name_x + 13);
+        let name_w = (size_x.unwrap_or(desc_x) - name_x).saturating_sub(1) as usize;
+        let (name, size, title, by) = match item {
             Item::Folder { name, pack, rec, .. } => {
-                // A pack from a file area shows its description.
                 let what = match rec {
                     Some((_, f)) if !f.description.is_empty() => crate::web::blurb(&f.description),
                     _ if *pack => "<pack>".to_string(),
                     _ => "<folder>".to_string(),
                 };
-                format!(" {} {}", resize(&format!("{name}/"), 24), resize(&what, 53))
+                (format!("{name}/"), String::new(), what, String::new())
             }
             Item::Art { name, size, sauce, .. } => {
-                let (title, by) = match sauce {
-                    Some(s) => {
-                        let by = match (s.author.is_empty(), s.group.is_empty()) {
-                            (false, false) => format!("{}/{}", s.author, s.group),
-                            (false, true) => s.author.clone(),
-                            (true, false) => s.group.clone(),
-                            (true, true) => String::new(),
-                        };
-                        (s.title.clone(), by)
-                    }
-                    None => (String::new(), String::new()),
-                };
-                let kb = format!("{}k", size.div_ceil(1024));
-                format!(" {} {} {} {}", resize(name, 24), resize(&title, 26), resize(&by, 20), resize(&kb, 5))
+                let (title, by) = sauce.as_ref().map_or((String::new(), String::new()), |s| (s.title.clone(), byline(s)));
+                (name.clone(), format!("{}k", size.div_ceil(1024)), title, by)
             }
         };
-        self.write(&squish(&line, 79));
-        self.screen.set_color(iniquity_term::Color::DEFAULT);
+        self.screen.goto(name_x.saturating_sub(1).max(1), y);
+        self.screen.set_color(if hi { l.cl[3] } else { l.cl[0] });
+        self.write(&format!(" {} ", resize(&name, name_w)));
+        if let Some(x) = size_x {
+            self.screen.goto(x, y);
+            self.screen.set_color(l.cl[0]);
+            self.write(&resize(&size, (desc_x - x).saturating_sub(1) as usize));
+        }
+        self.screen.goto(desc_x, y);
+        let room = 79usize.saturating_sub(desc_x as usize);
+        self.screen.set_color(l.cl[0]);
+        let title: String = title.chars().take(room).collect();
+        self.write(&title);
+        let left = room.saturating_sub(title.chars().count());
+        if !by.is_empty() && left > 4 {
+            self.screen.set_color(l.cl[1]);
+            self.write(&squish(&format!(" by {by}"), left));
+        }
+        self.screen.set_color(l.cl[0]);
         self.screen.clear_eol();
     }
 
@@ -505,6 +577,37 @@ impl Session {
         }
         let _ = std::fs::remove_dir_all(&temp);
         self.prompt_key().await
+    }
+}
+
+/// "artist/group", or whichever is known.
+fn byline(s: &Sauce) -> String {
+    match (s.author.is_empty(), s.group.is_empty()) {
+        (false, false) => format!("{}/{}", s.author, s.group),
+        (false, true) => s.author.clone(),
+        (true, false) => s.group.clone(),
+        (true, true) => String::new(),
+    }
+}
+
+/// The info line for the item under the bar.
+fn gallery_info(item: Option<&Item>, speed: u32) -> String {
+    let speed = if speed == 0 { "instant".to_string() } else { speed.to_string() };
+    match item {
+        Some(Item::Art { name, size, sauce, .. }) => {
+            let s = sauce.clone().unwrap_or_default();
+            let mut line = if s.title.is_empty() { name.clone() } else { s.title.clone() };
+            if !byline(&s).is_empty() {
+                line.push_str(&format!(" |U5by |U3{}", byline(&s)));
+            }
+            if !s.date.is_empty() {
+                line.push_str(&format!(" |U5({})", s.date));
+            }
+            format!("|U3{} |U5- |U1{}k |U5- |U1play at |U3{speed}", squish(&line, 52), size.div_ceil(1024))
+        }
+        Some(Item::Folder { name, pack: true, .. }) => format!("|U3{name} |U5- |U1a pack; |U3enter|U1 opens it"),
+        Some(Item::Folder { name, .. }) => format!("|U3{name} |U5- |U1a folder; |U3enter|U1 opens it"),
+        None => String::new(),
     }
 }
 

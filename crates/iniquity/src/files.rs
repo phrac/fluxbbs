@@ -89,28 +89,29 @@ pub fn is_zip(path: &Path) -> bool {
 }
 
 /// The file lister's screen layout (from LISTFILE.ANS, or built in).
-struct Layout {
-    top: u16,
-    bot: u16,
-    menu_y: u16,
-    info_y: u16,
+/// Where things go on LISTFILE (and GALLERY, which shares its markers).
+pub(crate) struct Layout {
+    pub(crate) top: u16,
+    pub(crate) bot: u16,
+    pub(crate) menu_y: u16,
+    pub(crate) info_y: u16,
     num_x: Option<u16>,
-    name_x: Option<u16>,
-    size_x: Option<u16>,
+    pub(crate) name_x: Option<u16>,
+    pub(crate) size_x: Option<u16>,
     pts_x: Option<u16>,
-    desc_x: Option<u16>,
+    pub(crate) desc_x: Option<u16>,
     /// Normal, dim, bright (bracket/hot key), highlight, dim highlight,
     /// bright highlight.
-    cl: [Color; 6],
+    pub(crate) cl: [Color; 6],
     /// Scroll bar: start x, end x, y, empty char/colour, full char/colour.
     scroll: Option<(u16, u16, u16, char, Color, char, Color)>,
 }
 
-struct MenuBar {
-    items: &'static [&'static str],
-    off: Vec<bool>,
-    pos: usize,
-    xs: Vec<u16>,
+pub(crate) struct MenuBar {
+    pub(crate) items: &'static [&'static str],
+    pub(crate) off: Vec<bool>,
+    pub(crate) pos: usize,
+    pub(crate) xs: Vec<u16>,
 }
 
 /// One file shown on the current page.
@@ -718,7 +719,7 @@ impl Session {
 
     // ---- the file lister ------------------------------------------------
 
-    fn lister_layout(&self, from_screen: bool) -> Layout {
+    pub(crate) fn lister_layout(&self, from_screen: bool) -> Layout {
         let p = |c: &[u8; 2]| self.positions.get(c).copied();
         let pal = &self.user.palette;
         let default_cl = [pal.0[1], pal.0[2], pal.0[3], pal.0[4], pal.0[5], pal.0[6]];
@@ -784,7 +785,7 @@ impl Session {
         self.write(if flagged { ")" } else { " " });
     }
 
-    fn lister_menu(&mut self, l: &Layout, m: &mut MenuBar) {
+    pub(crate) fn lister_menu(&mut self, l: &Layout, m: &mut MenuBar) {
         self.screen.goto(1, l.menu_y);
         self.screen.set_color(l.cl[0]);
         self.screen.clear_eol();
@@ -797,7 +798,7 @@ impl Session {
         self.screen.set_color(l.cl[0]);
     }
 
-    fn lister_menu_item(&mut self, l: &Layout, m: &MenuBar, i: usize) {
+    pub(crate) fn lister_menu_item(&mut self, l: &Layout, m: &MenuBar, i: usize) {
         if let Some(&x) = m.xs.get(i) {
             self.screen.goto(x, l.menu_y);
         }
@@ -815,7 +816,7 @@ impl Session {
         self.write(&format!("{} ", &item[1..]));
     }
 
-    async fn lister_info(&mut self, l: &Layout, text: &str) -> io::Result<()> {
+    pub(crate) async fn lister_info(&mut self, l: &Layout, text: &str) -> io::Result<()> {
         self.screen.goto(1, l.info_y);
         self.screen.set_color(l.cl[0]);
         self.screen.clear_eol();
@@ -882,7 +883,7 @@ impl Session {
         rows
     }
 
-    fn lister_scroll(&mut self, l: &Layout, first: usize, last: usize, total: usize) {
+    pub(crate) fn lister_scroll(&mut self, l: &Layout, first: usize, last: usize, total: usize) {
         let Some((sx, ex, y, empty, ec, full, fc)) = l.scroll else { return };
         let len = (ex - sx + 1) as usize;
         let a = if first == 0 { 1 } else { (len * (first + 1) / total).max(1) };
