@@ -170,6 +170,9 @@ impl Session {
             }
         };
         let rows = caller.size.borrow().1;
+        let truecolor = state.config().terminal.truecolor_terms.iter().any(|t| t.eq_ignore_ascii_case(&caller.term));
+        let mut screen = Screen::new(charset, rows);
+        screen.set_truecolor(truecolor);
         let user = User { palette: state.config().colors.clone(), ..User::default() };
         Self {
             state,
@@ -178,7 +181,7 @@ impl Session {
             hold_node_msgs: false,
             user,
             io,
-            screen: Screen::new(charset, rows),
+            screen,
             input: VecDeque::new(),
             last_cr: false,
             saved_color: Color::DEFAULT,

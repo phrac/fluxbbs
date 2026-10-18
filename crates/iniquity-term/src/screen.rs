@@ -39,6 +39,9 @@ pub struct Screen {
     aix_fg: bool,
     /// A 256-colour or 24-bit colour is showing; `color` only approximates it.
     ext_color: bool,
+    /// The terminal takes 24-bit colour: bright backgrounds go out as
+    /// that rather than the iCE blink bit.
+    truecolor: bool,
 }
 
 impl Screen {
@@ -55,6 +58,7 @@ impl Screen {
             bright_bg: false,
             aix_fg: false,
             ext_color: false,
+            truecolor: false,
         }
         .init()
     }
@@ -70,6 +74,10 @@ impl Screen {
 
     pub fn charset(&self) -> Charset {
         self.charset
+    }
+
+    pub fn set_truecolor(&mut self, on: bool) {
+        self.truecolor = on;
     }
 
     /// Switch character sets mid-call (the caller says detection got it
@@ -333,7 +341,9 @@ impl Screen {
     /// A colour change. Classic codes pass through; aixterm bright
     /// colours (90-97, 100-107) pass through to Unicode terminals, which
     /// understand them, but become DOS codes for CP437 terminals: bold for
-    /// a bright foreground, the iCE blink bit for a bright background.
+    /// a bright foreground, the iCE blink bit for a bright background (or
+    /// the 24-bit colour, where the terminal takes it, since a terminal
+    /// that misses the iCE switch shows blinking instead).
     fn sgr(&mut self, body: &[u8]) {
         let params: Vec<u16> = if body.is_empty() {
             vec![0]
@@ -413,12 +423,18 @@ impl Screen {
             self.color.blink = self.bright_bg;
             let c = self.color;
             let d = [0, 4, 2, 6, 1, 5, 3, 7];
+            let rgb = c.blink && self.truecolor;
+            let back = if rgb {
+                let [r, g, b] = VGA[(c.back & 7 | 8) as usize];
+                format!("48;2;{r};{g};{b}")
+            } else {
+                format!("4{}", d[(c.back & 7) as usize])
+            };
             let seq = format!(
-                "\x1b[0;{}{}3{};4{}m",
+                "\x1b[0;{}{}3{};{back}m",
                 if c.fore >= 8 { "1;" } else { "" },
-                if c.blink { "5;" } else { "" },
-                d[(c.fore & 7) as usize],
-                d[(c.back & 7) as usize]
+                if c.blink && !rgb { "5;" } else { "" },
+                d[(c.fore & 7) as usize]
             );
             self.raw(seq.as_bytes());
         } else {
@@ -546,6 +562,15 @@ mod tests {
         s.take_output();
         s.set_color(Color::new(7, 0));
         assert_eq!(s.take_output(), b"\x1b[0m");
+    }
+
+    #[test]
+    fn truecolor_bright_backgrounds() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.set_truecolor(true);
+        s.take_output();
+        s.write_bytes(b"\x1b[102;30mX\x1b[40mY");
+        assert_eq!(s.take_output(), b"\x1b[0;30;48;2;85;255;85mX\x1b[0;30;40mY");
     }
 
     #[test]

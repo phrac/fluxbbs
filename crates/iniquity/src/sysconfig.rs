@@ -84,8 +84,9 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
                 &CHARSETS,
             )),
             set('E', "CP437 TERMs", 50, "TERM values that get CP437 when the character set is Auto.", List(|c| &mut c.terminal.cp437_terms)),
-            set('F', "Telnet", 3, "Also accept plain (unencrypted) telnet? (restart)", Bool(|c| &mut c.telnet.enabled)),
-            set('G', "Telnet listen", 40, "Address and port for telnet, e.g. 0.0.0.0:2323 (restart).", Text(|c| &mut c.telnet.listen, TEXT)),
+            set('F', "24-bit TERMs", 50, "CP437 terminals sent bright backgrounds as 24-bit colour, not the iCE blink bit.", List(|c| &mut c.terminal.truecolor_terms)),
+            set('G', "Telnet", 3, "Also accept plain (unencrypted) telnet? (restart)", Bool(|c| &mut c.telnet.enabled)),
+            set('H', "Telnet listen", 40, "Address and port for telnet, e.g. 0.0.0.0:2323 (restart).", Text(|c| &mut c.telnet.listen, TEXT)),
         ]),
         ("Access and Logon", false, vec![
             set('A', "SysOp ACS", 20, "ACS for SysOp access.", Text(|c| &mut c.acs.sysop, ACS)),

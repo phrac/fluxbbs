@@ -286,6 +286,10 @@ pub struct Terminal {
     pub charset: CharsetPref,
     /// TERM values that get raw CP437 when `charset = "auto"`.
     pub cp437_terms: Vec<String>,
+    /// CP437 terminals that take 24-bit colour, which then carries bright
+    /// backgrounds (others get the iCE blink bit, and blink if they don't
+    /// honour the iCE switch).
+    pub truecolor_terms: Vec<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -653,6 +657,7 @@ impl Default for Terminal {
             cp437_terms: ["syncterm", "ansi-bbs", "ansi", "pc-ansi", "pcansi", "scoansi", "netrunner"]
                 .map(String::from)
                 .to_vec(),
+            truecolor_terms: vec!["syncterm".into()],
         }
     }
 }
