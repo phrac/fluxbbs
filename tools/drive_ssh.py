@@ -7,7 +7,7 @@ user, term, steps = sys.argv[1], sys.argv[2], sys.argv[3:]
 pid, fd = pty.fork()
 if pid == 0:
     os.environ['TERM'] = term
-    os.execvp('ssh', ['ssh', '-F', '/dev/null', '-tt', '-p', '2222', '-o', 'StrictHostKeyChecking=no',
+    os.execvp('ssh', ['ssh', '-F', '/dev/null', '-tt', '-p', os.environ.get("PORT", "2222"), '-o', 'StrictHostKeyChecking=no',
                       '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR', f'{user}@127.0.0.1'])
 raw = b''
 def clean(b):
