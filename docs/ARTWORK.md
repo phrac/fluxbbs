@@ -88,6 +88,9 @@ draw their own screens and need no art.
 
 ## Notes for the artist
 
+- **Codes:** colours, pauses, clear-screen and values like the caller's
+  handle can be typed into a screen as text; `CODES.md` lists them all.
+
 - **Size:** 80×25. On menu screens the prompt takes the bottom row or
   two, so keep the art to about 23 rows (MAIN is 18 rows of logo plus 5
   of commands). Stay within 79 columns, or end lines exactly at 80.
