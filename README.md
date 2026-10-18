@@ -48,6 +48,11 @@ Neither is in git.
 - Key-combination bot check before anything else, on SSH and telnet.
 - Per-address connection limits, bans for repeated failures (doubling,
   up to a day), allow and deny lists, a short idle limit before login.
+- Bans and failures are kept in the database: bans survive a restart,
+  SysOps are told at logon how many failures and bans there have been
+  since their last call, `*G` lists them and lifts bans, and
+  `iniquity unban ADDRESS|all` does so from the shell for a SysOp
+  locked out of their own board.
 
 **The board**
 - Display engine: `|XX` colours and controls, `%XX` MCI codes, `@`/`&`
@@ -108,6 +113,8 @@ Neither is in git.
   email.
 - `*X` protocols, `*Z` archivers, `*B` BBS list, `*H` statistics, `*I`
   infoforms, `*T` themes.
+- `*G` security: current bans and recent failed logins and bot checks;
+  lift a ban.
 - `*V` events: jobs run once a day at a set time, by one scheduler in
   the server (no per-node events or modem off-hook any more). A command
   goes to the shell, or is one of the built-in jobs `pack-messages` and
@@ -126,11 +133,6 @@ libraries (unpacked into themes).
 | Feature | Original | Commands | Notes |
 |---|---|---|---|
 | Echomail / netmail | echomail.pas, INIQMAIL.PAS | | FidoNet-style networking; would need a mailer/tosser bridge today. |
-
-Smaller gaps:
-- Bans are kept in memory and cleared by a restart.
-- Wrong-password and bot-check failures aren't shown to the SysOp
-  anywhere but the log.
 
 **Not planned:** Tetris (`TP`, `TS`; the game's source isn't in this
 release, `tetris.pas` being a misnamed terminal unit), modem setup

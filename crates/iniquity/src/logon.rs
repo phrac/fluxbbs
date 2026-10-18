@@ -36,8 +36,19 @@ impl Session {
         }
 
         self.say("InitBBS").await?;
+        let previous_call = self.user.last_call;
         self.user_logon_init();
         tracing::info!("{} ({}) logged in", self.user.handle, self.user.real_name);
+        // SysOps hear about failed logins and bans since they were last on.
+        if self.is_sysop() {
+            let since = previous_call.and_then(|d| d.and_hms_opt(0, 0, 0)).unwrap_or_default();
+            if let Ok((n, bans)) = self.state.sys.security_since(since)
+                && n > 0 {
+                    self.newline();
+                    let s = self.strings().fmt("SecurityNotice", &[&n.to_string(), &bans.to_string()]);
+                    self.show_line(&s).await?;
+                }
+        }
         let sysop = self.is_sysop();
         self.node.update(|n| {
             n.user = self.user.handle.clone();
@@ -181,9 +192,22 @@ impl Session {
     fn record_failure(&self, what: &str) -> bool {
         let Some(addr) = self.caller.remote else { return false };
         tracing::warn!("{addr}: {what}");
+        let ip = addr.ip().to_string();
+        let log = |what: &str| {
+            if let Err(e) = self.state.sys.log_security(&ip, what) {
+                tracing::error!("security log: {e}");
+            }
+        };
+        log(what);
         match self.state.guard.failure(&self.state.config().security, addr.ip()) {
             Some(len) => {
-                tracing::warn!("{}: banned for {} minutes", addr.ip(), len.as_secs() / 60);
+                let minutes = len.as_secs() / 60;
+                tracing::warn!("{ip}: banned for {minutes} minutes");
+                log(&format!("banned for {minutes} minutes"));
+                let until = Local::now().naive_local() + chrono::Duration::from_std(len).unwrap_or_default();
+                if let Err(e) = self.state.sys.set_ban(&ip, until, self.state.guard.strikes(addr.ip())) {
+                    tracing::error!("recording ban: {e}");
+                }
                 true
             }
             None => false,

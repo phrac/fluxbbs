@@ -154,6 +154,15 @@ on = "|B1Pack msg areas"
 off = "|B0Pack msg areas"
 
 [[command]]
+keys = "G"
+command = "*G"
+acs = "s250"
+desc = "Security log"
+help = "[sysop] Bans and failed logins; lift a ban"
+on = "|B1Security log"
+off = "|B0Security log"
+
+[[command]]
 keys = "K"
 command = "*K"
 acs = "s250"

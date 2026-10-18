@@ -73,6 +73,53 @@ impl Guard {
         Arc::new(Self::default())
     }
 
+    /// Bring back bans kept in the database: (address, time left if
+    /// still banned, bans so far).
+    pub fn load(&self, bans: impl IntoIterator<Item = (IpAddr, Option<Duration>, u32)>) {
+        let now = Instant::now();
+        let mut ips = self.ips.lock().unwrap();
+        for (ip, left, strikes) in bans {
+            let e = ips.entry(ip).or_default();
+            e.strikes = e.strikes.max(strikes);
+            if let Some(left) = left {
+                e.banned_until = Some(now + left);
+            }
+        }
+    }
+
+    /// How many bans an address has had.
+    pub fn strikes(&self, ip: IpAddr) -> u32 {
+        self.ips.lock().unwrap().get(&ip).map_or(0, |e| e.strikes)
+    }
+
+    /// Addresses banned right now, with the time left.
+    pub fn bans(&self) -> Vec<(IpAddr, Duration)> {
+        let now = Instant::now();
+        let mut out: Vec<_> = self
+            .ips
+            .lock()
+            .unwrap()
+            .iter()
+            .filter_map(|(ip, e)| e.banned_until.filter(|t| *t > now).map(|t| (*ip, t - now)))
+            .collect();
+        out.sort_by_key(|(_, left)| *left);
+        out
+    }
+
+    /// The SysOp's pardon: the ban, the failures and the history go.
+    pub fn unban(&self, ip: IpAddr) -> bool {
+        let mut ips = self.ips.lock().unwrap();
+        match ips.get_mut(&ip) {
+            Some(e) if e.banned_until.is_some() || e.strikes > 0 => {
+                e.banned_until = None;
+                e.failures = 0;
+                e.strikes = 0;
+                true
+            }
+            _ => false,
+        }
+    }
+
     /// Is this address on the allow list (no limits, no challenge)?
     pub fn trusted(&self, cfg: &Security, ip: IpAddr) -> bool {
         listed(&cfg.allow, ip)
@@ -182,6 +229,20 @@ impl Drop for Ticket {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn bans_load_list_and_lift() {
+        let g = Guard::new();
+        let ip: IpAddr = "10.1.1.1".parse().unwrap();
+        g.load([(ip, Some(Duration::from_secs(600)), 2)]);
+        assert_eq!(g.strikes(ip), 2);
+        assert_eq!(g.bans().len(), 1);
+        let cfg = Security { allow: Vec::new(), ..Security::default() };
+        assert!(matches!(g.blocked(&cfg, ip), Some(Refusal::Banned(_))));
+        assert!(g.unban(ip));
+        assert!(g.blocked(&cfg, ip).is_none() && g.bans().is_empty() && g.strikes(ip) == 0);
+        assert!(!g.unban(ip), "nothing left to lift");
+    }
 
     fn cfg() -> Security {
         Security { max_per_ip: 2, max_per_minute: 3, fail_limit: 2, ban_minutes: 15, ..Security::default() }

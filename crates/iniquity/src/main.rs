@@ -221,6 +221,19 @@ fn write_atomic(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `iniquity unban ADDRESS|all [config]`: lift a ban from outside the
+/// board (for a SysOp locked out of it). Takes effect when the server
+/// (re)starts, or at once if it isn't running.
+fn unban(who: Option<&str>, path: PathBuf) -> anyhow::Result<()> {
+    let Some(who) = who else { anyhow::bail!("usage: iniquity unban <address>|all [config]") };
+    let config = Config::load(&path)?;
+    let db = config.resolve(&config.paths.data).join("iniquity.db");
+    let sys = SysData::open(&db).with_context(|| format!("database {}", db.display()))?;
+    let n = sys.clear_ban(who)?;
+    println!("{n} ban(s) lifted; restart the server for it to notice");
+    Ok(())
+}
+
 /// `iniquity pack-files [config]`: what FILEPACK.EXE was, run outside
 /// the BBS: forget files that are gone from every file area's directory.
 fn pack_files(path: PathBuf) -> anyhow::Result<()> {
@@ -251,6 +264,9 @@ async fn main() -> anyhow::Result<()> {
     let args: Vec<String> = std::env::args().skip(1).collect();
     if args.first().is_some_and(|a| a == "import") {
         return import::from_args(&args[1..]);
+    }
+    if args.first().is_some_and(|a| a == "unban") {
+        return unban(args.get(1).map(String::as_str), args.get(2).map_or("iniquity.toml".into(), PathBuf::from));
     }
     if args.first().is_some_and(|a| a == "pack-files") {
         return pack_files(args.get(1).map_or("iniquity.toml".into(), PathBuf::from));
@@ -302,6 +318,17 @@ async fn main() -> anyhow::Result<()> {
         nodes,
         guard: guard::Guard::new(),
     });
+    // Bans survive restarts.
+    match state.sys.bans() {
+        Ok(bans) => {
+            let now = chrono::Local::now().naive_local();
+            state.guard.load(bans.into_iter().filter_map(|(ip, until, strikes)| {
+                let left = (until - now).to_std().ok();
+                Some((ip.parse().ok()?, left, strikes))
+            }));
+        }
+        Err(e) => tracing::error!("loading bans: {e}"),
+    }
     tokio::spawn(events::scheduler(state.clone()));
 
     // Forget idle addresses now and then.

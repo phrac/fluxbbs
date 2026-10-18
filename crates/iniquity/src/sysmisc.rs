@@ -284,6 +284,63 @@ impl Session {
     }
 }
 
+impl Session {
+    /// `*G`: who's banned and what failed lately, and lift a ban.
+    pub async fn security_view(&mut self) -> io::Result<()> {
+        let bans = self.state.guard.bans();
+        let events = self.state.sys.security_events(20).map_err(io::Error::other)?;
+        self.clear_screen();
+        self.newline();
+        self.set_slot(Slot::Info);
+        self.show_line("|U4 Banned address                             Left").await?;
+        self.rule().await?;
+        if bans.is_empty() {
+            self.show_line("|U1 (nobody)").await?;
+        }
+        for (ip, left) in &bans {
+            let line = format!("|U1 {} |U3{}m", resize(&ip.to_string(), 40), left.as_secs().div_ceil(60));
+            self.show_line(&line).await?;
+        }
+        self.newline();
+        self.set_slot(Slot::Info);
+        self.show_line("|U4 When            Address                      What").await?;
+        self.rule().await?;
+        if events.is_empty() {
+            self.show_line("|U1 (nothing)").await?;
+        }
+        for (at, ip, what) in &events {
+            let line = format!("|U1 {} {} |U3{}", resize(&at.format("%m/%d/%y %H:%M").to_string(), 15), resize(ip, 28), what);
+            self.show_line(&line).await?;
+        }
+        self.rule().await?;
+        if bans.is_empty() {
+            return Ok(());
+        }
+        self.show("|U1Lift the ban on which address |U5[|U4enter|U5=|U4none|U5, |U4all|U5]: |U3").await?;
+        let who = self.read_string(crate::input::ReadOpts::new(45)).await?;
+        self.newline();
+        let who = who.trim().to_string();
+        if who.is_empty() {
+            return Ok(());
+        }
+        let lifted: Vec<std::net::IpAddr> = if who.eq_ignore_ascii_case("all") {
+            bans.iter().map(|(ip, _)| *ip).collect()
+        } else {
+            who.parse().into_iter().collect()
+        };
+        let mut n = 0;
+        for ip in lifted {
+            if self.state.guard.unban(ip) {
+                n += 1;
+                let _ = self.state.sys.clear_ban(&ip.to_string());
+                tracing::info!("{}: lifted the ban on {ip}", self.user.handle);
+            }
+        }
+        let s = if n > 0 { format!("|U1Lifted |U3{n}|U1 ban(s)|U2.") } else { "|U4No ban on that address|U5.".into() };
+        self.show_line(&s).await
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

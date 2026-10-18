@@ -216,6 +216,7 @@ impl Session {
             "*P" if self.is_sysop() => self.pack_msg_areas(param).await?,
             "*K" if self.is_sysop() => self.pack_file_areas(param).await?,
             "*V" if self.is_sysop() => self.event_editor().await?,
+            "*G" if self.is_sysop() => self.security_view().await?,
             "*L" if self.is_sysop() => self.level_editor().await?,
             "*B" if self.is_sysop() => self.bbs_list_editor().await?,
             "*H" if self.is_sysop() => self.stat_editor().await?,

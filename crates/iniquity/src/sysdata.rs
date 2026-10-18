@@ -64,6 +64,17 @@ CREATE TABLE IF NOT EXISTS bbslist (
     info      TEXT NOT NULL,
     who_added TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS bans (
+    ip      TEXT PRIMARY KEY,
+    until   TEXT NOT NULL,
+    strikes INTEGER NOT NULL
+);
+CREATE TABLE IF NOT EXISTS security_log (
+    id   INTEGER PRIMARY KEY,
+    at   TEXT NOT NULL,
+    ip   TEXT NOT NULL,
+    what TEXT NOT NULL
+);
 CREATE TABLE IF NOT EXISTS event_runs (
     event     TEXT PRIMARY KEY,
     last_run  TEXT NOT NULL
@@ -357,6 +368,55 @@ impl SysData {
         Ok(())
     }
 
+    // ---- bans and failures --------------------------------------------------
+
+    /// Bans on record: (address, when it ends, how many bans so far).
+    pub fn bans(&self) -> anyhow::Result<Vec<(String, NaiveDateTime, u32)>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT ip, until, strikes FROM bans ORDER BY until")?;
+        let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn set_ban(&self, ip: &str, until: NaiveDateTime, strikes: u32) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT OR REPLACE INTO bans (ip, until, strikes) VALUES (?1, ?2, ?3)", params![ip, until, strikes])?;
+        Ok(())
+    }
+
+    /// Lift a ban (`"all"` lifts every one). Returns how many went.
+    pub fn clear_ban(&self, ip: &str) -> anyhow::Result<usize> {
+        let db = self.db.lock().unwrap();
+        Ok(if ip == "all" { db.execute("DELETE FROM bans", [])? } else { db.execute("DELETE FROM bans WHERE ip = ?1", [ip])? })
+    }
+
+    /// Note a failed bot check or password, or a ban.
+    pub fn log_security(&self, ip: &str, what: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT INTO security_log (at, ip, what) VALUES (?1, ?2, ?3)", params![chrono::Local::now().naive_local(), ip, what])?;
+        // Keep the log to a few thousand lines.
+        db.execute("DELETE FROM security_log WHERE id < (SELECT MAX(id) FROM security_log) - 5000", [])?;
+        Ok(())
+    }
+
+    /// The latest security events, newest first: (when, address, what).
+    pub fn security_events(&self, limit: u32) -> anyhow::Result<Vec<(NaiveDateTime, String, String)>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT at, ip, what FROM security_log ORDER BY id DESC LIMIT ?1")?;
+        let rows = stmt.query_map([limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// How many events since `when`, and how many of them were bans.
+    pub fn security_since(&self, when: NaiveDateTime) -> anyhow::Result<(u32, u32)> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row(
+            "SELECT COUNT(*), COALESCE(SUM(what LIKE 'banned%'), 0) FROM security_log WHERE at > ?1",
+            [when],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?)
+    }
+
     // ---- events -----------------------------------------------------------
 
     /// The day an event (by description) last ran.
@@ -469,6 +529,21 @@ mod tests {
         let t = sd.totals().unwrap();
         assert_eq!((t.calls, t.posts, t.uploads), (102, 6, 1));
         assert_eq!(sd.history().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn bans_and_security_log() {
+        let sys = SysData::open_memory().unwrap();
+        let t = chrono::NaiveDate::from_ymd_opt(2026, 10, 17).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        sys.log_security("10.0.0.5", "wrong password").unwrap();
+        sys.log_security("10.0.0.5", "banned for 15 minutes").unwrap();
+        sys.set_ban("10.0.0.5", t, 1).unwrap();
+        assert_eq!(sys.bans().unwrap(), [("10.0.0.5".to_string(), t, 1)]);
+        assert_eq!(sys.security_since(t).unwrap(), (2, 1));
+        assert_eq!(sys.security_events(1).unwrap()[0].2, "banned for 15 minutes");
+        assert_eq!(sys.clear_ban("10.0.0.9").unwrap(), 0);
+        assert_eq!(sys.clear_ban("all").unwrap(), 1);
+        assert!(sys.bans().unwrap().is_empty());
     }
 
     #[test]
