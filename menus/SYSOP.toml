@@ -145,6 +145,15 @@ on = "|B1Modem setup"
 off = "|B0Modem setup"
 
 [[command]]
+keys = "O"
+command = "*O"
+acs = "s250"
+desc = "Logon sequence"
+help = "[sysop] Order the logon steps and turn them on or off"
+on = "|B1Logon sequence"
+off = "|B0Logon sequence"
+
+[[command]]
 keys = "P"
 command = "*P"
 acs = "s250"

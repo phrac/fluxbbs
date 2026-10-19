@@ -39,7 +39,8 @@ off = "|B0List areas"
 
 [[command]]
 keys = "N"
-command = "MN"
+command = "MW"
+param = "Read"
 acs = "s25"
 desc = "Newscan areas"
 help = "Scan for new (unread) messages (in current or all areas)"
@@ -66,10 +67,10 @@ off = "|B0Quit menu"
 
 [[command]]
 keys = "R"
-command = "MR"
+command = "MH"
 acs = "s25"
 desc = "Read messages"
-help = "Read messages in the current message area"
+help = "The areas, their threads and what's new"
 on = "|B1Read messages"
 off = "|B0Read messages"
 

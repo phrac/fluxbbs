@@ -46,6 +46,7 @@ runs as (default 1000, which must own the board directory). Logs go to
 | `text/` | screens (ANSI/ASCII) | your art tools; see [ARTWORK.md](ARTWORK.md) |
 | `scripts/` | Lua scripts (`-X`, `%!`) | any editor; see [SCRIPTING.md](SCRIPTING.md) |
 | `events.toml` | scheduled events | `*V` |
+| `logon.toml` | the logon sequence | `*O` |
 
 Files that don't exist yet use built-in defaults; the editors create
 them. Most changes apply at once; SSH, telnet and path settings need a

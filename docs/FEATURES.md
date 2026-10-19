@@ -134,6 +134,14 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   `pack-files`; `force` disconnects callers first (with the stock
   "event initiating NOW" string), `run_missed` catches up after
   downtime the same day. "Run it now" in the editor starts one by hand.
+- `*O` logon sequence (new): the steps after logging in (mail,
+  mandatory messages, new posts, last callers, who's online, the
+  automessage, your stats, oneliners, pauses, any screen of your own),
+  in the order you put them, each on or off. It's kept in `logon.toml`
+  with the board and the start menu (STARTUP) is built from it; without
+  the file STARTUP runs as written. The oneliners run in place, so they
+  needn't come last. "New users stop here" sends callers who aren't
+  validated to NEWUSER: steps above it are seen by them too.
 
 **Importing** an existing install: users (passwords re-hashed with
 argon2), message bases, file records and descriptions, areas,
@@ -205,9 +213,9 @@ and `timeout_seconds` do what they say. All of it is under "AI Chat" in
 
 ## Message centre
 
-New: `MH` (M on the main menu) replaces the stock newscan prompt and
-message menu, which are still there (`SCANMSG`, `MESSAGE`; point M back
-at `-^ SCANMSG` to use them).
+New: `MH` (`r` on the message menu) and `MW Read` (`n` there, and the
+newscan prompt `SCANMSG` asks on the way in) replace the classic reader
+and newscan (`MR`, `MN`, still there for menus that want them).
 
 - The areas, with how many messages are new in each and the latest
   post. Enter opens one, `n` reads everything new, `p` posts.
@@ -228,7 +236,8 @@ at `-^ SCANMSG` to use them).
   it are remembered, and the pointer moves up once everything before
   them is read too. Your own posts are read.
 - `MW` (in STARTUP, after the mandatory scan) says how many new posts
-  there are and offers to read them, a thread at a time.
+  there are and offers to read them, a thread at a time; `MW Read` reads
+  them without asking.
 - The website feed lists the newest public posts (`new_posts`).
 
 ## MeshCore

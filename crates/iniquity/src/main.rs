@@ -25,6 +25,7 @@ mod import;
 mod infoform;
 mod input;
 mod logon;
+mod logonseq;
 mod mci;
 mod menu;
 mod menuedit;

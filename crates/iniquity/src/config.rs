@@ -246,6 +246,8 @@ pub struct Paths {
     pub scripts: PathBuf,
     /// Scheduled events (`*V`).
     pub events: PathBuf,
+    /// The logon sequence (`*O`).
+    pub logon: PathBuf,
     /// Files attached to messages (`pathAtch`).
     pub attach: PathBuf,
 }
@@ -883,6 +885,7 @@ impl Default for Paths {
             doors: "data/doors".into(),
             scripts: "scripts".into(),
             events: "events.toml".into(),
+            logon: "logon.toml".into(),
             attach: "data/attach".into(),
         }
     }

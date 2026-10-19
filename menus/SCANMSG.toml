@@ -66,8 +66,8 @@ off = "|B0check for new messages"
 
 [[command]]
 keys = "FIRSTCMD"
-command = "MN"
-param = "All"
+command = "MW"
+param = "Read"
 acs = "*"
 desc = "if yes, then newscan"
 on = "|B1if yes, then newscan"

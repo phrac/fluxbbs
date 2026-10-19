@@ -53,6 +53,7 @@ impl Session {
     fn menu_load(&self, name: &str) -> Option<Menu> {
         let dir = self.menus_dir();
         let mut menu = Menu::load(&dir, name).map_err(|e| tracing::warn!("{e}")).ok()?;
+        crate::logonseq::apply(&self.state.config(), &dir, name, &mut menu);
         if menu.global && !name.eq_ignore_ascii_case("GLOBAL")
             && let Ok(global) = Menu::load(&dir, "GLOBAL") {
                 menu.commands.extend(global.commands);
