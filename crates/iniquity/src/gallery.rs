@@ -645,15 +645,19 @@ impl Session {
         let name_w = (size_x.unwrap_or(desc_x) - name_x).saturating_sub(1) as usize;
         let (name, size, title, by) = match item {
             Item::Folder { name, place: Place::Area(c), .. } => {
-                // A file area: how many files, and the newest.
-                let (count, newest) = match self.farea(*c) {
-                    Some(a) => {
-                        let files = self.state.files.list(&a.area.file).unwrap_or_default();
-                        let valid: Vec<_> = files.iter().filter(|f| f.valid).collect();
-                        (valid.len(), valid.iter().filter_map(|f| f.uploaded).max())
-                    }
-                    None => (0, None),
-                };
+                // A file area: how many files, and the newest, counting
+                // the sub-areas under it the caller can see (as the
+                // change-area list does).
+                let fa = self.state.fareas();
+                let visible = self.visible_fareas();
+                let (mut count, mut newest) = (0, None);
+                for m in fa.subtree(*c).into_iter().filter(|m| visible.iter().any(|&(v, _)| v == *m)) {
+                    if let Some(a) = fa.get(m)
+                        && let Ok((n, d)) = self.state.files.summary(&a.file) {
+                            count += n;
+                            newest = newest.max(d);
+                        }
+                }
                 let count = if count == 1 { "1 file".to_string() } else { format!("{count} files") };
                 let newest = newest.map(|d| format!("newest {}", d.format("%Y-%m-%d"))).unwrap_or_else(|| "empty".into());
                 (format!("{name}/"), count, newest, String::new())

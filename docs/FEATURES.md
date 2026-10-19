@@ -105,9 +105,12 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   comments; `*E` prompt strings; `*#` menus; `*L` access levels.
 - `*U` users (with colours, preferences, auto-signature, infoforms).
 - `*F` file areas, `*Y` files (validate, move, extract/apply DIZ), `*S`
-  sort areas, `*>` download any file, `*%` local upload, `*K` pack file
-  areas (forget files missing from their directories; also
-  `iniquity pack-files` from the shell, as FILEPACK.EXE was).
+  sort areas, `*>` download any file, `*%` local upload (add files
+  copied into the area's directory; `iniquity add-files` does every
+  area from the shell, for a mirror, say: a ZIP without a FILE_ID.DIZ
+  is described by what's in it), `*K` pack file areas (forget files
+  missing from their directories; also `iniquity pack-files` from the
+  shell, as FILEPACK.EXE was).
 - `*A` message areas, `*P` pack them, `*@`/`*!` conferences, `*R` all
   email.
 - `*X` protocols, `*Z` archivers, `*B` BBS list, `*H` statistics, `*I`

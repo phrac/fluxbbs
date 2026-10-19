@@ -101,6 +101,12 @@ impl FileBase {
         Ok(db.query_row("SELECT COUNT(*) FROM files WHERE area = ?1", [area], |r| r.get(0))?)
     }
 
+    /// How many validated files an area has, and the newest upload.
+    pub fn summary(&self, area: &str) -> anyhow::Result<(u32, Option<NaiveDate>)> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT COUNT(*), MAX(uploaded) FROM files WHERE area = ?1 AND valid", [area], |r| Ok((r.get(0)?, r.get(1)?)))?)
+    }
+
     /// Every file in an area, in order.
     pub fn list(&self, area: &str) -> anyhow::Result<Vec<FileRec>> {
         let db = self.db.lock().unwrap();

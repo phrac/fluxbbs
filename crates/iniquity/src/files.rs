@@ -1777,30 +1777,13 @@ impl Session {
             if known.contains(&name.to_lowercase()) || name.starts_with('.') {
                 continue;
             }
-            let meta = std::fs::metadata(&path)?;
-            let mut rec = FileRec {
-                area: a.area.file.clone(),
-                num: 0,
-                name: name.clone(),
-                size: meta.len(),
-                date: meta.modified().ok().map(|t| chrono::DateTime::<Local>::from(t).date_naive()),
-                uploader: self.user.handle.clone(),
-                uploaded: Some(Local::now().date_naive()),
-                downloads: 0,
-                points: (meta.len() / (kb_pt * 1024)) as u32,
-                valid: true,
-                description: Vec::new(),
-            };
-            rec.description = match self.archive_description(&path, &desc_files).await {
-                Some(d) => d,
-                None => art_description(&path, &desc_files).unwrap_or_default(),
-            };
-            if rec.description.is_empty() && crate::picture::is_image(&name) {
-                let lim = self.state.config().files.image_limits();
-                if let Ok(p) = std::fs::read(&path).map_err(|e| e.to_string()).and_then(|d| crate::picture::load(&d, 80, 24, lim)) {
-                    rec.description = vec![p.describe()];
+            let cfg = self.state.config();
+            let mut rec = local_record(&a.area.file, &path, &self.user.handle, &desc_files, kb_pt, cfg.files.image_limits())?;
+            // Other archives need their archiver to give up a description.
+            if rec.description.is_empty() && !is_zip(&path)
+                && let Some(d) = self.archive_description(&path, &desc_files).await {
+                    rec.description = d;
                 }
-            }
             recs.push(rec);
         }
         // Descriptions are read first; the records then go in at once, so
@@ -1812,6 +1795,61 @@ impl Session {
         }
         self.show_line(&format!("|U1Added |U3{}|U1 file(s) to |U3{}|U2.", recs.len(), a.area.name)).await
     }
+}
+
+/// A file record for a file put into an area's directory by hand
+/// (`*%`, `iniquity add-files`): its size, date and points, and a
+/// description from its FILE_ID.DIZ (ZIPs), its SAUCE (a piece of art) or
+/// what it is (a picture).
+pub fn local_record(area: &str, path: &Path, uploader: &str, desc_files: &[String], kb_per_point: u64, lim: crate::picture::Limits) -> io::Result<FileRec> {
+    let meta = std::fs::metadata(path)?;
+    let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    let mut description = if is_zip(path) { zip_description(path, desc_files) } else { None }
+        .or_else(|| art_description(path, desc_files))
+        .unwrap_or_default();
+    if description.is_empty() && crate::picture::is_image(&name)
+        && let Ok(p) = std::fs::read(path).map_err(|e| e.to_string()).and_then(|d| crate::picture::load(&d, 80, 24, lim)) {
+            description = vec![p.describe()];
+        }
+    if description.is_empty() && is_zip(path) {
+        description = zip_contents(path);
+    }
+    Ok(FileRec {
+        area: area.to_string(),
+        num: 0,
+        name,
+        size: meta.len(),
+        date: meta.modified().ok().map(|t| chrono::DateTime::<Local>::from(t).date_naive()),
+        uploader: uploader.to_string(),
+        uploaded: Some(Local::now().date_naive()),
+        downloads: 0,
+        points: (meta.len() / (kb_per_point.max(1) * 1024)) as u32,
+        valid: true,
+        description,
+    })
+}
+
+/// For a ZIP with no FILE_ID.DIZ (most early art packs): how many files
+/// it holds and their names, in a few lines.
+fn zip_contents(path: &Path) -> Vec<String> {
+    let Ok(z) = std::fs::File::open(path).map_err(|_| ()).and_then(|f| zip::ZipArchive::new(f).map_err(|_| ())) else { return Vec::new() };
+    let names: Vec<String> = z.file_names().flatten().filter(|n| !n.ends_with('/')).map(|n| n.rsplit('/').next().unwrap_or(&n).to_string()).collect();
+    if names.is_empty() {
+        return Vec::new();
+    }
+    let mut lines = vec![if names.len() == 1 { "1 file:".to_string() } else { format!("{} files:", names.len()) }];
+    for n in &names {
+        let last = lines.last_mut().expect("a line");
+        if last.len() + 1 + n.len() <= DESC_WIDTH {
+            last.push(' ');
+            last.push_str(n);
+        } else if lines.len() < 4 {
+            lines.push(n.clone());
+        } else {
+            break;
+        }
+    }
+    lines
 }
 
 /// "m:ss" for a transfer estimate (`mTimeSec`).
@@ -1895,6 +1933,12 @@ mod tests {
         assert_eq!(art_description(&zip("one.zip", &["FILE.ANS", "file_id.diz"]), &diz).unwrap(), want);
         assert!(art_description(&zip("pack.zip", &["A.ANS", "B.ANS"]), &diz).is_none(), "a pack has no one piece");
         assert!(art_description(&zip("prog.zip", &["PROG.EXE"]), &diz).is_none());
+        // A pack with no DIZ is described by what's in it.
+        assert_eq!(zip_contents(&zip("pack.zip", &["A.ANS", "art/B.ANS"])), ["2 files: A.ANS B.ANS"]);
+        let many: Vec<String> = (0..40).map(|i| format!("PIECE{i:03}.ANS")).collect();
+        let lines = zip_contents(&zip("big.zip", &many.iter().map(String::as_str).collect::<Vec<_>>()));
+        assert_eq!(lines.len(), 4);
+        assert!(lines.iter().all(|l| l.len() <= DESC_WIDTH) && lines[0].starts_with("40 files: PIECE000.ANS"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 
