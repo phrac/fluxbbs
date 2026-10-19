@@ -1,0 +1,19 @@
+[2J[0m[21CiNiQUiTY Message Reader Help
+[1mMessage Reader Keys:[0m
+
+[7C[1mRight  [0mNext message (Enter and Space page through a long one first)
+[7C[1mLeft   [0mBack to the previous message
+[7C[1mUp/Dn  [0mScroll the message (PgUp/PgDn a page, Home/End the ends)
+[7C[1mR      [0mReply to the current message
+[7C[1mP      [0mPost a new message in this area
+[7C[1mT      [0mRead the whole thread this message is in
+[7C[1mU      [0mUp to the message this one answers
+[7C[1mG      [0mGet the file attached to the message
+[7C[1mD      [0mDelete or undelete the current message (if yours)
+[7C[1mE      [0mEdit the current message (if yours)
+[7C[1mL/Esc  [0mBack to the list
+[7C[1mQ      [0mQuit reading
+[7C[1m?      [0mDisplay this help screen
+[7C[1m###    [0mYou may also type the number of any message to jump
+[17Cdirectly to that message
+[1;30m--[0m
