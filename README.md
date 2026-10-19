@@ -57,6 +57,7 @@ escalating bans, password rules and sign-up limits.
 - Doors, native and DOS (a built-in DOS machine)
 - AI chat that can search the web and knows its way around the board
 - A JSON feed for the board's website
+- A MeshCore radio bridge: mesh channels as message areas
 
 **SysOp tools:** an editor for everything (`*C`, `*U`, `*F`, `*A`,
 `*#`...), the waiting-for-caller screen, the security log, scheduled
@@ -83,7 +84,7 @@ converters.
 
 | | |
 |---|---|
-| [FEATURES.md](docs/FEATURES.md) | Everything the port does, QWK, infoforms, AI chat |
+| [FEATURES.md](docs/FEATURES.md) | Everything the port does, QWK, infoforms, AI chat, MeshCore |
 | [SYSOP.md](docs/SYSOP.md) | Configuration, importing, security, the website feed, themes |
 | [FILES.md](docs/FILES.md) | Sub-areas, transfers, upload screening, the art gallery |
 | [DOORS.md](docs/DOORS.md) | Native doors and the built-in DOS machine |

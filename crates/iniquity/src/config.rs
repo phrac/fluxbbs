@@ -32,6 +32,7 @@ pub struct Config {
     pub chat: Chat,
     pub wfc: Wfc,
     pub ai: Ai,
+    pub meshcore: MeshCore,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -309,6 +310,48 @@ impl Default for Ai {
             search_key_env: String::new(),
             timeout_seconds: 120,
         }
+    }
+}
+
+/// MeshCore (new): a companion radio's channels bridged to message areas.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct MeshCore {
+    pub enabled: bool,
+    /// `host:port` of the companion radio: WiFi companion firmware listens
+    /// on 5000; a USB radio can be put on the network with ser2net.
+    pub address: String,
+    /// Seconds between attempts while the radio can't be reached.
+    pub reconnect_seconds: u64,
+    /// Messages a long post may be split into (each fits in one packet).
+    pub max_parts: u8,
+    #[serde(rename = "channel", default)]
+    pub channels: Vec<MeshChannel>,
+}
+
+/// One radio channel and the message area it's bridged to.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct MeshChannel {
+    /// The channel's name on the radio ("Public").
+    pub channel: String,
+    /// The message area's storage key.
+    pub area: String,
+    /// Post what's said on the channel in the area.
+    #[serde(default = "yes")]
+    pub from_mesh: bool,
+    /// Send what's posted in the area to the channel.
+    #[serde(default = "yes")]
+    pub to_mesh: bool,
+}
+
+fn yes() -> bool {
+    true
+}
+
+impl Default for MeshCore {
+    fn default() -> Self {
+        Self { enabled: false, address: String::new(), reconnect_seconds: 30, max_parts: 2, channels: Vec::new() }
     }
 }
 

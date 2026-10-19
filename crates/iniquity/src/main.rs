@@ -28,6 +28,7 @@ mod logon;
 mod mci;
 mod menu;
 mod menuedit;
+mod meshcore;
 mod messages;
 mod msgareas;
 mod multinode;
@@ -107,6 +108,8 @@ pub struct BbsState {
     pub guard: Arc<guard::Guard>,
     /// AI chat messages today: (user, day) -> count.
     pub ai_usage: std::sync::Mutex<std::collections::HashMap<(u32, chrono::NaiveDate), u32>>,
+    /// Posts on their way to the MeshCore bridge.
+    pub mesh: meshcore::Outbox,
 }
 
 impl BbsState {
@@ -406,6 +409,7 @@ async fn main() -> anyhow::Result<()> {
         nodes,
         guard: guard::Guard::new(),
         ai_usage: Default::default(),
+        mesh: Default::default(),
     });
     // Bans survive restarts.
     match state.sys.bans() {
@@ -419,6 +423,7 @@ async fn main() -> anyhow::Result<()> {
         Err(e) => tracing::error!("loading bans: {e}"),
     }
     tokio::spawn(events::scheduler(state.clone()));
+    tokio::spawn(meshcore::run(state.clone()));
 
     // Forget idle addresses now and then, and clear out abandoned
     // applications.
@@ -504,6 +509,7 @@ pub mod tests {
             nodes: Nodes::new(config.bbs.max_nodes),
             guard: guard::Guard::new(),
             ai_usage: Default::default(),
+            mesh: Default::default(),
             config: std::sync::RwLock::new(Arc::new(config)),
         })
     }

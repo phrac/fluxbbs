@@ -824,6 +824,9 @@ impl Session {
             lines,
         };
         self.state.msgs.add(&mut m).map_err(io_err)?;
+        if !private {
+            self.state.mesh.post(&m);
+        }
         if self.may_attach(a) {
             self.say("AtchAskAttach").await?;
             if self.yes_no(false).await? {

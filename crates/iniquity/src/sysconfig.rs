@@ -280,6 +280,12 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('N', "Reasoning effort", 10, "For models that think first: none, low, medium...; blank for the server's default.", Text(|c| &mut c.ai.reasoning_effort, TEXT.max(20))),
             set('O', "Read pages", 3, "Let the AI read web pages it finds (public addresses only)?", Bool(|c| &mut c.ai.read_pages)),
         ]),
+        ("MeshCore", false, vec![
+            set('A', "Enabled", 3, "Bridge a MeshCore companion radio's channels to message areas? Channels: [[meshcore.channel]] in iniquity.toml.", Bool(|c| &mut c.meshcore.enabled)),
+            set('B', "Radio address", 40, "host:port of the radio (WiFi companion firmware: port 5000; a USB radio via ser2net).", Text(|c| &mut c.meshcore.address, TEXT.max(100))),
+            set('C', "Reconnect (secs)", 4, "How long to wait between tries while the radio can't be reached.", Num(|c| c.meshcore.reconnect_seconds, |c, v| c.meshcore.reconnect_seconds = v, 5, 3600)),
+            set('D', "Parts per post", 2, "Messages a long post may be split into on the mesh (each about 140 characters).", Num(|c| c.meshcore.max_parts as u64, |c, v| c.meshcore.max_parts = v as u8, 1, 10)),
+        ]),
         ("File System", false, vec![
             set('A', "Use file points", 3, "Charge file points for downloads?", Bool(|c| &mut c.files.use_file_points)),
             set('B', "Kb per point", 5, "One file point per this many kb.", Num(|c| c.files.kb_per_point as u64, |c, v| c.files.kb_per_point = v as u16, 1, 65_535)),

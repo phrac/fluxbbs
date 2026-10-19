@@ -663,6 +663,9 @@ impl Session {
             lines,
         };
         self.state.msgs.add(&mut m)?;
+        if !private {
+            self.state.mesh.post(&m);
+        }
         if private {
             self.user.email += 1;
             self.bump(crate::sysdata::Stat::Email);

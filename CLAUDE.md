@@ -171,7 +171,10 @@ Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
 Feature parity with the manual is done bar echomail/netmail (a FidoNet
 mailer/tosser bridge) and the "not planned" items in the README. Next:
 real doors (LORD, TW2002, Usurper, BRE) in the DOS machine, fixing what
-they trip over; then the MeshCore bridge (a mesh channel mapped to a
-message area). New work after that is improvements rather than ports: a
+they trip over. The MeshCore bridge (`meshcore.rs`, channels to message
+areas, ported from the firmware's examples/companion_radio/MyMesh.cpp)
+is built and tested against `tools/fake_meshcore.py` only: there's no
+radio yet, and rzn has no USB radio (a WiFi companion over the tailnet,
+or ser2net, is the plan). New work after that is improvements rather than ports: a
 web or terminal SysOp dashboard in place of the local console, for
 instance.

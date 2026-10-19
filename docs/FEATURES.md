@@ -203,6 +203,31 @@ and `timeout_seconds` do what they say. All of it is under "AI Chat" in
 
 ![The AI giving the keys to download a file](screenshots/ai-howto.png)
 
+## MeshCore
+
+New: a [MeshCore](https://meshcore.co.uk) companion radio's channels
+bridged to message areas (`meshcore.rs`). What's said on a channel is
+posted in its area, from the sender's name; what a caller posts there
+(in the editor or by QWK) goes out on the channel as `handle: text`,
+without the signature or quoted lines, split into at most `max_parts`
+messages of the radio's 160 bytes. Private mail stays on the board.
+
+    [meshcore]
+    enabled = true
+    address = "192.168.1.50:5000"   # WiFi companion firmware; or ser2net
+
+    [[meshcore.channel]]
+    channel = "Public"              # the channel's name on the radio
+    area = "MESH"                   # the message area's storage key
+    # from_mesh / to_mesh: one way only, if wanted
+
+The board speaks MeshCore's companion protocol over TCP (the WiFi
+companion firmware's port 5000; a USB radio can be put on the network
+with ser2net), reconnects when the link drops, and picks up changed
+settings within a minute. `*C`, MeshCore, has the switch, the address,
+the reconnect delay and the parts; channels are listed in the file.
+`tools/fake_meshcore.py` is a pretend radio for trying it out.
+
 ## Not planned
 
 Tetris (`TP`, `TS`; the game's source isn't in this
