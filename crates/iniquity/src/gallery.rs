@@ -389,7 +389,9 @@ impl Session {
             let crumbs: Vec<String> = path.iter().skip(1).map(|(n, _, _)| n.clone()).collect();
             let at = path.last().map(|l| l.2).unwrap_or(0);
             let place = if crumbs.is_empty() { title.to_string() } else { format!("{title}/{}", crumbs.join("/")) };
-            match self.gallery_pick(&place, &items, at, &mut speed).await? {
+            // The file browser and archives look like the file lister.
+            let screen = if mode.all { "LISTFILE" } else { "GALLERY" };
+            match self.gallery_pick(screen, &place, &items, at, &mut speed).await? {
                 Pick::Back if path.len() > 1 => {
                     path.pop();
                 }
@@ -494,13 +496,13 @@ impl Session {
         Ok(out)
     }
 
-    /// The listing, dressed like the file lister: GALLERY.ANS if there is
-    /// one, else LISTFILE.ANS (the same markers: ~TL/~BL the list rows,
+    /// The listing, dressed like the file lister: `screen` (GALLERY.ANS or
+    /// LISTFILE.ANS) if there is one, else LISTFILE.ANS (the same markers: ~TL/~BL the list rows,
     /// ~FN/~FS/~FD the columns, ~PI the info line, ~PM the menu bar,
     /// ~C1-~C6 the colours, ~FA where we are), else a plain screen. Up and
     /// down move the bar, left and right the menu; Enter runs the menu's
     /// choice, or a key its first letter.
-    async fn gallery_pick(&mut self, place: &str, items: &[Item], start: usize, speed: &mut u32) -> io::Result<Pick> {
+    async fn gallery_pick(&mut self, screen: &str, place: &str, items: &[Item], start: usize, speed: &mut u32) -> io::Result<Pick> {
         let mut menu = MenuBar { items: &["open", "play", "speed", "get", "back"], off: vec![false; 5], pos: 0, xs: Vec::new() };
         let mut cur = start.min(items.len().saturating_sub(1));
         let mut first = 0usize;
@@ -521,8 +523,20 @@ impl Session {
                 }
                 self.screen.set_color(iniquity_term::Color::DEFAULT);
                 self.clear_screen();
-                let w = waves([("FA", place.to_string())]);
-                let mut from_screen = self.show_file_with("GALLERY", &w).await?;
+                // New: what's here, for the screen's header.
+                // Packs open as folders but count as files.
+                let files = items.iter().filter_map(|i| match i {
+                    Item::Art { size, .. } => Some(*size),
+                    Item::Folder { pack: true, rec, .. } => Some(rec.as_ref().map_or(0, |r| r.1.size)),
+                    Item::Folder { .. } => None,
+                });
+                let w = waves([
+                    ("FA", place.to_string()),
+                    ("NA", crate::files::commas(files.clone().count() as u64)),
+                    ("NF", crate::files::commas(items.iter().filter(|i| matches!(i, Item::Folder { pack: false, .. })).count() as u64)),
+                    ("SZ", crate::upscan::human_size(files.sum())),
+                ]);
+                let mut from_screen = self.show_file_with(screen, &w).await?;
                 if !from_screen {
                     from_screen = self.show_file_with("LISTFILE", &w).await?;
                 }
@@ -784,9 +798,15 @@ impl Session {
                         self.screen.goto(1, self.screen.rows());
                         self.screen.set_color(iniquity_term::Color::DEFAULT);
                         self.screen.clear_eol();
-                        let s = self.strings().fmt("GalleryPictureBad", &[name, &why]);
+                        // One line and no "press a key" after it, as below:
+                        // a wrap on the bottom row scrolls the screen.
+                        let mut s = self.strings().fmt("GalleryPictureBad", &[name, &why]);
+                        if self.visible_len(&iniquity_term::cp437::encode(&s)) > 79 {
+                            s = self.strings().fmt("GalleryPictureBad", &[&squish(name, 16), &why]);
+                        }
                         self.show(&s).await?;
-                        self.prompt_key().await?;
+                        self.flush().await?;
+                        self.read_key().await?;
                         return Ok(None);
                     }
                 }

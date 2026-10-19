@@ -658,9 +658,14 @@ impl Session {
     /// `rmListMessages` (`L` in the reader): a page of headers from `cur`.
     /// Returns the last message listed.
     async fn list_messages(&mut self, a: &AreaRef, cur: u32, total: u32) -> io::Result<u32> {
-        let last = (cur + self.user.page_length.saturating_sub(5).max(1) as u32).min(total);
-        let msgs = self.state.msgs.range(a.key(), cur, last).map_err(io_err)?;
         let mut rep = self.repeat_begin("MSGL", true).await?;
+        // New: a page is what fits under MSGLTOP, however tall it is.
+        let span = match &rep {
+            Some(r) => (self.screen.rows() + 1).saturating_sub(self.screen.where_y() + r.bot_lines + 2).saturating_sub(1),
+            None => self.user.page_length.saturating_sub(5),
+        };
+        let last = (cur + span.max(1) as u32).min(total);
+        let msgs = self.state.msgs.range(a.key(), cur, last).map_err(io_err)?;
         if rep.is_none() {
             self.clear_screen();
             self.set_slot(Slot::Info);

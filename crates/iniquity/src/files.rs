@@ -1011,7 +1011,14 @@ impl Session {
             if redraw_screen {
                 self.screen.set_color(Color::DEFAULT);
                 self.clear_screen();
-                let from_screen = self.show_file_with("LISTFILE", &waves([("FA", a.area.name.clone())])).await?;
+                // New: the listing's numbers, for the screen's header.
+                let w = waves([
+                    ("FA", a.area.name.clone()),
+                    ("NA", commas(files.len() as u64)),
+                    ("NF", "-".into()),
+                    ("SZ", crate::upscan::human_size(files.iter().map(|f| f.size).sum())),
+                ]);
+                let from_screen = self.show_file_with("LISTFILE", &w).await?;
                 if !from_screen {
                     self.screen.goto(1, 1);
                     self.show(&format!("|U4 Num  Filename      Size   Description |U5- |U6{}", a.area.name)).await?;

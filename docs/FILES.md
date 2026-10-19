@@ -108,7 +108,12 @@ else the lister's own `LISTFILE.ANS`, with the same markers (`~TL`/`~BL`
 the list rows, `~FN`/`~FS`/`~FD` the name, size and description columns,
 `~PI` the info line, `~PM` the lightbar menu of open, play, speed, get
 and back, `~C1`-`~C6` its colours, the `~S`/`~E` scroll bar, and `~FA`
-for where you are). Without either it draws a plain screen.
+for where you are). Without either it draws a plain screen. Browsing the
+file areas (`FW`) and archives looks the same but always uses
+`LISTFILE.ANS`, so the two can be drawn differently. New: both screens
+can also show what's in the listing, `~NA` the files (packs count as
+files), `~NF` the folders and `~SZ` the files' size; the lister (`FL`)
+fills in `~NA` and `~SZ` too.
 
 Pictures (`.gif`, `.png`, `.jpg`) are listed too and shown as ANSI:
 half-blocks fitted to the screen, in 24-bit colour (SyncTERM and UTF-8
