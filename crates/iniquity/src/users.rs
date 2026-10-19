@@ -3,7 +3,6 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use anyhow::Context;
 use chrono::NaiveDate;
 use iniquity_term::{Color, Palette};
 use rusqlite::{Connection, OptionalExtension, Row, params};
@@ -236,7 +235,7 @@ impl UserStore {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let db = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        let db = crate::sysdata::open_db(path)?;
         db.execute_batch(SCHEMA)?;
         migrate(&db)?;
         Ok(Self { db: Mutex::new(db) })

@@ -178,9 +178,20 @@ fn counts(r: &rusqlite::Row) -> rusqlite::Result<Counts> {
     })
 }
 
+/// Open the board's database. Write-ahead logging, so a writer (another
+/// node, a bulk load) never holds up readers; waits up to 5
+/// seconds for a lock.
+pub fn open_db(path: &std::path::Path) -> anyhow::Result<Connection> {
+    let db = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+    db.busy_timeout(std::time::Duration::from_secs(5))?;
+    db.pragma_update(None, "journal_mode", "WAL")?;
+    db.pragma_update(None, "synchronous", "NORMAL")?;
+    Ok(db)
+}
+
 impl SysData {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        let db = crate::sysdata::open_db(path)?;
         db.execute_batch(SCHEMA)?;
         Ok(Self { db: Mutex::new(db) })
     }

@@ -4,7 +4,6 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use anyhow::Context;
 use chrono::NaiveDate;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
@@ -86,7 +85,7 @@ pub struct FileBase {
 
 impl FileBase {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        let db = crate::sysdata::open_db(path)?;
         db.execute_batch(SCHEMA)?;
         Ok(Self { db: Mutex::new(db) })
     }
@@ -140,6 +139,28 @@ impl FileBase {
                 f.valid, f.description.join("\n")
             ],
         )?;
+        Ok(())
+    }
+
+    /// Add several records in one transaction (a bulk load holds the
+    /// lock once, not once a file).
+    pub fn add_all(&self, recs: &mut [FileRec]) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        for f in recs.iter_mut() {
+            if f.num == 0 {
+                f.num = tx.query_row("SELECT COALESCE(MAX(num), 0) + 1 FROM files WHERE area = ?1", [&f.area], |r| r.get(0))?;
+            }
+            tx.execute(
+                "INSERT INTO files (area, num, name, size, date, uploader, uploaded, downloads, points, valid, description)
+                 VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11)",
+                params![
+                    f.area, f.num, f.name, f.size as i64, f.date, f.uploader, f.uploaded, f.downloads, f.points,
+                    f.valid, f.description.join("\n")
+                ],
+            )?;
+        }
+        tx.commit()?;
         Ok(())
     }
 

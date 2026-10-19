@@ -7,7 +7,6 @@
 use std::path::Path;
 use std::sync::Mutex;
 
-use anyhow::Context;
 use chrono::NaiveDateTime;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
@@ -140,7 +139,7 @@ pub struct MsgBase {
 
 impl MsgBase {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        let db = crate::sysdata::open_db(path)?;
         db.execute_batch(SCHEMA)?;
         // Databases from before email tags.
         let has_tag: bool = db.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('messages') WHERE name = 'tag'", [], |r| r.get(0))?;

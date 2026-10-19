@@ -14,7 +14,6 @@ use std::io;
 use std::path::Path;
 use std::sync::Mutex;
 
-use anyhow::Context;
 use chrono::{Local, NaiveDateTime};
 use iniquity_term::codes::resize;
 use iniquity_term::{Slot, Source, Token, tokenize};
@@ -88,7 +87,7 @@ pub struct FormStore {
 
 impl FormStore {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
+        let db = crate::sysdata::open_db(path)?;
         db.execute_batch(SCHEMA)?;
         Ok(Self { db: Mutex::new(db) })
     }

@@ -1770,7 +1770,7 @@ impl Session {
         entries.sort();
         let desc_files = self.state.config().files.description_files.clone();
         let kb_pt = self.state.config().files.kb_per_point.max(1) as u64;
-        let mut n = 0;
+        let mut recs = Vec::new();
         self.newline();
         for path in entries {
             let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -1801,12 +1801,16 @@ impl Session {
                     rec.description = vec![p.describe()];
                 }
             }
-            self.state.files.add(&mut rec).map_err(io_err)?;
-            let s = self.strings().fmt("FaULfileAdded", &[&name, &rec.description.len().to_string()]);
-            self.show_line(&s).await?;
-            n += 1;
+            recs.push(rec);
         }
-        self.show_line(&format!("|U1Added |U3{n}|U1 file(s) to |U3{}|U2.", a.area.name)).await
+        // Descriptions are read first; the records then go in at once, so
+        // other nodes aren't kept waiting a file at a time.
+        self.state.files.add_all(&mut recs).map_err(io_err)?;
+        for rec in &recs {
+            let s = self.strings().fmt("FaULfileAdded", &[&rec.name, &rec.description.len().to_string()]);
+            self.show_line(&s).await?;
+        }
+        self.show_line(&format!("|U1Added |U3{}|U1 file(s) to |U3{}|U2.", recs.len(), a.area.name)).await
     }
 }
 
