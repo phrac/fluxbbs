@@ -18,6 +18,7 @@ use tokio::sync::watch;
 use crate::acs::{self, AcsEnv};
 use crate::config::CharsetPref;
 use crate::engine::MenuState;
+use crate::input::Key;
 use crate::nodes::NodeGuard;
 use crate::strings::Strings;
 use crate::user::User;
@@ -32,12 +33,29 @@ pub fn waves<const N: usize>(pairs: [(&str, String); N]) -> Waves {
     pairs.into_iter().map(|(k, v)| (k.as_bytes().try_into().expect("two-letter code"), v)).collect()
 }
 
+/// One row of a list with a moving bar (`area_bar`): its area number,
+/// `~XX` values and plain-text line.
+pub struct BarRow {
+    pub n: u32,
+    pub waves: Waves,
+    pub plain: String,
+}
+
+/// What a caller did in `area_bar`.
+pub enum BarPick {
+    Area(u32),
+    Up,
+    Stay,
+}
+
 /// A TOP/MID/HIL/BOT repeat screen in progress (Appendix C).
 pub struct Repeat {
     prefix: String,
     mid: Vec<u8>,
     hil: Option<Vec<u8>>,
     lines: u16,
+    /// Lines the BOT screen takes.
+    pub bot_lines: u16,
 }
 
 pub trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -705,6 +723,8 @@ impl Session {
         let mid = self.read_text_file(&format!("{prefix}MID")).await?.unwrap_or_default();
         let hil = if highlight { self.read_text_file(&format!("{prefix}HIL")).await? } else { None };
         let top = self.read_text_file(&format!("{prefix}TOP")).await?.unwrap_or_default();
+        let bot = self.read_text_file(&format!("{prefix}BOT")).await?.unwrap_or_default();
+        let bot_lines = (bot.iter().filter(|&&b| b == b'\n').count() as u16).max(1);
         self.show_file(&format!("{prefix}TOP")).await?;
         self.goto_pos(*b"TL");
         // Count the screen from the top if the file cleared it; otherwise
@@ -712,7 +732,7 @@ impl Session {
         // `oUpPause(ansiRows)` did.
         let clears = top.windows(4).any(|w| w == b"\x1b[2J");
         let lines = if clears { self.screen.where_y() } else { top.iter().filter(|&&b| b == b'\n').count() as u16 + 1 };
-        Ok(Some(Repeat { prefix: prefix.into(), mid, hil, lines }))
+        Ok(Some(Repeat { prefix: prefix.into(), mid, hil, lines, bot_lines }))
     }
 
     /// Show one row. Returns false if the caller quit at a pause.
@@ -727,6 +747,160 @@ impl Session {
         }
         r.lines += 1;
         self.more(&mut r.lines).await
+    }
+
+    /// One row drawn at line `y`, for a list with a moving bar: no pause.
+    pub async fn repeat_line(&mut self, r: &Repeat, waves: &Waves, highlight: bool, y: u16) -> io::Result<()> {
+        let src = match (&r.hil, highlight) {
+            (Some(hil), true) => hil.clone(),
+            _ => r.mid.clone(),
+        };
+        self.screen.goto(1, y);
+        self.screen.set_color(iniquity_term::Color::DEFAULT);
+        self.screen.clear_eol();
+        self.display(&src, Source::File, Some(waves), true).await
+    }
+
+    /// A list with a moving bar (new; the original asked for a number):
+    /// `rows` in a window between `{prefix}TOP` and `{prefix}BOT`, the bar
+    /// drawn with `{prefix}HIL`, starting on `rows[start]`. Arrows,
+    /// PgUp/PgDn and Home/End move it, scrolling the window; Enter or
+    /// right picks; left or backspace goes up when `can_go_up`; Esc
+    /// stays. Typing a number (a label) moves the bar to it. `header` is
+    /// for boards without the screens.
+    #[allow(clippy::too_many_arguments)]
+    pub async fn area_bar(&mut self, prefix: &str, header: &str, rows: &[BarRow], labels: &[(u32, u32)], start: usize, help: &str, ask: &str, can_go_up: bool) -> io::Result<BarPick> {
+        let mut cur = start.min(rows.len().saturating_sub(1));
+        let (mut first, mut top, mut height) = (0usize, 1u16, 1usize);
+        let mut prompt = (1u16, 1u16);
+        let mut typed = String::new();
+        let mut rep = None;
+        let mut redraw = true;
+        let find = |typed: &str| typed.parse::<u32>().ok().and_then(|l| labels.iter().find(|&&(label, _)| label == l)).map(|r| r.1);
+        loop {
+            if redraw {
+                self.screen.set_color(iniquity_term::Color::DEFAULT);
+                self.clear_screen();
+                rep = self.repeat_begin(prefix, true).await?;
+                let bot_lines = match &rep {
+                    Some(r) => r.bot_lines,
+                    None => {
+                        self.newline();
+                        self.set_slot(Slot::Info);
+                        self.show_line(header).await?;
+                        self.rule().await?;
+                        1
+                    }
+                };
+                if self.screen.where_x() != 1 {
+                    self.newline();
+                }
+                top = self.screen.where_y();
+                // Room for BOT, the help line and the prompt below.
+                height = (self.screen.rows() + 1).saturating_sub(top + bot_lines + 2).max(3) as usize;
+                first = first.min(cur).max((cur + 1).saturating_sub(height));
+                self.bar_window(rep.as_ref(), rows, first, cur, top, height).await?;
+                self.screen.goto(1, top + height as u16);
+                self.screen.set_color(iniquity_term::Color::DEFAULT);
+                match &rep {
+                    Some(_) => {
+                        self.show_file(&format!("{prefix}BOT")).await?;
+                    }
+                    None => self.rule().await?,
+                }
+                if self.screen.where_x() != 1 {
+                    self.newline();
+                }
+                self.show_line(help).await?;
+                self.say(ask).await?;
+                prompt = (self.screen.where_x(), self.screen.where_y());
+                redraw = false;
+            }
+            self.screen.goto(prompt.0, prompt.1);
+            self.screen.set_color(iniquity_term::Color::DEFAULT);
+            self.write(&typed);
+            self.screen.clear_eol();
+            let key = self.read_key().await?;
+            let prev = cur;
+            let last = rows.len().saturating_sub(1);
+            match key {
+                Key::Up => cur = cur.saturating_sub(1),
+                Key::Down => cur = (cur + 1).min(last),
+                Key::PgUp => cur = cur.saturating_sub(height),
+                Key::PgDn => cur = (cur + height).min(last),
+                Key::Home => cur = 0,
+                Key::End => cur = last,
+                Key::Char(c) if c.is_ascii_digit() => {
+                    if typed.len() < 4 {
+                        typed.push(c as char);
+                    }
+                    if let Some(i) = find(&typed).and_then(|n| rows.iter().position(|r| r.n == n)) {
+                        cur = i;
+                    }
+                }
+                Key::Backspace if !typed.is_empty() => {
+                    typed.pop();
+                }
+                Key::Left | Key::Backspace if can_go_up => return Ok(BarPick::Up),
+                Key::Enter | Key::Right => {
+                    self.newline();
+                    if !typed.is_empty() {
+                        return Ok(find(&typed).map_or(BarPick::Stay, BarPick::Area));
+                    }
+                    return Ok(rows.get(cur).map_or(BarPick::Stay, |r| BarPick::Area(r.n)));
+                }
+                Key::Esc => {
+                    self.newline();
+                    return Ok(BarPick::Stay);
+                }
+                k if k.upper() == Some('Q') => {
+                    self.newline();
+                    return Ok(BarPick::Stay);
+                }
+                _ => {}
+            }
+            if !matches!(key, Key::Char(_) | Key::Backspace) {
+                typed.clear();
+            }
+            if cur == prev {
+                continue;
+            }
+            if cur < first || cur >= first + height {
+                first = if cur < first { cur } else { cur + 1 - height };
+                self.bar_window(rep.as_ref(), rows, first, cur, top, height).await?;
+            } else {
+                self.bar_row(rep.as_ref(), &rows[prev], top + (prev - first) as u16, false).await?;
+                self.bar_row(rep.as_ref(), &rows[cur], top + (cur - first) as u16, true).await?;
+            }
+        }
+    }
+
+    async fn bar_window(&mut self, rep: Option<&Repeat>, rows: &[BarRow], first: usize, cur: usize, top: u16, height: usize) -> io::Result<()> {
+        for i in 0..height {
+            let y = top + i as u16;
+            match rows.get(first + i) {
+                Some(row) => self.bar_row(rep, row, y, first + i == cur).await?,
+                None => {
+                    self.screen.goto(1, y);
+                    self.screen.set_color(iniquity_term::Color::DEFAULT);
+                    self.screen.clear_eol();
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn bar_row(&mut self, rep: Option<&Repeat>, row: &BarRow, y: u16, hi: bool) -> io::Result<()> {
+        match rep {
+            Some(r) => self.repeat_line(r, &row.waves, hi, y).await,
+            None => {
+                self.screen.goto(1, y);
+                self.set_slot(if hi { Slot::TextHi } else { Slot::Text });
+                self.write(&row.plain);
+                self.screen.clear_eol();
+                Ok(())
+            }
+        }
     }
 
     pub async fn repeat_end(&mut self, r: Repeat) -> io::Result<()> {

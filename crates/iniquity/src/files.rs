@@ -12,7 +12,7 @@ use crate::editor::EditCtx;
 use crate::fileareas::FileArea;
 use crate::filebase::{FileRec, wildcard};
 use crate::input::{DIGITS, Key, ReadOpts};
-use crate::session::{Session, Waves, waves};
+use crate::session::{BarPick, BarRow, Session, Waves, waves};
 use crate::transfer::{Proto, safe_name};
 use crate::user::{fmt_date, parse_date};
 
@@ -164,6 +164,26 @@ struct Row {
     y: u16,
 }
 
+/// One row of the file area list.
+struct FaRow {
+    label: u32,
+    n: u32,
+    name: String,
+    count: String,
+    sponsor: String,
+    newest: String,
+}
+
+impl FaRow {
+    fn waves(&self) -> Waves {
+        waves([("AT", self.name.clone()), ("AN", self.label.to_string()), ("NF", self.count.clone()), ("SP", self.sponsor.clone()), ("NW", self.newest.clone())])
+    }
+
+    fn plain(&self) -> String {
+        format!(" {} {} {} {}", resize(&self.label.to_string(), 6), resize(&self.name, 30), resize(&self.count, 7), squish(&self.sponsor, 36))
+    }
+}
+
 impl Session {
     // ---- areas ----------------------------------------------------------
 
@@ -306,7 +326,39 @@ impl Session {
                 if !subs.is_empty() {
                     name.push_str(&suffix);
                 }
-                rows.push((label, n, name, count, fareas.areas[n as usize - 1].sponsor.clone(), newest));
+                rows.push(FaRow { label, n, name, count: count.to_string(), sponsor: fareas.areas[n as usize - 1].sponsor.clone(), newest });
+            }
+            if change {
+                let fareas_now = self.state.fareas();
+                let here = self.user.cur_file_area;
+                let start = rows.iter().position(|r| fareas_now.subtree(r.n).contains(&here)).unwrap_or(0);
+                let bar: Vec<BarRow> = rows.iter().map(|r| BarRow { n: r.n, waves: r.waves(), plain: r.plain() }).collect();
+                let help = match level.and_then(|g| self.farea(g)) {
+                    Some(g) => self.strings().fmt("FaBarInGroup", &[&g.area.name]),
+                    None => self.strings().get("FaBarKeys").to_string(),
+                };
+                let header = " Num    Area Title                     Files   Sponsor";
+                let pick = match self.area_bar("FAREA", header, &bar, &labels, start, &help, "FaAskChangeArea", level.is_some()).await? {
+                    BarPick::Area(n) => n,
+                    BarPick::Up => {
+                        level = level.and_then(|g| fareas.parent_of(g));
+                        continue;
+                    }
+                    BarPick::Stay => {
+                        if level.is_some() {
+                            self.announce_farea().await?;
+                        }
+                        return Ok(());
+                    }
+                };
+                if !self.change_farea(pick).await? {
+                    return Ok(());
+                }
+                if self.farea_children(Some(pick)).is_empty() {
+                    return self.announce_farea().await;
+                }
+                level = Some(pick);
+                continue;
             }
             let mut rep = self.repeat_begin("FAREA", true).await?;
             if rep.is_none() {
@@ -317,16 +369,13 @@ impl Session {
                 self.rule().await?;
             }
             let mut lines = 4;
-            for (label, n, name, count, sponsor, newest) in &rows {
-                let here = *n == self.user.cur_file_area;
+            for row in &rows {
+                let here = row.n == self.user.cur_file_area;
                 let more = match rep.as_mut() {
-                    Some(r) => {
-                        let w = waves([("AT", name.clone()), ("AN", label.to_string()), ("NF", count.to_string()), ("SP", sponsor.clone()), ("NW", newest.clone())]);
-                        self.repeat_row(r, &w, here).await?
-                    }
+                    Some(r) => self.repeat_row(r, &row.waves(), here).await?,
                     None => {
                         self.set_slot(if here { Slot::TextHi } else { Slot::Text });
-                        self.write(&format!(" {} {} {} {}", resize(&label.to_string(), 6), resize(name, 30), resize(&count.to_string(), 7), squish(sponsor, 36)));
+                        self.write(&row.plain());
                         self.newline();
                         lines += 1;
                         self.more(&mut lines).await?
@@ -340,30 +389,7 @@ impl Session {
                 Some(r) => self.repeat_end(r).await?,
                 None => self.rule().await?,
             }
-            if !change {
-                return Ok(());
-            }
-            if let Some(g) = level.and_then(|g| self.farea(g)) {
-                let s = self.strings().fmt("FaInGroup", &[&g.area.name]);
-                self.show_line(&s).await?;
-            }
-            self.say("FaAskChangeArea").await?;
-            let s = self.read_string(ReadOpts::new(4).allowed(DIGITS)).await?;
-            self.newline();
-            let pick = s.parse::<u32>().ok().and_then(|l| labels.iter().find(|&&(label, _)| label == l)).map(|r| r.1);
-            let Some(n) = pick else {
-                if level.is_some() {
-                    self.announce_farea().await?;
-                }
-                return Ok(());
-            };
-            if !self.change_farea(n).await? {
-                return Ok(());
-            }
-            if self.farea_children(Some(n)).is_empty() {
-                return self.announce_farea().await;
-            }
-            level = Some(n);
+            return Ok(());
         }
     }
 

@@ -11,7 +11,7 @@ use crate::editor::EditCtx;
 use crate::input::{DIGITS, Key, ReadOpts};
 use crate::msgareas::MsgArea;
 use crate::msgbase::{Message, Party};
-use crate::session::{Session, waves};
+use crate::session::{BarPick, BarRow, Session, waves};
 use crate::user::parse_date;
 
 /// An area being worked on: its number (0 = email) and definition.
@@ -166,13 +166,33 @@ impl Session {
         self.show_line(&s).await
     }
 
-    /// `maListAreas` (`MA`, and `MC` without a number).
+    /// `maListAreas` (`MA`, and `MC` without a number). `MC` picks with a
+    /// bar (`area_bar`).
     pub async fn list_areas(&mut self, change: bool) -> io::Result<()> {
-        // (shown number, area number) for each listed area.
-        let mut shown = Vec::new();
         let areas = self.state.areas();
         let rows: Vec<(u32, u32, MsgArea)> =
             self.msg_area_labels().into_iter().map(|(label, n)| (label, n, areas.areas[n as usize - 1].clone())).collect();
+        if change {
+            let mut bar = Vec::new();
+            for (label, n, a) in &rows {
+                let count = self.state.msgs.count(&a.file).map_err(io_err)?;
+                let waves = waves([("AT", a.name.clone()), ("AN", label.to_string()), ("NM", count.to_string()), ("SP", a.sponsor.clone())]);
+                let plain = format!(" {} {} {} {}", resize(&label.to_string(), 6), resize(&a.name, 30), resize(&count.to_string(), 7), squish(&a.sponsor, 36));
+                bar.push(BarRow { n: *n, waves, plain });
+            }
+            let start = bar.iter().position(|r| r.n == self.user.cur_msg_area).unwrap_or(0);
+            let labels: Vec<(u32, u32)> = rows.iter().map(|(label, n, _)| (*label, *n)).collect();
+            let help = self.strings().get("MsgBarKeys").to_string();
+            let header = " Num    Area Title                     Msgs    Sponsor";
+            if let BarPick::Area(n) = self.area_bar("MAREA", header, &bar, &labels, start, &help, "MsgAskChangeArea", false).await?
+                && self.change_area(n).await?
+            {
+                let name = self.msg_area(n).map(|a| a.area.name).unwrap_or_default();
+                let s = self.strings().fmt("MsgChangedAreas", &[&name]);
+                self.show_line(&s).await?;
+            }
+            return Ok(());
+        }
         let mut rep = self.repeat_begin("MAREA", true).await?;
         if rep.is_none() {
             self.clear_screen();
@@ -183,7 +203,6 @@ impl Session {
         }
         let mut lines = 4;
         for (label, n, a) in rows {
-            shown.push((label, n));
             let count = self.state.msgs.count(&a.file).map_err(io_err)?;
             let here = n == self.user.cur_msg_area;
             let more = match rep.as_mut() {
@@ -207,18 +226,6 @@ impl Session {
         match rep {
             Some(r) => self.repeat_end(r).await?,
             None => self.rule().await?,
-        }
-        if change {
-            self.say("MsgAskChangeArea").await?;
-            let s = self.read_string(ReadOpts::new(4).allowed(DIGITS)).await?;
-            self.newline();
-            let pick = s.parse::<u32>().ok().and_then(|l| shown.iter().find(|(label, _)| *label == l)).map(|&(_, n)| n);
-            if let Some(n) = pick
-                && self.change_area(n).await? {
-                    let name = self.msg_area(n).map(|a| a.area.name).unwrap_or_default();
-                    let s = self.strings().fmt("MsgChangedAreas", &[&name]);
-                    self.show_line(&s).await?;
-                }
         }
         Ok(())
     }

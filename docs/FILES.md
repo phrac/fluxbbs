@@ -16,8 +16,13 @@ depth, e.g. a "Zines" area with an area per zine title. In `*F`, set
 
 The change-area list (`FC`, `A` on the file menu) shows one level at a
 time: an area with sub-areas is marked `/` (`FaGroupSuffix`) and counts
-the files under it, and choosing it changes to it and opens it, where
-Enter stays put. `#` to such an area opens it too. `FA` lists every area
+the files under it, and choosing it changes to it and opens it. New:
+the list is a bar in a window between FAREATOP and FAREABOT (the bar
+drawn with FAREAHIL): arrows, PgUp/PgDn and Home/End move it and scroll,
+Enter or right picks, left or backspace goes back up a level, and Esc
+stays put. Typing a number moves the bar to that area, so the original's
+numbers still work (`FaBarKeys`, `FaBarInGroup` are the help lines).
+`#` to an area with sub-areas opens it too. `FA` lists every area
 with sub-areas indented, and `[`/`]`, numbering and `*F` follow the
 tree. A sub-area needs the access of every area above it, so a parent's
 ACS hides a whole branch. A parent is still an area of its own, with a

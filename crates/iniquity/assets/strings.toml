@@ -409,3 +409,6 @@ AiHelp4 = "|U1 It can search the web when it needs to. Long messages wrap as you
 AiReading = "|U5  [|U4reading|U5: |U3%S1|U5]"
 AiUnavailable = "|U4AI chat isn't available right now|U5; |U4try again later|U5."
 AiLooking = "|U5  [|U4looking|U5: |U3%S1|U5]"
+FaBarKeys = "|U1Arrows move, |U3enter|U1 picks, |U3esc|U1 stays put, or type an area number|U2."
+FaBarInGroup = "|U1In |U3%S1|U1: arrows move, |U3enter|U1 picks, |U3left|U1 goes back, |U3esc|U1 stays here|U2."
+MsgBarKeys = "|U1Arrows move, |U3enter|U1 picks, |U3esc|U1 stays put, or type an area number|U2."
