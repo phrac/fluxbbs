@@ -29,29 +29,13 @@ desc = "clear the screen"
 on = "|B1clear the screen"
 off = "|B0clear the screen"
 
+# Stock auto-validated every caller outside area code 902 here (`-= B`)
+# and went back to STARTUP; new users now wait for the SysOp (`*U`) or a
+# vote, so they're told so and logged off.
 [[command]]
 keys = "FIRSTCMD"
 command = "-L"
-param = "|08l|01on|09g |08d|01istanc|09e |08c|01al|09l |08d|01etecte|09d|08."
-acs = "!k902"
-desc = "check area code.."
-on = "|B1check area code.."
-off = "|B0check area code.."
-
-[[command]]
-keys = "FIRSTCMD"
-command = "-L"
-param = "|08a|01ut|09o|08-v|01alidatin|09g |08n|01e|09w |08u|01se|09r |08..."
-acs = "!k902"
-desc = "Do more strings.."
-on = "|B1Do more strings.."
-off = "|B0Do more strings.."
-
-[[command]]
-keys = "FIRSTCMD"
-command = "-L"
-param = "|lf|08y|04o|12u |08h|04av|12e |08b|04ee|12n |08v|04alidate|12d|08|lf"
-acs = "!k902"
+param = "|lf|08y|04ou|12r |08a|04ccoun|12t |08i|04s |08w|04aiting fo|12r |08v|04alidatio|12n|08. |08c|04all bac|12k |08s|04oo|12n|08.|lf"
 desc = "tell user.."
 on = "|B1tell user.."
 off = "|B0tell user.."
@@ -59,19 +43,9 @@ off = "|B0tell user.."
 [[command]]
 keys = "FIRSTCMD"
 command = "-P"
-acs = "!k902"
 desc = "get a key.."
 on = "|B1get a key.."
 off = "|B0get a key.."
-
-[[command]]
-keys = "FIRSTCMD"
-command = "-^"
-param = "startup"
-acs = "!k902"
-desc = "proceed to startup.."
-on = "|B1proceed to startup.."
-off = "|B0proceed to startup.."
 
 [[command]]
 keys = "FIRSTCMD"

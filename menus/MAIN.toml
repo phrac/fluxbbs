@@ -248,7 +248,6 @@ off = "|B0Art gallery"
 [[command]]
 keys = "J"
 command = "AI"
-acs = "s250|fI"
 desc = "AI chat"
 help = "Chat with the board's AI (for callers the SysOp has let in)"
 on = "|B1AI chat"
