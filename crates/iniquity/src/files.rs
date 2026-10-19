@@ -12,7 +12,7 @@ use crate::editor::EditCtx;
 use crate::fileareas::FileArea;
 use crate::filebase::{FileRec, wildcard};
 use crate::input::{DIGITS, Key, ReadOpts};
-use crate::session::{BarPick, BarRow, Session, Waves, waves};
+use crate::session::{BarPick, BarRow, BarSpec, Session, Waves, waves};
 use crate::transfer::{Proto, safe_name};
 use crate::user::{fmt_date, parse_date};
 
@@ -338,13 +338,14 @@ impl Session {
                     None => self.strings().get("FaBarKeys").to_string(),
                 };
                 let header = " Num    Area Title                     Files   Sponsor";
-                let pick = match self.area_bar("FAREA", header, &bar, &labels, start, &help, "FaAskChangeArea", level.is_some()).await? {
+                let spec = BarSpec { prefix: "FAREA", header, rows: &bar, labels: &labels, start, help: &help, ask: "FaAskChangeArea", can_go_up: level.is_some(), keys: "" };
+                let pick = match self.area_bar(&spec).await? {
                     BarPick::Area(n) => n,
                     BarPick::Up => {
                         level = level.and_then(|g| fareas.parent_of(g));
                         continue;
                     }
-                    BarPick::Stay => {
+                    BarPick::Stay | BarPick::Key(..) => {
                         if level.is_some() {
                             self.announce_farea().await?;
                         }

@@ -176,6 +176,8 @@ pub struct Web {
     pub show_sysop: bool,
     pub last_callers: u8,
     pub new_files: u8,
+    /// The latest public posts (new).
+    pub new_posts: u8,
 }
 
 impl Default for Web {
@@ -188,6 +190,7 @@ impl Default for Web {
             show_sysop: true,
             last_callers: 10,
             new_files: 10,
+            new_posts: 5,
         }
     }
 }

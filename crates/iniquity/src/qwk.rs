@@ -87,6 +87,8 @@ pub struct Header<'a> {
     pub conf: u16,
     /// Position in the packet, from 1.
     pub seq: u16,
+    /// The number of the message this one answers, or 0.
+    pub refer: u32,
 }
 
 impl Header<'_> {
@@ -99,7 +101,7 @@ impl Header<'_> {
         field(&mut b, 21, 25, &self.to.to_uppercase());
         field(&mut b, 46, 25, &self.from.to_uppercase());
         field(&mut b, 71, 25, self.subject);
-        field(&mut b, 108, 8, "0");
+        field(&mut b, 108, 8, &self.refer.to_string());
         field(&mut b, 116, 6, &self.blocks.to_string());
         b[122] = 0xE1; // active
         b[123..125].copy_from_slice(&self.conf.to_le_bytes());
@@ -189,6 +191,8 @@ pub struct Reply {
     pub to: String,
     pub subject: String,
     pub private: bool,
+    /// The message number it answers (the header's reference field), or 0.
+    pub refer: u32,
     pub lines: Vec<String>,
 }
 
@@ -221,6 +225,7 @@ pub fn parse_rep(data: &[u8]) -> Vec<Reply> {
             to: text(&h[21..46]),
             subject: text(&h[71..96]),
             private: matches!(h[0], b'*' | b'+'),
+            refer: text(&h[108..116]).parse().unwrap_or(0),
             lines,
         });
         at += blocks * BLOCK;
@@ -415,6 +420,10 @@ impl Session {
                 }
                 let lines = if q.strip_sigs { m.body() } else { &m.lines[..] };
                 let body = body_blocks(lines);
+                let refer = match m.reply_to {
+                    0 => 0,
+                    id => self.state.msgs.by_id(id).map_err(io_err)?.filter(|p| p.area == m.area).map_or(0, |p| p.num),
+                };
                 let h = Header {
                     private: m.private,
                     num: m.num,
@@ -425,6 +434,7 @@ impl Session {
                     blocks: 1 + body.len() / BLOCK,
                     conf: p.conf,
                     seq,
+                    refer,
                 };
                 dat.extend(h.encode());
                 dat.extend(body);
@@ -646,6 +656,8 @@ impl Session {
         let lines = fit(r.lines);
         // The original took the last line starting "--" as the signature.
         let sig_pos = lines.iter().rposition(|l| l.chars().take(4).collect::<String>().contains("--")).map_or(0, |i| i as u32 + 1);
+        // A reply to a message in the packet joins its thread.
+        let parent = if r.refer > 0 && !email { self.state.msgs.get(&a.area.file, r.refer)? } else { None };
         let mut m = Message {
             id: 0,
             area: a.area.file.clone(),
@@ -660,9 +672,17 @@ impl Session {
             replies: 0,
             sig_pos,
             tag: self.email_tag,
+            reply_to: parent.as_ref().map_or(0, |p| p.id),
             lines,
         };
         self.state.msgs.add(&mut m)?;
+        if !email {
+            self.mark_read(&a, &m)?;
+        }
+        if let Some(mut p) = parent {
+            p.replies += 1;
+            self.state.msgs.update(&p)?;
+        }
         if !private {
             self.state.mesh.post(&m);
         }
@@ -707,7 +727,7 @@ mod tests {
     #[test]
     fn header_fields() {
         let when = NaiveDate::from_ymd_opt(2026, 10, 17).unwrap().and_hms_opt(9, 5, 0).unwrap();
-        let h = Header { private: true, num: 42, posted: when, to: "phrac", from: "Fiend", subject: "Hello there", blocks: 3, conf: 7, seq: 2 };
+        let h = Header { private: true, num: 42, posted: when, to: "phrac", from: "Fiend", subject: "Hello there", blocks: 3, conf: 7, seq: 2, refer: 40 };
         let b = h.encode();
         assert_eq!(b[0], b'*');
         assert_eq!(&b[1..8], b"42     ");
@@ -715,6 +735,7 @@ mod tests {
         assert_eq!(text(&b[21..46]), "PHRAC");
         assert_eq!(text(&b[46..71]), "FIEND");
         assert_eq!(text(&b[71..96]), "Hello there");
+        assert_eq!(text(&b[108..116]), "40");
         assert_eq!(text(&b[116..122]), "3");
         assert_eq!(b[122], 0xE1);
         assert_eq!(u16::from_le_bytes([b[123], b[124]]), 7);
@@ -777,7 +798,7 @@ mod tests {
         let data = rep(&[(3, "ALL", "Hi", false, &["line one", "", "line three"]), (0, "FIEND", "Psst", true, &["secret"])]);
         let r = parse_rep(&data);
         assert_eq!(r.len(), 2);
-        assert_eq!(r[0], Reply { conf: 3, to: "ALL".into(), subject: "Hi".into(), private: false, lines: vec!["line one".into(), "".into(), "line three".into()] });
+        assert_eq!(r[0], Reply { conf: 3, to: "ALL".into(), subject: "Hi".into(), private: false, refer: 0, lines: vec!["line one".into(), "".into(), "line three".into()] });
         assert_eq!((r[1].conf, r[1].private, r[1].lines.clone()), (0, true, vec!["secret".to_string()]));
         // No number in the text field: the binary conference.
         let mut blank = data.clone();

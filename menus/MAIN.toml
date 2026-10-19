@@ -87,11 +87,10 @@ off = "|B0Today's callers"
 
 [[command]]
 keys = "M"
-command = "-^"
-param = "SCANMSG"
+command = "MH"
 acs = "s25"
 desc = "Message menu"
-help = "Goto the message menu"
+help = "Areas, threads and what's new (the classic menu is SCANMSG/MESSAGE)"
 on = "|B1Message menu"
 off = "|B0Message menu"
 

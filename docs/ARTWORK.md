@@ -56,6 +56,13 @@ it's drawn highlighted, `^NN` where it's drawn plain), and optionally
 - [ ] `MAREATOP` / `MAREAMID` / `MAREAHIL` / `MAREABOT`: message area list
 - [ ] `MCONFTOP` / `MCONFMID` / `MCONFBOT`: message conference list
 - [ ] `MSGLTOP` / `MSGLMID` / `MSGLHIL` / `MSGLBOT`: message listing
+- [ ] `MHUBTOP` / `MHUBMID` / `MHUBHIL` / `MHUBBOT`: the message centre's
+  area list (`~AN` number, `~AT` area, `~NW` new, `~NM` messages, `~LP` /
+  `~LD` the latest post's author and date, `~SP` sponsor)
+- [ ] `MTHRDTOP` / `MTHRDMID` / `MTHRDHIL` / `MTHRDBOT`: an area's threads
+  (`~MN` number, `~MT` subject, `~SN` started by, `~RP` replies, `~NW`
+  new, `~DT` / `~TI` latest post)
+- [ ] `MSGRHELP`: the message reader's help (otherwise `MsgReaderHelp1`..)
 - [ ] `MAILTOP` / `MAILMID` / `MAILBOT`: mailbox listing
 - [ ] `FSEDITOR`: full-screen editor frame
 - [ ] `READHELP` / `FSHELP` / `EMAILHLP`: help screens
@@ -100,7 +107,8 @@ draw their own screens and need no art.
   (area title), `~NF` (file count) and `%UN` (user name) that get filled
   in with live data. Keep those codes, and the columns they sit in. It's
   easiest to copy the stock file and restyle around them.
-- **Other screens with codes:** `MSGHEAD`, `MAILHEAD`, `FILEINFO`,
+- **Other screens with codes:** `MSGHEAD` (new: `~RT`, "#12 by phrac"
+  for a reply), `MAILHEAD`, `FILEINFO`,
   `USERSTAT`, `USERCFG`, `SHOWBBS`, `ADDBBS` and `FSEDITOR` contain
   positioning or data codes too, so the same rule applies.
 - **Colour:** 24-bit colour works (like MAIN) in SyncTERM and modern

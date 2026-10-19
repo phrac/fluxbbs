@@ -149,7 +149,9 @@ JSON status at `/status.json` and `/api/status.json` for a board's
 website: who's online (handle, a vague activity such as "browsing
 files", ssh/telnet), the last callers, the newest files (from areas a
 brand-new caller could open; the first description line with words in
-it), totals and today's numbers. It answers GET only, is rebuilt at most
+it), the newest posts (`new_posts`, from message areas a brand-new
+caller could read, never private ones: area, subject, author, replies
+and whether it's a reply), totals and today's numbers. It answers GET only, is rebuilt at most
 every 10 seconds, and can hide handles (`show_handles`) or the SysOp
 (`show_sysop`). Keep `listen` private and have the web server pass the
 path through (e.g. Caddy's `reverse_proxy`); `allow_origin` is for a

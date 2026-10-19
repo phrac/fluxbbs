@@ -11,7 +11,7 @@ use crate::editor::EditCtx;
 use crate::input::{DIGITS, Key, ReadOpts};
 use crate::msgareas::MsgArea;
 use crate::msgbase::{Message, Party};
-use crate::session::{BarPick, BarRow, Session, waves};
+use crate::session::{BarPick, BarRow, BarSpec, Session, waves};
 use crate::user::parse_date;
 
 /// An area being worked on: its number (0 = email) and definition.
@@ -22,16 +22,16 @@ pub struct AreaRef {
 }
 
 impl AreaRef {
-    fn is_email(&self) -> bool {
+    pub(crate) fn is_email(&self) -> bool {
         self.num == 0
     }
 
-    fn key(&self) -> &str {
+    pub(crate) fn key(&self) -> &str {
         &self.area.file
     }
 }
 
-fn io_err(e: anyhow::Error) -> io::Error {
+pub(crate) fn io_err(e: anyhow::Error) -> io::Error {
     io::Error::other(e)
 }
 
@@ -55,12 +55,12 @@ impl Session {
             || (!p.real_name.is_empty() && p.real_name.eq_ignore_ascii_case(&self.user.real_name))
     }
 
-    fn is_sponsor(&self, a: &AreaRef) -> bool {
+    pub(crate) fn is_sponsor(&self, a: &AreaRef) -> bool {
         self.acs(&a.area.acs)
             && (a.area.sponsor.eq_ignore_ascii_case(&self.user.handle) || a.area.sponsor.eq_ignore_ascii_case(&self.user.real_name))
     }
 
-    fn is_cosysop(&self) -> bool {
+    pub(crate) fn is_cosysop(&self) -> bool {
         self.acs(&self.state.config().acs.cosysop.clone())
     }
 
@@ -69,11 +69,11 @@ impl Session {
         (!m.private && !m.deleted) || self.is_me(&m.to) || self.is_me(&m.from) || self.is_cosysop() || self.is_sponsor(a)
     }
 
-    fn ok_to_delete(&self, a: &AreaRef, m: &Message) -> bool {
+    pub(crate) fn ok_to_delete(&self, a: &AreaRef, m: &Message) -> bool {
         self.is_cosysop() || self.is_sponsor(a) || (m.private && self.is_me(&m.to)) || self.is_me(&m.from)
     }
 
-    fn ok_to_edit(&self, a: &AreaRef, m: &Message) -> bool {
+    pub(crate) fn ok_to_edit(&self, a: &AreaRef, m: &Message) -> bool {
         self.is_cosysop() || self.is_sponsor(a) || self.is_me(&m.from)
     }
 
@@ -184,7 +184,8 @@ impl Session {
             let labels: Vec<(u32, u32)> = rows.iter().map(|(label, n, _)| (*label, *n)).collect();
             let help = self.strings().get("MsgBarKeys").to_string();
             let header = " Num    Area Title                     Msgs    Sponsor";
-            if let BarPick::Area(n) = self.area_bar("MAREA", header, &bar, &labels, start, &help, "MsgAskChangeArea", false).await?
+            let spec = BarSpec { prefix: "MAREA", header, rows: &bar, labels: &labels, start, help: &help, ask: "MsgAskChangeArea", can_go_up: false, keys: "" };
+            if let BarPick::Area(n) = self.area_bar(&spec).await?
                 && self.change_area(n).await?
             {
                 let name = self.msg_area(n).map(|a| a.area.name).unwrap_or_default();
@@ -338,7 +339,7 @@ impl Session {
 
     // ---- showing messages ---------------------------------------------
 
-    fn status_str(m: &Message) -> String {
+    pub(crate) fn status_str(m: &Message) -> String {
         let mut s = Vec::new();
         if m.deleted {
             s.push("[Deleted]");
@@ -353,12 +354,15 @@ impl Session {
     }
 
     /// `maShowMessage`: header screen, then the text.
-    async fn show_message(&mut self, a: &AreaRef, m: &Message, pos: u32, total: u32) -> io::Result<()> {
+    /// The header above a message (MSGHEAD, or MAILHEAD for email), from a
+    /// clear screen. Returns the lines it took.
+    pub(crate) async fn msg_header(&mut self, a: &AreaRef, m: &Message, pos: u32, total: u32) -> io::Result<u16> {
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
         let date = m.posted.format("%m/%d/%y").to_string();
         let time = m.posted.format("%-I:%M%P").to_string();
         let note = if m.anonymous { "Unknown".to_string() } else { m.from.note.clone() };
+        let reply_to = self.reply_to_text(m)?;
         let w = waves([
             ("TI", time.clone()),
             ("DT", date.clone()),
@@ -370,12 +374,12 @@ impl Session {
             ("RP", m.replies.to_string()),
             ("ST", Self::status_str(m)),
             ("UN", note),
+            ("RT", reply_to),
         ]);
         let screen = if a.is_email() { "MAILHEAD" } else { "MSGHEAD" };
-        let mut lines;
-        if self.show_file_with(screen, &w).await? {
+        let lines = if self.show_file_with(screen, &w).await? {
             self.goto_pos(*b"TL");
-            lines = self.screen.where_y();
+            self.screen.where_y()
         } else {
             let replies = if m.replies == 0 { "None".to_string() } else { m.replies.to_string() };
             let rows = [
@@ -389,8 +393,13 @@ impl Session {
                 self.newline();
             }
             self.newline();
-            lines = 5;
-        }
+            5
+        };
+        Ok(lines)
+    }
+
+    async fn show_message(&mut self, a: &AreaRef, m: &Message, pos: u32, total: u32) -> io::Result<()> {
+        let mut lines = self.msg_header(a, m, pos, total).await?;
         if m.anonymous && (self.is_sponsor(a) || self.is_cosysop()) {
             let s = format!("|U5Anonymous message by: |U4{} |U5[{}]", m.from.alias, m.from.real_name);
             self.write_with_controls(&s);
@@ -420,6 +429,17 @@ impl Session {
             }
         }
         self.offer_attachment(m).await
+    }
+
+    /// `~RT` (new): "#12 by phrac" for a reply, empty otherwise.
+    pub(crate) fn reply_to_text(&self, m: &Message) -> io::Result<String> {
+        if m.reply_to == 0 {
+            return Ok(String::new());
+        }
+        Ok(match self.state.msgs.by_id(m.reply_to).map_err(io_err)? {
+            Some(p) => self.strings().fmt("MsgReplyTo", &[&p.num.to_string(), &p.from.name]),
+            None => String::new(),
+        })
     }
 
     // ---- reading --------------------------------------------------------
@@ -828,11 +848,16 @@ impl Session {
             replies: 0,
             sig_pos,
             tag: if a.is_email() { self.email_tag } else { 0 },
+            reply_to: reply.map_or(0, |r| r.id),
             lines,
         };
         self.state.msgs.add(&mut m).map_err(io_err)?;
         if !private {
             self.state.mesh.post(&m);
+        }
+        // Your own message isn't new to you.
+        if !a.is_email() {
+            self.mark_read(a, &m)?;
         }
         if self.may_attach(a) {
             self.say("AtchAskAttach").await?;
@@ -864,7 +889,7 @@ impl Session {
     }
 
     /// `maEditMessage` (`E` in the reader): re-edit a message's text.
-    async fn edit_existing(&mut self, a: &AreaRef, m: &mut Message) -> io::Result<()> {
+    pub(crate) async fn edit_existing(&mut self, a: &AreaRef, m: &mut Message) -> io::Result<()> {
         let ctx = EditCtx {
             subject: m.subject.clone(),
             from: m.from.name.clone(),

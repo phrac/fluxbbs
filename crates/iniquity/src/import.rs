@@ -599,6 +599,7 @@ fn convert_message(area: &str, num: u32, h: &LegacyMsgHeader, dat: &[u8]) -> Mes
         replies: h.replies as u32,
         sig_pos,
         tag: h.tag,
+        reply_to: 0,
         lines,
     }
 }

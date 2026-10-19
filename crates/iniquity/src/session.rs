@@ -46,6 +46,27 @@ pub enum BarPick {
     Area(u32),
     Up,
     Stay,
+    /// One of the spec's `keys`, with the row the bar was on (its `n`).
+    Key(char, u32),
+}
+
+/// A list for `area_bar`.
+#[derive(Clone, Copy)]
+pub struct BarSpec<'a> {
+    /// The repeat screens' prefix: `{prefix}TOP`, MID, HIL, BOT.
+    pub prefix: &'a str,
+    /// The column heading when those screens don't exist.
+    pub header: &'a str,
+    pub rows: &'a [BarRow],
+    /// (number shown, row `n`) for typing a number.
+    pub labels: &'a [(u32, u32)],
+    pub start: usize,
+    pub help: &'a str,
+    /// The prompt's string name; empty for none.
+    pub ask: &'a str,
+    pub can_go_up: bool,
+    /// Letters (upper case) that end the list as `BarPick::Key`.
+    pub keys: &'a str,
 }
 
 /// A TOP/MID/HIL/BOT repeat screen in progress (Appendix C).
@@ -768,8 +789,8 @@ impl Session {
     /// right picks; left or backspace goes up when `can_go_up`; Esc
     /// stays. Typing a number (a label) moves the bar to it. `header` is
     /// for boards without the screens.
-    #[allow(clippy::too_many_arguments)]
-    pub async fn area_bar(&mut self, prefix: &str, header: &str, rows: &[BarRow], labels: &[(u32, u32)], start: usize, help: &str, ask: &str, can_go_up: bool) -> io::Result<BarPick> {
+    pub async fn area_bar(&mut self, spec: &BarSpec<'_>) -> io::Result<BarPick> {
+        let BarSpec { prefix, header, rows, labels, start, help, ask, can_go_up, keys } = *spec;
         let mut cur = start.min(rows.len().saturating_sub(1));
         let (mut first, mut top, mut height) = (0usize, 1u16, 1usize);
         let mut prompt = (1u16, 1u16);
@@ -812,7 +833,9 @@ impl Session {
                     self.newline();
                 }
                 self.show_line(help).await?;
-                self.say(ask).await?;
+                if !ask.is_empty() {
+                    self.say(ask).await?;
+                }
                 prompt = (self.screen.where_x(), self.screen.where_y());
                 redraw = false;
             }
@@ -852,6 +875,11 @@ impl Session {
                 Key::Esc => {
                     self.newline();
                     return Ok(BarPick::Stay);
+                }
+                k if k.upper().is_some_and(|c| keys.contains(c)) => {
+                    self.newline();
+                    let c = k.upper().unwrap_or(' ');
+                    return Ok(BarPick::Key(c, rows.get(cur).map_or(0, |r| r.n)));
                 }
                 k if k.upper() == Some('Q') => {
                     self.newline();

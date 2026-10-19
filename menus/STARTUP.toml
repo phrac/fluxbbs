@@ -63,6 +63,13 @@ off = "|B0Scan for mandatory messages"
 
 [[command]]
 keys = "FIRSTCMD"
+command = "MW"
+desc = "Offer new posts"
+on = "|B1Offer new posts"
+off = "|B0Offer new posts"
+
+[[command]]
+keys = "FIRSTCMD"
 command = "XL"
 desc = "Show who's online"
 on = "|B1Show who's online"

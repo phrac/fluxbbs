@@ -203,6 +203,34 @@ and `timeout_seconds` do what they say. All of it is under "AI Chat" in
 
 ![The AI giving the keys to download a file](screenshots/ai-howto.png)
 
+## Message centre
+
+New: `MH` (M on the main menu) replaces the stock newscan prompt and
+message menu, which are still there (`SCANMSG`, `MESSAGE`; point M back
+at `-^ SCANMSG` to use them).
+
+- The areas, with how many messages are new in each and the latest
+  post. Enter opens one, `n` reads everything new, `p` posts.
+- An area is a list of threads, the latest activity first, with their
+  replies and what's new. Enter reads a thread from its first new
+  message, `n` reads what's new in the area, `p` starts a thread.
+- The reader keeps the header (MSGHEAD) at the top and scrolls the text
+  under it, with the keys on the bottom line: left and right for the
+  previous and next message, up and down to scroll, `r` reply, `p` post,
+  `t` the whole thread, `u` up to the message this one answers, `l` or
+  Esc back, `q` stop, `?` help, a number to go to that message.
+- Threads: a message keeps the row id of the one it answers
+  (`reply_to`), so threads survive packing. QWK replies join their
+  thread by the header's reference number, and packets carry it, so
+  offline readers thread too.
+- What's read: besides each area's last-read pointer (everything up to
+  it is read; QWK and the classic reader use it), messages read beyond
+  it are remembered, and the pointer moves up once everything before
+  them is read too. Your own posts are read.
+- `MW` (in STARTUP, after the mandatory scan) says how many new posts
+  there are and offers to read them, a thread at a time.
+- The website feed lists the newest public posts (`new_posts`).
+
 ## MeshCore
 
 New: a [MeshCore](https://meshcore.co.uk) companion radio's channels

@@ -164,6 +164,8 @@ impl Session {
                 }
             }
             "MS" => self.set_pointer_date().await?,
+            "MH" => self.msg_center().await?,
+            "MW" => self.logon_new_check().await?,
 
             // -- files
             "FA" => self.list_fareas(false, None).await?,

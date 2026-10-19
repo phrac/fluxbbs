@@ -401,6 +401,7 @@ fn import(state: &BbsState, map: &[(u8, MeshChannel)], h: Heard) {
         replies: 0,
         sig_pos: 0,
         tag: 0,
+        reply_to: 0,
         lines: wrap(&h.text, 79),
     };
     match state.msgs.add(&mut m) {

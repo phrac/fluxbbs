@@ -33,6 +33,7 @@ mod messages;
 mod msgareas;
 mod multinode;
 mod msgbase;
+mod msgcenter;
 mod editor;
 mod extras;
 mod fileareas;

@@ -40,6 +40,8 @@ pub struct Message {
     pub sig_pos: u32,
     /// Email tag (`msgTag`): set from the writer's `E/` tag.
     pub tag: u16,
+    /// Row id of the message this one answers (new: threads); 0 if none.
+    pub reply_to: i64,
     pub lines: Vec<String>,
 }
 
@@ -86,6 +88,7 @@ CREATE TABLE IF NOT EXISTS messages (
     sig_pos    INTEGER NOT NULL,
     body       TEXT NOT NULL,
     tag        INTEGER NOT NULL DEFAULT 0,
+    reply_to   INTEGER NOT NULL DEFAULT 0,
     UNIQUE (area, num)
 );
 CREATE TABLE IF NOT EXISTS attachments (
@@ -94,6 +97,11 @@ CREATE TABLE IF NOT EXISTS attachments (
     desc     TEXT NOT NULL,
     size     INTEGER NOT NULL,
     uploaded TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS seen (
+    user_id INTEGER NOT NULL,
+    msg_id  INTEGER NOT NULL,
+    PRIMARY KEY (user_id, msg_id)
 );
 CREATE TABLE IF NOT EXISTS lastread (
     user_id INTEGER NOT NULL,
@@ -129,6 +137,7 @@ fn from_row(r: &Row) -> rusqlite::Result<Message> {
         replies: r.get("replies")?,
         sig_pos: r.get("sig_pos")?,
         tag: r.get("tag")?,
+        reply_to: r.get("reply_to")?,
         lines: if body.is_empty() { Vec::new() } else { body.split('\n').map(String::from).collect() },
     })
 }
@@ -145,6 +154,11 @@ impl MsgBase {
         let has_tag: bool = db.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('messages') WHERE name = 'tag'", [], |r| r.get(0))?;
         if !has_tag {
             db.execute("ALTER TABLE messages ADD COLUMN tag INTEGER NOT NULL DEFAULT 0", [])?;
+        }
+        // And from before threads.
+        let has_reply_to: bool = db.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('messages') WHERE name = 'reply_to'", [], |r| r.get(0))?;
+        if !has_reply_to {
+            db.execute("ALTER TABLE messages ADD COLUMN reply_to INTEGER NOT NULL DEFAULT 0", [])?;
         }
         Ok(Self { db: Mutex::new(db) })
     }
@@ -186,15 +200,50 @@ impl MsgBase {
         db.execute(
             "INSERT INTO messages (area, num, from_id, from_alias, from_real, from_name, from_note,
                 to_id, to_alias, to_real, to_name, to_note, subject, posted, deleted, private,
-                anonymous, replies, sig_pos, body, tag)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+                anonymous, replies, sig_pos, body, tag, reply_to)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 m.area, m.num, m.from.user_id, m.from.alias, m.from.real_name, m.from.name, m.from.note,
                 m.to.user_id, m.to.alias, m.to.real_name, m.to.name, m.to.note, m.subject, m.posted,
-                m.deleted, m.private, m.anonymous, m.replies, m.sig_pos, m.lines.join("\n"), m.tag
+                m.deleted, m.private, m.anonymous, m.replies, m.sig_pos, m.lines.join("\n"), m.tag, m.reply_to
             ],
         )?;
         m.id = db.last_insert_rowid();
+        Ok(())
+    }
+
+    /// A message by row id, wherever it is.
+    pub fn by_id(&self, id: i64) -> anyhow::Result<Option<Message>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT * FROM messages WHERE id = ?1", [id], from_row).optional()?)
+    }
+
+    // ---- read markers (new) ---------------------------------------------
+    //
+    // Threads are read out of order, so besides `lastread` (everything up
+    // to it is read) each user has the messages read beyond it.
+
+    /// Ids of an area's messages the user has read past their lastread.
+    pub fn seen(&self, user: u32, area: &str) -> anyhow::Result<std::collections::HashSet<i64>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT s.msg_id FROM seen s JOIN messages m ON m.id = s.msg_id WHERE s.user_id = ?1 AND m.area = ?2")?;
+        let ids = stmt.query_map(params![user, area], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(ids)
+    }
+
+    pub fn mark_seen(&self, user: u32, msg_id: i64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT OR IGNORE INTO seen (user_id, msg_id) VALUES (?1, ?2)", params![user, msg_id])?;
+        Ok(())
+    }
+
+    /// Lastread moved up to `num`: the markers at or below it are done with.
+    pub fn forget_seen(&self, user: u32, area: &str, num: u32) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute(
+            "DELETE FROM seen WHERE user_id = ?1 AND msg_id IN (SELECT id FROM messages WHERE area = ?2 AND num <= ?3)",
+            params![user, area, num],
+        )?;
         Ok(())
     }
 
@@ -265,6 +314,7 @@ impl MsgBase {
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction()?;
+        tx.execute("DELETE FROM seen WHERE msg_id IN (SELECT id FROM messages WHERE area = ?1)", [area])?;
         let n = tx.execute("DELETE FROM messages WHERE area = ?1", [area])?;
         tx.execute("DELETE FROM lastread WHERE area = ?1", [area])?;
         tx.commit()?;
@@ -292,6 +342,7 @@ impl MsgBase {
         let kept_nums: Vec<u32> = keep.iter().map(|k| k.1).collect();
         for (id, _, _) in rows.iter().filter(|r| !keep.iter().any(|k| k.0 == r.0)) {
             tx.execute("DELETE FROM messages WHERE id = ?1", [id])?;
+            tx.execute("DELETE FROM seen WHERE msg_id = ?1", [id])?;
         }
         tx.execute("UPDATE messages SET num = -num WHERE area = ?1", [area])?;
         for (i, (id, _)) in keep.iter().enumerate() {
@@ -377,6 +428,7 @@ mod tests {
             replies: 0,
             sig_pos: 0,
             tag: 0,
+            reply_to: 0,
             lines: text.split('\n').map(String::from).collect(),
         }
     }

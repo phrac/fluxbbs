@@ -835,6 +835,7 @@ mod tests {
             replies: 0,
             sig_pos: 5,
             tag: 0,
+            reply_to: 0,
             id: 0,
             lines: vec!["".into(), "first".into(), "|15second".into(), "".into(), "sig".into()],
         };

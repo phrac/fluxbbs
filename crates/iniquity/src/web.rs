@@ -23,6 +23,7 @@ struct Status {
     online: Vec<Online>,
     last_callers: Vec<Caller>,
     new_files: Vec<NewFile>,
+    new_posts: Vec<NewPost>,
     totals: Totals,
     today: Today,
     updated: String,
@@ -60,6 +61,18 @@ struct NewFile {
     uploaded: String,
     uploader: String,
     description: String,
+}
+
+#[derive(Serialize)]
+struct NewPost {
+    area: String,
+    subject: String,
+    from: String,
+    posted: String,
+    /// Replies to it so far.
+    replies: u32,
+    /// Whether it answers another message.
+    reply: bool,
 }
 
 #[derive(Serialize)]
@@ -183,10 +196,28 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
         })
         .collect();
 
+    // Posts only from areas a new caller could read, never private ones.
     let mut messages = 0;
+    let mut posts = Vec::new();
     for a in &state.areas().areas {
         messages += state.msgs.count(&a.file)?;
+        if w.new_posts > 0 && public(state, &a.acs) && a.password.is_empty() {
+            posts.extend(state.msgs.all(&a.file)?.into_iter().filter(|m| !m.private && !m.deleted).map(|m| (a.name.clone(), m)));
+        }
     }
+    posts.sort_by(|a, b| b.1.posted.cmp(&a.1.posted));
+    let new_posts = posts
+        .into_iter()
+        .take(w.new_posts as usize)
+        .map(|(area, m)| NewPost {
+            area,
+            subject: m.subject,
+            from: if m.anonymous { m.from.name } else { shown(&m.from.name) },
+            posted: m.posted.format("%Y-%m-%dT%H:%M:%S").to_string(),
+            replies: m.replies,
+            reply: m.reply_to != 0,
+        })
+        .collect();
     let totals = state.sys.totals()?;
     let today = state.sys.day(Local::now().date_naive())?;
     Ok(Status {
@@ -194,6 +225,7 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
         online,
         last_callers,
         new_files,
+        new_posts,
         totals: Totals {
             users: state.users.count()?,
             calls: totals.calls,
