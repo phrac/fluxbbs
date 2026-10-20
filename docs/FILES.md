@@ -5,8 +5,11 @@ File areas, transfers, upload screening and the art gallery.
 ## Sub-areas
 
 New, not in the original: a file area can sit under another one, to any
-depth, e.g. a "Zines" area with an area per zine title. In `*F`, set
-"Sub-area of" (`K`) to the parent's storage key, or in `fileareas.toml`:
+depth, e.g. a "Zines" area with an area per zine title. In `*F`,
+"Sub-area of" (`K`) picks the parent from a list of the areas (`/`
+searches it; the area itself and its own sub-areas aren't offered, and
+the first row is the top level), or in `fileareas.toml` set `parent` to
+the parent's storage key:
 
     [[area]]
     name = "Phrack"

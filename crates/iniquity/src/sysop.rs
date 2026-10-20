@@ -601,9 +601,13 @@ impl Session {
     /// (marked `/` if it has some); the numbers are still positions in the
     /// file, which insert, delete and move use.
     fn fa_rows(&self) -> io::Result<Vec<BarRow>> {
-        let areas = self.state.fareas();
+        self.fa_rows_of(&self.state.fareas(), &[])
+    }
+
+    /// `fa_rows` for `areas`, leaving out the areas in `skip`.
+    fn fa_rows_of(&self, areas: &FileAreas, skip: &[u32]) -> io::Result<Vec<BarRow>> {
         let mut rows = Vec::new();
-        for (n, depth) in areas.tree() {
+        for (n, depth) in areas.tree().into_iter().filter(|(n, _)| !skip.contains(n)) {
             let a = &areas.areas[n as usize - 1];
             let count = self.state.files.count(&a.file).map_err(io_err)?;
             let subs = areas.areas.iter().any(|o| o.parent.eq_ignore_ascii_case(&a.file));
@@ -621,6 +625,36 @@ impl Session {
             rows.push(BarRow { n, waves: Waves::new(), plain });
         }
         Ok(rows)
+    }
+
+    /// Pick the area area `num` is a sub-area of, from the areas other
+    /// than it and its own sub-areas, or the top level. None if the SysOp
+    /// backed out.
+    async fn fa_pick_parent(&mut self, areas: &FileAreas, num: u32, cur: &str) -> io::Result<Option<String>> {
+        let mut rows = self.fa_rows_of(areas, &areas.subtree(num))?;
+        rows.insert(0, BarRow { n: 0, waves: Waves::new(), plain: format!(" {} (top level)", resize("-", 4)) });
+        let labels: Vec<(u32, u32)> = rows.iter().map(|r| (r.n, r.n)).collect();
+        let at = areas.areas.iter().position(|o| o.file.eq_ignore_ascii_case(cur)).map_or(0, |i| i as u32 + 1);
+        let help = format!(
+            "|U1 A sub-area of which area? Arrows move, |U3enter|U1 picks, |U3/|U1 searches, |U3esc|U1 keeps |U3{}|U1.",
+            if cur.is_empty() { "the top level" } else { cur }
+        );
+        let spec = BarSpec {
+            prefix: "CFGFAREA",
+            header: FA_HEADER,
+            rows: &rows,
+            labels: &labels,
+            start: rows.iter().position(|r| r.n == at).unwrap_or(0),
+            help: &help,
+            ask: "",
+            can_go_up: false,
+            keys: "",
+        };
+        Ok(match self.area_bar(&spec).await? {
+            BarPick::Area(0) => Some(String::new()),
+            BarPick::Area(n) => areas.areas.get(n as usize - 1).map(|o| o.file.clone()),
+            _ => None,
+        })
     }
 
     /// Insert a new area before area `at`, beside it in the tree (under
@@ -716,7 +750,7 @@ impl Session {
             f.item('H', "Password", 20, &a.password, "Password required to access this area (blank for none).");
             f.item('I', "Sort method", 20, a.sort.label(), "How *S sorts this file area.");
             f.item('J', "Sort direction", 20, directions[a.sort_descending as usize], "Direction to sort files.");
-            f.item('K', "Sub-area of", 8, &a.parent, "Storage key of the area this is listed under (blank for the top level).");
+            f.item('K', "Sub-area of", 8, &a.parent, "The area this is listed under: pick it from the list, or the top level.");
             f.label("Files", 6, files.to_string());
             f.item('[', "Previous area", 0, "", "");
             f.item(']', "Next area", 0, "", "");
@@ -790,21 +824,13 @@ impl Session {
                         a.sort_descending = self.cfg_option(&mut f, key, &directions, a.sort_descending as usize).await? == 1;
                     }
                     'K' => {
-                        let Some(v) = self.cfg_text(&mut f, key, Field::KEY).await? else { continue };
-                        let v = v.to_ascii_uppercase();
-                        let parent = areas.areas.iter().position(|o| o.file.eq_ignore_ascii_case(&v)).map(|i| i as u32 + 1);
-                        if v.is_empty() {
-                            a.parent.clear();
-                        } else if parent.is_none() {
-                            self.cfg_info(&mut f, "No area has that storage key.");
-                            self.cfg_set(&mut f, key, &a.parent);
-                        } else if areas.subtree(num).contains(&parent.unwrap()) {
-                            self.cfg_info(&mut f, "That's this area or one of its own sub-areas.");
-                            self.cfg_set(&mut f, key, &a.parent);
-                        } else {
-                            a.parent = areas.areas[parent.unwrap() as usize - 1].file.clone();
-                            self.cfg_set(&mut f, key, &a.parent);
+                        // New: picked from the areas (`/` searches), not
+                        // typed, so the parent always exists.
+                        if let Some(p) = self.fa_pick_parent(&areas, num, &a.parent).await? {
+                            a.parent = p;
                         }
+                        f.set(key, &a.parent);
+                        self.cfg_draw(&f);
                     }
                     '[' => break -1,
                     ']' => break 1,

@@ -62,7 +62,11 @@ git: copy `data/` and `files/` across if the board should move with you.
 - Keep the repo stock: their board (disflux) lives in
   `~/code/disflux_bbs`, outside the repo, with its own `iniquity.toml`,
   `data/`, `files/` and `text/` (their screens; `art/` holds the
-  originals), using the repo's `text/` as `stock_text` and its `menus/`.
+  originals), using the repo's `text/` as `stock_text` and its menus as
+  `stock_menus` (the board's own `menus/` has just MATRIX.toml). Many of
+  its screens are generated from their art by `art/*-gen.py` (menus,
+  lists, PRELOGON, MATRIX, WELCOME, AICHAT; each says how to run it):
+  change the script and rerun it rather than editing the `.ANS`.
   Board settings go there, not in the repo's `iniquity.toml`: handles
   kept as typed (`alias_format = 1`), new users asked only for handle and
   password. Run it with `iniquity ~/code/disflux_bbs/iniquity.toml`. The
