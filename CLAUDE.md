@@ -141,7 +141,13 @@ Things that trip tests up:
 `disfluxbbs.com` runs on `rzn` in Docker (`~/code/inq/iniquity` is the
 checkout, `~/code/disflux_bbs` the board, SSH 2222, telnet 23; update with
 `git pull && docker compose -f deploy/docker-compose.yml up -d --build`,
-logs with `docker logs -f iniquity`). The board directory was copied from
+logs with `docker logs -f iniquity`). A deploy restarts the board and
+drops callers: check `curl -s 127.0.0.1:8099/status.json` first and wait
+if anyone is on. To hand-edit the board's TOML (`strings.toml`,
+`fileareas.toml`...), stop the container first (`docker compose ...
+stop`, edit, `up -d`): the running board keeps them in memory and an edit
+in `*E`/`*F`/`*C` writes its copy back over yours. Screens in its `text/`
+are read on each display and need neither. The board directory was copied from
 ryzen (every file hash-checked); the ryzen board still runs and is now a
 separate copy, so don't develop or post there. `cargo` on rzn is in
 `~/.cargo/bin`; `original/inqa26r5.zip` is in git, so `tools/setup_host.sh`
