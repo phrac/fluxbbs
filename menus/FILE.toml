@@ -185,3 +185,12 @@ keys = "#"
 command = "F#"
 desc = "Goto Area #"
 help = "None"
+
+[[command]]
+keys = "E"
+command = "FE"
+acs = "s25"
+desc = "Scan select"
+help = "Pick the file areas newscans look in"
+on = "|B1Scan select"
+off = "|B0Scan select"

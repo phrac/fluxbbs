@@ -124,6 +124,12 @@ impl Session {
         self.msg_area_labels().into_iter().filter_map(|(label, n)| self.msg_area(n).filter(|a| self.acs(&a.area.acs)).map(|a| (label, a))).collect()
     }
 
+    /// [`Self::readable_areas`] less those taken out of newscans (`ME`).
+    fn scanned_areas(&self) -> Vec<(u32, AreaRef)> {
+        let off = self.scan_off('M');
+        self.readable_areas().into_iter().filter(|(_, a)| !off.contains(a.key())).collect()
+    }
+
     // ---- the message centre ---------------------------------------------
 
     /// `MH`: the areas with how many new messages each has, the latest
@@ -291,7 +297,7 @@ impl Session {
     /// messages there were.
     pub(crate) async fn read_all_new(&mut self) -> io::Result<usize> {
         let mut read = 0;
-        for (_, a) in self.readable_areas() {
+        for (_, a) in self.scanned_areas() {
             let seq = self.area_view(&a)?.new_in_thread_order();
             if seq.is_empty() {
                 continue;
@@ -313,7 +319,7 @@ impl Session {
     /// them.
     pub async fn logon_new_check(&mut self) -> io::Result<()> {
         let (mut posts, mut areas) = (0, 0);
-        for (_, a) in self.readable_areas() {
+        for (_, a) in self.scanned_areas() {
             let n = self.area_view(&a)?.new_count();
             if n > 0 {
                 posts += n;
@@ -330,6 +336,88 @@ impl Session {
             self.read_all_new().await?;
         }
         self.newline();
+        Ok(())
+    }
+
+    // ---- searching (2.0's `MO`) -------------------------------------------
+
+    /// `MO` (2.0): `All` or an area number; `F`rom, `T`o, `S`ubject, `A`ll
+    /// text or `Y`our messages; the text; and `All` to search every
+    /// message rather than just new ones. What's missing is asked for.
+    /// Matches open in the reader, an area at a time.
+    pub async fn msg_search(&mut self, param: &str) -> io::Result<()> {
+        let mut p = param.split(';').map(str::trim);
+        let (where_, kind, text, every) = (p.next().unwrap_or(""), p.next().unwrap_or(""), p.next().unwrap_or(""), p.next().unwrap_or(""));
+        self.newline();
+        self.show_file("MSGSRCH").await?;
+        let areas: Vec<(u32, AreaRef)> = if where_.to_ascii_uppercase().starts_with('A') {
+            self.readable_areas()
+        } else if let Ok(n) = where_.parse::<u32>() {
+            self.readable_areas().into_iter().filter(|(l, _)| *l == n).collect()
+        } else {
+            self.say("MsgSearchAskAll").await?;
+            if self.yes_no(false).await? { self.readable_areas() } else { self.readable_areas().into_iter().filter(|(_, a)| a.num == self.user.cur_msg_area).collect() }
+        };
+        let kind = match kind.chars().next().map(|c| c.to_ascii_uppercase()) {
+            Some(c @ ('F' | 'T' | 'S' | 'A' | 'Y')) => c,
+            _ => {
+                self.say("MsgSearchAskType").await?;
+                let k = self.read_string(ReadOpts::new(1).case(crate::input::Case::Upper).allowed("FTSAY")).await?;
+                self.newline();
+                match k.chars().next() {
+                    Some(c) => c,
+                    None => return Ok(()),
+                }
+            }
+        };
+        let text = if kind == 'Y' || !text.is_empty() {
+            text.to_string()
+        } else {
+            self.say("MsgSearchAskText").await?;
+            let t = self.read_string(ReadOpts::new(40)).await?;
+            self.newline();
+            if t.is_empty() {
+                return Ok(());
+            }
+            t
+        };
+        let new_only = if every.is_empty() {
+            self.say("MsgSearchAskNew").await?;
+            self.yes_no(false).await?
+        } else {
+            !every.to_ascii_uppercase().starts_with('A')
+        };
+        let q = text.to_lowercase();
+        let has = |s: &str| s.to_lowercase().contains(&q);
+        let mut found = 0;
+        for (_, a) in areas {
+            let s = self.strings().fmt("MsgSearchArea", &[&a.area.name]);
+            self.show_line(&s).await?;
+            let v = self.area_view(&a)?;
+            let seq: Vec<u32> = v
+                .msgs
+                .iter()
+                .filter(|m| !new_only || v.is_new(m))
+                .filter(|m| match kind {
+                    'F' => has(&m.from.name),
+                    'T' => has(&m.to.name),
+                    'S' => has(&m.subject),
+                    'Y' => self.is_me(&m.from) || self.is_me(&m.to),
+                    _ => has(&m.subject) || has(&m.from.name) || has(&m.to.name) || m.body().iter().any(|l| has(l)),
+                })
+                .map(|m| m.num)
+                .collect();
+            if seq.is_empty() {
+                continue;
+            }
+            found += seq.len();
+            if self.read_seq(&a, &seq, 0).await? == ReadEnd::Quit || self.hangup {
+                break;
+            }
+        }
+        if found == 0 {
+            self.say_line("MsgSearchNone").await?;
+        }
         Ok(())
     }
 

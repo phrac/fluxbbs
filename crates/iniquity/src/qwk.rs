@@ -365,8 +365,11 @@ impl Session {
 
         self.qwk_step(screen, b"LC", "Creating control file").await?;
         let mut packed = vec![Packed { conf: 0, area: self.email_area(), newest: 0 }];
+        // Areas taken out of newscans (`ME`) stay out of packets too.
+        let off = self.scan_off('M');
         for n in 1..=total_areas {
             if let Some(a) = self.msg_area(n)
+                && !off.contains(a.key())
                 && self.qwk_area_ok(&a, all) {
                     packed.push(Packed { conf: n as u16, area: a, newest: 0 });
                 }

@@ -31,6 +31,10 @@ anything after a code on the same line moves left by the code's width
 | `|**` | after the whole string, come back to this spot |
 | `@NN` | move to column NN (two digits: `@40`) |
 | `&NN` | move to row NN |
+| `|ZA` ... `|ZB` | everything between is shown as it is, codes and all: for ASCII art full of `|`, `%` and `@` (2.0) |
+| `|PO` `|PE` `|PD` | 2.20's pausing codes; screens don't pause here, so they do nothing (but aren't shown) |
+
+What a caller typed (oneliners, chat, handles, file descriptions, message headers and so on) keeps its colour codes but nothing else: no moves, clears, pauses, positions or `%XX` values.
 
 ## Waiting: `|XX`
 
@@ -53,6 +57,7 @@ Replaced by a value. An unknown `%XX` is shown as it is in prompts, and dropped 
 | `%UP` posts | `%UE` email sent | `%UZ` post/call ratio | `%MW` mail waiting |
 | `%UL` uploads | `%UK` upload kb | `%DL` downloads | `%DK` download kb |
 | `%FP` file points | `%TL` minutes left | `%TT` minutes per day | `%UI` initials |
+| `%TB` minutes in the time bank (2.20) | | | |
 | `%BD` birth date | `%SX` gender | `%PN` phone | `%AD` address |
 | `%HK` `%XM` `%PA` `%AQ` `%YN` | hot keys / expert / pausing / autoquote / yes-no bars (Yes/No) | `%PL` page length | `%EM` emulation |
 | `%LD` `%LA` | theme name / author | `%RT` terminal type | |
@@ -62,6 +67,7 @@ Replaced by a value. An unknown `%XX` is shown as it is in prompts, and dropped 
 | `%BN` board name | `%BL` location | `%BP` phone | `%SN` SysOp handle | `%SR` SysOp real name |
 | `%TU` users | `%TC` calls | `%TP` posts | `%TE` email | `%TD` downloads |
 | `%DC` calls today | `%DP` posts today | `%DD` downloads today | `%DU` uploads today | `%TZ` post/call ratio |
+| `%DN` new users today (2.20) | | | | |
 | `%ND` this node | `%IN` "Iniquity" | `%IV` version | `%VL` "Iniquity x (Rust)" | |
 | `%DT` date (10/18/26) | `%DF` long date | `%TI` time (10:30pm) | `%TM` time (22:30) | |
 

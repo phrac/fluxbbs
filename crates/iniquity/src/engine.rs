@@ -36,6 +36,8 @@ pub struct MenuState {
     pub(crate) done: bool,
     /// A menu change is pending (`NewMnuToLoad`).
     pub(crate) reload: bool,
+    /// The running command's description (a door's name in the status).
+    pub(crate) cmd_desc: String,
 }
 
 impl MenuState {
@@ -465,6 +467,7 @@ impl Session {
                 continue;
             }
             allowed = true;
+            self.menu.cmd_desc = crate::editor::strip_codes(&c.desc);
             // The number typed is the `#` command's parameter.
             self.run_command(&c.command, if by_number { keys } else { &c.param }).await?;
             if self.menu.done || self.hangup {

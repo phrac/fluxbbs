@@ -348,7 +348,6 @@ impl Session {
         u.conf_file = u.conf_file.clamp(1, self.state.fareas().confs.len().max(1) as u32);
         self.find_area_with_access();
         self.find_farea_with_access();
-        self.bump(crate::sysdata::Stat::Call);
         if self.new_user {
             self.bump(crate::sysdata::Stat::NewUser);
         }
@@ -406,7 +405,7 @@ impl Session {
                 let h = self.read_string(ReadOpts::new(36).case(case).required()).await?;
                 self.newline();
                 let reserved = nu.reserved_handles.iter().any(|r| r.trim().eq_ignore_ascii_case(h.trim()));
-                if reserved || h.eq_ignore_ascii_case("NEW") || h.eq_ignore_ascii_case("ALL") || h.starts_with(|c: char| c.is_ascii_digit()) {
+                if reserved || h.eq_ignore_ascii_case("NEW") || h.eq_ignore_ascii_case("ALL") || h.starts_with(|c: char| c.is_ascii_digit()) || has_codes(&h) {
                     self.say_line("NuBadAlias").await?;
                 } else if self.name_taken(&h)? {
                     self.say_line("NuDupUser").await?;
@@ -421,7 +420,7 @@ impl Session {
                 self.say("NuName").await?;
                 let n = self.read_string(ReadOpts::new(36).case(Case::Mixed).required()).await?;
                 self.newline();
-                if n.starts_with(|c: char| c.is_ascii_digit()) {
+                if n.starts_with(|c: char| c.is_ascii_digit()) || has_codes(&n) {
                     self.say_line("NuBadName").await?;
                 } else if !n.contains(' ') {
                     self.say_line("NuFullName").await?;
@@ -666,4 +665,12 @@ pub(crate) fn format_phone(d: &str) -> String {
     } else {
         d.to_string()
     }
+}
+
+/// A name holding display codes (`|CS`, `%UN`, `@10`...), which would act
+/// wherever it's shown. Not checked by the original.
+pub fn has_codes(name: &str) -> bool {
+    iniquity_term::tokenize(&iniquity_term::cp437::encode(name), iniquity_term::Source::String)
+        .iter()
+        .any(|t| !matches!(t, iniquity_term::Token::Text(_)))
 }

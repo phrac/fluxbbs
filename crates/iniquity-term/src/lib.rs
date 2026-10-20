@@ -6,6 +6,6 @@ pub mod color;
 pub mod cp437;
 pub mod screen;
 
-pub use codes::{Control, Source, Token, tokenize};
+pub use codes::{Control, Source, Token, defuse, lit, tokenize, tokenize_str, tokenize_user};
 pub use color::{Color, Palette, Slot};
 pub use screen::{Charset, Screen};

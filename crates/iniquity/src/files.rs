@@ -6,7 +6,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::Local;
 use iniquity_term::codes::{resize, squish};
-use iniquity_term::{Color, Slot};
+use iniquity_term::{Color, Slot, lit};
 
 use crate::editor::EditCtx;
 use crate::fileareas::FileArea;
@@ -1284,9 +1284,10 @@ impl Session {
         let total = self.farea_count();
         let areas: Vec<u32> = if all { (1..=total).collect() } else { vec![if num == 0 { self.user.cur_file_area } else { num }.clamp(1, total.max(1))] };
         let skip_ok = areas.len() > 1;
+        let off = if all { self.scan_off('F') } else { Default::default() };
         for n in areas {
             let Some(a) = self.farea(n) else { continue };
-            if !self.acs(&a.area.acs) {
+            if !self.acs(&a.area.acs) || off.contains(&a.area.file) {
                 continue;
             }
             let files: Vec<FileRec> = self
@@ -1461,7 +1462,7 @@ impl Session {
         let _ = std::fs::remove_dir_all(&dir);
         let out = match out {
             Ok((_, out)) if !out.is_empty() => out,
-            _ => return self.show_line(&format!("|U6{name}|U5: |U4The {} lister isn't working|U5.", arc.ext)).await,
+            _ => return self.show_line(&format!("|U6{}|U5: |U4The {} lister isn't working|U5.", lit(name), arc.ext)).await,
         };
         self.show_line(&format!("|U4 Archive|U5: |U6{name}")).await?;
         self.rule().await?;
@@ -1655,13 +1656,14 @@ impl Session {
         let got = self.receive_files(&proto, &temp).await?;
         let today = Local::now().date_naive();
         let fc = &self.state.config().files;
-        let (auto_valid, kb_pt, pct, use_points, import, desc_files) = (
+        let (auto_valid, kb_pt, pct, use_points, import, desc_files, max_lines) = (
             fc.auto_validate,
             fc.kb_per_point.max(1) as u64,
             fc.upload_points_percent as u64,
             fc.use_file_points,
             fc.import_descriptions,
             fc.description_files.clone(),
+            fc.max_import_lines as usize,
         );
         let dir = self.farea_dir(&a.area);
         let mut added = (0u32, 0u64);
@@ -1715,9 +1717,12 @@ impl Session {
                     None => art_description(&path, &desc_files),
                 };
                 self.light_done(screen, b"L8", found.is_some());
-                if let Some(d) = found {
+                if let Some(mut d) = found {
                     let s = self.strings().get("FaTestDescFound").to_string();
                     self.upload_note(&s).await?;
+                    if max_lines > 0 {
+                        d.truncate(max_lines);
+                    }
                     desc = d;
                 }
             }

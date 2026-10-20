@@ -98,7 +98,7 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   `iniquity.toml`). See [QWK offline mail](#qwk-offline-mail).
 - Doors, native and DOS (in the built-in DOS machine): `D1` DORINFO1.DEF, `D2` DOOR.SYS,
   `D3` CHAIN.TXT, `D4` DOOR32.SYS, `DZ` DOOR.SYS and DORINFO1.DEF, `D0`
-  none. See [DOORS.md](DOORS.md).
+  none, `D7` DOOR.SYS read back afterwards (2.0). See [DOORS.md](DOORS.md).
 
 **SysOp tools** (the `*` commands on the SysOp menu)
 - `*C` system configuration, written back to `iniquity.toml` keeping its
@@ -282,6 +282,63 @@ with ser2net), reconnects when the link drops, and picks up changed
 settings within a minute. `*C`, MeshCore, has the switch, the address,
 the reconnect delay and the parts; channels are listed in the file.
 `tools/fake_meshcore.py` is a pretend radio for trying it out.
+
+## From 2.0 and 2.20
+
+Iniquity 2.0 (IDT, 1998) and jack phlash's 2.20A (2001) came after the
+release this ports. Their source isn't here; these follow 2.0's manual,
+WHATSNEW.IQ2, menus, screens and 2.20's string table and notes.
+
+- Voting booth (`VV` vote on what's new, `VA` one question, `VR`
+  results, `VN` add a question, `VD` delete one), the stock VOTING menu
+  (`V` on the main menu). Questions can let callers add answers.
+  Screens: VQTOP/MID/BOT (`~QN` `~QD`), VATOP/MID/BOT (`~VQ`, `~AN`
+  `~AD`), VRTOP/MID/BOT (`~VQ`, `~AP` `~AD` `~VN` `~VR`); without them,
+  plain lists with a bar per answer.
+- Newscan selections: `ME`/`FE` (`E` on the message and file menus)
+  turn areas in and out of newscans with a bar list (MSCAN/FSCAN
+  screens, `~AN` `~AT` `~SC`); "all areas" scans, reading everything new,
+  the logon new-posts check and QWK packets leave the others out. `US`
+  puts every area back for everyone.
+- Message search (`MO`, `B` on the message menu): all areas or one;
+  from, to, subject, all text or your own; new or all messages. Matches
+  open in the reader. 2.0's MSGSRCH screen is shown first if there.
+- Multinode chat: `/who`, `/me`, `/msg user text` (someone in chat),
+  `/page user text` (anyone on), `/help`, and Enter alone for who's in
+  chat.
+- Invisible (`XI`): after `>L` in the matrix, a hidden logon (asks
+  `LogonInvisible` unless given `Y`): out of the callers list and other
+  callers' who's-online, node messages and the website feed. Elsewhere
+  it hides or shows the caller (`I` on the multinode menu). SysOps
+  still see everyone.
+- ACS `n#`: on node #.
+- A door's name in the caller's status: the part after `;` in its
+  command (`LORD.BAT;Legend of the Red Dragon`), or the menu item's
+  description; the website feed says "in LORD".
+- Tab completes a handle at "To:" and in `?I` with `/AC` (and
+  `bbs.input{complete = true}`).
+- `|ZA`...`|ZB` shows text as it is. 2.20's `%DN` (new users today),
+  `%TB` (time in the bank), `|PO`/`|PE`/`|PD` (accepted; screens don't
+  pause here). "Set newscan date" starts at the date the pointer is at.
+- File lists for the web: `/files.txt` and `/files.html` (2.0's
+  `iniquity fltxt`/`flhtml`), only areas a new caller could open.
+- A cap on imported description lines (`*C`, Files: DIZ lines).
+- `bbs.inmenu(keys)` for scripts (IPL's `isincurmenu`); the rest of
+  2.0's new IPL functions have Lua equivalents (see SCRIPTING.md).
+- 2.0's bug "'|XX' would kill multinode chat" has its equivalent here,
+  fixed: what callers type (chat, oneliners, handles, file
+  descriptions, message headers, BBS list entries...) keeps its colour
+  codes and nothing else. Typed into `?I` or `bbs.input`, other codes
+  are wrapped in `|ZA`...`|ZB` so they show but don't act where the
+  text ends up (the stock oneliners append to a screen); handles with
+  codes in them are refused. Caller numbers no longer repeat when two
+  nodes log on at once ("caller list numbering with multinode").
+
+Left out: the modem and NetModem/32 items, MicroDOS, WFC changes, 8+
+COM ports, phone formats, SETUP.SR/CALINFO.BBS/SFDOORS.DAT drop files
+(no door here needs them yet), the local-console keys alt-L and alt-V
+(alt-D, down a level, is `<` in the user editor), and 2.20's paging of
+long screens.
 
 ## Not planned
 

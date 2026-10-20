@@ -701,6 +701,9 @@ pub struct Files {
     /// from the SAUCE of a single piece of art.
     pub import_descriptions: bool,
     pub description_files: Vec<String>,
+    /// Most lines of an imported description to keep (2.0); 0 keeps them
+    /// all (up to the lister's 20).
+    pub max_import_lines: u16,
     pub no_description: String,
     /// Long descriptions continue on the next page of the file lister.
     pub wrap_descriptions: bool,
@@ -779,6 +782,7 @@ impl Default for Files {
             upload_dupe_check: 4,
             import_descriptions: true,
             description_files: vec!["FILE_ID.DIZ".into(), "DESC.SDI".into()],
+            max_import_lines: 0,
             no_description: "No description".into(),
             wrap_descriptions: true,
             advance_bar_on_flag: true,

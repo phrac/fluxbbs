@@ -5,7 +5,7 @@
 use std::io;
 
 use chrono::Local;
-use iniquity_term::{Charset, Slot};
+use iniquity_term::{Charset, Slot, lit};
 use iniquity_term::codes::{resize, squish};
 
 use crate::editor::EditCtx;
@@ -59,10 +59,10 @@ impl Session {
         }
     }
 
-    /// `callAdd`: log this call.
+    /// `callAdd`: count and log this call.
     pub fn log_call(&self) {
         let call = Call {
-            call_num: self.state.sys.totals().map_or(0, |t| t.calls),
+            call_num: 0,
             user_id: self.user.id,
             handle: self.user.handle.clone(),
             location: self.user.location.clone(),
@@ -71,7 +71,11 @@ impl Session {
             area_code: self.user.area_code().to_string(),
             transport: self.caller.transport.to_string(),
         };
-        if let Err(e) = self.state.sys.add_call(&call) {
+        if self.hidden_call {
+            self.bump(crate::sysdata::Stat::Call);
+            return;
+        }
+        if let Err(e) = self.state.sys.log_call(call) {
             tracing::error!("logging call: {e}");
         }
     }
@@ -80,7 +84,8 @@ impl Session {
 
     /// `?I` (`iGetString`): `format;chars;options;length;default`. Format
     /// is the case (N/C/U/L/M/V/W/I), chars the allowed set (A alpha,
-    /// N/I numeric, else anything), `*` defaults.
+    /// N/I numeric, else anything), `*` defaults. Of the options, 2.0's
+    /// `/AC` (tab completes a handle) is honoured.
     pub(crate) async fn menu_input(&mut self, semis: &[&str]) -> io::Result<()> {
         let get = |i: usize| semis.get(i).copied().unwrap_or("");
         let case = match get(0).chars().next().map(|c| c.to_ascii_uppercase()) {
@@ -103,9 +108,16 @@ impl Session {
             "*" => self.input_string.clone(),
             d => d.to_string(),
         };
-        let s = self.read_string(ReadOpts::new(len).case(case).allowed(allowed).prefill(default)).await?;
+        let flags = get(2).to_ascii_uppercase();
+        let mut opts = ReadOpts::new(len).case(case).allowed(allowed).prefill(default);
+        if flags.contains("/AC") {
+            opts = opts.complete_users();
+        }
+        let s = self.read_string(opts).await?;
         self.newline();
-        self.input_string = s;
+        // What's typed may end up in a screen (`?T`): its codes mustn't act
+        // there. Passwords are left as typed.
+        self.input_string = if flags.contains("/PW") { s } else { iniquity_term::defuse(&s) };
         Ok(())
     }
 
@@ -188,8 +200,8 @@ impl Session {
                     let line = format!(
                         "|U1 {} {} {} {} {} {}",
                         resize(&c.call_num.to_string(), 5),
-                        resize(&c.handle, 24),
-                        resize(&c.location, 21),
+                        lit(&resize(&c.handle, 24)),
+                        lit(&resize(&c.location, 21)),
                         resize(new, 4),
                         resize(&c.transport, 7),
                         time
@@ -253,7 +265,7 @@ impl Session {
             self.goto_pos(*b"TL");
         } else {
             self.newline();
-            self.show_line(&format!("|U4Automessage|U5: |U6{}", m.title)).await?;
+            self.show_line(&format!("|U4Automessage|U5: |U6{}", lit(&m.title))).await?;
             self.rule().await?;
         }
         for l in &m.lines {
@@ -463,9 +475,9 @@ impl Session {
                     let line = format!(
                         "|U1 {} {} {} {} {}",
                         resize(&(i + 1).to_string(), 4),
-                        resize(&b.name, 25),
-                        resize(&b.address, 16),
-                        resize(&b.software, 15),
+                        lit(&resize(&b.name, 25)),
+                        lit(&resize(&b.address, 16)),
+                        lit(&resize(&b.software, 15)),
                         b.speed
                     );
                     self.show_line(&line).await?;
@@ -522,7 +534,7 @@ impl Session {
                 ("Storage", b.storage.clone()),
                 ("Other Info", b.info.clone()),
             ] {
-                self.show_line(&format!("|U1{}|U2: |U3{v}", resize(k, 17))).await?;
+                self.show_line(&format!("|U1{}|U2: |U3{}", resize(k, 17), lit(&v))).await?;
             }
         }
         Ok(())

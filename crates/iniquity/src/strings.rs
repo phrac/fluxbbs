@@ -78,7 +78,9 @@ impl Strings {
 
     /// `strCode`: a string with `%S1`, `%S2`... replaced by `args`.
     pub fn fmt(&self, name: &str, args: &[&str]) -> String {
-        substitute(self.get(name), args)
+        // The values are data (often typed by a caller), not codes.
+        let args: Vec<String> = args.iter().map(|a| iniquity_term::lit(a)).collect();
+        substitute(self.get(name), &args.iter().map(String::as_str).collect::<Vec<_>>())
     }
 }
 

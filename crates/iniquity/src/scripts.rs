@@ -45,6 +45,8 @@ pub struct InputOpts {
     case: Case,
     allowed: String,
     required: bool,
+    /// Tab completes a handle (2.0's `/AC`).
+    complete: bool,
 }
 
 /// What a script asks of the session.
@@ -70,6 +72,7 @@ enum Req {
     Mci(String),
     Expand(String),
     Acs(String),
+    InMenu(String),
     User,
     SaveUser(Vec<(String, Field)>),
     Log(String),
@@ -338,6 +341,7 @@ fn input_opts(v: Option<Table>) -> mlua::Result<InputOpts> {
     }
     o.password = t.get::<Option<bool>>("password")?.unwrap_or(false);
     o.required = t.get::<Option<bool>>("required")?.unwrap_or(false);
+    o.complete = t.get::<Option<bool>>("complete")?.unwrap_or(false);
     if t.get::<Option<bool>>("upper")?.unwrap_or(false) {
         o.case = Case::Upper;
     }
@@ -439,6 +443,11 @@ fn install(lua: &Lua, b: &Bridge, name: &str, node: usize) -> mlua::Result<()> {
         _ => Ok(String::new()),
     });
     f!("acs", |_l, b, v: String| match b.call(Req::Acs(v))? {
+        Resp::Bool(ok) => Ok(ok),
+        _ => Ok(false),
+    });
+    // 2.0's IPL `isincurmenu`: does the current menu have this key?
+    f!("inmenu", |_l, b, v: String| match b.call(Req::InMenu(v))? {
         Resp::Bool(ok) => Ok(ok),
         _ => Ok(false),
     });
@@ -679,8 +688,12 @@ impl Session {
                 if o.required {
                     opts = opts.required();
                 }
+                if o.complete {
+                    opts = opts.complete_users();
+                }
                 let s = self.read_string(opts).await?;
-                Resp::Str(s)
+                // Like `?I`: a caller's codes can't act wherever it's shown.
+                Resp::Str(if o.password { s } else { iniquity_term::defuse(&s) })
             }
             Req::YesNo(default) => Resp::Bool(self.yes_no(default).await?),
             Req::MenuCmd(code, param) => {
@@ -694,6 +707,7 @@ impl Session {
             },
             Req::Expand(s) => Resp::Str(self.expand_mci(&s, 0)),
             Req::Acs(expr) => Resp::Bool(self.acs(&expr)),
+            Req::InMenu(keys) => Resp::Bool(self.menu.menu.as_ref().is_some_and(|m| m.commands.iter().any(|c| c.keys.eq_ignore_ascii_case(&keys)))),
             Req::User => Resp::User(user_fields(&self.user)),
             Req::SaveUser(fields) => {
                 let mut u = self.user.clone();

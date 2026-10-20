@@ -1,6 +1,6 @@
 # Doors
 
-A door is a menu command `D0`–`D4` or `DZ` whose parameter is a shell
+A door is a menu command `D0`–`D4`, `D7` or `DZ` whose parameter is a shell
 command. The letter picks the drop file, written to `data/doors/nodeN/`
 (`[paths] doors`), which is also where the door runs:
 
@@ -52,3 +52,10 @@ Changes from the original: each node gets its own drop directory; the
 DOOR.SYS password line is empty; CHAIN.TXT has real times and transfer
 totals, and points its directories at the drop directory; DOOR32.SYS
 (`D4`) is new.
+
+From 2.0: `D7` writes DOOR.SYS and reads it back when the door ends,
+taking the time left (up to the day's allowance) and the upload,
+download and today's-kbytes counts (only upwards); never the security
+level. While a door runs, other callers see its name: what follows a
+`;` in the parameter (`LORD.BAT;Legend of the Red Dragon`), else the
+menu item's description, else the program's name.

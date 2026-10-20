@@ -242,7 +242,7 @@ type Writer = fn(&DropInfo) -> Vec<u8>;
 fn drop_files(kind: char) -> &'static [(&'static str, Writer)] {
     match kind.to_ascii_uppercase() {
         '1' => &[("DORINFO1.DEF", dorinfo)],
-        '2' => &[("DOOR.SYS", door_sys)],
+        '2' | '7' => &[("DOOR.SYS", door_sys)],
         '3' => &[("CHAIN.TXT", chain_txt)],
         '4' => &[("DOOR32.SYS", door32_sys)],
         'Z' => &[("DOOR.SYS", door_sys), ("DORINFO1.DEF", dorinfo)],
@@ -686,6 +686,14 @@ impl Session {
     /// `doorExecute` (`D0`-`D4`, `DZ`): write the drop file `kind` asks
     /// for and run `cmd`, natively or, for a DOS program, under DOSBox.
     pub async fn door_execute(&mut self, cmd: &str, kind: char) -> io::Result<()> {
+        // `X:\DOOR.EXT;DESCRIPTION` (2.0): the description is what other
+        // callers see the caller doing (a path after `;` is a shell command
+        // going on); without one, the menu item's, or the program's name.
+        let (cmd, name) = match cmd.rsplit_once(';') {
+            Some((c, d)) if !d.trim().is_empty() && !d.contains(['/', '\\']) => (c, d.trim().to_string()),
+            _ if !self.menu.cmd_desc.trim().is_empty() => (cmd, self.menu.cmd_desc.trim().to_string()),
+            _ => (cmd, door_name(cmd)),
+        };
         if cmd.trim().is_empty() {
             return Ok(());
         }
@@ -722,7 +730,7 @@ impl Session {
         };
         self.save_user();
         let cmd = self.door_command(cmd, &dir, dos);
-        self.node.update(|n| n.activity = "Running a door".into());
+        self.node.update(|n| n.activity = format!("Running {name}"));
         self.flush().await?;
         let started = if dos && cfg.dos.emulator.is_empty() {
             Ok(spawn_builtin(&cmd, &dir, &drive))
@@ -738,6 +746,9 @@ impl Session {
         self.input.clear();
         self.screen.resync();
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
+        if kind == '7' {
+            self.door_readback(&dir);
+        }
         match result {
             // The shell couldn't find it.
             Ok(DoorEnd::Exited(st)) if st.code() == Some(127) => {
@@ -756,6 +767,31 @@ impl Session {
             }
         }
         Ok(())
+    }
+
+    /// `D7` (2.0): what the door changed in DOOR.SYS comes back: time
+    /// left (up to the day's allowance) and uploads, downloads and today's
+    /// download kbytes (only upwards). Not the security level: a door has
+    /// no business raising that.
+    fn door_readback(&mut self, dir: &Path) {
+        let Ok(data) = std::fs::read(dir.join("DOOR.SYS")) else { return };
+        let text = iniquity_term::cp437::decode(&data);
+        let rb = readback(&text);
+        let u = &mut self.user;
+        if let Some(m) = rb.minutes_left {
+            let used = (self.time_on.elapsed().as_secs() / 60) as u32;
+            u.time_today = (m + used).min(u.time_per_day.max(u.time_today));
+        }
+        if let Some(n) = rb.uploads {
+            u.uploads = u.uploads.max(n);
+        }
+        if let Some(n) = rb.downloads {
+            u.downloads = u.downloads.max(n);
+        }
+        if let Some(n) = rb.today_dl_kb {
+            u.today_dl_kb = u.today_dl_kb.max(n);
+        }
+        self.save_user();
     }
 
     /// `dir` is the drop directory as the door sees it.
@@ -956,6 +992,29 @@ impl Session {
     }
 }
 
+/// What a door left in DOOR.SYS for `D7` (GAP lines 19, 28, 29, 30).
+#[derive(Debug, Default, PartialEq)]
+struct Readback {
+    minutes_left: Option<u32>,
+    uploads: Option<u32>,
+    downloads: Option<u32>,
+    today_dl_kb: Option<u32>,
+}
+
+fn readback(text: &str) -> Readback {
+    let lines: Vec<&str> = text.lines().collect();
+    let num = |i: usize| lines.get(i).and_then(|l| l.trim().parse::<u32>().ok());
+    Readback { minutes_left: num(18), uploads: num(27), downloads: num(28), today_dl_kb: num(29) }
+}
+
+/// A door's program name, for the node status: `LORD.BAT 1` -> `LORD`.
+fn door_name(cmd: &str) -> String {
+    let prog = cmd.split_whitespace().next().unwrap_or("");
+    let file = prog.rsplit(['/', '\\']).next().unwrap_or(prog);
+    let stem = file.split('.').next().unwrap_or(file);
+    if stem.is_empty() { "a door".into() } else { stem.to_string() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1049,6 +1108,11 @@ mod tests {
         assert!(is_dos("c:\\bre\\bre.exe /n1"));
         assert!(is_dos("tw2002.com %ND"));
         assert!(!is_dos("/opt/doors/start.sh"));
+        assert_eq!(door_name("LORD.BAT 1"), "LORD");
+        let d = String::from_utf8(door_sys(&DropInfo { seconds_left: 1800, uploads: 3, downloads: 9, today_dl_kb: 120, ..DropInfo::default() })).unwrap();
+        assert_eq!(readback(&d), Readback { minutes_left: Some(30), uploads: Some(3), downloads: Some(9), today_dl_kb: Some(120) });
+        assert_eq!(door_name("/opt/doors/tw2002/run.sh"), "run");
+        assert_eq!(door_name("C:\\DOORS\\BRE.EXE"), "BRE");
         assert!(!is_dos("./game.exe"));
         assert!(!is_dos("sleep 600"));
         assert_eq!(dos_safe("Dark Lord|del *.*>nul %path%"), "Dark Lorddel *.*nul path");

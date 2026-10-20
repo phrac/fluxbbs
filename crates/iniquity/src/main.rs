@@ -49,6 +49,7 @@ mod pager;
 mod picture;
 mod password;
 mod qwk;
+mod scansel;
 mod scripts;
 mod session;
 mod ssh;
@@ -63,6 +64,7 @@ mod sysmisc;
 mod user;
 mod useredit;
 mod users;
+mod voting;
 mod wfc;
 
 use std::path::PathBuf;

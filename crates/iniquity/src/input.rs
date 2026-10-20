@@ -104,6 +104,8 @@ pub struct ReadOpts {
     /// goes, its letters taken by digits and its other characters filled
     /// in as the caller types.
     pub mask: &'static str,
+    /// Tab completes a user's handle (2.0's alias completion).
+    pub complete_users: bool,
 }
 
 impl ReadOpts {
@@ -131,6 +133,11 @@ impl ReadOpts {
 
     pub fn required(mut self) -> Self {
         self.required = true;
+        self
+    }
+
+    pub fn complete_users(mut self) -> Self {
+        self.complete_users = true;
         self
     }
 
@@ -353,6 +360,13 @@ impl Session {
                     Key::Char(0x15 | 0x18) => {
                         self.screen.backspace(s.chars().count() as u16);
                         s.clear();
+                    }
+                    Key::Tab if opts.complete_users && !s.is_empty() => {
+                        if let Some(h) = self.state.users.complete(&s).ok().flatten().filter(|h| h.chars().count() <= opts.max) {
+                            self.screen.backspace(s.chars().count() as u16);
+                            self.screen.write_str(&h);
+                            s = h;
+                        }
                     }
                     Key::Char(c @ 0x20..=0x7E) if s.chars().count() < opts.max => {
                         let c = opts.case.apply(&s, c as char);

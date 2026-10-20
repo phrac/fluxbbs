@@ -56,6 +56,29 @@ struct ChatLayout {
 }
 
 impl Session {
+    /// `XI` (2.0): right after `>L` in the matrix, a hidden logon: kept out
+    /// of the callers list and of other callers' lists. Elsewhere it hides
+    /// the caller from (or shows them to) the others. `Y`/`T` hides, `N`/`F`
+    /// shows; nothing asks.
+    pub async fn invisible(&mut self, param: &str) -> io::Result<()> {
+        let logon = self.logged_in && self.menu.current.eq_ignore_ascii_case("MATRIX");
+        let on = match param.trim().chars().next().map(|c| c.to_ascii_uppercase()) {
+            Some('Y' | 'T') => true,
+            Some('N' | 'F') => false,
+            _ => {
+                self.newline();
+                self.say(if logon { "LogonInvisible" } else { "AskInvisible" }).await?;
+                self.yes_no(false).await?
+            }
+        };
+        if logon {
+            self.hidden_call = on;
+        }
+        self.node.update(|n| n.invisible = on);
+        tracing::info!("{} is {}", self.user.handle, if on { "invisible" } else { "visible" });
+        Ok(())
+    }
+
     /// Show node messages that have arrived (`nodeRead` for `nd_msg`).
     pub fn show_node_messages(&mut self) {
         for ev in self.node.take(false) {
@@ -99,7 +122,7 @@ impl Session {
         let to = want.parse::<usize>().ok().or_else(|| nodes.find_user(&want));
         let online = nodes.online();
         let Some((n, info)) = to.and_then(|n| online.into_iter().find(|(m, _)| *m == n)) else { return Ok(()) };
-        if n == self.node.number() || info.user.is_empty() {
+        if n == self.node.number() || info.user.is_empty() || (info.invisible && !self.is_sysop()) {
             return Ok(());
         }
         let s = self.strings().fmt("NodeUserOn", &[&n.to_string(), &info.user, info.transport]);
@@ -175,7 +198,11 @@ impl Session {
                         if matches!(cmd.as_deref(), Some("quit" | "exit" | "bye" | "q")) {
                             break;
                         }
-                        if !text.trim().is_empty() && cmd.is_none() {
+                        if text.trim().is_empty() || text.starts_with('/') {
+                            for l in self.chat_command(&me, text.trim()) {
+                                self.chat_out(&layout, &mut lines, &l);
+                            }
+                        } else {
                             let said = self.strings().fmt("MNCyouspeak", &[&me.1, &text]);
                             self.chat_out(&layout, &mut lines, &said);
                             nodes.send_all(me.0, NodeEvent::Chat { from: me.0, user: me.1.clone(), text });
@@ -201,6 +228,8 @@ impl Session {
                     NodeEvent::Chat { user, text, .. } => self.strings().fmt("MNCtheyspeak", &[&user, &text]),
                     NodeEvent::ChatJoin { user } => self.strings().fmt("MNCenterchat", &[&user]),
                     NodeEvent::ChatPart { user } => self.strings().fmt("MNCquitchat", &[&user]),
+                    NodeEvent::ChatAction { user, text } => self.strings().fmt("MNCaction", &[&user, &text]),
+                    NodeEvent::ChatPrivate { user, text, .. } => self.strings().fmt("MNCprivate", &[&user, &text]),
                     NodeEvent::Message { from, user, text, broadcast } => {
                         let name = if broadcast { "NodeBCreceived" } else { "NodeMsgReceived" };
                         format!("{}{text}", self.strings().fmt(name, &[&user, &from.to_string()]))
@@ -233,6 +262,52 @@ impl Session {
         Ok(())
     }
 
+    /// A line typed in chat that starts with `/` (or nothing: who's here).
+    /// 2.0's commands: `/help`, `/who` (everyone on the BBS), `/me`,
+    /// `/msg user text` (to someone in chat), `/page user text` (to someone
+    /// anywhere). Returns the lines to show.
+    fn chat_command(&mut self, me: &(usize, String), text: &str) -> Vec<String> {
+        let nodes = self.node.nodes().clone();
+        let sysop = self.is_sysop();
+        let online: Vec<_> = nodes.online().into_iter().filter(|(n, i)| !i.user.is_empty() && (!i.invisible || sysop || *n == me.0)).collect();
+        let (cmd, rest) = text.split_once(' ').map_or((text, ""), |(c, r)| (c, r.trim()));
+        let s = self.strings();
+        match cmd.to_ascii_lowercase().as_str() {
+            "" => {
+                let here: Vec<&str> = online.iter().filter(|(_, i)| i.in_chat).map(|(_, i)| i.user.as_str()).collect();
+                vec![s.fmt("MNCinChat", &[&here.join(", ")])]
+            }
+            "/who" | "/w" => online.iter().map(|(n, i)| s.fmt("MNCwho", &[&n.to_string(), &i.user, &i.activity])).collect(),
+            "/me" if !rest.is_empty() => {
+                nodes.send_all(me.0, NodeEvent::ChatAction { user: me.1.clone(), text: rest.to_string() });
+                vec![s.fmt("MNCaction", &[&me.1, rest])]
+            }
+            c @ ("/msg" | "/page") if !rest.is_empty() => {
+                let chat = c == "/msg";
+                // Handles can have spaces: the longest one the line starts with.
+                let to = online
+                    .iter()
+                    .filter(|(n, i)| *n != me.0 && (!chat || i.in_chat))
+                    .filter(|(_, i)| {
+                        rest.len() > i.user.len()
+                            && rest.is_char_boundary(i.user.len())
+                            && rest[..i.user.len()].eq_ignore_ascii_case(&i.user)
+                            && rest[i.user.len()..].starts_with(' ')
+                    })
+                    .max_by_key(|(_, i)| i.user.len());
+                let Some((n, info)) = to else { return vec![s.get("MNCnotFound").to_string()] };
+                let msg = rest[info.user.len()..].trim().to_string();
+                let ev = if chat {
+                    NodeEvent::ChatPrivate { from: me.0, user: me.1.clone(), text: msg.clone() }
+                } else {
+                    NodeEvent::Message { from: me.0, user: me.1.clone(), text: msg.clone(), broadcast: false }
+                };
+                if nodes.send(*n, ev) { vec![s.fmt("MNCprivateSent", &[&info.user, &msg])] } else { vec![s.get("MNCnotFound").to_string()] }
+            }
+            _ => ["MNChelp1", "MNChelp2", "MNChelp3", "MNChelp4"].iter().map(|k| s.get(k).to_string()).collect(),
+        }
+    }
+
     /// Draw NODECHAT (its `~TL`/`~BL` mark the conversation, `~SI`/`~EI`
     /// the input line), or a plain screen without it.
     async fn chat_screen(&mut self) -> io::Result<ChatLayout> {
@@ -259,7 +334,8 @@ impl Session {
     /// scrolls away (`ncOut`).
     fn chat_out(&mut self, l: &ChatLayout, lines: &mut Vec<String>, text: &str) {
         let height = (l.bottom - l.top + 1) as usize;
-        for line in wrap(text, 79) {
+        // Chat lines are all colour-only anyway; markers would just be counted.
+        for line in wrap(&iniquity_term::codes::unlit(text), 79) {
             if lines.len() >= height {
                 let keep = lines.split_off(height / 2 + 1);
                 *lines = keep;

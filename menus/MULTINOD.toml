@@ -49,3 +49,12 @@ desc = "Broadcast message"
 help = "[sysop] Broadcast a message to everyone currently online"
 on = "|B1Broadcast message"
 off = "|B0Broadcast message"
+
+[[command]]
+keys = "I"
+command = "XI"
+acs = "s250"
+desc = "Invisible"
+help = "Hide from (or show to) the other callers"
+on = "|B1Invisible"
+off = "|B0Invisible"

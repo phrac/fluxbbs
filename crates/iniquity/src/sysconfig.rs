@@ -306,6 +306,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('M', "No description", 40, "Shown for files without a description.", Text(|c| &mut c.files.no_description, TEXT.max(80))),
             set('N', "Wrap descriptions", 3, "Continue long descriptions on the lister's next page?", Bool(|c| &mut c.files.wrap_descriptions)),
             set('O', "Advance on flag", 3, "Move the lister's bar down after flagging a file?", Bool(|c| &mut c.files.advance_bar_on_flag)),
+            set('P', "DIZ lines", 2, "Most lines of an imported description to keep (0: all).", Num(|c| c.files.max_import_lines as u64, |c, v| c.files.max_import_lines = v as u16, 0, 20)),
         ]),
     ]
 }

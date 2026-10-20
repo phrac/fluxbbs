@@ -52,9 +52,9 @@ pub fn from_char(c: char) -> u8 {
         .unwrap_or(b'?')
 }
 
-/// Encode a Rust string as CP437 bytes.
+/// Encode a Rust string as CP437 bytes (dropping `codes::lit` markers).
 pub fn encode(s: &str) -> Vec<u8> {
-    s.chars().map(from_char).collect()
+    s.chars().filter(|&c| c != crate::codes::LIT_OPEN && c != crate::codes::LIT_CLOSE).map(from_char).collect()
 }
 
 /// Decode CP437 bytes to a Rust string (glyph forms for control bytes).

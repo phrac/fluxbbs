@@ -234,3 +234,13 @@ desc = "AI chat"
 help = "Chat with the board's AI (for callers the SysOp has let in)"
 on = "|B1AI chat"
 off = "|B0AI chat"
+
+[[command]]
+keys = "V"
+command = "-/"
+param = "VOTING"
+acs = "s50"
+desc = "Voting booth"
+help = "Vote on questions, see results, add your own"
+on = "|B1Voting booth"
+off = "|B0Voting booth"

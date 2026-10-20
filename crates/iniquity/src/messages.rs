@@ -733,7 +733,7 @@ impl Session {
                 self.say("MsgAskWhoTo").await?;
                 let name = if to.is_empty() {
                     let default = if a.is_email() { "" } else { "All" };
-                    let s = self.read_string(ReadOpts::new(36).prefill(default)).await?;
+                    let s = self.read_string(ReadOpts::new(36).prefill(default).complete_users()).await?;
                     self.newline();
                     s
                 } else {
@@ -953,9 +953,11 @@ impl Session {
         } else {
             vec![if num == 0 { self.user.cur_msg_area } else { num }.clamp(1, total)]
         };
+        // A scan of all areas leaves out those taken out with `ME`.
+        let off = if all { self.scan_off('M') } else { Default::default() };
         for n in areas {
             let Some(a) = self.msg_area(n) else { continue };
-            if !self.acs(&a.area.acs) {
+            if !self.acs(&a.area.acs) || off.contains(a.key()) {
                 continue;
             }
             let count = self.state.msgs.count(a.key()).map_err(io_err)?.to_string();
@@ -998,10 +1000,16 @@ impl Session {
         Ok(())
     }
 
-    /// `maSetPointerDate` (`MS`).
+    /// `maSetPointerDate` (`MS`). Starts from the date the pointer is at
+    /// in this area (2.20), or the last call.
     pub async fn set_pointer_date(&mut self) -> io::Result<()> {
         self.say("MsgAskPointer").await?;
-        let s = self.read_string(ReadOpts::new(8).allowed("0123456789/")).await?;
+        let at = self.current_area().and_then(|a| {
+            let last = self.state.msgs.lastread(self.user.id, a.key()).ok()?;
+            self.state.msgs.get(a.key(), last).ok().flatten().map(|m| m.posted.date())
+        });
+        let cur = crate::user::fmt_date(at.or(self.user.last_call));
+        let s = self.read_string(ReadOpts::new(8).allowed("0123456789/").prefill(cur)).await?;
         self.newline();
         let Some(date) = parse_date(&s) else { return Ok(()) };
         let when = date.and_hms_opt(0, 0, 0).unwrap_or_default();

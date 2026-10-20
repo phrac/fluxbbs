@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use chrono::{Datelike, Local, Timelike};
 use iniquity_term::codes::{resize, squish};
-use iniquity_term::{Charset, Color, Control, Screen, Slot, Source, Token, cp437, tokenize};
+use iniquity_term::{Charset, Color, Control, Screen, Slot, Source, Token, cp437, tokenize, tokenize_str, tokenize_user};
 use rand::RngExt;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
 use tokio::sync::watch;
@@ -125,6 +125,8 @@ pub struct Session {
     pub batch: Vec<(u32, u32)>,
     /// The caller applied as a new user on this call.
     pub new_user: bool,
+    /// `XI` in the matrix: this call stays out of the callers list.
+    pub hidden_call: bool,
     /// `~XX` / `^NN` markers from the last displayed file: (x, y, colour).
     pub positions: HashMap<[u8; 2], (u16, u16, Color)>,
     pub positions2: HashMap<u8, (u16, u16, Color)>,
@@ -290,6 +292,7 @@ impl Session {
             saved_color: Color::DEFAULT,
             time_on: Instant::now(),
             logged_in: false,
+            hidden_call: false,
             hangup: false,
             menu: MenuState::default(),
             input_string: String::new(),
@@ -368,6 +371,7 @@ impl Session {
             weekday: now.weekday().num_days_from_sunday(),
             minute_of_day: now.hour() * 60 + now.minute(),
             ratio_ok: ratio >= level_req,
+            node: self.node.number() as u32,
         };
         acs::check(expr, &env)
     }
@@ -446,19 +450,24 @@ impl Session {
         if let Some(cmd) = s.strip_prefix("%!") {
             return Box::pin(self.script_command(cmd)).await;
         }
-        let mut bytes = cp437::encode(s);
-        let align = match bytes.get(..2) {
-            Some(b"%|") => Some(true),
-            Some(b"%>") => Some(false),
-            _ => None,
+        let (align, s) = match s.get(..2) {
+            Some("%|") => (Some(true), &s[2..]),
+            Some("%>") => (Some(false), &s[2..]),
+            _ => (None, s),
         };
+        // Caller-typed parts (`lit`) keep only their colour codes.
+        let toks = tokenize_str(s, Source::String);
         if let Some(center) = align {
-            bytes.drain(..2);
-            let len = self.visible_len(&bytes) as u16;
+            let len = self.tokens_len(&toks) as u16;
             let col = if center { (80u16.saturating_sub(len) / 2).clamp(1, 39) } else { 80u16.saturating_sub(len).max(1) };
             self.screen.pos_x(col);
         }
-        self.display(&bytes, Source::String, None, false).await
+        let mut st = DisplayState::default();
+        for tok in toks {
+            self.display_token(tok, Source::String, None, &mut st).await?;
+        }
+        self.display_end(st);
+        Ok(())
     }
 
     /// `oStrLn`.
@@ -481,8 +490,11 @@ impl Session {
 
     /// Visible width of text with display codes in it.
     pub fn visible_len(&self, bytes: &[u8]) -> usize {
-        tokenize(bytes, Source::String)
-            .iter()
+        self.tokens_len(&tokenize(bytes, Source::String))
+    }
+
+    fn tokens_len(&self, toks: &[Token]) -> usize {
+        toks.iter()
             .map(|t| match t {
                 Token::Text(b) => b.len(),
                 Token::Mci(c) => self.mci_value(*c).map_or(3, |v| v.chars().count()),
@@ -598,18 +610,16 @@ impl Session {
         }
     }
 
-    /// `oStrCtr`: text with `|XX` codes only. Interactive codes are skipped.
+    /// `oStrCtr`: text with `|XX` colour codes only. It shows what callers
+    /// typed, where cursor moves and clears would wreck other screens (2.0
+    /// fixed "'|XX' would kill multinode chat").
     pub(crate) fn write_with_controls(&mut self, s: &str) {
-        for tok in tokenize(&cp437::encode(s), Source::String) {
+        for tok in tokenize_user(&cp437::encode(s)) {
             match tok {
                 Token::Ctrl(c) => {
                     self.control_now(c);
                 }
                 Token::Text(b) => self.screen.write_bytes(&b),
-                Token::Mci(code) => {
-                    self.screen.write_bytes(b"%");
-                    self.screen.write_bytes(&code);
-                }
                 _ => {}
             }
         }
@@ -639,6 +649,7 @@ impl Session {
             Control::SaveCursor => self.screen.save_cursor(),
             Control::RestoreCursor => self.screen.restore_cursor(),
             Control::Newline => self.screen.newline(),
+            Control::PauseCtl => {}
             Control::Delay(_) | Control::PromptKey | Control::ReadKey | Control::Pause | Control::StockArt => return false,
         }
         true
@@ -743,6 +754,11 @@ impl Session {
     /// `highlight`). None if the screens don't exist; callers then fall
     /// back to plain text.
     pub async fn repeat_begin(&mut self, prefix: &str, highlight: bool) -> io::Result<Option<Repeat>> {
+        self.repeat_begin_with(prefix, highlight, &Waves::new()).await
+    }
+
+    /// [`Self::repeat_begin`] with values for TOP's `~XX` codes.
+    pub async fn repeat_begin_with(&mut self, prefix: &str, highlight: bool, top_waves: &Waves) -> io::Result<Option<Repeat>> {
         let has = |s: &Self, part: &str| s.text_file_exists(&format!("{prefix}{part}"));
         if !(has(self, "TOP") && has(self, "MID") && has(self, "BOT")) {
             return Ok(None);
@@ -752,7 +768,7 @@ impl Session {
         let top = self.read_text_file(&format!("{prefix}TOP")).await?.unwrap_or_default();
         let bot = self.read_text_file(&format!("{prefix}BOT")).await?.unwrap_or_default();
         let bot_lines = (bot.iter().filter(|&&b| b == b'\n').count() as u16).max(1);
-        self.show_file(&format!("{prefix}TOP")).await?;
+        self.show_file_with(&format!("{prefix}TOP"), top_waves).await?;
         self.goto_pos(*b"TL");
         // Count the screen from the top if the file cleared it; otherwise
         // (it carries on below whatever was there) just its own lines, as

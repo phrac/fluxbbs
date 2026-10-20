@@ -89,7 +89,49 @@ CREATE TABLE IF NOT EXISTS script_data (
     value     TEXT NOT NULL,
     PRIMARY KEY (script, key)
 );
+CREATE TABLE IF NOT EXISTS vote_questions (
+    id        INTEGER PRIMARY KEY,
+    text      TEXT NOT NULL,
+    author    TEXT NOT NULL,
+    user_add  INTEGER NOT NULL,
+    created   TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS vote_answers (
+    id        INTEGER PRIMARY KEY,
+    question  INTEGER NOT NULL,
+    text      TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS votes (
+    user_id   INTEGER NOT NULL,
+    question  INTEGER NOT NULL,
+    answer    INTEGER NOT NULL,
+    PRIMARY KEY (user_id, question)
+);
+CREATE TABLE IF NOT EXISTS scan_off (
+    user_id   INTEGER NOT NULL,
+    kind      TEXT NOT NULL,
+    area      TEXT NOT NULL,
+    PRIMARY KEY (user_id, kind, area)
+);
 ";
+
+/// A voting booth question (2.0).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Question {
+    pub id: i64,
+    pub text: String,
+    pub author: String,
+    /// Callers may add answers of their own.
+    pub user_add: bool,
+    pub answers: Vec<Answer>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct Answer {
+    pub id: i64,
+    pub text: String,
+    pub votes: u32,
+}
 
 /// What a day (or all time) counted.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -236,22 +278,7 @@ impl SysData {
 
     /// All-time totals: imported base plus our history.
     pub fn totals(&self) -> anyhow::Result<Counts> {
-        let db = self.db.lock().unwrap();
-        let sum = history_sum(&db)?;
-        let base = db
-            .query_row("SELECT *, 0 AS new_users FROM totals_base WHERE id = 1", [], counts)
-            .optional()?
-            .unwrap_or_default();
-        Ok(Counts {
-            calls: sum.calls + base.calls,
-            new_users: sum.new_users,
-            posts: sum.posts + base.posts,
-            email: sum.email + base.email,
-            uploads: sum.uploads + base.uploads,
-            downloads: sum.downloads + base.downloads,
-            upload_kb: sum.upload_kb + base.upload_kb,
-            download_kb: sum.download_kb + base.download_kb,
-        })
+        totals(&self.db.lock().unwrap())
     }
 
     /// Import STATS.DAT totals (those already in imported history are
@@ -313,14 +340,20 @@ impl SysData {
 
     // ---- callers ----------------------------------------------------------
 
-    pub fn add_call(&self, c: &Call) -> anyhow::Result<()> {
+    /// `callAdd` for a call starting now: count it today and number it,
+    /// under one lock so two nodes logging on together get different
+    /// numbers (2.0 fixed "caller list numbering with multinode").
+    pub fn log_call(&self, mut c: Call) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
-        db.execute(
-            "INSERT INTO callers (call_num, user_id, handle, location, at, new_user, area_code, transport)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![c.call_num as i64, c.user_id, c.handle, c.location, c.at, c.new_user, c.area_code, c.transport],
-        )?;
-        Ok(())
+        let day = c.at.date();
+        db.execute("INSERT OR IGNORE INTO history (date) VALUES (?1)", [day])?;
+        db.execute("UPDATE history SET calls = calls + 1 WHERE date = ?1", [day])?;
+        c.call_num = totals(&db)?.calls;
+        insert_call(&db, &c)
+    }
+
+    pub fn add_call(&self, c: &Call) -> anyhow::Result<()> {
+        insert_call(&self.db.lock().unwrap(), c)
     }
 
     /// The latest `n` calls, oldest first; or all of `day`'s.
@@ -488,6 +521,94 @@ impl SysData {
         Ok(())
     }
 
+    // ---- newscan selections (2.0's `ME`/`FE`) ------------------------------
+
+    /// The areas (by file name) a user has taken out of newscans; `kind`
+    /// is `M` (messages) or `F` (files).
+    pub fn scan_off(&self, user: u32, kind: char) -> anyhow::Result<std::collections::HashSet<String>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT area FROM scan_off WHERE user_id = ?1 AND kind = ?2")?;
+        let rows = stmt.query_map(params![user, kind.to_string()], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn set_scan(&self, user: u32, kind: char, area: &str, on: bool) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        if on {
+            db.execute("DELETE FROM scan_off WHERE user_id = ?1 AND kind = ?2 AND area = ?3", params![user, kind.to_string(), area])?;
+        } else {
+            db.execute("INSERT OR IGNORE INTO scan_off (user_id, kind, area) VALUES (?1, ?2, ?3)", params![user, kind.to_string(), area])?;
+        }
+        Ok(())
+    }
+
+    /// `US`: every area back in everyone's newscans. Returns how many
+    /// selections were cleared.
+    pub fn scan_all_on(&self) -> anyhow::Result<usize> {
+        Ok(self.db.lock().unwrap().execute("DELETE FROM scan_off", [])?)
+    }
+
+    // ---- the voting booth (2.0) ---------------------------------------------
+
+    /// Every question, oldest first, with its answers and their votes.
+    pub fn questions(&self) -> anyhow::Result<Vec<Question>> {
+        let db = self.db.lock().unwrap();
+        let mut qs: Vec<Question> = db
+            .prepare("SELECT id, text, author, user_add FROM vote_questions ORDER BY id")?
+            .query_map([], |r| Ok(Question { id: r.get(0)?, text: r.get(1)?, author: r.get(2)?, user_add: r.get(3)?, answers: Vec::new() }))?
+            .collect::<Result<_, _>>()?;
+        let mut stmt = db.prepare(
+            "SELECT a.id, a.text, (SELECT COUNT(*) FROM votes v WHERE v.answer = a.id) FROM vote_answers a WHERE a.question = ?1 ORDER BY a.id",
+        )?;
+        for q in &mut qs {
+            q.answers = stmt.query_map([q.id], |r| Ok(Answer { id: r.get(0)?, text: r.get(1)?, votes: r.get(2)? }))?.collect::<Result<_, _>>()?;
+        }
+        Ok(qs)
+    }
+
+    pub fn add_question(&self, text: &str, author: &str, user_add: bool, answers: &[String]) -> anyhow::Result<i64> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        tx.execute(
+            "INSERT INTO vote_questions (text, author, user_add, created) VALUES (?1, ?2, ?3, ?4)",
+            params![text, author, user_add, chrono::Local::now().naive_local()],
+        )?;
+        let id = tx.last_insert_rowid();
+        for a in answers {
+            tx.execute("INSERT INTO vote_answers (question, text) VALUES (?1, ?2)", params![id, a])?;
+        }
+        tx.commit()?;
+        Ok(id)
+    }
+
+    pub fn add_answer(&self, question: i64, text: &str) -> anyhow::Result<i64> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT INTO vote_answers (question, text) VALUES (?1, ?2)", params![question, text])?;
+        Ok(db.last_insert_rowid())
+    }
+
+    pub fn delete_question(&self, id: i64) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction()?;
+        tx.execute("DELETE FROM votes WHERE question = ?1", [id])?;
+        tx.execute("DELETE FROM vote_answers WHERE question = ?1", [id])?;
+        tx.execute("DELETE FROM vote_questions WHERE id = ?1", [id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The answer a user gave to a question, if any.
+    pub fn my_vote(&self, user: u32, question: i64) -> anyhow::Result<Option<i64>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT answer FROM votes WHERE user_id = ?1 AND question = ?2", params![user, question], |r| r.get(0)).optional()?)
+    }
+
+    pub fn vote(&self, user: u32, question: i64, answer: i64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT OR REPLACE INTO votes (user_id, question, answer) VALUES (?1, ?2, ?3)", params![user, question, answer])?;
+        Ok(())
+    }
+
     // ---- the BBS list -----------------------------------------------------
 
     pub fn bbs_list(&self) -> anyhow::Result<Vec<Bbs>> {
@@ -540,6 +661,33 @@ impl SysData {
         self.db.lock().unwrap().execute("DELETE FROM bbslist", [])?;
         Ok(())
     }
+}
+
+fn insert_call(db: &Connection, c: &Call) -> anyhow::Result<()> {
+    db.execute(
+        "INSERT INTO callers (call_num, user_id, handle, location, at, new_user, area_code, transport)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
+        params![c.call_num as i64, c.user_id, c.handle, c.location, c.at, c.new_user, c.area_code, c.transport],
+    )?;
+    Ok(())
+}
+
+fn totals(db: &Connection) -> anyhow::Result<Counts> {
+    let sum = history_sum(db)?;
+    let base = db
+        .query_row("SELECT *, 0 AS new_users FROM totals_base WHERE id = 1", [], counts)
+        .optional()?
+        .unwrap_or_default();
+    Ok(Counts {
+        calls: sum.calls + base.calls,
+        new_users: sum.new_users,
+        posts: sum.posts + base.posts,
+        email: sum.email + base.email,
+        uploads: sum.uploads + base.uploads,
+        downloads: sum.downloads + base.downloads,
+        upload_kb: sum.upload_kb + base.upload_kb,
+        download_kb: sum.download_kb + base.download_kb,
+    })
 }
 
 #[cfg(test)]
@@ -603,6 +751,60 @@ mod tests {
         let last2: Vec<_> = sd.calls(Some(2), None).unwrap().into_iter().map(|c| c.handle).collect();
         assert_eq!(last2, ["u1", "u2"]);
         assert_eq!(sd.calls(None, Some(d("2026-10-17"))).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn logged_calls_are_counted_and_numbered() {
+        let sd = std::sync::Arc::new(SysData::open_memory().unwrap());
+        sd.set_base(None, &Counts { calls: 10, ..Counts::default() }).unwrap();
+        let threads: Vec<_> = (0..8)
+            .map(|i| {
+                let sd = sd.clone();
+                std::thread::spawn(move || {
+                    let at = "2026-10-17T10:00:00".parse().unwrap();
+                    sd.log_call(Call { call_num: 0, user_id: i, handle: String::new(), location: String::new(), at, new_user: false, area_code: String::new(), transport: "ssh".into() }).unwrap();
+                })
+            })
+            .collect();
+        threads.into_iter().for_each(|t| t.join().unwrap());
+        let mut nums: Vec<_> = sd.calls(None, None).unwrap().into_iter().map(|c| c.call_num).collect();
+        nums.sort();
+        assert_eq!(nums, (11..=18).collect::<Vec<_>>());
+        assert_eq!(sd.day(d("2026-10-17")).unwrap().calls, 8);
+    }
+
+    #[test]
+    fn voting_booth() {
+        let sd = SysData::open_memory().unwrap();
+        let q = sd.add_question("Best door?", "SysOp", true, &["LORD".into(), "TW2002".into()]).unwrap();
+        let qs = sd.questions().unwrap();
+        let (lord, tw) = (qs[0].answers[0].id, qs[0].answers[1].id);
+        sd.vote(1, q, lord).unwrap();
+        sd.vote(2, q, lord).unwrap();
+        sd.vote(2, q, tw).unwrap();
+        let usurper = sd.add_answer(q, "Usurper").unwrap();
+        sd.vote(3, q, usurper).unwrap();
+        let votes: Vec<u32> = sd.questions().unwrap()[0].answers.iter().map(|a| a.votes).collect();
+        assert_eq!(votes, [1, 1, 1]);
+        assert_eq!(sd.my_vote(2, q).unwrap(), Some(tw));
+        assert_eq!(sd.my_vote(4, q).unwrap(), None);
+        sd.delete_question(q).unwrap();
+        assert!(sd.questions().unwrap().is_empty());
+        assert_eq!(sd.my_vote(1, q).unwrap(), None);
+    }
+
+    #[test]
+    fn scan_selections() {
+        let sd = SysData::open_memory().unwrap();
+        sd.set_scan(1, 'M', "GENERAL", false).unwrap();
+        sd.set_scan(1, 'M', "GENERAL", false).unwrap();
+        sd.set_scan(1, 'F', "UTILS", false).unwrap();
+        sd.set_scan(2, 'M', "SYSOP", false).unwrap();
+        assert_eq!(sd.scan_off(1, 'M').unwrap().into_iter().collect::<Vec<_>>(), ["GENERAL"]);
+        sd.set_scan(1, 'M', "GENERAL", true).unwrap();
+        assert!(sd.scan_off(1, 'M').unwrap().is_empty());
+        assert_eq!(sd.scan_all_on().unwrap(), 2);
+        assert!(sd.scan_off(2, 'M').unwrap().is_empty());
     }
 
     #[test]

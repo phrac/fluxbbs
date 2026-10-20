@@ -58,6 +58,9 @@ escalating bans, password rules and sign-up limits.
 - AI chat that can search the web and knows its way around the board
 - A JSON feed for the board's website
 - A MeshCore radio bridge: mesh channels as message areas
+- From 2.0/2.20: the voting booth, newscan selections, message search,
+  invisible logons, chat commands, door names in the status, web file
+  lists ([details](docs/FEATURES.md#from-20-and-220))
 
 **SysOp tools:** an editor for everything (`*C`, `*U`, `*F`, `*A`,
 `*#`...), the waiting-for-caller screen, the security log, scheduled

@@ -168,7 +168,7 @@ fn trailing_codes(s: &str) -> String {
 }
 
 /// Text without its ANSI escape sequences (which take no room).
-fn strip_escapes(b: &[u8]) -> Vec<u8> {
+pub(crate) fn strip_escapes(b: &[u8]) -> Vec<u8> {
     let mut out = Vec::new();
     let mut i = 0;
     while i < b.len() {

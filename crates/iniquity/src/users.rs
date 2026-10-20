@@ -247,6 +247,21 @@ impl UserStore {
         Ok(Self { db: Mutex::new(db) })
     }
 
+    /// The first handle (alphabetically) starting with `prefix`, for tab
+    /// completion (2.0's alias completion).
+    pub fn complete(&self, prefix: &str) -> anyhow::Result<Option<String>> {
+        let db = self.db.lock().unwrap();
+        let mut pattern: String = prefix.chars().flat_map(|c| if matches!(c, '\\' | '%' | '_') { vec!['\\', c] } else { vec![c] }).collect();
+        pattern.push('%');
+        Ok(db
+            .query_row(
+                "SELECT handle FROM users WHERE handle LIKE ?1 ESCAPE '\\' AND NOT deleted ORDER BY handle COLLATE NOCASE LIMIT 1",
+                [pattern],
+                |r| r.get(0),
+            )
+            .optional()?)
+    }
+
     /// `userSearch`: by handle, real name, or user number.
     pub fn find(&self, name: &str, include_deleted: bool) -> anyhow::Result<Option<User>> {
         let name = name.trim();
@@ -339,5 +354,19 @@ mod tests {
         assert!(store.find("fiend", false).unwrap().is_none());
         assert_eq!(store.find("fiend", true).unwrap().unwrap().total_calls, 7);
         assert_eq!(store.count().unwrap(), 0);
+    }
+
+    #[test]
+    fn completes_handles() {
+        let store = UserStore::open_memory().unwrap();
+        for h in ["Zeta", "Phrac", "phreak_", "Gone"] {
+            let mut u = User { handle: h.into(), real_name: h.into(), deleted: h == "Gone", ..User::default() };
+            store.insert(&mut u).unwrap();
+        }
+        assert_eq!(store.complete("ph").unwrap().as_deref(), Some("Phrac"));
+        assert_eq!(store.complete("PHRE").unwrap().as_deref(), Some("phreak_"));
+        assert_eq!(store.complete("phreak_").unwrap().as_deref(), Some("phreak_"));
+        assert_eq!(store.complete("%").unwrap(), None);
+        assert_eq!(store.complete("Go").unwrap(), None);
     }
 }

@@ -85,6 +85,8 @@ impl Session {
             b"SO" => u.sysop_note.clone(),
             b"SR" => cfg.sysop_name.clone(),
             b"SX" => crate::user::gender_name(u.sex).into(),
+            // 2.20: minutes in the time bank.
+            b"TB" => u.bank_time.to_string(),
             b"TI" => now.format("%-I:%M%P").to_string(),
             b"TL" => self.minutes_left().to_string(),
             b"TM" => now.format("%H:%M").to_string(),
@@ -100,11 +102,13 @@ impl Session {
                     _ => ratio(t.posts as u32, t.calls as u32),
                 }
             }
-            b"DC" | b"DD" | b"DP" | b"DU" => {
+            // DN (2.20): new users today.
+            b"DC" | b"DD" | b"DN" | b"DP" | b"DU" => {
                 let d = self.state.sys.day(now.date_naive()).unwrap_or_default();
                 let v = match &code {
                     b"DC" => d.calls,
                     b"DD" => d.downloads,
+                    b"DN" => d.new_users,
                     b"DP" => d.posts,
                     _ => d.uploads,
                 };

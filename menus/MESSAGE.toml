@@ -106,3 +106,21 @@ keys = "#"
 command = "M#"
 desc = "Jump to area #"
 help = "None"
+
+[[command]]
+keys = "E"
+command = "ME"
+acs = "s25"
+desc = "Scan select"
+help = "Pick the message areas newscans look in"
+on = "|B1Scan select"
+off = "|B0Scan select"
+
+[[command]]
+keys = "B"
+command = "MO"
+acs = "s25"
+desc = "Text search"
+help = "Search messages for text, a name or a subject"
+on = "|B1Text search"
+off = "|B0Text search"

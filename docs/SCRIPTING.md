@@ -52,7 +52,7 @@ caller hangs up. Scripts get 64 MB of memory.
 | Call | Does |
 |---|---|
 | `bbs.getkey()` → string | One key: the character, or `"enter"`, `"backspace"`, `"tab"`, `"esc"`, `"up"`, `"down"`, `"left"`, `"right"`, `"home"`, `"end"`, `"pgup"`, `"pgdn"`, `"ins"`, `"del"` |
-| `bbs.input([opts])` → string | A line. `opts`: `max` (40), `default`, `upper`, `mixed`, `password`, `required`, `allowed` (the characters that may be typed) |
+| `bbs.input([opts])` → string | A line. `opts`: `max` (40), `default`, `upper`, `mixed`, `password`, `required`, `allowed` (the characters that may be typed), `complete` (tab completes a handle) |
 | `bbs.yesno([default])` → bool | Yes or no, the board's way (bars or `[Y/n]`) |
 
 ### The board
@@ -63,6 +63,7 @@ caller hangs up. Scripts get 64 MB of memory.
 | `bbs.mci(code)` → string or nil | An MCI code's value: `bbs.mci("UN")` is the caller's handle |
 | `bbs.expand(s)` → string | `s` with its `%XX` codes filled in |
 | `bbs.acs(expr)` → bool | Does the caller pass an ACS expression (`"s50&fA"`)? |
+| `bbs.inmenu(keys)` → bool | Does the current menu have a command on these keys (2.0's `isincurmenu`)? |
 | `bbs.user()` → table | The caller's record (below) |
 | `bbs.saveuser(t)` | Write changed fields back and save |
 | `bbs.log(s)` | A line in the BBS log |
@@ -133,6 +134,8 @@ restricted otherwise.
 | `menucmd[c,p]` | `bbs.menucmd(c, p)` |
 | `inputstring = x` | `bbs.menucmd("?=", x)` |
 | `logwrite[s]` | `bbs.log(s)` |
+| 2.0's `strmci`, `strnocolor`, `ascok`, `isincurmenu` | `bbs.expand`, `bbs.nocolor`, `bbs.acs`, `bbs.inmenu` |
+| 2.0's `random`, `delay`, `asciichr`, math (`sin`, `sqrt`, `logx`...) | `math.random(0, n)`, `bbs.menucmd("-D", seconds)` (or `\|DM`...`\|DS` in a `bbs.show`), `string.char`, Lua's `math` |
 | `@ str x`, `proc`, `if`/`while`/`repeat`/`for`, `goto` | `local x`, `local function`, Lua's own |
 
 Not carried over: `userload` (scripts work on the caller), the internal

@@ -129,6 +129,7 @@ description_files = [
     "FILE_ID.DIZ",
     "DESC.SDI",
 ]
+max_import_lines = 0
 no_description = "No description"
 wrap_descriptions = true
 advance_bar_on_flag = true

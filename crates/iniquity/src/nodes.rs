@@ -16,6 +16,9 @@ pub enum NodeEvent {
     Chat { from: usize, user: String, text: String },
     ChatJoin { user: String },
     ChatPart { user: String },
+    /// `/me` and `/msg` in chat (2.0).
+    ChatAction { user: String, text: String },
+    ChatPrivate { from: usize, user: String, text: String },
     /// Disconnect, after showing `text` (a forced event).
     Kick { text: String },
     /// Someone paging the SysOp on this node (`CP`), their answer, a
@@ -29,7 +32,10 @@ pub enum NodeEvent {
 
 impl NodeEvent {
     fn is_chat(&self) -> bool {
-        matches!(self, NodeEvent::Chat { .. } | NodeEvent::ChatJoin { .. } | NodeEvent::ChatPart { .. })
+        matches!(
+            self,
+            NodeEvent::Chat { .. } | NodeEvent::ChatJoin { .. } | NodeEvent::ChatPart { .. } | NodeEvent::ChatAction { .. } | NodeEvent::ChatPrivate { .. }
+        )
     }
 }
 
@@ -46,6 +52,8 @@ pub struct NodeInfo {
     pub in_chat: bool,
     /// A SysOp is logged in here (pages come to this node).
     pub sysop: bool,
+    /// Hidden from other callers' lists (`XI`, 2.0); SysOps still see it.
+    pub invisible: bool,
 }
 
 pub struct Nodes {

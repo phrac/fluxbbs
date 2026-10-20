@@ -2,7 +2,9 @@
 //! the last callers, the newest files and some totals, as JSON at
 //! `/status.json` (or `/api/status.json`). It answers GET and nothing
 //! else, never shows what a caller isn't meant to, and is rebuilt at most
-//! every few seconds however often it's asked for.
+//! every few seconds however often it's asked for. `/files.txt` and
+//! `/files.html` are the file list (2.0 made these with `iniquity fltxt`
+//! and `flhtml`): the areas a new caller could open.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -41,7 +43,7 @@ struct Board {
 struct Online {
     node: usize,
     handle: String,
-    activity: &'static str,
+    activity: String,
     via: &'static str,
 }
 
@@ -94,7 +96,11 @@ struct Today {
 }
 
 /// What a node is doing, in words a stranger may see.
-fn activity(raw: &str) -> &'static str {
+fn activity(raw: &str) -> String {
+    // A door by name (2.0: "the ability for a door name to be in the status").
+    if let Some(door) = raw.strip_prefix("Running ").filter(|d| *d != "a door") {
+        return format!("in {door}");
+    }
     if let Some(menu) = raw.strip_prefix("Menu: ") {
         return match menu.to_ascii_uppercase().as_str() {
             "MAIN" => "at the main menu",
@@ -104,18 +110,21 @@ fn activity(raw: &str) -> &'static str {
             "MULTINOD" => "seeing who's on",
             "ONELINER" | "AUTOMSG" => "reading the oneliners",
             _ => "looking around",
-        };
+        }
+        .into();
     }
     match raw {
         "Downloading" => "downloading",
         "Uploading" => "uploading",
         "Running a door" => "playing a door game",
         "Multinode chat" => "in chat",
+        "Voting" | "Adding voting question" => "in the voting booth",
         "Paging the SysOp" => "paging the sysop",
         r if r.starts_with("Chatting") => "chatting",
         r if r.starts_with("Writing") => "writing a message",
         _ => "online",
     }
+    .into()
 }
 
 /// A description's first line with words in it (FILE_ID.DIZ files often
@@ -156,7 +165,7 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
         .nodes
         .online()
         .into_iter()
-        .filter(|(_, n)| !n.user.is_empty() && (w.show_sysop || !n.sysop))
+        .filter(|(_, n)| !n.user.is_empty() && !n.invisible && (w.show_sysop || !n.sysop))
         .map(|(node, n)| Online { node, handle: shown(&n.user), activity: activity(&n.activity), via: n.transport })
         .collect();
     let last_callers = state
@@ -245,15 +254,72 @@ struct Cache {
 }
 
 /// Serve the feed on `[web] listen` until the server stops.
+/// The file list: each area a new caller could open, its checked files
+/// with size, date and description.
+fn file_list(state: &BbsState, html: bool) -> anyhow::Result<String> {
+    let esc = |s: &str| if html { s.replace('&', "&amp;").replace('<', "&lt;").replace('>', "&gt;") } else { s.to_string() };
+    let cfg = state.config();
+    let name = crate::editor::strip_codes(&cfg.bbs.name);
+    let mut out = String::new();
+    if html {
+        out += &format!(
+            "<!doctype html>\n<meta charset=\"utf-8\">\n<title>{} files</title>\n<style>body{{background:#000;color:#aaa;font:14px monospace}}h2{{color:#f5f}}b{{color:#fff}}</style>\n<h1>{}</h1>\n",
+            esc(&name),
+            esc(&name)
+        );
+    } else {
+        out += &format!("{name}\n{}\n", "=".repeat(name.chars().count()));
+    }
+    let fa = state.fareas();
+    let mut ok_at: Vec<bool> = Vec::new();
+    for (n, depth) in fa.tree() {
+        let a = &fa.areas[n as usize - 1];
+        ok_at.truncate(depth);
+        let ok = ok_at.last().copied().unwrap_or(true) && public(state, &a.acs) && a.password.is_empty();
+        ok_at.push(ok);
+        if !ok {
+            continue;
+        }
+        let files: Vec<_> = state.files.list(&a.file)?.into_iter().filter(|f| f.valid).collect();
+        let title = crate::editor::strip_codes(&a.name);
+        if html {
+            out += &format!("<h2>{}</h2>\n<pre>\n", esc(&title));
+        } else {
+            out += &format!("\n{title}\n{}\n", "-".repeat(title.chars().count()));
+        }
+        for f in &files {
+            let date = f.uploaded.or(f.date).map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
+            let size = format!("{}k", f.size.div_ceil(1024));
+            let plain = |l: &str| {
+                let l = crate::editor::strip_codes(l);
+                iniquity_term::cp437::decode(&crate::aichat::strip_escapes(&iniquity_term::cp437::encode(&l)))
+            };
+            let desc: Vec<String> = f.description.iter().map(|l| plain(l)).collect();
+            let first = desc.first().cloned().unwrap_or_default();
+            let fname = if html { format!("<b>{}</b>", esc(&f.name)) } else { f.name.clone() };
+            let pad = " ".repeat(16usize.saturating_sub(f.name.chars().count()));
+            out += &format!("{fname}{pad} {size:>8} {date:>10}  {}\n", esc(&first));
+            for l in desc.iter().skip(1) {
+                out += &format!("{:38}{}\n", "", esc(l));
+            }
+        }
+        if html {
+            out += "</pre>\n";
+        }
+    }
+    Ok(out)
+}
+
 pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     let listen = state.config().web.listen.clone();
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     tracing::info!("status feed on http://{listen}/status.json");
     let started = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
     let cache = Arc::new(Mutex::new(Cache { at: None, body: String::new() }));
+    let lists = Arc::new([Mutex::new(Cache { at: None, body: String::new() }), Mutex::new(Cache { at: None, body: String::new() })]);
     loop {
         let (mut sock, _) = listener.accept().await?;
-        let (state, cache, started) = (state.clone(), cache.clone(), started.clone());
+        let (state, cache, started, lists) = (state.clone(), cache.clone(), started.clone(), lists.clone());
         tokio::spawn(async move {
             let mut buf = vec![0u8; 4096];
             let mut got = 0;
@@ -273,8 +339,24 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
             let mut words = head.split_whitespace();
             let (method, path) = (words.next().unwrap_or(""), words.next().unwrap_or(""));
             let path = path.split('?').next().unwrap_or("");
+            let mut kind = "application/json";
             let (status, body) = if method != "GET" {
                 ("405 Method Not Allowed", String::new())
+            } else if path == "/files.txt" || path == "/files.html" {
+                let html = path.ends_with("html");
+                kind = if html { "text/html; charset=utf-8" } else { "text/plain; charset=utf-8" };
+                let slot = &lists[html as usize];
+                let fresh = slot.lock().unwrap().at.is_some_and(|t| t.elapsed() < FRESH * 6);
+                if !fresh {
+                    let st = state.clone();
+                    match tokio::task::spawn_blocking(move || file_list(&st, html)).await {
+                        Ok(Ok(body)) => *slot.lock().unwrap() = Cache { at: Some(Instant::now()), body },
+                        Ok(Err(e)) => tracing::warn!("file list: {e:#}"),
+                        Err(e) => tracing::warn!("file list: {e}"),
+                    }
+                }
+                let body = slot.lock().unwrap().body.clone();
+                if body.is_empty() { ("503 Service Unavailable", String::new()) } else { ("200 OK", body) }
             } else if path == "/status.json" || path == "/api/status.json" {
                 let fresh = cache.lock().unwrap().at.is_some_and(|t| t.elapsed() < FRESH);
                 if !fresh {
@@ -298,7 +380,7 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
             let origin = state.config().web.allow_origin.clone();
             let cors = if origin.is_empty() { String::new() } else { format!("Access-Control-Allow-Origin: {origin}\r\nVary: Origin\r\n") };
             let reply = format!(
-                "HTTP/1.1 {status}\r\nContent-Type: application/json\r\nCache-Control: no-store\r\n{cors}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
+                "HTTP/1.1 {status}\r\nContent-Type: {kind}\r\nCache-Control: no-store\r\n{cors}Content-Length: {}\r\nConnection: close\r\n\r\n{body}",
                 body.len()
             );
             let _ = sock.write_all(reply.as_bytes()).await;
@@ -318,6 +400,8 @@ mod tests {
         assert_eq!(activity("Writing a message in Private Stuff"), "writing a message");
         assert_eq!(activity("Chatting with phrac"), "chatting");
         assert_eq!(activity("something new"), "online");
+        assert_eq!(activity("Running LORD"), "in LORD");
+        assert_eq!(activity("Running a door"), "playing a door game");
     }
 
     #[test]

@@ -37,6 +37,9 @@ pub enum Control {
     Theme(u8),
     /// `|SA`: the STOCK screen (a shared header) drawn here. New.
     StockArt,
+    /// 2.20's `|PO`, `|PE`, `|PD` (pausing off for a screen, on, off).
+    /// Screens don't pause here, so they do nothing, but don't show.
+    PauseCtl,
 }
 
 impl Control {
@@ -76,6 +79,7 @@ impl Control {
             (b'P', b'A') => PromptKey,
             (b'P', b'K') => ReadKey,
             (b'P', b'S') => Pause,
+            (b'P', b'O' | b'E' | b'D') => PauseCtl,
             (b'S', b'A') => StockArt,
             (b'S', b'C') => SaveCursor,
             (b'U', b'0'..=b'9') => Theme(b - b'0'),
@@ -151,6 +155,20 @@ pub fn tokenize(src: &[u8], source: Source) -> Vec<Token> {
             let pair = [a.to_ascii_uppercase(), b.to_ascii_uppercase()];
             match c {
                 b'|' if a == b'*' && b == b'*' => emit!(Token::SavePos, 3),
+                // 2.0's `|ZA`: everything up to `|ZB` is literal (2.20: "this
+                // should fix the display of garbled ascii art").
+                b'|' if pair == *b"ZA" => {
+                    let rest = &src[i + 3..];
+                    let end = rest.windows(3).position(|w| w[0] == b'|' && w[1].eq_ignore_ascii_case(&b'Z') && w[2].eq_ignore_ascii_case(&b'B'));
+                    let body = &rest[..end.unwrap_or(rest.len())];
+                    let body = if file { body.split(|&b| b == 0x1A).next().unwrap_or_default() } else { body };
+                    text.extend_from_slice(body);
+                    if file && body.len() < end.unwrap_or(rest.len()) {
+                        break;
+                    }
+                    i += 3 + end.map_or(rest.len(), |e| e + 3);
+                    continue;
+                }
                 b'|' => {
                     if let Some(ctl) = Control::parse([a, b]) {
                         emit!(Token::Ctrl(ctl), 3)
@@ -184,6 +202,113 @@ pub fn tokenize(src: &[u8], source: Source) -> Vec<Token> {
     }
     if !text.is_empty() {
         out.push(Token::Text(text));
+    }
+    out
+}
+
+impl Control {
+    /// Colour codes, the only ones honoured in what callers typed.
+    pub fn is_colour(self) -> bool {
+        matches!(self, Control::Fore(_) | Control::Back(_) | Control::Theme(_) | Control::SaveColor | Control::LoadColor)
+    }
+}
+
+/// Marks the start and end of caller-supplied text inside a prompt
+/// (see [`lit`]); dropped by `cp437::encode`.
+pub const LIT_OPEN: char = '\u{E000}';
+pub const LIT_CLOSE: char = '\u{E001}';
+
+/// Wrap text a caller typed so that, inside a prompt, only its colour
+/// codes work: no cursor moves, clears, pauses, positions or MCI codes,
+/// which could wreck other callers' screens.
+pub fn lit(s: &str) -> String {
+    format!("{LIT_OPEN}{s}{LIT_CLOSE}")
+}
+
+/// Text a caller typed, made safe to keep in a screen file (the stock
+/// oneliners append to ONELNMID): colour codes stay, and every other code
+/// is wrapped in `|ZA`...`|ZB`, so it shows as typed and does nothing.
+pub fn defuse(s: &str) -> String {
+    let c: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < c.len() {
+        let (a, b) = (c.get(i + 1).copied(), c.get(i + 2).copied());
+        let two = |x: Option<char>| x.is_some_and(|x| x.is_ascii_digit());
+        let code = match (c[i], a, b) {
+            ('|', Some(a), Some(b)) if a.is_ascii() && b.is_ascii() => {
+                let pair = [a as u8, b as u8];
+                let zb = pair.eq_ignore_ascii_case(b"ZB");
+                !zb && (Control::parse(pair).is_some_and(|k| !k.is_colour()) || pair == *b"**" || pair.eq_ignore_ascii_case(b"ZA"))
+            }
+            ('%', Some(a), Some(_)) => a.is_ascii_alphanumeric() || a == '@',
+            ('@' | '&' | '{' | '}' | '^', _, _) => two(a) && two(b),
+            ('~', Some(a), Some(_)) => a.is_ascii_alphanumeric() || a == '*',
+            _ => false,
+        };
+        if code {
+            out.push_str("|ZA");
+            out.extend(&c[i..i + 3]);
+            out.push_str("|ZB");
+            i += 3;
+        } else {
+            out.push(c[i]);
+            i += 1;
+        }
+    }
+    out
+}
+
+/// Drop [`lit`] markers (for text that's measured or stored, not shown).
+pub fn unlit(s: &str) -> String {
+    s.chars().filter(|&c| c != LIT_OPEN && c != LIT_CLOSE).collect()
+}
+
+/// [`tokenize`] for text a caller typed: colour codes, and everything else
+/// literal. Escape characters are dropped.
+pub fn tokenize_user(src: &[u8]) -> Vec<Token> {
+    let mut out = Vec::new();
+    let mut text = Vec::new();
+    let mut i = 0;
+    while i < src.len() {
+        let c = src[i];
+        // `defuse`'s `|ZA`/`|ZB` (everything here is literal anyway).
+        if c == b'|' && src.get(i + 1).is_some_and(|a| a.eq_ignore_ascii_case(&b'Z')) && src.get(i + 2).is_some_and(|b| b.eq_ignore_ascii_case(&b'A') || b.eq_ignore_ascii_case(&b'B')) {
+            i += 3;
+            continue;
+        }
+        if c == b'|'
+            && let (Some(&a), Some(&b)) = (src.get(i + 1), src.get(i + 2))
+            && let Some(ctl) = Control::parse([a, b]).filter(|c| c.is_colour())
+        {
+            if !text.is_empty() {
+                out.push(Token::Text(std::mem::take(&mut text)));
+            }
+            out.push(Token::Ctrl(ctl));
+            i += 3;
+            continue;
+        }
+        if c != 0x1B {
+            text.push(c);
+        }
+        i += 1;
+    }
+    if !text.is_empty() {
+        out.push(Token::Text(text));
+    }
+    out
+}
+
+/// [`tokenize`] a prompt that may hold [`lit`] sections.
+pub fn tokenize_str(s: &str, source: Source) -> Vec<Token> {
+    if !s.contains(LIT_OPEN) {
+        return tokenize(&crate::cp437::encode(s), source);
+    }
+    let mut out = Vec::new();
+    for (i, part) in s.split(LIT_OPEN).enumerate() {
+        let (user, rest) = if i == 0 { ("", part) } else { part.split_once(LIT_CLOSE).unwrap_or((part, "")) };
+        out.extend(tokenize_user(&crate::cp437::encode(user)));
+        out.extend(tokenize(&crate::cp437::encode(rest), source));
     }
     out
 }
@@ -236,6 +361,44 @@ mod tests {
     #[test]
     fn non_codes_stay_literal() {
         assert_eq!(tokenize(b"a|zz 50% @x", Source::String), vec![Text(b"a|zz 50% @x".to_vec())]);
+    }
+
+    #[test]
+    fn za_to_zb_is_literal() {
+        assert_eq!(
+            tokenize(b"|15a|ZA|CS %UN @10|zb|07b", Source::String),
+            vec![Ctrl(Control::Fore(15)), Text(b"a|CS %UN @10".to_vec()), Ctrl(Control::Fore(7)), Text(b"b".to_vec())]
+        );
+        assert_eq!(tokenize(b"|ZA~XX|CS", Source::File), vec![Text(b"~XX|CS".to_vec())]);
+        assert_eq!(tokenize(b"|ZAart\x1aSAUCE", Source::File), vec![Text(b"art".to_vec())]);
+        assert_eq!(Control::parse(*b"PO"), Some(Control::PauseCtl));
+    }
+
+    #[test]
+    fn defused_text_shows_as_typed() {
+        let typed = "|12red |CS|PS@10 %UN ~XX ^03 &05 100% e@mail |ZB|ZA";
+        let d = defuse(typed);
+        let shown: Vec<Token> = tokenize(d.as_bytes(), Source::File);
+        let text: Vec<u8> = shown.iter().flat_map(|t| if let Text(b) = t { b.clone() } else { Vec::new() }).collect();
+        assert_eq!(shown[0], Ctrl(Control::Fore(12)));
+        assert!(shown[1..].iter().all(|t| matches!(t, Text(_))), "{shown:?}");
+        assert_eq!(String::from_utf8(text).unwrap(), &typed[3..]);
+        assert_eq!(defuse("hello"), "hello");
+        assert_eq!(tokenize_user(defuse("|04a|CS").as_bytes()), vec![Ctrl(Control::Fore(4)), Text(b"a|CS".to_vec())]);
+    }
+
+    #[test]
+    fn caller_text_keeps_only_colours() {
+        assert_eq!(
+            tokenize_user(b"|04hi|CS|PS @10%UN\x1b[2J"),
+            vec![Ctrl(Control::Fore(4)), Text(b"hi|CS|PS @10%UN[2J".to_vec())]
+        );
+        let t = tokenize_str(&format!("|U1From: {} |CS", lit("|CS|15x")), Source::String);
+        assert_eq!(
+            t,
+            vec![Ctrl(Control::Theme(1)), Text(b"From: ".to_vec()), Text(b"|CS".to_vec()), Ctrl(Control::Fore(15)), Text(b"x".to_vec()), Text(b" ".to_vec()), Ctrl(Control::ClearScreen)]
+        );
+        assert_eq!(crate::cp437::encode(&lit("a")), b"a");
     }
 
     #[test]

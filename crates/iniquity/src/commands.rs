@@ -3,7 +3,7 @@
 
 use std::io;
 
-use iniquity_term::Slot;
+use iniquity_term::{Slot, lit};
 use iniquity_term::codes::resize;
 
 use crate::input::Key;
@@ -164,6 +164,8 @@ impl Session {
                 }
             }
             "MS" => self.set_pointer_date().await?,
+            "ME" => self.scan_select(true).await?,
+            "MO" => self.msg_search(param).await?,
             "MH" => self.msg_center().await?,
             "MW" if param.eq_ignore_ascii_case("read") => {
                 self.read_all_new().await?;
@@ -189,6 +191,7 @@ impl Session {
             "FL" => self.list_files_cmd(param).await?,
             "FN" => self.file_newscan_cmd(param).await?,
             "FS" => self.set_file_scan().await?,
+            "FE" => self.scan_select(false).await?,
             "FD" => self.download(param).await?,
             "F+" => self.flag_file(param).await?,
             "FB" => self.batch_editor().await?,
@@ -243,7 +246,7 @@ impl Session {
             "!V" => self.bank_stats().await?,
             "QD" => self.qwk_download().await?,
             "QU" => self.qwk_upload().await?,
-            "D0" | "D1" | "D2" | "D3" | "D4" | "DZ" => self.door_execute(param, code.chars().nth(1).unwrap()).await?,
+            "D0" | "D1" | "D2" | "D3" | "D4" | "D7" | "DZ" => self.door_execute(param, code.chars().nth(1).unwrap()).await?,
             "IN" => self.infoforms(false).await?,
             "IM" => self.infoforms(true).await?,
             "NV" => self.nuv_vote(param.to_ascii_uppercase().contains('S')).await?,
@@ -270,10 +273,17 @@ impl Session {
             // -- users and nodes
             "UL" => self.user_list().await?,
             "UP" => self.change_password().await?,
+            "US" => self.scan_all_on().await?,
+            "VV" => self.vote_all().await?,
+            "VA" => self.vote_one().await?,
+            "VR" => self.vote_results().await?,
+            "VN" => self.vote_add().await?,
+            "VD" => self.vote_delete().await?,
             "XL" => self.node_list().await?,
             "XM" => self.node_message().await?,
             "XB" => self.node_broadcast().await?,
             "XC" => self.node_chat().await?,
+            "XI" => self.invisible(param).await?,
             "XS" => self.node_status(param),
 
             _ if NOT_YET.contains(&code.as_str()) || code.starts_with('*') => {
@@ -357,7 +367,15 @@ impl Session {
         let chars: Vec<char> = s.chars().collect();
         let mut out = String::new();
         let mut i = 0;
+        let at = |i: usize, z: char| chars.get(i) == Some(&'|') && chars.get(i + 1).is_some_and(|c| c.eq_ignore_ascii_case(&'Z')) && chars.get(i + 2).is_some_and(|c| c.eq_ignore_ascii_case(&z));
         while i < chars.len() {
+            // `|ZA`...`|ZB` (what a caller typed, `defuse`d) stays as it is.
+            if at(i, 'A') {
+                let end = (i + 3..chars.len()).find(|&j| at(j, 'B')).map_or(chars.len(), |j| j + 3);
+                out.extend(&chars[i..end]);
+                i = end;
+                continue;
+            }
             if chars[i] == '%' && i + 2 < chars.len() {
                 let code = [chars[i + 1] as u8, chars[i + 2] as u8];
                 if chars[i + 1].is_ascii() && chars[i + 2].is_ascii()
@@ -394,8 +412,8 @@ impl Session {
             let line = format!(
                 "|U1 {} {} {} {} {}",
                 resize(&u.id.to_string(), 5),
-                resize(&u.handle, 24),
-                resize(&u.location, 21),
+                lit(&resize(&u.handle, 24)),
+                lit(&resize(&u.location, 21)),
                 resize(&u.total_calls.to_string(), 6),
                 u.level
             );
@@ -419,9 +437,11 @@ impl Session {
         self.set_slot(Slot::Border);
         self.write(&"─".repeat(60));
         self.newline();
-        for (n, info) in self.state.nodes.online() {
-            let user = if info.user.is_empty() { "(logging in)".to_string() } else { info.user };
-            let line = format!("|U1 {} |U3{}|U1 {}", resize(&n.to_string(), 5), resize(&user, 24), info.activity);
+        let (sysop, me) = (self.is_sysop(), self.node.number());
+        let online: Vec<_> = self.state.nodes.online().into_iter().filter(|(m, i)| !i.invisible || sysop || *m == me).collect();
+        for (n, info) in online {
+            let user = if info.user.is_empty() { self.strings().get("NodeLoggingIn").to_string() } else { info.user };
+            let line = format!("|U1 {} |U3{}|U1 {}", resize(&n.to_string(), 5), lit(&resize(&user, 24)), lit(&info.activity));
             self.show_line(&line).await?;
         }
         self.set_slot(Slot::Border);

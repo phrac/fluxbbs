@@ -27,6 +27,8 @@ pub struct AcsEnv {
     pub minute_of_day: u32,
     /// Post/call ratio meets the level's requirement (`Z`).
     pub ratio_ok: bool,
+    /// The node the caller is on (`N`, 2.0).
+    pub node: u32,
 }
 
 pub fn check(expr: &str, env: &AcsEnv) -> bool {
@@ -123,6 +125,7 @@ impl Parser<'_> {
             'F' => e.flags.contains(&self.letter_arg()),
             'G' => e.sex.to_ascii_uppercase() == self.letter_arg(),
             'H' => e.hour >= self.number(),
+            'N' => e.node == self.number(),
             'K' => {
                 let start = self.i;
                 while self.peek().is_some_and(|c| c.is_ascii_digit()) {
@@ -185,6 +188,8 @@ mod tests {
         assert!(!check("(s255|fb)&gf", &e));
         assert!(check("!(s255)&t30&v", &e));
         assert!(!check("t31", &e));
+        let on2 = AcsEnv { node: 2, ..env() };
+        assert!(check("n2", &on2) && !check("n1", &on2) && check("!n1", &on2));
     }
 
     #[test]
