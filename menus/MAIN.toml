@@ -192,15 +192,6 @@ on = "|B1History log"
 off = "|B0History log"
 
 [[command]]
-keys = "!"
-command = "TP"
-acs = "s50"
-desc = "Play tetris"
-help = "Play a session of Iniquity's internal Tetris game"
-on = "|B1Play tetris"
-off = "|B0Play tetris"
-
-[[command]]
 keys = "%"
 command = "NV"
 param = "Show"
@@ -218,15 +209,6 @@ desc = "Change password"
 help = "Change your current password to something else [verifcation required]"
 on = "|B1Change password"
 off = "|B0Change password"
-
-[[command]]
-keys = "/!"
-command = "TS"
-acs = "s50"
-desc = "Tetris scores"
-help = "Display Tetris high-scores listing"
-on = "|B1Tetris scores"
-off = "|B0Tetris scores"
 
 [[command]]
 keys = "T"
