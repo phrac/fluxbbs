@@ -36,7 +36,7 @@ on port 2222, telnet on 23, logs in `docker logs iniquity`.
 **Connections:** SSH and telnet, CP437 and UTF-8 terminals, 24-bit
 colour, nodes, node messages, multinode chat, paging the SysOp.
 
-**Keeping bots out:** a key-combination bot check, per-address limits,
+**Keeping bots out:** a picture bot check (characters drawn in colour, not text), per-address limits,
 escalating bans, password rules and sign-up limits.
 
 **The board**

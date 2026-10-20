@@ -63,7 +63,8 @@ git: copy `data/` and `files/` across if the board should move with you.
   `~/code/disflux_bbs`, outside the repo, with its own `iniquity.toml`,
   `data/`, `files/` and `text/` (their screens; `art/` holds the
   originals), using the repo's `text/` as `stock_text` and its menus as
-  `stock_menus` (the board's own `menus/` has just MATRIX.toml). Many of
+  `stock_menus` (the board's own `menus/` has MATRIX.toml and the
+  lightbar menus `art/mainmenu-gen.py` writes beside each menu screen). Many of
   its screens are generated from their art by `art/*-gen.py` (menus,
   lists including last callers, USERSTAT, PRELOGON, MATRIX, WELCOME, AICHAT;
   each says how to run it):
@@ -117,7 +118,8 @@ Each step is `regex=>keys`: wait for the regex in the de-ANSI'd output, then
 send. `CPR=1` answers cursor position requests as a terminal does and
 `READ_BPS=n` reads the output at n bytes a second (a slow link); either
 adds timestamps to the steps. `opt:` makes a step optional, `long:`
-waits 45s, `@solve` passes the bot check, `!cmd` runs a program on the connection (e.g. `rz`/`sz` for
+waits 45s, `@solve` passes the bot check (the picture one through
+`tools/botsolve.py`, which reads the font from `challenge.rs`), `!cmd` runs a program on the connection (e.g. `rz`/`sz` for
 Zmodem), and keys understand `\r`, `\e`, `{UP}`/`{DOWN}`/`{LEFT}`/`{RIGHT}`,
 `\!` for a literal `!`. `RAW_OUT=file` saves the raw output;
 `tools/ansi2png.py` renders it to check layouts.

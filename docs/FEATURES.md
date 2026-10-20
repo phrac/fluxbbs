@@ -22,7 +22,10 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   online, the caller is offered email instead.
 
 **Keeping bots out**
-- Key-combination bot check before anything else, on SSH and telnet.
+- Bot check before anything else, on SSH and telnet (new): three big
+  characters drawn with background colour in a field of noise, to be
+  typed; a person reads them, a script reading the text sees noise
+  (SYSOP.md). The key-combination check is still there as an option.
 - Per-address connection limits, bans for repeated failures (doubling,
   up to a day), allow and deny lists, a short idle limit before login.
 - Bans and failures are kept in the database: bans survive a restart,

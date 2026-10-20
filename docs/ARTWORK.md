@@ -33,6 +33,9 @@ menu with a different line on it each time.
 
 ## First impression (every caller sees these)
 
+- [ ] `BOTCHECK`: the bot check, before anything else. `~BC` marks the
+      top left of the 40x9 field the characters are drawn in, `~BP`
+      where the answer is typed (the line above it takes "try again")
 - [x] `PRELOGON`: splash screen before login
 - [x] `MATRIX`: pre-login menu
 - [x] `WELCOME`: after login

@@ -4,7 +4,8 @@ Configuration, security and the SysOp's side of things.
 
 ## Setting up
 
-Every caller first passes a short bot check (press the keys shown). The
+Every caller first passes a short bot check (type the three characters
+shown). The
 stock SysOp account is `SysOp` / `SYSOP`, with system password `SYSTEM`
 (asked of SL 250+). New callers pick "apply as new" on the matrix menu
 or type `new` at the login prompt.
@@ -102,11 +103,19 @@ directory (the importer says where).
 
 `[security]` in `iniquity.toml`, or the Security section of `*C`:
 
-- **Bot check**: every caller first presses a random combination of keys
-  shown on screen (3 keys, 30 seconds, 3 goes by default). The keys are
-  drawn out of order with cursor moves, so a script reading the byte
-  stream doesn't see them in sequence. Its prompts are strings
-  (`BotCheck...`), editable with `*E`.
+- **Bot check**: every caller first types three big characters drawn
+  on screen (30 seconds, 3 goes by default). They're drawn with
+  background colour in a field of noise made of the same symbols inside
+  and out, so a script reading the text (even through a terminal
+  emulator) sees only noise; the colours change each time, the
+  characters shift and are speckled, the field is drawn in shuffled
+  pieces, an invisible decoy in the old "press these keys" form comes
+  first, and an answer in under 0.6 seconds is wrong. A `BOTCHECK`
+  screen can frame it: `~BC` marks the field's top left (40x9) and `~BP`
+  the answer; without one there's a plain frame. "Picture check" off
+  (`challenge_visual = false`) goes back to pressing keys written out
+  (`challenge_keys` of them), drawn out of order with cursor moves. The
+  prompts are strings (`BotCheck...`), editable with `*E`.
 - **Limits per address**: 2 connections at once and 6 new ones a minute.
 - **Bans**: 3 failed bot checks or passwords ban the address for 15
   minutes; each later ban doubles, up to a day. Banned addresses are

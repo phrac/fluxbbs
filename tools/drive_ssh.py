@@ -34,7 +34,25 @@ def pump(t):
             if read_bps: time.sleep(0.1)
     return True
 def solve(wrong=False):
-    """Read the bot check like a terminal would: replay cursor moves."""
+    """Read the bot check like a terminal would: replay cursor moves.
+    The picture check (three big characters in colour) goes to botsolve."""
+    # Let the screen finish arriving.
+    end, size = time.time() + 5, -1
+    while len(raw) != size and time.time() < end:
+        size = len(raw)
+        pump(0.4)
+    start = raw.rfind(b'in order')
+    clear = raw.rfind(b'\x1b[2J')
+    if clear > start:
+        import botsolve
+        got = botsolve.solve(raw[clear:])
+        print('   picture reads as:', got)
+        if wrong: got = ''.join('Z' if c != 'Z' else 'Y' for c in got)
+        time.sleep(0.8)
+        for k in got:
+            os.write(fd, k.encode())
+            time.sleep(0.15)
+        return
     b = raw[raw.rfind(b'in order'):]
     line, x, i = {}, 0, 0
     while i < len(b):

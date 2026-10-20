@@ -82,6 +82,9 @@ pub struct Security {
     pub challenge_keys: u8,
     pub challenge_seconds: u16,
     pub challenge_tries: u8,
+    /// New: the bot check as three big characters drawn in colour in a
+    /// field of noise, to be typed (else the keys to press, written out).
+    pub challenge_visual: bool,
     /// Connections from one address at once, and new ones per minute
     /// (0 = no limit).
     pub max_per_ip: u32,
@@ -106,6 +109,7 @@ impl Default for Security {
             challenge_keys: 3,
             challenge_seconds: 30,
             challenge_tries: 3,
+            challenge_visual: true,
             max_per_ip: 2,
             max_per_minute: 6,
             fail_limit: 3,
