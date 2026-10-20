@@ -407,6 +407,58 @@ impl MsgBase {
     pub fn all(&self, area: &str) -> anyhow::Result<Vec<Message>> {
         self.range(area, 1, u32::MAX)
     }
+
+    /// New: what the public messages (not private, not deleted) in `areas`
+    /// add up to, for the message menu's codes; `since` is where "loudest"
+    /// starts counting.
+    pub fn stats(&self, areas: &[String], since: NaiveDateTime) -> anyhow::Result<MsgStats> {
+        let mut s = MsgStats::default();
+        if areas.is_empty() {
+            return Ok(s);
+        }
+        let db = self.db.lock().unwrap();
+        let w = format!("NOT deleted AND NOT private AND area IN ({})", vec!["?"; areas.len()].join(","));
+        let p = rusqlite::params_from_iter(areas);
+        s.total = db.query_row(&format!("SELECT COUNT(*) FROM messages WHERE {w}"), p.clone(), |r| r.get(0))?;
+        let one = |sql: String| db.query_row(&sql, p.clone(), from_row).optional();
+        s.newest = one(format!("SELECT * FROM messages WHERE {w} ORDER BY posted DESC, id DESC LIMIT 1"))?;
+        s.hot = one(format!("SELECT * FROM messages WHERE {w} AND replies > 0 ORDER BY replies DESC, posted DESC LIMIT 1"))?;
+        s.random = db.prepare(&format!("SELECT * FROM messages WHERE {w} ORDER BY RANDOM() LIMIT 20"))?.query_map(p.clone(), from_row)?.collect::<Result<_, _>>()?;
+        let with_since = || rusqlite::params_from_iter(areas.iter().map(|a| a as &dyn rusqlite::ToSql).chain([&since as &dyn rusqlite::ToSql]));
+        s.loudest = db
+            .query_row(&format!("SELECT area, COUNT(*) FROM messages WHERE {w} AND posted >= ? GROUP BY area ORDER BY 2 DESC, MAX(posted) DESC LIMIT 1"), with_since(), |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        s.mouth = db
+            .query_row(
+                &format!("SELECT from_name, COUNT(*) FROM messages WHERE {w} AND NOT anonymous AND from_name <> '' GROUP BY from_name COLLATE NOCASE ORDER BY 2 DESC, MAX(posted) DESC LIMIT 1"),
+                p.clone(),
+                |r| Ok((r.get(0)?, r.get(1)?)),
+            )
+            .optional()?;
+        if let Some((who, _)) = &s.mouth {
+            let q = rusqlite::params_from_iter(areas.iter().map(|a| a as &dyn rusqlite::ToSql).chain([who as &dyn rusqlite::ToSql]));
+            s.mouth_latest = db
+                .query_row(&format!("SELECT * FROM messages WHERE {w} AND NOT anonymous AND from_name = ? COLLATE NOCASE ORDER BY posted DESC, id DESC LIMIT 1"), q, from_row)
+                .optional()?;
+        }
+        Ok(s)
+    }
+}
+
+/// See [`MsgBase::stats`].
+#[derive(Clone, Debug, Default)]
+pub struct MsgStats {
+    pub total: u32,
+    pub newest: Option<Message>,
+    /// The message with the most replies.
+    pub hot: Option<Message>,
+    /// The area with the most posts lately, and how many.
+    pub loudest: Option<(String, u32)>,
+    /// The top poster (not anonymously) and their posts, and their latest.
+    pub mouth: Option<(String, u32)>,
+    pub mouth_latest: Option<Message>,
+    /// A few at random.
+    pub random: Vec<Message>,
 }
 
 #[cfg(test)]
@@ -431,6 +483,42 @@ mod tests {
             reply_to: 0,
             lines: text.split('\n').map(String::from).collect(),
         }
+    }
+
+    #[test]
+    fn stats() {
+        let mb = MsgBase::open_memory().unwrap();
+        let at = |d: u32| chrono::NaiveDate::from_ymd_opt(2026, 10, d).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        let mut a = msg("GENERAL", "All", "hello there");
+        a.posted = at(1);
+        a.replies = 2;
+        let mut b = msg("GENERAL", "All", "newest");
+        b.posted = at(19);
+        b.from.name = "phrac".into();
+        let mut c = msg("GENERAL", "All", "also new");
+        c.posted = at(18);
+        c.from.name = "phrac".into();
+        let mut d = msg("ANNOUNCE", "All", "old news");
+        d.posted = at(2);
+        let mut hidden = msg("GENERAL", "SysOp", "psst");
+        hidden.private = true;
+        hidden.posted = at(20);
+        let mut anon = msg("GENERAL", "All", "who am i");
+        anon.anonymous = true;
+        anon.from.name = "phrac".into();
+        anon.posted = at(3);
+        for m in [&mut a, &mut b, &mut c, &mut d, &mut hidden, &mut anon] {
+            mb.add(m).unwrap();
+        }
+        let s = mb.stats(&["general".into(), "announce".into()], at(10)).unwrap();
+        assert_eq!(s.total, 5);
+        assert_eq!(s.newest.unwrap().lines, ["newest"]);
+        assert_eq!(s.hot.unwrap().lines, ["hello there"]);
+        assert_eq!(s.loudest, Some(("GENERAL".into(), 2)));
+        assert_eq!(s.mouth, Some(("phrac".into(), 2)));
+        assert_eq!(s.mouth_latest.unwrap().lines, ["newest"]);
+        assert_eq!(s.random.len(), 5);
+        assert!(s.random.iter().all(|m| !m.private));
     }
 
     #[test]

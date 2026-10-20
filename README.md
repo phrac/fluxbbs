@@ -88,6 +88,7 @@ converters.
 | | |
 |---|---|
 | [FEATURES.md](docs/FEATURES.md) | Everything the port does, QWK, infoforms, AI chat, MeshCore |
+| [NEW.md](docs/NEW.md) | What's new over the original, and what changed on purpose |
 | [SYSOP.md](docs/SYSOP.md) | Configuration, importing, security, the website feed, themes |
 | [FILES.md](docs/FILES.md) | Sub-areas, transfers, upload screening, the art gallery |
 | [DOORS.md](docs/DOORS.md) | Native doors and the built-in DOS machine |

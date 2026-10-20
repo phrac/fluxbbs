@@ -129,6 +129,8 @@ pub struct Session {
     pub hidden_call: bool,
     /// The `%F?` file stats, worked out at most once a minute.
     pub file_stats: std::cell::RefCell<Option<(Instant, std::sync::Arc<crate::filebase::FileStats>)>>,
+    /// The message menu's figures, likewise.
+    pub msg_stats: std::cell::RefCell<Option<(Instant, std::sync::Arc<crate::msgcenter::MsgFigures>)>>,
     /// `~XX` / `^NN` markers from the last displayed file: (x, y, colour).
     pub positions: HashMap<[u8; 2], (u16, u16, Color)>,
     pub positions2: HashMap<u8, (u16, u16, Color)>,
@@ -296,6 +298,7 @@ impl Session {
             logged_in: false,
             hidden_call: false,
             file_stats: Default::default(),
+            msg_stats: Default::default(),
             hangup: false,
             menu: MenuState::default(),
             input_string: String::new(),

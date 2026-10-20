@@ -75,6 +75,26 @@ impl AreaView {
     }
 }
 
+/// The message menu's figures: the message base's, what's new for the
+/// caller, and area names by key.
+#[derive(Default)]
+pub struct MsgFigures {
+    pub base: crate::msgbase::MsgStats,
+    pub unread: usize,
+    pub names: HashMap<String, String>,
+}
+
+impl MsgFigures {
+    /// The random message shown: one with words in it, if any has.
+    pub fn dig(&self) -> Option<&Message> {
+        self.base.random.iter().find(|m| !crate::mci::blurb(m.body()).is_empty()).or(self.base.random.first())
+    }
+
+    pub fn area_name(&self, key: &str) -> String {
+        self.names.get(&key.to_ascii_uppercase()).cloned().unwrap_or_default()
+    }
+}
+
 /// How the reader ended.
 #[derive(PartialEq)]
 enum ReadEnd {
@@ -128,6 +148,64 @@ impl Session {
     fn scanned_areas(&self) -> Vec<(u32, AreaRef)> {
         let off = self.scan_off('M');
         self.readable_areas().into_iter().filter(|(_, a)| !off.contains(a.key())).collect()
+    }
+
+    // ---- the message menu's figures (new) --------------------------------
+
+    /// The message menu's figures, worked out again once they're a minute
+    /// old; `shown` keeps the ones on screen however old.
+    pub(crate) fn msg_stats(&self, shown: bool) -> std::sync::Arc<MsgFigures> {
+        let cached = self.msg_stats.borrow().as_ref().filter(|(at, _)| shown || at.elapsed().as_secs() < 60).map(|(_, s)| s.clone());
+        cached.unwrap_or_else(|| {
+            let areas = self.readable_areas();
+            let keys: Vec<String> = areas.iter().filter(|(_, a)| !a.is_email()).map(|(_, a)| a.key().to_string()).collect();
+            let since = chrono::Local::now().naive_local() - chrono::Duration::days(30);
+            let base = self.state.msgs.stats(&keys, since).unwrap_or_default();
+            let unread = self.scanned_areas().iter().filter_map(|(_, a)| self.area_view(a).ok()).map(|v| v.new_count()).sum();
+            let names = areas.iter().map(|(_, a)| (a.key().to_ascii_uppercase(), a.area.name.clone())).collect();
+            let s = std::sync::Arc::new(MsgFigures { base, unread, names });
+            *self.msg_stats.borrow_mut() = Some((std::time::Instant::now(), s.clone()));
+            s
+        })
+    }
+
+    /// `MX` (new), from the message menu's figures: `newest`, `hot`, `dig`
+    /// or `mouth` (the top poster's latest) opens that message in its
+    /// thread; `loud` the loudest area's threads; `unread` reads
+    /// everything new.
+    pub async fn msg_jump(&mut self, param: &str) -> io::Result<()> {
+        let f = self.msg_stats(true);
+        let what = param.trim().to_ascii_lowercase();
+        if what == "unread" {
+            if self.read_all_new().await? == 0 {
+                self.newline();
+                self.say_line("MsgNothingNew").await?;
+            }
+            return Ok(());
+        }
+        let areas: Vec<AreaRef> = self.readable_areas().into_iter().map(|(_, a)| a).collect();
+        let find = |key: &str| areas.iter().find(|a| a.key().eq_ignore_ascii_case(key)).cloned();
+        if what == "loud" {
+            let Some(a) = f.base.loudest.as_ref().and_then(|(key, _)| find(key)) else { return Ok(()) };
+            if self.change_area(a.num).await? {
+                self.thread_list(&a).await?;
+            }
+            return Ok(());
+        }
+        let m = match what.as_str() {
+            "newest" => f.base.newest.as_ref(),
+            "hot" => f.base.hot.as_ref(),
+            "dig" => f.dig(),
+            "mouth" => f.base.mouth_latest.as_ref(),
+            _ => None,
+        };
+        let Some((m, a)) = m.and_then(|m| find(&m.area).map(|a| (m, a))) else { return Ok(()) };
+        let v = self.area_view(&a)?;
+        let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.num)) else { return Ok(()) };
+        let seq: Vec<u32> = t.msgs.iter().map(|&(n, _)| n).collect();
+        let at = seq.iter().position(|&n| n == m.num).unwrap_or(0);
+        self.read_seq(&a, &seq, at).await?;
+        Ok(())
     }
 
     // ---- the message centre ---------------------------------------------

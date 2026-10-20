@@ -90,6 +90,15 @@ Replaced by a value. An unknown `%XX` is shown as it is in prompts, and dropped 
 | `%FK` `%FQ` | the top uploader / how many files |
 | `%FR` `%FV` | a file at random / the first line of its description with words in it |
 
+| The message base (new; public messages in the areas the caller can read, worked out once a minute) | |
+|---|---|
+| `%MG` `%MY` | messages / new for the caller (in their newscan areas) |
+| `%MB` `%MF` `%MD` `%MK` | the newest post's subject / author / how long ago / area |
+| `%MH` `%MR` | the most replied-to post / its replies |
+| `%ML` `%MQ` | the loudest area of the last 30 days / its posts |
+| `%MC` `%MX` | the top poster (not counting anonymous posts) / their posts |
+| `%MV` `%MJ` | a message at random / a line of it with words in it |
+
 ## Fitting values: `{NN` and `}NN`
 
 Put before a `%XX` code. `{20%UN` cuts the handle to 20 characters;

@@ -3,6 +3,8 @@
 A Rust port of the Iniquity BBS (Turbo Pascal, 1.00a26r5). `README.md` is
 the source of truth for what's done and **what's left to port** (the table
 under "What's left to port"); keep it current when features land.
+`docs/NEW.md` tracks what's new over the original (and what changed on
+purpose): add a line there for every feature the original didn't have.
 
 ## Setting up a new host
 

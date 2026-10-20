@@ -273,6 +273,12 @@ and newscan (`MR`, `MN`, still there for menus that want them).
   there are and offers to read them, a thread at a time; `MW Read` reads
   them without asking.
 - The website feed lists the newest public posts (`new_posts`).
+- Screens can show what's in the message base (`%MG`...`%MJ` in
+  `CODES.md`): the newest post, the most replied to, the loudest area
+  of the month, the top poster, a message at random, and what's new for
+  the caller. `MX newest` (`hot`, `dig`, `mouth`) opens that message in
+  its thread, `MX loud` that area's threads, `MX unread` reads
+  everything new, so lightbar options on a menu can go straight there.
 
 ## MeshCore
 

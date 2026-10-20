@@ -27,6 +27,9 @@ fn initials(name: &str) -> String {
 /// The second letters of the file menu's stats codes (new).
 const FILE_STATS: &[u8] = b"BGKLMNQRTUVWXYZ";
 
+/// The second letters of the message menu's codes (new).
+const MSG_STATS: &[u8] = b"BCDFGHJKLQRVXY";
+
 /// How long ago, briefly ("3d ago").
 fn ago(d: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> String {
     let Some(d) = d else { return String::new() };
@@ -41,7 +44,7 @@ fn ago(d: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> String {
 
 /// The first line of a description with words in it (FILE_ID.DIZ files
 /// often open with a banner), spaces squeezed.
-fn blurb(desc: &[String]) -> String {
+pub(crate) fn blurb(desc: &[String]) -> String {
     desc.iter()
         .find(|l| {
             // Mostly plain words: letters and digits with ordinary punctuation.
@@ -101,7 +104,7 @@ impl Session {
                 s.newest.as_ref().and_then(|f| fa.areas.iter().find(|a| a.file.eq_ignore_ascii_case(&f.area))).map(|a| a.name.clone()).unwrap_or_default()
             }
             b'G' => ago(s.newest.as_ref().and_then(|f| f.uploaded), Local::now().date_naive()),
-            b'M' => name(&s.popular),
+            b'M' => s.popular.as_ref().map_or_else(|| "nothing yet".into(), |f| f.name.clone()),
             b'X' => s.popular.as_ref().map_or(0, |f| f.downloads).to_string(),
             b'B' => name(&s.biggest),
             b'L' => s.biggest.as_ref().map(|f| crate::upscan::human_size(f.size)).unwrap_or_default(),
@@ -114,6 +117,36 @@ impl Session {
                     _ => String::new(),
                 }
             }
+            _ => String::new(),
+        }
+    }
+
+    /// New: the message menu's figures, over the public messages in the
+    /// areas the caller can read. `G` messages, `Y` new for the caller;
+    /// the newest post's subject `B`, author `F`, age `D` and area `K`;
+    /// the most replied-to `H` and its replies `R`; the loudest area of
+    /// the last 30 days `L` and its posts `Q`; the top poster `C` and their
+    /// posts `X`; a message at random `V` with a line of it `J`.
+    fn msg_stat(&self, c: u8) -> String {
+        let f = self.msg_stats(false);
+        let s = &f.base;
+        let commas = |n: u32| crate::files::commas(n as u64);
+        let author = |m: &crate::msgbase::Message| if m.anonymous { "anonymous".to_string() } else { m.from.name.clone() };
+        match c {
+            b'G' => commas(s.total),
+            b'Y' => commas(f.unread as u32),
+            b'B' => s.newest.as_ref().map(|m| m.subject.clone()).unwrap_or_default(),
+            b'F' => s.newest.as_ref().map(author).unwrap_or_default(),
+            b'D' => ago(s.newest.as_ref().map(|m| m.posted.date()), Local::now().date_naive()),
+            b'K' => s.newest.as_ref().map(|m| f.area_name(&m.area)).unwrap_or_default(),
+            b'H' => s.hot.as_ref().map_or_else(|| "nothing yet".into(), |m| m.subject.clone()),
+            b'R' => s.hot.as_ref().map_or(0, |m| m.replies).to_string(),
+            b'L' => s.loudest.as_ref().map(|(k, _)| f.area_name(k)).unwrap_or_default(),
+            b'Q' => commas(s.loudest.as_ref().map_or(0, |l| l.1)),
+            b'C' => s.mouth.as_ref().map(|t| t.0.clone()).unwrap_or_default(),
+            b'X' => commas(s.mouth.as_ref().map_or(0, |t| t.1)),
+            b'V' => f.dig().map(|m| m.subject.clone()).unwrap_or_default(),
+            b'J' => f.dig().map(|m| blurb(m.body())).unwrap_or_default(),
             _ => String::new(),
         }
     }
@@ -159,6 +192,7 @@ impl Session {
             // The current text library (theme).
             b"LA" => self.current_theme().map_or("n/a".into(), |t| t.author),
             b"LD" => self.current_theme().map_or("n/a".into(), |t| t.desc),
+            [b'M', c] if MSG_STATS.contains(c) => self.msg_stat(*c),
             b"MI" => u.cur_msg_area.to_string(),
             b"MP" => self.menu.menu.as_ref().map(|m| m.prompt_name.clone()).unwrap_or_default(),
             b"MW" => self.mail_waiting().to_string(),

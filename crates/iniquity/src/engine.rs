@@ -20,8 +20,9 @@ const MAX_BAR: usize = 29;
 
 /// New: where an arrow goes on a lightbar, by where the options are
 /// (`places`, 0-based; `None` where an option has no marker): left and
-/// right along the row, up and down to the nearest option on the next
-/// row. Where there's nothing that way, it steps through them in order.
+/// right along the row, up and down to the nearest option below or above
+/// (rows count more than columns). Where there's nothing that way, it
+/// steps through them in order.
 fn bar_move(places: &[Option<(i32, i32)>], cur: usize, key: Key) -> usize {
     let n = places.len();
     let (next, prev) = ((cur + 1) % n, (cur + n - 1) % n);
@@ -32,8 +33,10 @@ fn bar_move(places: &[Option<(i32, i32)>], cur: usize, key: Key) -> usize {
     let found = match key {
         Key::Right => others.filter(|&(_, x, y)| y == cy && x > cx).min_by_key(|&(_, x, _)| x),
         Key::Left => others.filter(|&(_, x, y)| y == cy && x < cx).max_by_key(|&(_, x, _)| x),
-        Key::Down => others.filter(|&(_, _, y)| y > cy).min_by_key(|&(_, x, y)| (y - cy, (x - cx).abs())),
-        _ => others.filter(|&(_, _, y)| y < cy).min_by_key(|&(_, x, y)| (cy - y, (x - cx).abs())),
+        // Down and up weigh sideways distance too, so the option below
+        // wins over one a row nearer but across the screen.
+        Key::Down => others.filter(|&(_, _, y)| y > cy).min_by_key(|&(_, x, y)| (y - cy) * 4 + (x - cx).abs() / 2),
+        _ => others.filter(|&(_, _, y)| y < cy).min_by_key(|&(_, x, y)| (cy - y) * 4 + (x - cx).abs() / 2),
     };
     match found {
         Some((i, _, _)) => i,
@@ -667,6 +670,10 @@ mod tests {
         assert_eq!(bar_move(&p, 2, Key::Right), 3);
         assert_eq!(bar_move(&p, 4, Key::Down), 0);
         assert_eq!(bar_move(&p, 0, Key::Up), 4);
+        // Down from the foot of one box: the cell straight below, not the
+        // option a row lower in a box across the screen.
+        let q = [Some((3, 13)), Some((55, 14)), Some((3, 18))];
+        assert_eq!(bar_move(&q, 0, Key::Down), 2);
         // A row (MATRIX): up and down step along it.
         let row = [Some((1, 20)), Some((15, 20)), Some((30, 20))];
         assert_eq!(bar_move(&row, 1, Key::Down), 2);

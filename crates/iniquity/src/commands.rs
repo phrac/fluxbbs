@@ -167,6 +167,7 @@ impl Session {
             "ME" => self.scan_select(true).await?,
             "MO" => self.msg_search(param).await?,
             "MH" => self.msg_center().await?,
+            "MX" => self.msg_jump(param).await?,
             "MW" if param.eq_ignore_ascii_case("read") => {
                 self.read_all_new().await?;
             }
