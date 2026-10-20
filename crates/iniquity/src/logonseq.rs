@@ -5,7 +5,7 @@
 //! commands are built from it. Without the file STARTUP runs as it is.
 
 use std::io;
-use std::path::Path;
+use std::path::PathBuf;
 
 use iniquity_term::Slot;
 use iniquity_term::codes::resize;
@@ -89,7 +89,7 @@ impl Sequence {
 
     /// The start menu's commands: each step that's on, then the menu's
     /// fallback (the original went there from the oneliners).
-    pub fn commands(&self, menus: &Path, fallback: &str) -> Vec<Command> {
+    pub fn commands(&self, menus: &[PathBuf], fallback: &str) -> Vec<Command> {
         let mut out: Vec<Command> = self.steps.iter().filter(|s| s.on).flat_map(|s| step_commands(s, menus)).collect();
         out.push(first("-^", fallback, "", "Go on to the main menu"));
         out
@@ -106,7 +106,7 @@ fn first(command: &str, param: &str, acs: &str, desc: &str) -> Command {
 }
 
 /// What STARTUP ran for each step.
-fn step_commands(s: &Step, menus: &Path) -> Vec<Command> {
+fn step_commands(s: &Step, menus: &[PathBuf]) -> Vec<Command> {
     match s.kind.as_str() {
         "infoforms" => vec![first("IM", "", "", "Check for infoforms")],
         "mail" => vec![first("EC", "", "", "Scan for waiting mail")],
@@ -140,7 +140,7 @@ fn step_commands(s: &Step, menus: &Path) -> Vec<Command> {
 }
 
 /// `menuLoad`'s hook: the start menu runs the sequence, if there is one.
-pub fn apply(cfg: &Config, menus: &Path, name: &str, menu: &mut Menu) {
+pub fn apply(cfg: &Config, menus: &[PathBuf], name: &str, menu: &mut Menu) {
     if !name.eq_ignore_ascii_case(&cfg.logon.start_menu) {
         return;
     }
@@ -250,7 +250,7 @@ mod tests {
 
     #[test]
     fn stock_matches_startup() {
-        let menus = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../menus");
+        let menus = [PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../menus")];
         let startup = Menu::load(&menus, "STARTUP").unwrap();
         let want: Vec<(String, String)> = startup.commands.iter().map(|c| (c.command.clone(), c.param.clone())).collect();
         let built = Sequence::stock().commands(&menus, "MAIN");
@@ -270,7 +270,7 @@ mod tests {
         seq.steps.push(Step { kind: "screen".into(), on: true, screen: "BULLETIN".into() });
         let back: Sequence = toml::from_str(&toml::to_string_pretty(&seq).unwrap()).unwrap();
         assert_eq!(back, seq);
-        let cmds = seq.commands(Path::new("/nonexistent"), "MAIN");
+        let cmds = seq.commands(&[PathBuf::from("/nonexistent")], "MAIN");
         assert!(!cmds.iter().any(|c| c.command == "IM"));
         assert_eq!(cmds[cmds.len() - 2].param, "BULLETIN");
         assert_eq!(cmds.last().unwrap().param, "MAIN");

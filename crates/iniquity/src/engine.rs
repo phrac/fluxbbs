@@ -45,13 +45,13 @@ impl MenuState {
 }
 
 impl Session {
-    fn menus_dir(&self) -> std::path::PathBuf {
-        self.state.config().resolve(&self.state.config().paths.menus)
+    fn menu_dirs(&self) -> Vec<std::path::PathBuf> {
+        self.state.config().menu_dirs()
     }
 
     /// `menuLoad`: the menu plus GLOBAL's commands if it uses them.
     fn menu_load(&self, name: &str) -> Option<Menu> {
-        let dir = self.menus_dir();
+        let dir = self.menu_dirs();
         let mut menu = Menu::load(&dir, name).map_err(|e| tracing::warn!("{e}")).ok()?;
         crate::logonseq::apply(&self.state.config(), &dir, name, &mut menu);
         if menu.global && !name.eq_ignore_ascii_case("GLOBAL")

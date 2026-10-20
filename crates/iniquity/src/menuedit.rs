@@ -62,20 +62,21 @@ pub fn new_menu(name: &str, bbs: &str) -> Menu {
     }
 }
 
-/// Menu names in the directory, sorted.
-fn menu_names(dir: &Path) -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(dir)
-        .map(|rd| {
-            rd.filter_map(Result::ok)
-                .filter_map(|e| {
-                    let name = e.file_name().to_string_lossy().into_owned();
-                    let (stem, ext) = name.rsplit_once('.')?;
-                    ext.eq_ignore_ascii_case("toml").then(|| stem.to_ascii_uppercase())
-                })
-                .collect()
+/// Menu names in the directories, sorted, each once.
+pub(crate) fn menu_names(dirs: &[PathBuf]) -> Vec<String> {
+    let mut names: Vec<String> = dirs
+        .iter()
+        .filter_map(|dir| std::fs::read_dir(dir).ok())
+        .flat_map(|rd| {
+            rd.filter_map(Result::ok).filter_map(|e| {
+                let name = e.file_name().to_string_lossy().into_owned();
+                let (stem, ext) = name.rsplit_once('.')?;
+                ext.eq_ignore_ascii_case("toml").then(|| stem.to_ascii_uppercase())
+            })
         })
-        .unwrap_or_default();
+        .collect();
     names.sort();
+    names.dedup();
     names
 }
 
@@ -107,7 +108,8 @@ impl Session {
             self.newline();
             self.rule().await?;
             self.set_slot(Slot::Info);
-            let names = menu_names(&dir);
+            // Saves go to `menus`; a stock menu saved there overrides it.
+            let names = menu_names(&self.state.config().menu_dirs());
             if names.is_empty() {
                 self.write(" -- No menu files found.");
                 self.newline();
@@ -152,8 +154,10 @@ impl Session {
                     }
                     let warn = if ["MAIN", "GLOBAL", "MATRIX", "STARTUP"].contains(&name.as_str()) { " |U0(the BBS relies on it)|U1" } else { "" };
                     self.show(&format!("|U3{name}{warn}|U1 - Delete this menu? ")).await?;
-                    if self.yes_no(false).await? {
-                        std::fs::remove_file(menu_path(&dir, &name))?;
+                    // Only the board's own copy goes; a stock one comes back.
+                    let path = menu_path(&dir, &name);
+                    if self.yes_no(false).await? && path.exists() {
+                        std::fs::remove_file(path)?;
                         tracing::info!("{}: deleted menu {name}", self.user.handle);
                     }
                 }
@@ -168,7 +172,7 @@ impl Session {
 
     /// `cfgEditMenu`: a menu's settings, and its commands with `*`.
     async fn menu_edit(&mut self, dir: &Path, name: &str) -> io::Result<()> {
-        let original = Menu::load(dir, name).map_err(io_err)?;
+        let original = Menu::load(&self.state.config().menu_dirs(), name).map_err(io_err)?;
         let mut m = original.clone();
         type Flag = (char, &'static str, &'static str, fn(&mut Menu) -> &mut bool);
         let flags: [Flag; 6] = [
@@ -394,7 +398,7 @@ mod tests {
         for f in ["main.toml", "FILE.toml", "notes.txt"] {
             std::fs::write(dir.join(f), "").unwrap();
         }
-        assert_eq!(menu_names(&dir), ["FILE", "MAIN"]);
+        assert_eq!(menu_names(std::slice::from_ref(&dir)), ["FILE", "MAIN"]);
         assert_eq!(menu_path(&dir, "MAIN"), dir.join("main.toml"), "keeps the existing file's case");
         std::fs::remove_dir_all(&dir).unwrap();
     }

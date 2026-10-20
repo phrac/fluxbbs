@@ -308,6 +308,11 @@ impl Screen {
         self.y = 1;
     }
 
+    /// The last row that scrolls: the region's bottom, else the screen's.
+    pub fn scroll_bottom(&self) -> u16 {
+        self.region.unwrap_or(self.rows)
+    }
+
     /// The whole screen scrolls again.
     pub fn reset_scroll_region(&mut self) {
         if self.region.take().is_some() {

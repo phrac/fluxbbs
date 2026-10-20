@@ -220,6 +220,10 @@ pub struct Paths {
     /// (e.g. `themes/t10inq1`, for SYSOP and DOOR). Empty for none.
     pub stock_theme: PathBuf,
     pub menus: PathBuf,
+    /// Menus to fall back on when `menus` doesn't have one (new), so a
+    /// board can change a few stock menus without copying them all. Empty
+    /// for none.
+    pub stock_menus: PathBuf,
     pub data: PathBuf,
     /// Prompt string overrides; built-in stock strings fill any gaps.
     pub strings: PathBuf,
@@ -869,6 +873,7 @@ impl Default for Paths {
         Self {
             text: "text".into(),
             stock_text: PathBuf::new(),
+            stock_menus: PathBuf::new(),
             stock_theme: PathBuf::new(),
             menus: "menus".into(),
             data: "data".into(),
@@ -1049,6 +1054,15 @@ impl Config {
 
     pub fn resolve(&self, p: &Path) -> PathBuf {
         self.root.join(p)
+    }
+
+    /// Where menus are looked for: `menus`, then `stock_menus`.
+    pub fn menu_dirs(&self) -> Vec<PathBuf> {
+        let mut dirs = vec![self.resolve(&self.paths.menus)];
+        if !self.paths.stock_menus.as_os_str().is_empty() {
+            dirs.push(self.resolve(&self.paths.stock_menus));
+        }
+        dirs
     }
 
     pub fn level(&self, key: char) -> Option<&Level> {

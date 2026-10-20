@@ -104,7 +104,9 @@ Everything the port does, in detail. The [README](../README.md) has the short li
 - `*C` system configuration, written back to `iniquity.toml` keeping its
   comments; `*E` prompt strings; `*#` menus; `*L` access levels.
 - `*U` users (with colours, preferences, auto-signature, infoforms).
-- `*F` file areas, `*Y` files (validate, move, extract/apply DIZ), `*S`
+- `*F` file areas (new: a bar list in tree order with `/` to search it;
+  Enter edits the area under the bar, `I` adds one before it, under the
+  same parent, and edits it, `D` deletes it and `M` moves it), `*Y` files (validate, move, extract/apply DIZ), `*S`
   sort areas, `*>` download any file, `*%` local upload (add files
   copied into the area's directory; `iniquity add-files` does every
   area from the shell, for a mirror, say: a ZIP without a FILE_ID.DIZ
@@ -206,6 +208,13 @@ say what's here and which keys to press. `daily_limit` caps a caller's messages 
 the SysOp's); `name`, `system_prompt`, `max_tokens`, `reasoning_effort`
 and `timeout_seconds` do what they say. All of it is under "AI Chat" in
 `*C`.
+
+After each reply a line says what it took (`AiStats`: tokens written,
+of those the thinking, and tokens a second), and the bottom bar shows
+how much of the model's context the conversation fills (`AiContext`,
+the length from the server's `/models`), when the server reports usage
+(`stream_options.include_usage`). Blank `AiStats` in `*E` to hide the
+line.
 
 ![The AI finding files on the board](screenshots/ai-files.png)
 

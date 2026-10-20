@@ -44,15 +44,8 @@ impl Session {
 
     fn ai_menus(&self) -> String {
         let cfg = self.state.config();
-        let dir = cfg.resolve(&cfg.paths.menus);
-        let mut names: Vec<String> = std::fs::read_dir(&dir)
-            .map(|d| {
-                d.flatten()
-                    .filter_map(|e| e.file_name().to_str().and_then(|n| n.strip_suffix(".toml").or(n.strip_suffix(".TOML"))).map(str::to_ascii_uppercase))
-                    .collect()
-            })
-            .unwrap_or_default();
-        names.sort();
+        let dir = cfg.menu_dirs();
+        let names = crate::menuedit::menu_names(&dir);
         let global = Menu::load(&dir, "GLOBAL").ok();
         let mut out = format!("The caller starts at {} after logging on. Keys are typed at a menu's prompt.\n", cfg.logon.start_menu);
         for name in names.iter().filter(|n| !matches!(n.as_str(), "GLOBAL" | "MATRIX" | "NEWUSER" | "STARTUP")) {

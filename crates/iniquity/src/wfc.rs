@@ -771,7 +771,7 @@ impl Session {
                 self.show("|U2-- |U1Enter menu name to launch|U2: |U3").await?;
                 let name = self.read_string(ReadOpts::new(8).case(Case::Upper)).await?;
                 self.newline();
-                let dir = self.state.config().resolve(&self.state.config().paths.menus);
+                let dir = self.state.config().menu_dirs();
                 if name.is_empty() || crate::menu::Menu::load(&dir, &name).is_err() {
                     return Ok(());
                 }

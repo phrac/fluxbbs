@@ -22,6 +22,9 @@ drawn with FAREAHIL): arrows, PgUp/PgDn and Home/End move it and scroll,
 Enter or right picks, left or backspace goes back up a level, and Esc
 stays put. Typing a number moves the bar to that area, so the original's
 numbers still work (`FaBarKeys`, `FaBarInGroup` are the help lines).
+`/` and some text searches: the bar goes to the next area with it in its
+row, `/` again to the one after, Enter picks it and Esc ends the search
+(every list like this has it, the message areas' too).
 `#` to an area with sub-areas opens it too. `FA` lists every area
 with sub-areas indented, and `[`/`]`, numbering and `*F` follow the
 tree. A sub-area needs the access of every area above it, so a parent's

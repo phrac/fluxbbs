@@ -367,6 +367,50 @@ impl Wrap {
 }
 
 /// A tool call being put together from streamed pieces.
+/// What a reply cost, from the server's `usage` and `timings` (new).
+#[derive(Default)]
+struct Usage {
+    /// The last request's prompt: the conversation so far.
+    prompt: u64,
+    /// Written over every round of the reply, thinking included.
+    completion: u64,
+    reasoning: u64,
+    per_second: f64,
+}
+
+impl Usage {
+    /// Tokens a second from the clock, when the server doesn't say.
+    fn finish(mut self, started: std::time::Instant) -> Self {
+        let secs = started.elapsed().as_secs_f64();
+        if self.per_second == 0.0 && secs > 0.0 {
+            self.per_second = self.completion as f64 / secs;
+        }
+        self
+    }
+}
+
+/// 1234 as "1.2k", 200000 as "200k".
+fn kilo(n: u64) -> String {
+    match n {
+        0..1000 => n.to_string(),
+        1000..10_000 => format!("{:.1}k", n as f64 / 1000.0),
+        _ => format!("{}k", n / 1000),
+    }
+}
+
+/// The model's context length, if the server says (`max_model_len`,
+/// `context_length` or `context_window` in `/models`).
+async fn context_len(client: &reqwest::Client, cfg: &crate::config::Ai) -> Option<u64> {
+    let url = format!("{}/models", cfg.base_url.trim_end_matches('/'));
+    let mut req = client.get(&url).timeout(Duration::from_secs(5));
+    if let Some(k) = (!cfg.api_key_env.is_empty()).then(|| std::env::var(&cfg.api_key_env).ok()).flatten() {
+        req = req.bearer_auth(k);
+    }
+    let v: Value = req.send().await.ok()?.json().await.ok()?;
+    let m = v["data"].as_array()?.iter().find(|m| m["id"].as_str() == Some(cfg.model.as_str()))?;
+    ["max_model_len", "context_length", "context_window"].iter().find_map(|k| m[*k].as_u64())
+}
+
 #[derive(Default, Clone)]
 struct Call {
     id: String,
@@ -398,6 +442,7 @@ impl Session {
         };
         self.full_screen_done();
         let r = self.ai_session(&cfg, &client).await;
+        self.screen.reset_scroll_region();
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
         r
@@ -409,6 +454,8 @@ impl Session {
         self.node.update(|n| n.activity = "Chatting with the AI".into());
         let system = self.ai_system_prompt(&cfg);
         let mut history: Vec<Value> = Vec::new();
+        let max_ctx = context_len(client, &cfg).await;
+        self.ai_ctx.clear();
         self.ai_header(&cfg).await?;
         loop {
             self.ai_nl().await?;
@@ -422,6 +469,7 @@ impl Session {
                 "/quit" | "/q" | "/exit" | "q" => break,
                 "/new" | "/clear" => {
                     history.clear();
+                    self.ai_ctx.clear();
                     self.ai_header(&cfg).await?;
                     continue;
                 }
@@ -445,6 +493,11 @@ impl Session {
                 history.drain(..history.len() - MAX_HISTORY);
             }
             let replied = self.ai_reply(client, &cfg, &system, &mut history).await;
+            if let Ok(u) = &replied
+                && u.prompt > 0
+            {
+                self.ai_stats(u, max_ctx).await?;
+            }
             self.ai_bar(&cfg).await?;
             if let Err(e) = replied {
                 if e.kind() == io::ErrorKind::Other {
@@ -479,9 +532,10 @@ impl Session {
     }
 
     /// A fresh screen: AICHAT.ANS if the board has one (its header), else
-    /// a plain one; the conversation scrolls below it, over the help bar
-    /// on the bottom line, which stays put.
+    /// a plain one. The conversation scrolls in a region between the
+    /// header and the help bar on the bottom line, so both stay put.
     async fn ai_header(&mut self, cfg: &crate::config::Ai) -> io::Result<()> {
+        self.screen.reset_scroll_region();
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
         if !self.show_file("AICHAT").await? {
@@ -492,6 +546,12 @@ impl Session {
         }
         if self.screen.where_x() > 1 {
             self.ai_nl().await?;
+        }
+        // A header too tall to leave a few rows scrolls with the chat.
+        let (top, rows) = (self.screen.where_y(), self.screen.rows());
+        if top + 4 < rows {
+            self.screen.set_scroll_region(top, rows - 1);
+            self.screen.goto(1, top);
         }
         self.ai_bar(cfg).await
     }
@@ -508,7 +568,7 @@ impl Session {
         self.screen.goto(1, self.screen.rows());
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.screen.clear_eol();
-        let bar = self.strings().fmt("AiBar", &[&left]);
+        let bar = self.strings().fmt("AiBar", &[&left, &self.ai_ctx.clone()]);
         self.ai_bar = bar.clone();
         self.show(&bar).await?;
         self.screen.set_color(iniquity_term::Color::DEFAULT);
@@ -555,9 +615,9 @@ impl Session {
                 }
                 Key::Char(c @ 0x20..=0x7E) if s.chars().count() < MAX_INPUT => {
                     if self.screen.where_x() >= WIDTH as u16 {
-                        // On the last row the screen scrolls: what's been
+                        // On the last row the chat scrolls: what's been
                         // typed moves up with it.
-                        if self.screen.where_y() + 1 >= self.screen.rows() {
+                        if self.screen.where_y() >= self.ai_last_row() {
                             at.iter_mut().for_each(|p| p.1 = p.1.saturating_sub(1).max(1));
                         }
                         self.ai_nl().await?;
@@ -571,9 +631,28 @@ impl Session {
         }
     }
 
+    /// After a reply: what it took (`AiStats`, unless blanked), and the
+    /// context used so far for the bar (`AiContext`).
+    async fn ai_stats(&mut self, u: &Usage, max_ctx: Option<u64>) -> io::Result<()> {
+        let s = self.strings().fmt(
+            "AiStats",
+            &[&crate::files::commas(u.completion), &crate::files::commas(u.reasoning), &format!("{:.0}", u.per_second)],
+        );
+        if !s.is_empty() {
+            self.ai_line(&s).await?;
+        }
+        let used = u.prompt + u.completion;
+        let (max, pct) = match max_ctx {
+            Some(m) if m > 0 => (kilo(m), format!("{}", used * 100 / m)),
+            _ => ("?".into(), "?".into()),
+        };
+        self.ai_ctx = self.strings().fmt("AiContext", &[&kilo(used), &max, &pct]);
+        Ok(())
+    }
+
     /// Ask the model, showing its reply as it comes and running any
     /// searches it wants on the way.
-    async fn ai_reply(&mut self, client: &reqwest::Client, cfg: &crate::config::Ai, system: &str, history: &mut Vec<Value>) -> io::Result<()> {
+    async fn ai_reply(&mut self, client: &reqwest::Client, cfg: &crate::config::Ai, system: &str, history: &mut Vec<Value>) -> io::Result<Usage> {
         let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
         let key = (!cfg.api_key_env.is_empty()).then(|| std::env::var(&cfg.api_key_env).ok()).flatten();
         let mut tools = crate::aiboard::tool_specs();
@@ -600,13 +679,18 @@ impl Session {
         let tools = Value::Array(tools);
         self.ai_nl().await?;
         let name = self.strings().fmt("AiName", &[&cfg.name]);
+        let mut usage = Usage::default();
+        let started = std::time::Instant::now();
         for round in 0..=MAX_TOOL_ROUNDS {
             let mut messages = vec![json!({"role": "system", "content": system})];
             messages.extend(history.iter().cloned());
             if round == MAX_TOOL_ROUNDS {
                 messages.push(json!({"role": "system", "content": "No more searches. Answer now from what you have."}));
             }
-            let mut body = json!({"model": cfg.model, "messages": messages, "stream": true, "max_tokens": cfg.max_tokens});
+            let mut body = json!({
+                "model": cfg.model, "messages": messages, "stream": true, "max_tokens": cfg.max_tokens,
+                "stream_options": {"include_usage": true},
+            });
             if !cfg.reasoning_effort.is_empty() {
                 body["reasoning_effort"] = json!(cfg.reasoning_effort);
             }
@@ -643,6 +727,15 @@ impl Session {
                         break 'stream;
                     }
                     let Ok(v) = serde_json::from_str::<Value>(data) else { continue };
+                    // The last chunk, asked for with include_usage.
+                    if let Some(u) = v["usage"].as_object() {
+                        usage.prompt = u.get("prompt_tokens").and_then(Value::as_u64).unwrap_or(0);
+                        usage.completion += u.get("completion_tokens").and_then(Value::as_u64).unwrap_or(0);
+                        usage.reasoning += v["usage"]["completion_tokens_details"]["reasoning_tokens"].as_u64().unwrap_or(0);
+                    }
+                    if let Some(ps) = v["timings"]["predicted_per_second"].as_f64() {
+                        usage.per_second = ps;
+                    }
                     let delta = &v["choices"][0]["delta"];
                     if let Some(t) = delta["content"].as_str() {
                         content.push_str(t);
@@ -677,11 +770,17 @@ impl Session {
                 }
             }
             let rest = wrap.finish();
+            // A reply too short to wrap hasn't put the name up yet.
+            if !rest.trim().is_empty() && !named {
+                self.show(&name).await?;
+                self.ai_ink = trailing_codes(&name);
+                named = true;
+            }
             self.ai_write(&rest).await?;
             if calls.is_empty() {
                 history.push(json!({"role": "assistant", "content": content}));
                 self.ai_nl().await?;
-                return Ok(());
+                return Ok(usage.finish(started));
             }
             // The model wants to search: do it, and ask again.
             let tool_calls: Vec<Value> = calls
@@ -731,16 +830,17 @@ impl Session {
             }
         }
         self.ai_nl().await?;
-        Ok(())
+        Ok(usage.finish(started))
     }
 
-    /// A new line in the chat. Below the last row the whole screen
-    /// scrolls (scroll regions aren't safe on every terminal): the bar is
-    /// cleared first, so it doesn't scroll up with the text, and drawn
-    /// again on the bottom line.
+    /// A new line in the chat. In the scroll region (new) only the chat
+    /// scrolls. Without one (a header too tall for it) the whole screen
+    /// scrolls below the last row: the bar is cleared first, so it doesn't
+    /// scroll up with the text, and drawn again on the bottom line.
     async fn ai_nl(&mut self) -> io::Result<()> {
         let rows = self.screen.rows();
-        if self.screen.where_y() + 1 < rows {
+        // In the scroll region, or above its last row, the bar is safe.
+        if self.screen.scroll_bottom() < rows || self.screen.where_y() < self.ai_last_row() {
             self.newline();
             return Ok(());
         }
@@ -761,6 +861,12 @@ impl Session {
             self.show(&ink).await?;
         }
         Ok(())
+    }
+
+    /// The chat's last row: the region's, else the one above the bar.
+    fn ai_last_row(&self) -> u16 {
+        let (bottom, rows) = (self.screen.scroll_bottom(), self.screen.rows());
+        if bottom < rows { bottom } else { rows - 1 }
     }
 
     /// A line of text in the chat.

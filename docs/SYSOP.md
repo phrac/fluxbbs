@@ -63,13 +63,16 @@ at the repo:
     [paths]
     text = "text"                          # the board's own screens
     stock_text = "../iniquity/text"        # stock screens, for the rest
-    menus = "../iniquity/menus"
+    menus = "menus"                        # the board's own menus
+    stock_menus = "../iniquity/menus"      # stock menus, for the rest
     scripts = "../iniquity/scripts"
 
 A screen in the board's `text/` replaces the stock one of the same name;
-anything it doesn't have comes from `stock_text`. `data/`, `files/` and
-whatever the editors create then stay with the board, and the repo stays
-stock. (Copy `menus/` too once you want to change menus with `*#`.)
+anything it doesn't have comes from `stock_text`. Menus work the same way
+(new): one in the board's `menus/` replaces the stock one, and `*#` saves
+a changed stock menu there, so deleting it brings the stock one back.
+`data/`, `files/` and whatever the editors create then stay with the
+board, and the repo stays stock.
 
 ## Importing an existing Iniquity install
 

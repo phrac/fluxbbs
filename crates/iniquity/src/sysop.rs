@@ -15,12 +15,15 @@ use crate::fileareas::{FileArea, FileAreas, SortBy};
 use crate::msgareas::{Conf, MsgArea, MsgAreas};
 use crate::filebase::{FileRec, wildcard};
 use crate::files::{FAreaRef, commas, is_zip};
-use crate::session::Session;
+use crate::session::{BarPick, BarRow, BarSpec, Session, Waves};
 use crate::transfer::safe_name;
 use crate::user::{fmt_date, parse_date};
 
 /// Description lines shown under the file editor (`faLoadDesc` showed 6).
 const DESC_SHOWN: usize = 6;
+
+/// The heading over the file areas `fa_rows` lists.
+const FA_HEADER: &str = " Num  Area                                   Key       Files  ACS / ul / dl";
 
 fn io_err(e: anyhow::Error) -> io::Error {
     io::Error::other(e)
@@ -550,91 +553,104 @@ impl Session {
     // ---- *F: file areas (CONFIG9) -------------------------------------------
 
     /// `*F`: list, insert, delete, edit and move file areas.
+    /// `cfgFileAreaEditor`. New: the areas are a scrolling bar list in
+    /// tree order (`/` searches it) instead of pages of numbers, and
+    /// insert, delete, move and edit act on the area the bar is on.
     pub async fn file_area_editor(&mut self) -> io::Result<()> {
         if !self.clear_batch_ok().await? {
             return Ok(());
         }
         tracing::info!("{}: file area edit", self.user.handle);
+        let mut at = self.user.cur_file_area.max(1);
         loop {
-            self.fa_list_all().await?;
-            let cmd = self.cfg_list_prompt(&[("I", "nsert"), ("D", "elete"), ("E", "dit"), ("M", "ove"), ("Esc", " Quit")]).await?;
-            match cmd {
-                Some('I') => self.fa_insert().await?,
-                Some('D') => self.fa_delete().await?,
-                Some('E') => self.fa_edit().await?,
-                Some('M') => self.fa_move().await?,
+            let rows = self.fa_rows()?;
+            if rows.is_empty() {
+                self.newline();
+                self.show_line("No file areas currently exist.").await?;
+                self.show("|U1Make one? ").await?;
+                if !self.yes_no(true).await? {
+                    return Ok(());
+                }
+                at = self.fa_insert(1).await?;
+                continue;
+            }
+            let labels: Vec<(u32, u32)> = rows.iter().map(|r| (r.n, r.n)).collect();
+            let start = rows.iter().position(|r| r.n == at).unwrap_or(0);
+            let spec = BarSpec {
+                prefix: "CFGFAREA",
+                header: FA_HEADER,
+                rows: &rows,
+                labels: &labels,
+                start,
+                help: "|U1 Arrows move, |U3enter|U1 edits, |U3/|U1 searches, |U3i|U1nsert, |U3d|U1elete, |U3m|U1ove, |U3esc|U1 quits.",
+                ask: "",
+                can_go_up: false,
+                keys: "IDM",
+            };
+            match self.area_bar(&spec).await? {
+                BarPick::Area(n) => at = self.fa_edit(n).await?,
+                BarPick::Key('I', n) => at = self.fa_insert(n).await?,
+                BarPick::Key('D', n) => self.fa_delete(n).await?,
+                BarPick::Key('M', n) => at = self.fa_move(n).await?,
                 _ => return Ok(()),
             }
         }
     }
 
-    /// `cfgFaListThem`.
-    async fn fa_list_all(&mut self) -> io::Result<()> {
+    /// `cfgFaListThem`'s rows: tree order, each sub-area under its own
+    /// (marked `/` if it has some); the numbers are still positions in the
+    /// file, which insert, delete and move use.
+    fn fa_rows(&self) -> io::Result<Vec<BarRow>> {
         let areas = self.state.fareas();
-        self.clear_screen();
-        self.set_slot(Slot::Text);
-        self.write(" Num  Description                Key       ACS    ulACS  dlACS  Files  Sort");
-        self.newline();
-        self.rule().await?;
-        let mut lines = 3;
-        // Tree order, each sub-area under its own; the numbers are still
-        // positions in the file, which insert, delete and move use.
+        let mut rows = Vec::new();
         for (n, depth) in areas.tree() {
-            let (i, a) = (n as usize - 1, &areas.areas[n as usize - 1]);
+            let a = &areas.areas[n as usize - 1];
             let count = self.state.files.count(&a.file).map_err(io_err)?;
-            self.set_slot(Slot::Info);
-            let sort = match a.sort {
-                SortBy::None => String::new(),
-                s => format!("{}{}", s.label(), if a.sort_descending { " ↓" } else { "" }),
-            };
-            self.write(&format!(
-                " {} {} {} {} {} {} {} {}",
-                resize(&(i + 1).to_string(), 4),
-                resize(&format!("{}{}", "  ".repeat(depth), a.name), 26),
+            let subs = areas.areas.iter().any(|o| o.parent.eq_ignore_ascii_case(&a.file));
+            let name = format!("{}{}{}", "  ".repeat(depth), a.name, if subs { "/" } else { "" });
+            let dash = |s: &str| if s.is_empty() { "-".to_string() } else { s.to_string() };
+            let access = format!("{} / {} / {}", dash(&a.acs), dash(&a.upload_acs), dash(&a.download_acs));
+            let plain = format!(
+                " {} {} {} {} {}",
+                resize(&n.to_string(), 4),
+                resize(&name, 38),
                 resize(&a.file, 9),
-                resize(&a.acs, 6),
-                resize(&a.upload_acs, 6),
-                resize(&a.download_acs, 6),
                 resize(&count.to_string(), 6),
-                squish(&sort, 11)
-            ));
-            self.newline();
-            lines += 1;
-            if !self.more(&mut lines).await? {
-                break;
-            }
+                squish(&access, 18)
+            );
+            rows.push(BarRow { n, waves: Waves::new(), plain });
         }
-        if areas.areas.is_empty() {
-            self.write("No file areas currently exist.");
-            self.newline();
-        }
-        self.rule().await
+        Ok(rows)
     }
 
-    async fn fa_insert(&mut self) -> io::Result<()> {
+    /// Insert a new area before area `at`, beside it in the tree (under
+    /// the same parent), and edit it.
+    async fn fa_insert(&mut self, at: u32) -> io::Result<u32> {
         let mut areas = (*self.state.fareas()).clone();
-        let n = areas.areas.len() as u32;
-        self.newline();
-        let Some(at) = self.cfg_ask_number("Insert before which file area?", 1, n + 1).await? else { return Ok(()) };
-        let count = self.cfg_ask_number("Number of areas to insert", 1, 50).await?.unwrap_or(1);
-        for _ in 0..count {
-            let a = new_file_area(&areas);
-            areas.areas.insert(at as usize - 1, a);
+        let at = at.clamp(1, areas.areas.len() as u32 + 1);
+        let mut a = new_file_area(&areas);
+        if let Some(next) = areas.areas.get(at as usize - 1) {
+            a.parent = next.parent.clone();
         }
+        areas.areas.insert(at as usize - 1, a);
         self.save_fareas(areas)?;
-        tracing::info!("{}: inserted {count} file area(s) at {at}", self.user.handle);
-        Ok(())
+        tracing::info!("{}: inserted a file area at {at}", self.user.handle);
+        self.fa_edit(at).await
     }
 
-    async fn fa_delete(&mut self) -> io::Result<()> {
+    async fn fa_delete(&mut self, which: u32) -> io::Result<()> {
         let mut areas = (*self.state.fareas()).clone();
         let n = areas.areas.len() as u32;
-        self.newline();
         if n <= 1 {
             self.show_line("|U0You must have at least one file area!").await?;
             return self.prompt_key().await;
         }
-        let Some(which) = self.cfg_ask_number("Delete which file area?", 1, n).await? else { return Ok(()) };
+        let Some(a) = areas.areas.get(which as usize - 1) else { return Ok(()) };
+        self.show(&format!("|U1Delete file area |U3{}|U1 ({})? ", a.name, a.file)).await?;
+        if !self.yes_no(false).await? {
+            return Ok(());
+        }
+        self.newline();
         let gone = areas.areas.remove(which as usize - 1);
         // Its sub-areas move up a level.
         for a in areas.areas.iter_mut().filter(|a| a.parent.eq_ignore_ascii_case(&gone.file)) {
@@ -657,28 +673,30 @@ impl Session {
         Ok(())
     }
 
-    async fn fa_move(&mut self) -> io::Result<()> {
+    /// Move area `from` before another; returns where it ended up. (Its
+    /// place in the tree follows "Sub-area of"; this is its order there.)
+    async fn fa_move(&mut self, from: u32) -> io::Result<u32> {
         let mut areas = (*self.state.fareas()).clone();
         let n = areas.areas.len() as u32;
-        self.newline();
         if n <= 1 {
             self.show_line("|U0There is only one file area, no need to move it.").await?;
-            return self.prompt_key().await;
+            self.prompt_key().await?;
+            return Ok(from);
         }
-        let Some(from) = self.cfg_ask_number("Move which file area?", 1, n).await? else { return Ok(()) };
-        let Some(before) = self.cfg_ask_number("Move before which file area?", 1, n + 1).await? else { return Ok(()) };
+        let name = areas.areas[from as usize - 1].name.clone();
+        let Some(before) = self.cfg_ask_number(&format!("Move {name} before which file area?"), 1, n + 1).await? else { return Ok(from) };
         move_before(&mut areas.areas, from as usize - 1, before as usize - 1);
-        self.save_fareas(areas)
+        self.save_fareas(areas)?;
+        Ok(if before > from { before - 1 } else { before })
     }
 
-    /// `cfgEditFileArea`.
-    async fn fa_edit(&mut self) -> io::Result<()> {
+    /// `cfgEditFileArea`, starting at area `num`; returns the area it was
+    /// left on (`[` and `]` step through them).
+    async fn fa_edit(&mut self, mut num: u32) -> io::Result<u32> {
         let n = self.state.fareas().areas.len() as u32;
-        self.newline();
         if n == 0 {
-            return Ok(());
+            return Ok(num);
         }
-        let Some(mut num) = self.cfg_ask_number("Begin edit with which file area?", 1, n).await? else { return Ok(()) };
         let sorts: Vec<&str> = SortBy::ALL.iter().map(|s| s.label()).collect();
         let directions = ["Ascending", "Descending"];
         loop {
@@ -800,7 +818,7 @@ impl Session {
             if step == 0 {
                 self.screen.goto(1, self.screen.rows());
                 self.newline();
-                return Ok(());
+                return Ok(num);
             }
             num = ((num as i64 - 1 + step).rem_euclid(n as i64) + 1) as u32;
         }
@@ -1070,11 +1088,23 @@ impl Session {
 
     /// `=` in the file editor.
     async fn move_file_to_area(&mut self, from: &FileArea, fr: &FileRec) -> io::Result<()> {
-        self.fa_list_all().await?;
-        let areas = self.state.fareas();
-        let s = format!("|U2-- |U1Move |U3{}|U1 to which file area|U2? |U3", fr.name);
-        let Some(n) = self.cfg_ask_number(&s, 1, areas.areas.len() as u32).await? else { return Ok(()) };
-        let Some(to) = areas.get(n).cloned() else { return Ok(()) };
+        // The areas as *F lists them, to pick from.
+        let rows = self.fa_rows()?;
+        let labels: Vec<(u32, u32)> = rows.iter().map(|r| (r.n, r.n)).collect();
+        let help = format!("|U1 Move |U3{}|U1 to which area? Arrows move, |U3enter|U1 picks, |U3/|U1 searches, |U3esc|U1 cancels.", fr.name);
+        let spec = BarSpec {
+            prefix: "CFGFAREA",
+            header: FA_HEADER,
+            rows: &rows,
+            labels: &labels,
+            start: 0,
+            help: &help,
+            ask: "",
+            can_go_up: false,
+            keys: "",
+        };
+        let BarPick::Area(n) = self.area_bar(&spec).await? else { return Ok(()) };
+        let Some(to) = self.state.fareas().get(n).cloned() else { return Ok(()) };
         if to.file.eq_ignore_ascii_case(&from.file) {
             return Ok(());
         }

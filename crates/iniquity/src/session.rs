@@ -151,6 +151,8 @@ pub struct Session {
     pub(crate) ai_bar: String,
     /// The colour the AI chat's text is in, to resume after the bar.
     pub(crate) ai_ink: String,
+    /// The context the AI conversation has used, for the bar (`AiContext`).
+    pub(crate) ai_ctx: String,
 }
 
 /// Run a caller from connect to disconnect.
@@ -306,6 +308,7 @@ impl Session {
             including: false,
             ai_bar: String::new(),
             ai_ink: String::new(),
+            ai_ctx: String::new(),
         }
     }
 
@@ -798,6 +801,12 @@ impl Session {
         let mut rep = None;
         let mut redraw = true;
         let find = |typed: &str| typed.parse::<u32>().ok().and_then(|l| labels.iter().find(|&&(label, _)| label == l)).map(|r| r.1);
+        // New: `/` and some text moves the bar to the next row with it in.
+        let mut search: Option<String> = None;
+        let matching = |q: &str, from: usize| {
+            let q = q.to_lowercase();
+            (0..rows.len()).map(|i| (from + i) % rows.len()).find(|&i| rows[i].plain.to_lowercase().contains(&q))
+        };
         loop {
             if redraw {
                 self.screen.set_color(iniquity_term::Color::DEFAULT);
@@ -846,49 +855,86 @@ impl Session {
             let key = self.read_key().await?;
             let prev = cur;
             let last = rows.len().saturating_sub(1);
-            match key {
-                Key::Up => cur = cur.saturating_sub(1),
-                Key::Down => cur = (cur + 1).min(last),
-                Key::PgUp => cur = cur.saturating_sub(height),
-                Key::PgDn => cur = (cur + height).min(last),
-                Key::Home => cur = 0,
-                Key::End => cur = last,
-                Key::Char(c) if c.is_ascii_digit() => {
-                    if typed.len() < 4 {
-                        typed.push(c as char);
+            // While searching, text goes to the search and `/` again finds
+            // the next; esc ends it where the bar is, enter picks that row.
+            let mut searched = false;
+            if let Some(q) = search.as_mut() {
+                searched = true;
+                match key {
+                    Key::Esc => search = None,
+                    Key::Backspace => {
+                        if q.pop().is_none() {
+                            search = None;
+                        }
                     }
-                    if let Some(i) = find(&typed).and_then(|n| rows.iter().position(|r| r.n == n)) {
-                        cur = i;
+                    Key::Char(b'/') if !q.is_empty() => {
+                        if let Some(i) = matching(q, cur + 1) {
+                            cur = i;
+                        }
+                    }
+                    Key::Char(c @ 0x20..=0x7E) if q.len() < 30 => {
+                        q.push(c as char);
+                        if let Some(i) = matching(q, cur) {
+                            cur = i;
+                        }
+                    }
+                    Key::Char(_) => {}
+                    _ => {
+                        search = None;
+                        searched = false;
                     }
                 }
-                Key::Backspace if !typed.is_empty() => {
-                    typed.pop();
-                }
-                Key::Left | Key::Backspace if can_go_up => return Ok(BarPick::Up),
-                Key::Enter | Key::Right => {
-                    self.newline();
-                    if !typed.is_empty() {
-                        return Ok(find(&typed).map_or(BarPick::Stay, BarPick::Area));
-                    }
-                    return Ok(rows.get(cur).map_or(BarPick::Stay, |r| BarPick::Area(r.n)));
-                }
-                Key::Esc => {
-                    self.newline();
-                    return Ok(BarPick::Stay);
-                }
-                k if k.upper().is_some_and(|c| keys.contains(c)) => {
-                    self.newline();
-                    let c = k.upper().unwrap_or(' ');
-                    return Ok(BarPick::Key(c, rows.get(cur).map_or(0, |r| r.n)));
-                }
-                k if k.upper() == Some('Q') => {
-                    self.newline();
-                    return Ok(BarPick::Stay);
-                }
-                _ => {}
+                typed = search.as_ref().map_or(String::new(), |q| format!("/{q}"));
             }
-            if !matches!(key, Key::Char(_) | Key::Backspace) {
-                typed.clear();
+            if !searched {
+                match key {
+                    Key::Char(b'/') if !rows.is_empty() => {
+                        search = Some(String::new());
+                        typed = "/".into();
+                    }
+                    Key::Up => cur = cur.saturating_sub(1),
+                    Key::Down => cur = (cur + 1).min(last),
+                    Key::PgUp => cur = cur.saturating_sub(height),
+                    Key::PgDn => cur = (cur + height).min(last),
+                    Key::Home => cur = 0,
+                    Key::End => cur = last,
+                    Key::Char(c) if c.is_ascii_digit() => {
+                        if typed.len() < 4 {
+                            typed.push(c as char);
+                        }
+                        if let Some(i) = find(&typed).and_then(|n| rows.iter().position(|r| r.n == n)) {
+                            cur = i;
+                        }
+                    }
+                    Key::Backspace if !typed.is_empty() => {
+                        typed.pop();
+                    }
+                    Key::Left | Key::Backspace if can_go_up => return Ok(BarPick::Up),
+                    Key::Enter | Key::Right => {
+                        self.newline();
+                        if !typed.is_empty() {
+                            return Ok(find(&typed).map_or(BarPick::Stay, BarPick::Area));
+                        }
+                        return Ok(rows.get(cur).map_or(BarPick::Stay, |r| BarPick::Area(r.n)));
+                    }
+                    Key::Esc => {
+                        self.newline();
+                        return Ok(BarPick::Stay);
+                    }
+                    k if k.upper().is_some_and(|c| keys.contains(c)) => {
+                        self.newline();
+                        let c = k.upper().unwrap_or(' ');
+                        return Ok(BarPick::Key(c, rows.get(cur).map_or(0, |r| r.n)));
+                    }
+                    k if k.upper() == Some('Q') => {
+                        self.newline();
+                        return Ok(BarPick::Stay);
+                    }
+                    _ => {}
+                }
+                if !matches!(key, Key::Char(_) | Key::Backspace) {
+                    typed.clear();
+                }
             }
             if cur == prev {
                 continue;

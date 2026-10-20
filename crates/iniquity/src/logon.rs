@@ -58,7 +58,7 @@ impl Session {
         });
 
         let start = &self.user.start_menu;
-        let dir = self.state.config().resolve(&self.state.config().paths.menus);
+        let dir = self.state.config().menu_dirs();
         self.menu.current = if !start.is_empty() && Menu::load(&dir, start).is_ok() {
             start.clone()
         } else {

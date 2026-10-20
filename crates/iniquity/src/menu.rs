@@ -1,6 +1,6 @@
 //! Menu files (`menus/NAME.toml`), converted from *.MNU by the importer.
 
-use std::path::Path;
+use std::path::PathBuf;
 
 use serde::{Deserialize, Serialize};
 
@@ -118,9 +118,10 @@ pub struct Command {
 pub const FIRST_CMD: &str = "FIRSTCMD";
 
 impl Menu {
-    pub fn load(dir: &Path, name: &str) -> anyhow::Result<Menu> {
+    /// The menu from the first of `dirs` that has it.
+    pub fn load(dirs: &[PathBuf], name: &str) -> anyhow::Result<Menu> {
         let file = format!("{}.toml", name.to_ascii_uppercase());
-        let path = crate::session::find_ci(dir, &file).ok_or_else(|| anyhow::anyhow!("menu {name} not found"))?;
+        let path = dirs.iter().find_map(|d| crate::session::find_ci(d, &file)).ok_or_else(|| anyhow::anyhow!("menu {name} not found"))?;
         let text = std::fs::read_to_string(&path)?;
         Ok(toml::from_str(&text)?)
     }
