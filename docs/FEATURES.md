@@ -38,7 +38,10 @@ Everything the port does, in detail. The [README](../README.md) has the short li
 - Menu engine: hot keys, `/` and `//` commands, `#` (an area number
   typed at the prompt, for `M#`/`F#`), FIRSTCMD, stacked
   commands, gosub/return, generic and lightbar menus, ACS expressions,
-  passwords, fallbacks, command help.
+  passwords, fallbacks, command help. Lightbar menus (new) also take
+  their commands' keys (hot keys, `/X`, and digits for `#`, typed on the
+  help line), the arrows go by where options are on screen so a grid of
+  them works, and they hold up to 29 options (the original took 24).
 - Logon: the matrix menu, login, system password, new-user application
   (each personal question can be switched off; handles kept as typed;
   the NEWCFG screen to check the entries afterwards), access levels and
@@ -74,7 +77,9 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   anywhere; back goes up a level. Screens can show what's in the file
   base (new, `%FT`...`%FV` in `CODES.md`): totals, the newest upload, the
   most downloaded and biggest files, the top uploader, and a file at
-  random with a line of its description. Zmodem built in; other protocols and archivers
+  random with a line of its description. `FW newest` (`hot`, `heavy`,
+  `dig`, `kingpin`) opens the browser on that file, so a lightbar
+  option on a menu can take the caller straight to it. Zmodem built in; other protocols and archivers
   (RAR, 7Z, LHA via bsdtar/7-Zip) are external programs. Before a
   download the caller can ask to be logged off when it's done (a
   countdown afterwards; `*C`, Transfers).
@@ -85,7 +90,11 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   the delete list (BBS ads) are stripped from ZIPs and the archive
   comment added.
 - Oneliners, the automessage, last callers, history and statistics, the
-  BBS list, user configuration, user listing.
+  BBS list, user configuration, user listing. BBS list entries have a
+  telnet and an SSH address (`host:port`) in place of the original's
+  phone number and baud rate (screens: `~TN` telnet, `~SS` SSH, `~SH`
+  SSH shortened to `:port` on the telnet host, for lists; older screens'
+  `~PN` shows the telnet address).
 - Infoforms (questionnaires, mandatory or not) and new user voting.
 - The time bank (`!D`/`!W` minutes, `!E`/`!I` download kilobytes, `!V`
   the account), with per-level limits on what's kept and moved each

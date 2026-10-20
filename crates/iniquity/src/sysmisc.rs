@@ -52,7 +52,7 @@ impl Session {
             let list = self.state.sys.bbs_list().map_err(io_err)?;
             self.clear_screen();
             self.set_slot(Slot::Text);
-            self.write(" Num  Name                           SysOp            Address");
+            self.write(" Num  Name                           SysOp            Telnet");
             self.newline();
             self.rule().await?;
             let mut lines = 3;
@@ -63,7 +63,7 @@ impl Session {
                     resize(&(i + 1).to_string(), 4),
                     resize(&b.name, 30),
                     resize(&b.sysop, 16),
-                    squish(&b.address, 25)
+                    squish(&b.telnet, 25)
                 ));
                 self.newline();
                 lines += 1;
@@ -107,10 +107,11 @@ impl Session {
     /// `cfgEditBBS`.
     async fn bbs_edit(&mut self, mut num: u32) -> io::Result<()> {
         type BbsText = (char, &'static str, usize, &'static str, fn(&mut Bbs) -> &mut String);
-        let texts: [BbsText; 7] = [
+        let texts: [BbsText; 8] = [
             ('A', "Name", 40, "The name of this bulletin board system.", |b| &mut b.name),
             ('B', "SysOp", 36, "The SysOp's name or handle.", |b| &mut b.sysop),
-            ('C', "Address", 40, "Where to reach it (telnet/SSH host, or a phone number).", |b| &mut b.address),
+            ('C', "Telnet", 40, "Its telnet address, host:port (e.g. bbs.example.com:23).", |b| &mut b.telnet),
+            ('D', "SSH", 40, "Its SSH address, host:port (e.g. bbs.example.com:2222).", |b| &mut b.ssh),
             ('E', "Software", 20, "Name of the bulletin board software this system is running.", |b| &mut b.software),
             ('F', "Storage", 20, "File area storage.", |b| &mut b.storage),
             ('G', "Other info", 58, "Any other information about this board (affiliations etc).", |b| &mut b.info),
@@ -127,11 +128,7 @@ impl Session {
             let mut f = Form::new(&format!("{} BBS List Editor", self.state.config().bbs.name));
             f.value_col(20);
             f.label("Current", 12, format!("{num} of {n}"));
-            for (key, label, len, info, get) in &texts[..3] {
-                f.item(*key, label, *len, get(&mut b).clone(), info);
-            }
-            f.item('D', "Max speed", 9, b.speed.to_string(), "The fastest connection this BBS takes (baud, or 0).");
-            for (key, label, len, info, get) in &texts[3..] {
+            for (key, label, len, info, get) in &texts {
                 f.item(*key, label, *len, get(&mut b).clone(), info);
             }
             f.item('[', "Previous BBS", 0, "", "");
@@ -141,11 +138,6 @@ impl Session {
             let step: i64 = loop {
                 let Some(key) = self.cfg_command(&mut f).await? else { break 0 };
                 match key {
-                    'D' => {
-                        if let Some(v) = self.cfg_number(&mut f, key, 0, 999_999_999).await? {
-                            b.speed = v as u32;
-                        }
-                    }
                     '[' => break -1,
                     ']' => break 1,
                     k => {

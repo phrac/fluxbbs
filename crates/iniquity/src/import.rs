@@ -277,9 +277,10 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
             sys.add_bbs(&Bbs {
                 id: 0,
                 name: b.name,
-                address: b.phone,
+                // A phone number, where the original had them.
+                telnet: b.phone,
+                ssh: String::new(),
                 sysop: b.sysop,
-                speed: b.baud.max(0) as u32,
                 software: b.software,
                 storage: b.storage,
                 info: b.info,

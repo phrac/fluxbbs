@@ -51,6 +51,16 @@ fn io_err(e: anyhow::Error) -> io::Error {
     io::Error::other(e)
 }
 
+/// The SSH address for a list: just `:port` when it's on the telnet
+/// address's host.
+fn ssh_short(b: &Bbs) -> String {
+    let host = |a: &str| a.rsplit_once(':').map_or(a, |(h, _)| h).to_ascii_lowercase();
+    match b.ssh.rsplit_once(':') {
+        Some((h, port)) if !h.is_empty() && h.eq_ignore_ascii_case(&host(&b.telnet)) => format!(":{port}"),
+        _ => b.ssh.clone(),
+    }
+}
+
 impl Session {
     /// Count something toward today's history and the totals.
     pub fn bump(&self, stat: Stat) {
@@ -441,9 +451,13 @@ impl Session {
     fn bbs_waves(b: &Bbs, n: usize) -> Waves {
         waves([
             ("BN", b.name.clone()),
-            ("PN", b.address.clone()),
+            // TN/SS (new) telnet and SSH; PN, the original's phone
+            // number, is the telnet address on older screens.
+            ("TN", b.telnet.clone()),
+            ("PN", b.telnet.clone()),
+            ("SS", b.ssh.clone()),
+            ("SH", ssh_short(b)),
             ("SN", b.sysop.clone()),
-            ("BR", b.speed.to_string()),
             ("SF", b.software.clone()),
             ("ST", b.storage.clone()),
             ("IN", b.info.clone()),
@@ -464,7 +478,7 @@ impl Session {
         if rep.is_none() {
             self.newline();
             self.set_slot(Slot::Info);
-            self.show_line(" Num  BBS Name                  Address          Software        Speed").await?;
+            self.show_line(" Num  BBS Name           Telnet                       SSH          Software").await?;
             self.rule().await?;
         }
         let mut lines = 3;
@@ -475,10 +489,10 @@ impl Session {
                     let line = format!(
                         "|U1 {} {} {} {} {}",
                         resize(&(i + 1).to_string(), 4),
-                        lit(&resize(&b.name, 25)),
-                        lit(&resize(&b.address, 16)),
-                        lit(&resize(&b.software, 15)),
-                        b.speed
+                        lit(&resize(&b.name, 18)),
+                        lit(&resize(&b.telnet, 28)),
+                        lit(&resize(&ssh_short(b), 12)),
+                        lit(&squish(&b.software, 10))
                     );
                     self.show_line(&line).await?;
                     lines += 1;
@@ -527,9 +541,9 @@ impl Session {
             for (k, v) in [
                 ("List Number", n.to_string()),
                 ("System Name", b.name.clone()),
-                ("Address", b.address.clone()),
+                ("Telnet", b.telnet.clone()),
+                ("SSH", b.ssh.clone()),
                 ("SysOp", b.sysop.clone()),
-                ("Speed", b.speed.to_string()),
                 ("Software", b.software.clone()),
                 ("Storage", b.storage.clone()),
                 ("Other Info", b.info.clone()),
@@ -547,22 +561,23 @@ impl Session {
             self.newline();
         }
         let mut b = Bbs { who_added: self.user.handle.clone(), ..Bbs::default() };
-        let fields: [(&[u8; 2], &str, usize, bool); 7] = [
-            (b"BN", "BBSaskName", 40, false),
-            (b"PN", "BBSaskPhone", 40, false),
-            (b"SN", "BBSaskSysOp", 36, false),
-            (b"BR", "BBSaskBaud", 6, true),
-            (b"SF", "BBSaskSoftware", 12, false),
-            (b"ST", "BBSaskStorage", 20, false),
-            (b"IN", "BBSaskInfo", 75, false),
+        // ADDBBS marks each field (`~TN`/`~SS`; older screens have `~PN`
+        // and `~BR`, the phone number and baud rate, in those places).
+        let fields: [(&[u8; 2], &[u8; 2], &str, usize); 7] = [
+            (b"BN", b"BN", "BBSaskName", 40),
+            (b"TN", b"PN", "BBSaskTelnet", 40),
+            (b"SS", b"BR", "BBSaskSSH", 40),
+            (b"SN", b"SN", "BBSaskSysOp", 36),
+            (b"SF", b"SF", "BBSaskSoftware", 12),
+            (b"ST", b"ST", "BBSaskStorage", 20),
+            (b"IN", b"IN", "BBSaskInfo", 75),
         ];
         let mut values: Vec<String> = Vec::new();
-        for (i, (code, ask, len, digits)) in fields.into_iter().enumerate() {
-            if !self.goto_pos(*code) {
+        for (i, (code, old, ask, len)) in fields.into_iter().enumerate() {
+            if !self.goto_pos(*code) && !self.goto_pos(*old) {
                 self.say(ask).await?;
             }
-            let opts = ReadOpts::new(len).allowed(if digits { DIGITS } else { "" });
-            let v = self.read_string(opts).await?;
+            let v = self.read_string(ReadOpts::new(len)).await?.trim().to_string();
             if !screen {
                 self.newline();
             }
@@ -572,7 +587,7 @@ impl Session {
             if i == 1 {
                 let list = self.state.sys.bbs_list().map_err(io_err)?;
                 let name = values[0].clone();
-                if list.iter().any(|x| x.name.eq_ignore_ascii_case(&name) || (!v.is_empty() && x.address.eq_ignore_ascii_case(&v))) {
+                if list.iter().any(|x| x.name.eq_ignore_ascii_case(&name) || (!v.is_empty() && x.telnet.eq_ignore_ascii_case(&v))) {
                     if !self.goto_pos(*b"OT") {
                         self.newline();
                     }
@@ -582,8 +597,7 @@ impl Session {
             }
             values.push(v);
         }
-        [b.name, b.address, b.sysop] = [values[0].clone(), values[1].clone(), values[2].clone()];
-        b.speed = values[3].parse().unwrap_or(0);
+        [b.name, b.telnet, b.ssh, b.sysop] = [values[0].clone(), values[1].clone(), values[2].clone(), values[3].clone()];
         [b.software, b.storage] = [values[4].clone(), values[5].clone()];
         b.info = if values[6].is_empty() { "None".into() } else { values[6].clone() };
         if !self.goto_pos(*b"OT") {
@@ -800,6 +814,15 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn ssh_short_on_the_same_host() {
+        let b = |t: &str, s: &str| Bbs { telnet: t.into(), ssh: s.into(), ..Bbs::default() };
+        assert_eq!(ssh_short(&b("bbs.example.net:23", "BBS.example.net:2222")), ":2222");
+        assert_eq!(ssh_short(&b("bbs.example.net", "bbs.example.net:22")), ":22");
+        assert_eq!(ssh_short(&b("bbs.example.net:23", "other.net:22")), "other.net:22");
+        assert_eq!(ssh_short(&b("", "")), "");
+    }
 
     #[test]
     fn sig_is_clamped() {

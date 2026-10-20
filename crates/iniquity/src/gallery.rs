@@ -360,23 +360,39 @@ impl Session {
 
     /// `FW`: the file areas, browsed like the gallery (new; it replaces the
     /// lister on the file menu). It opens in the current area; back from
-    /// there goes up to the list of areas.
-    pub async fn file_browser(&mut self) -> io::Result<()> {
+    /// there goes up to the list of areas. With `newest`, `hot`, `heavy`,
+    /// `dig` or `kingpin` it opens on that file from the file menu's stats
+    /// (the newest, most downloaded, biggest, random, top uploader's latest).
+    pub async fn file_browser(&mut self, param: &str) -> io::Result<()> {
         let cap = crate::upscan::Limits::from_config(&self.state.config().files).max_unpacked;
         let mode = Mode { all: true, cap: if cap == 0 { u64::MAX } else { cap } };
         let speed = self.state.config().gallery.speed;
-        let cur = self.user.cur_file_area;
+        let stats = self.file_stats(true);
+        let target = match param.trim().to_ascii_lowercase().as_str() {
+            "newest" => stats.newest.as_ref(),
+            "hot" => stats.popular.as_ref(),
+            "heavy" => stats.biggest.as_ref(),
+            "dig" => crate::mci::dig(&stats),
+            "kingpin" => stats.kingpin_latest.as_ref(),
+            _ => None,
+        };
+        let fa = self.state.fareas();
+        let (cur, focus) = match target.and_then(|f| fa.areas.iter().position(|a| a.file.eq_ignore_ascii_case(&f.area)).map(|i| (i as u32 + 1, f.name.clone()))) {
+            Some((n, name)) if self.farea_visible(n) => (n, Some(name)),
+            _ => (self.user.cur_file_area, None),
+        };
         let start = self.farea(cur).map(|a| (a.area.name.clone(), Place::Area(cur)));
         self.node.update(|n| n.activity = "Browsing files".into());
-        self.gallery_browse_from(Place::Areas, "file areas", mode, speed, start).await
+        self.gallery_browse_from(Place::Areas, "file areas", mode, speed, start, focus).await
     }
 
     async fn gallery_browse(&mut self, root: Place, title: &str, mode: Mode, speed: u32) -> io::Result<()> {
-        self.gallery_browse_from(root, title, mode, speed, None).await
+        self.gallery_browse_from(root, title, mode, speed, None, None).await
     }
 
-    /// Browse from `root`, starting one level down at `start` if given.
-    async fn gallery_browse_from(&mut self, root: Place, title: &str, mode: Mode, mut speed: u32, start: Option<(String, Place)>) -> io::Result<()> {
+    /// Browse from `root`, starting one level down at `start` if given,
+    /// with the bar on the item called `focus`.
+    async fn gallery_browse_from(&mut self, root: Place, title: &str, mode: Mode, mut speed: u32, start: Option<(String, Place)>, mut focus: Option<String>) -> io::Result<()> {
         self.full_screen_done();
         // Where we are, and the cursor in each level above.
         let mut path: Vec<(String, Place, usize)> = vec![(String::new(), root, 0)];
@@ -386,6 +402,13 @@ impl Session {
         loop {
             let (_, place, _) = path.last().cloned().expect("root");
             let items = self.gallery_list(&place, mode).await?;
+            if let Some(name) = focus.take()
+                && let Some(i) = items.iter().position(|it| match it {
+                    Item::Folder { name: n, .. } | Item::Art { name: n, .. } => n.eq_ignore_ascii_case(&name),
+                })
+            {
+                path.last_mut().expect("root").2 = i;
+            }
             let crumbs: Vec<String> = path.iter().skip(1).map(|(n, _, _)| n.clone()).collect();
             let at = path.last().map(|l| l.2).unwrap_or(0);
             let place = if crumbs.is_empty() { title.to_string() } else { format!("{title}/{}", crumbs.join("/")) };

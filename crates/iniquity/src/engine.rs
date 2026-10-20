@@ -15,6 +15,32 @@ const MAX_STACK: usize = 8;
 /// Lightbar help line marker (`maxPos-1`) and exit position (`maxPos`).
 const LIGHTBAR_HELP: [u8; 2] = *b"HP";
 const LIGHTBAR_EXIT: u8 = 30;
+/// Options on a lightbar, short of the exit position (the original took 24).
+const MAX_BAR: usize = 29;
+
+/// New: where an arrow goes on a lightbar, by where the options are
+/// (`places`, 0-based; `None` where an option has no marker): left and
+/// right along the row, up and down to the nearest option on the next
+/// row. Where there's nothing that way, it steps through them in order.
+fn bar_move(places: &[Option<(i32, i32)>], cur: usize, key: Key) -> usize {
+    let n = places.len();
+    let (next, prev) = ((cur + 1) % n, (cur + n - 1) % n);
+    let Some((cx, cy)) = places[cur] else {
+        return if matches!(key, Key::Up | Key::Left) { prev } else { next };
+    };
+    let others = places.iter().enumerate().filter_map(|(i, p)| p.map(|(x, y)| (i, x, y)));
+    let found = match key {
+        Key::Right => others.filter(|&(_, x, y)| y == cy && x > cx).min_by_key(|&(_, x, _)| x),
+        Key::Left => others.filter(|&(_, x, y)| y == cy && x < cx).max_by_key(|&(_, x, _)| x),
+        Key::Down => others.filter(|&(_, _, y)| y > cy).min_by_key(|&(_, x, y)| (y - cy, (x - cx).abs())),
+        _ => others.filter(|&(_, _, y)| y < cy).min_by_key(|&(_, x, y)| (cy - y, (x - cx).abs())),
+    };
+    match found {
+        Some((i, _, _)) => i,
+        None if matches!(key, Key::Up | Key::Left) => prev,
+        None => next,
+    }
+}
 
 #[derive(Default)]
 pub struct MenuState {
@@ -364,7 +390,10 @@ impl Session {
     }
 
     /// `menuDoLightBarMenu`: pick a command with the cursor keys over the
-    /// `~01`.. positions marked in the menu's help file.
+    /// `~01`.. positions marked in the menu's help file. New: a command's
+    /// own keys still run it (hot keys, `/X`, a number for `#`), and the
+    /// arrows go by where the options are on screen, so a grid of them
+    /// works as well as a row.
     async fn menu_lightbar(&mut self, menu: &Menu) -> io::Result<String> {
         if menu.clear_before {
             self.clear_screen();
@@ -376,7 +405,7 @@ impl Session {
             .enumerate()
             .filter(|(_, c)| c.keys != FIRST_CMD && !c.hidden && self.acs(&c.acs))
             .map(|(i, _)| i)
-            .take(24)
+            .take(MAX_BAR)
             .collect();
         if items.is_empty() {
             return Ok("?".into());
@@ -386,16 +415,52 @@ impl Session {
         for n in 1..=items.len() {
             self.lightbar_item(menu, &items, n, false, has_help, &mut help_len).await?;
         }
+        let places: Vec<Option<(i32, i32)>> =
+            (1..=items.len()).map(|n| self.positions.get(&pos_code(n as u8)).map(|p| (p.0 as i32, p.1 as i32))).collect();
+        let keys: Vec<String> = menu.commands.iter().filter(|c| c.keys != FIRST_CMD && self.acs(&c.acs)).map(|c| c.keys.to_uppercase()).collect();
+        let allowed = |k: &str| keys.iter().any(|c| c == k);
+        // With a `#` command, digits are a number rather than arrows.
+        let has_number = allowed("#");
         let mut cur = 1;
         self.lightbar_item(menu, &items, cur, true, has_help, &mut help_len).await?;
-        loop {
+        let picked = loop {
             let key = self.read_key().await?;
+            if let Some(c) = key.upper().filter(|c| c.is_ascii_graphic()) {
+                let k = c.to_string();
+                if allowed(&k) {
+                    break k;
+                }
+                if c == '/' {
+                    if let Some(two) = self.read_key().await?.upper() {
+                        let k = format!("/{two}");
+                        if allowed(&k) {
+                            break k;
+                        }
+                    }
+                    continue;
+                }
+                if has_number && c.is_ascii_digit() {
+                    break self.lightbar_number(&k, has_help, help_len).await?;
+                }
+            }
             let next = match key {
-                Key::Up | Key::Left | Key::Char(b'8' | b'4') => Some(if cur == 1 { items.len() } else { cur - 1 }),
-                Key::Down | Key::Right | Key::Char(b'6' | b'2' | b' ') => Some(if cur == items.len() { 1 } else { cur + 1 }),
-                Key::Home | Key::PgUp | Key::Char(b'7' | b'9') => Some(1),
-                Key::End | Key::PgDn | Key::Char(b'1' | b'3') => Some(items.len()),
-                Key::Enter => break,
+                Key::Up | Key::Down | Key::Left | Key::Right => Some(bar_move(&places, cur - 1, key) + 1),
+                Key::Char(b'8') if !has_number => Some(bar_move(&places, cur - 1, Key::Up) + 1),
+                Key::Char(b'2') if !has_number => Some(bar_move(&places, cur - 1, Key::Down) + 1),
+                Key::Char(b'4') if !has_number => Some(bar_move(&places, cur - 1, Key::Left) + 1),
+                Key::Char(b'6') if !has_number => Some(bar_move(&places, cur - 1, Key::Right) + 1),
+                Key::Char(b' ') => Some(if cur == items.len() { 1 } else { cur + 1 }),
+                Key::Home | Key::PgUp => Some(1),
+                Key::Char(b'7' | b'9') if !has_number => Some(1),
+                Key::End | Key::PgDn => Some(items.len()),
+                Key::Char(b'1' | b'3') if !has_number => Some(items.len()),
+                Key::Enter => {
+                    let k = menu.commands[items[cur - 1]].keys.to_uppercase();
+                    if k == "#" {
+                        break self.lightbar_number("", has_help, help_len).await?;
+                    }
+                    break k;
+                }
                 _ => None,
             };
             if let Some(next) = next.filter(|&n| n != cur) {
@@ -403,14 +468,29 @@ impl Session {
                 cur = next;
                 self.lightbar_item(menu, &items, cur, true, has_help, &mut help_len).await?;
             }
-        }
+        };
         // Leave the highlight colour behind, and don't scroll the art away.
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         if !self.goto_pos(pos_code(LIGHTBAR_EXIT)) {
             self.screen.goto(1, self.screen.rows());
         }
         self.screen.set_color(iniquity_term::Color::DEFAULT);
-        Ok(menu.commands[items[cur - 1]].keys.to_uppercase())
+        Ok(picked)
+    }
+
+    /// A number for a lightbar menu's `#` command, typed on the help line
+    /// (or the bottom row), starting with `first`.
+    async fn lightbar_number(&mut self, first: &str, has_help: bool, help_len: usize) -> io::Result<String> {
+        if has_help {
+            self.goto_pos(LIGHTBAR_HELP);
+            self.write(&" ".repeat(help_len));
+            self.goto_pos(LIGHTBAR_HELP);
+        } else {
+            self.screen.goto(1, self.screen.rows());
+            self.screen.clear_eol();
+        }
+        self.say("LightbarNumber").await?;
+        self.read_string(ReadOpts::new(5).allowed(crate::input::DIGITS).prefill(first)).await
     }
 
     async fn lightbar_item(
@@ -438,8 +518,10 @@ impl Session {
             self.write(&" ".repeat(*help_len));
             self.goto_pos(LIGHTBAR_HELP);
             let help = c.help.clone();
+            // How far it went, as written (values cut by `{NN` and all).
+            let (x, y) = (self.screen.where_x(), self.screen.where_y());
             self.show(&help).await?;
-            *help_len = self.visible_len(&iniquity_term::cp437::encode(&help));
+            *help_len = if self.screen.where_y() == y { self.screen.where_x().saturating_sub(x) as usize } else { self.visible_len(&iniquity_term::cp437::encode(&help)) };
         }
         Ok(())
     }
@@ -565,5 +647,30 @@ impl Session {
         self.screen.set_color(color);
         self.nonstop = key.upper() == Some('C');
         Ok(!matches!(key.upper(), Some('Q' | 'S' | 'N')) && key != Key::Esc)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn bar_moves_by_place() {
+        // Two columns of two, then a wide one below.
+        let p = [Some((2, 10)), Some((2, 11)), Some((40, 10)), Some((40, 11)), Some((30, 14))];
+        assert_eq!(bar_move(&p, 0, Key::Right), 2);
+        assert_eq!(bar_move(&p, 2, Key::Left), 0);
+        assert_eq!(bar_move(&p, 0, Key::Down), 1);
+        assert_eq!(bar_move(&p, 3, Key::Down), 4);
+        assert_eq!(bar_move(&p, 4, Key::Up), 3);
+        // Nothing that way: in order, wrapping.
+        assert_eq!(bar_move(&p, 2, Key::Right), 3);
+        assert_eq!(bar_move(&p, 4, Key::Down), 0);
+        assert_eq!(bar_move(&p, 0, Key::Up), 4);
+        // A row (MATRIX): up and down step along it.
+        let row = [Some((1, 20)), Some((15, 20)), Some((30, 20))];
+        assert_eq!(bar_move(&row, 1, Key::Down), 2);
+        assert_eq!(bar_move(&row, 1, Key::Up), 0);
+        assert_eq!(bar_move(&[None, None], 0, Key::Down), 1);
     }
 }

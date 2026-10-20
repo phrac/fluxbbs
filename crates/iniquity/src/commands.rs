@@ -197,7 +197,7 @@ impl Session {
             "FB" => self.batch_editor().await?,
             "FI" => self.file_info_cmd(param).await?,
             "AI" => self.ai_chat().await?,
-            "FW" => self.file_browser().await?,
+            "FW" => self.file_browser(param).await?,
             "FV" => self.view_archive(param).await?,
             "FF" => self.search_files(true).await?,
             "FT" => self.search_files(false).await?,

@@ -289,6 +289,15 @@ impl FileBase {
         s.top_uploader = db
             .query_row(&format!("SELECT uploader, COUNT(*) FROM files WHERE {w} AND uploader <> '' GROUP BY uploader COLLATE NOCASE ORDER BY 2 DESC LIMIT 1"), p.clone(), |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()?;
+        if let Some((who, _)) = &s.top_uploader {
+            s.kingpin_latest = db
+                .query_row(
+                    &format!("SELECT * FROM files WHERE {w} AND uploader = ? COLLATE NOCASE ORDER BY uploaded DESC, id DESC LIMIT 1"),
+                    rusqlite::params_from_iter(areas.iter().map(|a| a as &dyn rusqlite::ToSql).chain([who as &dyn rusqlite::ToSql])),
+                    from_row,
+                )
+                .optional()?;
+        }
         if let Some(d) = since {
             s.since = db.query_row(&format!("SELECT COUNT(*) FROM files WHERE {w} AND uploaded >= ?"), rusqlite::params_from_iter(areas.iter().map(|a| a as &dyn rusqlite::ToSql).chain([&d as &dyn rusqlite::ToSql])), |r| r.get(0))?;
         } else {
@@ -313,6 +322,8 @@ pub struct FileStats {
     pub random: Vec<FileRec>,
     /// Handle and how many files.
     pub top_uploader: Option<(String, u32)>,
+    /// The top uploader's latest.
+    pub kingpin_latest: Option<FileRec>,
 }
 
 #[cfg(test)]
@@ -418,6 +429,7 @@ mod tests {
         assert_eq!(s.popular.unwrap().name, "OLD.ZIP");
         assert_eq!(s.biggest.unwrap().name, "NEW.ZIP");
         assert_eq!(s.top_uploader, Some(("phrac".into(), 2)));
+        assert_eq!(s.kingpin_latest.unwrap().name, "NEWER.ZIP");
         assert_eq!(s.random.len(), 3);
         assert!(s.random.iter().all(|f| f.area == "UTILS"));
         assert_eq!(fb.stats(&[], None).unwrap().files, 0);

@@ -182,10 +182,13 @@ pub struct AutoMsg {
 pub struct Bbs {
     pub id: u32,
     pub name: String,
-    /// Telnet/SSH address (a phone number in the original).
-    pub address: String,
+    /// Telnet address, `host:port` (a phone number in the original; the
+    /// column is still `address`).
+    pub telnet: String,
+    /// New: SSH address, `host:port` (in place of the original's baud
+    /// rate, whose column stays unused).
+    pub ssh: String,
     pub sysop: String,
-    pub speed: u32,
     pub software: String,
     pub storage: String,
     pub info: String,
@@ -231,16 +234,27 @@ pub fn open_db(path: &std::path::Path) -> anyhow::Result<Connection> {
     Ok(db)
 }
 
+/// Columns added since a database was made.
+fn migrate(db: &Connection) -> rusqlite::Result<()> {
+    let has_ssh: bool = db.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('bbslist') WHERE name = 'ssh'", [], |r| r.get(0))?;
+    if !has_ssh {
+        db.execute("ALTER TABLE bbslist ADD COLUMN ssh TEXT NOT NULL DEFAULT ''", [])?;
+    }
+    Ok(())
+}
+
 impl SysData {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let db = crate::sysdata::open_db(path)?;
         db.execute_batch(SCHEMA)?;
+        migrate(&db)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
         let db = Connection::open_in_memory()?;
         db.execute_batch(SCHEMA)?;
+        migrate(&db)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -619,9 +633,9 @@ impl SysData {
                 Ok(Bbs {
                     id: r.get("id")?,
                     name: r.get("name")?,
-                    address: r.get("address")?,
+                    telnet: r.get("address")?,
+                    ssh: r.get("ssh")?,
                     sysop: r.get("sysop")?,
-                    speed: r.get("speed")?,
                     software: r.get("software")?,
                     storage: r.get("storage")?,
                     info: r.get("info")?,
@@ -635,9 +649,9 @@ impl SysData {
     pub fn add_bbs(&self, b: &Bbs) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
         db.execute(
-            "INSERT INTO bbslist (name, address, sysop, speed, software, storage, info, who_added)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
-            params![b.name, b.address, b.sysop, b.speed, b.software, b.storage, b.info, b.who_added],
+            "INSERT INTO bbslist (name, address, ssh, sysop, speed, software, storage, info, who_added)
+             VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8)",
+            params![b.name, b.telnet, b.ssh, b.sysop, b.software, b.storage, b.info, b.who_added],
         )?;
         Ok(())
     }
@@ -645,9 +659,9 @@ impl SysData {
     pub fn update_bbs(&self, b: &Bbs) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
         db.execute(
-            "UPDATE bbslist SET name = ?2, address = ?3, sysop = ?4, speed = ?5, software = ?6, storage = ?7,
+            "UPDATE bbslist SET name = ?2, address = ?3, ssh = ?4, sysop = ?5, software = ?6, storage = ?7,
                 info = ?8, who_added = ?9 WHERE id = ?1",
-            params![b.id, b.name, b.address, b.sysop, b.speed, b.software, b.storage, b.info, b.who_added],
+            params![b.id, b.name, b.telnet, b.ssh, b.sysop, b.software, b.storage, b.info, b.who_added],
         )?;
         Ok(())
     }
@@ -826,5 +840,31 @@ mod tests {
         assert_eq!(list[0].name, "Route 666");
         sd.delete_bbs(list[0].id).unwrap();
         assert!(sd.bbs_list().unwrap().is_empty());
+    }
+
+    #[test]
+    fn bbs_list_gets_ssh() {
+        // A database from before SSH addresses: the column is added and
+        // the old address reads as the telnet one.
+        let dir = std::env::temp_dir().join(format!("inq-bbs-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("old.db");
+        let _ = std::fs::remove_file(&path);
+        let db = Connection::open(&path).unwrap();
+        db.execute_batch(
+            "CREATE TABLE bbslist (id INTEGER PRIMARY KEY, name TEXT NOT NULL, address TEXT NOT NULL, sysop TEXT NOT NULL,
+                speed INTEGER NOT NULL, software TEXT NOT NULL, storage TEXT NOT NULL, info TEXT NOT NULL, who_added TEXT NOT NULL);
+             INSERT INTO bbslist VALUES (1, 'Route 666', 'r666.example:23', 'x', 33600, 'Iniquity', '', '', '');",
+        )
+        .unwrap();
+        drop(db);
+        let sd = SysData::open(&path).unwrap();
+        let mut b = sd.bbs_list().unwrap().remove(0);
+        assert_eq!((b.telnet.as_str(), b.ssh.as_str()), ("r666.example:23", ""));
+        b.ssh = "r666.example:2222".into();
+        sd.update_bbs(&b).unwrap();
+        assert_eq!(sd.bbs_list().unwrap()[0].ssh, "r666.example:2222");
+        drop(sd);
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

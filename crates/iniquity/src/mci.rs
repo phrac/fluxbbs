@@ -60,7 +60,25 @@ fn blurb(desc: &[String]) -> String {
         .unwrap_or_default()
 }
 
+/// The random file shown: one with something to say, if any has.
+pub(crate) fn dig(s: &crate::filebase::FileStats) -> Option<&crate::filebase::FileRec> {
+    s.random.iter().find(|f| !blurb(&f.description).is_empty()).or(s.random.first())
+}
+
 impl Session {
+    /// The file stats, worked out again once they're a minute old; `shown`
+    /// keeps the ones on screen however old (to act on what was shown).
+    pub(crate) fn file_stats(&self, shown: bool) -> std::sync::Arc<crate::filebase::FileStats> {
+        let cached = self.file_stats.borrow().as_ref().filter(|(at, _)| shown || at.elapsed().as_secs() < 60).map(|(_, s)| s.clone());
+        cached.unwrap_or_else(|| {
+            let fa = self.state.fareas();
+            let areas: Vec<String> = self.visible_fareas().into_iter().filter_map(|(n, _)| fa.get(n).map(|a| a.file.clone())).collect();
+            let s = std::sync::Arc::new(self.state.files.stats(&areas, self.user.file_scan).unwrap_or_default());
+            *self.file_stats.borrow_mut() = Some((std::time::Instant::now(), s.clone()));
+            s
+        })
+    }
+
     /// New: stats over the file areas the caller can see, for the file
     /// menu. `T` files, `Z` their size, `Y` new since the caller's scan
     /// date; the newest upload's name `N`, uploader `U`, area `W` and age
@@ -69,14 +87,7 @@ impl Session {
     /// random file `R` (one whose description has words in it, where it
     /// can) with that line `V`.
     fn file_stat(&self, c: u8) -> String {
-        let fresh = self.file_stats.borrow().as_ref().filter(|(at, _)| at.elapsed().as_secs() < 60).map(|(_, s)| s.clone());
-        let s = fresh.unwrap_or_else(|| {
-            let fa = self.state.fareas();
-            let areas: Vec<String> = self.visible_fareas().into_iter().filter_map(|(n, _)| fa.get(n).map(|a| a.file.clone())).collect();
-            let s = std::sync::Arc::new(self.state.files.stats(&areas, self.user.file_scan).unwrap_or_default());
-            *self.file_stats.borrow_mut() = Some((std::time::Instant::now(), s.clone()));
-            s
-        });
+        let s = self.file_stats(false);
         let name = |f: &Option<crate::filebase::FileRec>| f.as_ref().map(|f| f.name.clone()).unwrap_or_default();
         let commas = |n: u32| crate::files::commas(n as u64);
         match c {
@@ -97,9 +108,7 @@ impl Session {
             b'K' => s.top_uploader.as_ref().map(|t| t.0.clone()).unwrap_or_default(),
             b'Q' => commas(s.top_uploader.as_ref().map_or(0, |t| t.1)),
             b'R' | b'V' => {
-                // One with something to say, if any of them has.
-                let pick = s.random.iter().find(|f| !blurb(&f.description).is_empty()).or(s.random.first());
-                match (c, pick) {
+                match (c, dig(&s)) {
                     (b'R', Some(f)) => f.name.clone(),
                     (_, Some(f)) => blurb(&f.description),
                     _ => String::new(),

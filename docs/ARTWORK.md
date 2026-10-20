@@ -9,7 +9,9 @@ outside the repo") and put your screens in the board's `text/`.
 Lightbar menus (MATRIX, GOODBYE) draw their options themselves: mark each
 option's place with `~01^01`, `~02^02`... in command order (`~NN` is where
 it's drawn highlighted, `^NN` where it's drawn plain), and optionally
-`~HP` for the help line. The options' own colours (`on` / `off`) and
+`~HP` for the help line. The arrows move by where the options are on
+screen (left and right along a row, up and down to the next row), and a
+command's key still runs it. The options' own colours (`on` / `off`) and
 help text are in the menu (`menus/MATRIX.toml`); to restyle them, put a
 copy in the board's `menus/` (with `stock_menus` set, SYSOP.md) and
 change that.
@@ -87,9 +89,10 @@ menu with a different line on it each time.
 - [ ] `USERCFG`: user configuration screen
 - [x] `AUTOSIG`: auto-signature menu
 - [x] `BBSLIST`: BBS list menu
-- [ ] `BBSTOP` / `BBSMID` / `BBSBOT`: BBS list
-- [ ] `SHOWBBS`: one BBS's details
-- [ ] `ADDBBS`: adding a BBS
+- [ ] `BBSTOP` / `BBSMID` / `BBSBOT`: BBS list (`~NM` `~BN` `~TN` `~SH`
+      `~SF`; the stock ones are relabelled for telnet/SSH)
+- [ ] `SHOWBBS`: one BBS's details (`~TN` telnet, `~SS` SSH)
+- [ ] `ADDBBS`: adding a BBS (`~TN`, `~SS` where each is typed)
 - [ ] `NODETOP` / `NODEMID` / `NODEBOT`: who's online
 - [x] `AICHAT`: the AI chat's header; it stays at the top while the
   conversation scrolls between it and the bar on the bottom row (keep it
