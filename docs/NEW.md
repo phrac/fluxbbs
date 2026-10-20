@@ -1,103 +1,182 @@
 # New over the original
 
 What this port has that Iniquity 1.00a26r5 didn't, and where it behaves
-differently on purpose. Features ported from the later 2.0 and 2.20
-releases are listed apart, at the end. Keep this current: when a
-feature lands that the original didn't have, add a line here (and the
-details in the doc it belongs to).
+differently on purpose. Features from the later 2.0 and 2.20 releases
+are listed apart, at the end; features of 1.00a26r5 whose code didn't
+survive (the time bank, multinode chat, email tags, attachments...) and
+were rebuilt from its manual and strings aren't new, so they aren't
+here. Keep this current: when a feature lands that the original didn't
+have, add it here (and the details in the doc it belongs to).
 
 ## Connections and storage
 
-- SSH and telnet in place of modems; CP437 or UTF-8 terminals; 256 and
-  24-bit colour art passes through. ([FEATURES](FEATURES.md#in-detail))
-- TOML files and SQLite in place of the `.DAT` files; settings, strings,
-  areas, levels and the rest can be edited while the board runs, and
-  `*C` writes back keeping comments. ([SYSOP](SYSOP.md))
-- An importer for an existing DOS install (users re-hashed with argon2,
-  messages, files, menus, strings, screens...). ([SYSOP](SYSOP.md))
-- A Docker image and compose file for running a board. (README)
-- Shell commands: `iniquity unban`, `add-files`, `pack-files`, `import`.
+- SSH (with the older algorithms SyncTERM needs) and telnet (binary,
+  NAWS, terminal type, Zmodem over it) in place of modems.
+- CP437 or UTF-8 terminals; aixterm bright colours, iCE backgrounds, and
+  256 and 24-bit colour art passed through.
+- Output paced to the terminal for fast streams (animated GIFs), and a
+  log line when a link stalls.
+- TOML files and SQLite in place of the `.DAT` files. Settings, strings,
+  areas, levels, protocols, archivers, infoforms and themes can be
+  edited while the board runs; `*C` writes back keeping comments.
+- An importer for an existing DOS install: users (passwords re-hashed),
+  messages, files and descriptions, areas, conferences, levels, strings,
+  menus, screens, stats, history, callers, BBS list, infoforms, votes,
+  text libraries as themes. ([SYSOP](SYSOP.md))
+- Shell commands: `iniquity import`, `unban`, `add-files`, `pack-files`,
+  `--wfc`. A Docker image and compose file.
+- A board's own `menus/` overrides the stock ones file by file.
 
 ## Keeping bots out
 
 - The picture bot check: three big characters drawn with background
-  colour in noise, so a script reading the text sees nothing; decoy,
-  shuffled drawing, too-quick answers refused; a BOTCHECK screen frames
-  it. The key-press check is the fallback. ([SYSOP](SYSOP.md))
-- Per-address connection limits, doubling bans kept in the database,
-  allow/deny lists, a pre-login idle limit; SysOps hear at logon about
-  failures since their last call; `*G` lists and lifts bans.
+  colour in noise of the same symbols inside and out, so a script
+  reading the text sees nothing; colours change, characters shift and
+  are speckled, the field is drawn in shuffled pieces, a decoy comes
+  first, too-quick answers fail. A BOTCHECK screen frames it. The
+  key-press check is the other option. ([SYSOP](SYSOP.md))
+- Per-address connection limits and new connections a minute, bans for
+  repeated failures (doubling, up to a day, kept across restarts),
+  allow and deny lists (addresses, prefixes, ranges), a pre-login idle
+  limit, a security log; SysOps hear at logon about failures since
+  their last call.
+- Passwords: case-sensitive, up to 64 characters, argon2-hashed; rules
+  (length, common passwords, the handle, repeats), enforced at login if
+  wanted. Sign-up limits per address and per day, reserved handles, and
+  never-validated accounts purged after a set time.
+  ([SYSOP](SYSOP.md#passwords-and-sign-ups))
 
 ## Menus and screens
 
-- Lightbar menus take their commands' keys too (hot keys, `/X`, digits
-  for `#`), the arrows move by where options sit on screen (so grids
-  work), and they hold 29 options. ([ARTWORK](ARTWORK.md))
-- `|SA` draws a shared STOCK header in any screen. ([CODES](CODES.md))
-- Board stats as MCI codes: the file base (`%FT`...`%FV`) and the
-  message base (`%MG`...`%MJ`): newest, most downloaded or replied to,
-  biggest, loudest area, top poster, something at random, what's new
-  for you. ([CODES](CODES.md))
-- Output paced to the terminal for fast streams (animated GIFs).
+- Lightbar menus also take their commands' keys (hot keys, `/X`, digits
+  for `#` typed on the help line), the arrows go by where options sit
+  on screen so grids work, and they hold 29 options (24 before).
+- Board stats as MCI codes, for menus: the file base and the message
+  base (see the table below).
+- `|SA` draws the shared STOCK header in any screen.
+- New screens and markers (table below), and a lister/gallery header
+  with counts.
 
 ## Files
 
-- Sub-areas, to any depth. ([FILES](FILES.md#sub-areas))
-- The file browser (`FW`): areas as folders, archives (ZIP, tar,
-  tar.gz) opened in place, text/ANSI/pictures viewed, animated GIFs
-  played. `FW newest`/`hot`/`heavy`/`dig`/`kingpin` opens it on that
-  file. ([FEATURES](FEATURES.md#in-detail))
-- The art gallery (`AG`), after Mystic's. ([FILES](FILES.md#art-gallery))
-- Upload screening: ZIPs read through, age limits, an outside scanner
-  command, ads stripped. Descriptions from SAUCE for single pieces of
-  art. External archivers (RAR, 7Z, LHA) through bsdtar/7-Zip.
-  ([FILES](FILES.md))
+- Sub-areas, to any depth, with `*F` as a bar list in tree order (`/`
+  searches, insert, delete, move). ([FILES](FILES.md#sub-areas))
+- The file browser (`FW`, L on the file menu): areas as folders, ZIP,
+  tar and tar.gz opened in place, text and ANSI in a viewer, pictures as
+  ANSI (half-blocks, 24-bit), animated GIFs played; `FW newest`, `hot`,
+  `heavy`, `dig`, `kingpin` opens it on that file.
+- The art gallery (`AG`), after Mystic's: a folder or a file area of
+  art, played at a chosen speed, SAUCE shown. ([FILES](FILES.md#art-gallery))
+- Upload screening: allowed types, contents matching the name, a summary
+  of what's inside added to the description, zip bombs and unsafe paths
+  refused, an outside virus scanner, an ad file added to ZIPs.
+  ([FILES](FILES.md#screening-uploads))
+- Descriptions from SAUCE for single pieces of art; RAR, 7Z and LHA
+  through bsdtar or 7-Zip.
 - Log off after a download, with a countdown.
-- `*F` as a bar list in tree order, with search.
+- Web file lists (`/files.txt`, `/files.html`) are from 2.0, below.
 
 ## Messages
 
-- The message centre (`MH`): areas with what's new, threads (kept across
-  packing, and through QWK), a reader with the header fixed and the
-  text scrolling, and read tracking beyond the last-read pointer.
-  ([FEATURES](FEATURES.md#message-centre))
-- `MX newest`/`hot`/`dig`/`mouth`/`loud`/`unread`: straight to a
-  message, an area or what's new, for menu stats.
+- The message centre (`MH`): areas with what's new and the latest post,
+  threads (kept across packing, and through QWK), a reader with the
+  header fixed and the text scrolling, and read tracking beyond the
+  last-read pointer. `MW` says how many posts are new at logon and
+  offers to read them. ([FEATURES](FEATURES.md#message-centre))
+- `MX newest`, `hot`, `dig`, `mouth`, `loud`, `unread`: straight to a
+  message, an area or what's new, for the menu's stats.
 - MeshCore radio channels bridged to message areas.
   ([FEATURES](FEATURES.md#meshcore))
-- QWK: email as conference 0, threads, four-digit years.
+- QWK: email as conference 0, threads in and out, four-digit years.
   ([FEATURES](FEATURES.md#qwk-offline-mail))
 
 ## Around the board
 
-- AI chat (`AI`), with web search and knowledge of the board.
+- AI chat (`AI`): any OpenAI-style server, web search and page reading,
+  and the board's own menus, areas and files as the caller may see them.
   ([FEATURES](FEATURES.md#ai-chat))
-- Lua scripting in place of IPL. ([SCRIPTING](SCRIPTING.md))
-- Doors in a built-in DOS machine (real-mode x86, BIOS, FOSSIL, DOS).
-  ([DOORS](DOORS.md))
-- `*O` logon sequence editor; `*V` events run by the server's own
-  scheduler.
+- Lua scripting in place of IPL, with a `bbs` API. ([SCRIPTING](SCRIPTING.md))
+- Doors in a built-in DOS machine (real-mode x86, BIOS, FOSSIL, DOS,
+  batch files); DOOR32.SYS (`D4`) and no drop file (`D0`). ([DOORS](DOORS.md))
+- Screen themes picked by callers (`UT`).
+- `*O` logon sequence: the steps after logging in, ordered and switched
+  on and off, with "new users stop here".
+- `*V` events run by the server's own scheduler, with built-in pack jobs.
+- `*G` security: bans and recent failures, and lifting a ban.
 - A JSON feed of who's on, last callers, new files and posts, and
-  totals, for a website. ([SYSOP](SYSOP.md))
+  totals, for a website. ([SYSOP](SYSOP.md#website-feed))
 - The BBS list keeps telnet and SSH addresses, not phone numbers.
+
+## Reference
+
+New commands (2.0's are in FEATURES):
+
+| Command | Does |
+|---|---|
+| `AG` | art gallery |
+| `AI` | AI chat |
+| `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |
+| `MH` | message centre |
+| `MW` (+ `Read`) | new posts at logon |
+| `MX` (+ `newest` `hot` `dig` `mouth` `loud` `unread`) | jump to a message from the stats |
+| `UT` | pick a screen theme |
+| `D0`, `D4` | door with no drop file, with DOOR32.SYS |
+| `*G` | security log and bans |
+| `*O` | logon sequence |
+
+New display codes ([CODES](CODES.md)):
+
+| Code | Is |
+|---|---|
+| `\|SA` | the STOCK header |
+| `%FT` `%FZ` `%FY` `%FN` `%FU` `%FW` `%FG` `%FM` `%FX` `%FB` `%FL` `%FK` `%FQ` `%FR` `%FV` | the file base: totals, newest, most downloaded, biggest, top uploader, at random |
+| `%MG` `%MY` `%MB` `%MF` `%MD` `%MK` `%MH` `%MR` `%ML` `%MQ` `%MC` `%MX` `%MV` `%MJ` | the message base: totals, new for you, newest, most replied to, loudest area, top poster, at random |
+
+New screens ([ARTWORK](ARTWORK.md)):
+
+| Screen | For |
+|---|---|
+| `BOTCHECK` (`~BC`, `~BP`) | the picture bot check |
+| `STOCK` | the header `\|SA` draws |
+| `GALLERY` | the art gallery (else `LISTFILE`) |
+| `AICHAT` | AI chat |
+| `MHUB` TOP/MID/HIL/BOT | the message centre's areas |
+| `MTHRD` TOP/MID/HIL/BOT | an area's threads |
+| `MSGRHELP` | the reader's help |
+| `CFGFAREA` TOP/MID/HIL/BOT | `*F`'s area list |
+
+New markers in older screens: `~RT` in MSGHEAD (what a message
+answers), `~NA` `~NF` `~SZ` in LISTFILE and GALLERY (files, folders,
+size), `~TN` `~SS` `~SH` in the BBS list screens (telnet, SSH, SSH
+short).
+
+New settings sections in `iniquity.toml`: `[ssh]`, `[telnet]`, `[web]`,
+`[gallery]`, `[security]`, `[passwords]`, `[dos]`, `[ai]`,
+`[meshcore]`; and new keys elsewhere, chiefly upload screening in
+`[files]` and sign-up limits in `[newuser]`. New prompt strings are at
+the end of `assets/strings.toml` (about 140: bot check, passwords,
+upload checks, gallery, viewer, AI, the message centre, themes...).
 
 ## Changed on purpose
 
 Where the original's behaviour was a hazard or no longer fits:
 
-- Passwords are hashed (argon2), never shown (`%PW` is blank), and held
-  to rules.
+- Passwords are hashed, never shown (`%PW` is blank), case-sensitive,
+  and held to rules.
 - What callers type keeps its colour codes and nothing else, so text
   can't run codes where it ends up.
 - The stock NEWUSER menu no longer validates everyone outside area code
   902; lowering a level no longer wraps to the top one.
-- QWK's "include your own messages?" works the right way round.
+- QWK's "include your own messages?" works the right way round;
+  pointers move to the newest message packed; long reply lines wrap.
 - The stock TIMEBANK menu's withdraw entry runs `!W` (it had no command).
 - Caller numbers don't repeat when two nodes log on at once.
+- Events are one scheduler in the server, not per node; no modem
+  off-hook.
 
 ## From 2.0 and 2.20
 
 The voting booth, newscan selections, message search, multinode chat
-commands, invisible logons, door names in the status, Tab completion,
-`|ZA`...`|ZB`, web file lists and more: see
-[FEATURES](FEATURES.md#from-20-and-220).
+commands, invisible logons, door names in the status, `D7`, Tab
+completion, `|ZA`...`|ZB`, `%DN`, `%TB`, `|PO`/`|PE`/`|PD`, web file
+lists and more: see [FEATURES](FEATURES.md#from-20-and-220).
