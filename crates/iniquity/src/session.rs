@@ -153,6 +153,8 @@ pub struct Session {
     pub(crate) ai_ink: String,
     /// The context the AI conversation has used, for the bar (`AiContext`).
     pub(crate) ai_ctx: String,
+    /// The chat's rows under the header, kept to redraw them (new).
+    pub(crate) ai_win: Option<crate::aichat::AiWindow>,
 }
 
 /// Run a caller from connect to disconnect.
@@ -309,6 +311,7 @@ impl Session {
             ai_bar: String::new(),
             ai_ink: String::new(),
             ai_ctx: String::new(),
+            ai_win: None,
         }
     }
 

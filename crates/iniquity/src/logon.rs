@@ -265,7 +265,7 @@ impl Session {
             self.login_say("LoginHelpBirth").await?;
             self.login_prompt();
             self.say("LoginBDate").await?;
-            let s = self.read_string(ReadOpts::new(8).allowed("0123456789/")).await?;
+            let s = self.read_string(ReadOpts::new(8).mask("mm/dd/yy")).await?;
             self.login_answered();
             if parse_date(&s) != Some(birth) {
                 tracing::info!("{}: wrong birth date at logon", self.user.handle);
@@ -443,7 +443,7 @@ impl Session {
         if nu.ask_birth_date {
             loop {
                 self.say("NuBirthDate").await?;
-                let s = self.read_string(ReadOpts::new(8).allowed("0123456789/").required()).await?;
+                let s = self.read_string(ReadOpts::new(8).mask("mm/dd/yy").required()).await?;
                 self.newline();
                 u.birth_date = parse_date(&s);
                 match u.age(today) {

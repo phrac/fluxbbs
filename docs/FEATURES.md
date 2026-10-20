@@ -216,6 +216,15 @@ the length from the server's `/models`), when the server reports usage
 (`stream_options.include_usage`). Blank `AiStats` in `*E` to hide the
 line.
 
+Under AICHAT.ANS the conversation scrolls between the header and the
+bar, which both stay put: the board keeps the lines it has shown and
+draws the rows again one higher (terminal scroll regions left old text
+showing through in SyncTERM). A reply that fills the rows pauses
+(`AiMore`, for callers who pause): any key goes on, Esc lets the rest
+run. The reply keeps coming in during a pause. Up/Down, PgUp/PgDn and
+Home look back over the last 1000 lines (`AiBack`), at the prompt or a
+pause; End, or typing, comes back.
+
 ![The AI finding files on the board](screenshots/ai-files.png)
 
 ![The AI giving the keys to download a file](screenshots/ai-howto.png)

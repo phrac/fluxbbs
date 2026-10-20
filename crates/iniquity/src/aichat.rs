@@ -23,6 +23,8 @@ const MAX_INPUT: usize = 500;
 const MAX_HISTORY: usize = 40;
 /// The width replies are wrapped to.
 const WIDTH: usize = 79;
+/// Chat lines kept to look back over.
+const SCROLLBACK: usize = 1000;
 
 fn io_err(e: impl std::fmt::Display) -> io::Error {
     io::Error::other(e.to_string())
@@ -411,6 +413,35 @@ async fn context_len(client: &reqwest::Client, cfg: &crate::config::Ai) -> Optio
     ["max_model_len", "context_length", "context_window"].iter().find_map(|k| m[*k].as_u64())
 }
 
+/// A piece of a chat line as it was shown: a string with codes, or text
+/// written as it is.
+#[derive(Clone)]
+pub(crate) enum AiSeg {
+    Codes(String),
+    Text(String),
+}
+
+/// The rows between the header and the bar (new). Rather than have the
+/// terminal scroll them (SyncTERM's scroll regions leave old text showing
+/// through), each line is kept as it was shown, and when the last row is
+/// full the rows are drawn again one higher.
+pub(crate) struct AiWindow {
+    /// The first row.
+    top: u16,
+    /// The finished lines, the latest last.
+    lines: Vec<Vec<AiSeg>>,
+    /// The line being written.
+    cur: Vec<AiSeg>,
+    /// A reply is being shown, pausing when it fills the rows (if the
+    /// caller pauses), and the lines it's shown since the last pause.
+    pausing: bool,
+    since: usize,
+}
+
+fn looks_back(k: Key) -> bool {
+    matches!(k, Key::Up | Key::Down | Key::PgUp | Key::PgDn | Key::Home | Key::End)
+}
+
 #[derive(Default, Clone)]
 struct Call {
     id: String,
@@ -442,7 +473,7 @@ impl Session {
         };
         self.full_screen_done();
         let r = self.ai_session(&cfg, &client).await;
-        self.screen.reset_scroll_region();
+        self.ai_win = None;
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
         r
@@ -460,7 +491,7 @@ impl Session {
         loop {
             self.ai_nl().await?;
             let you = self.strings().fmt("AiYou", &[&self.user.handle]);
-            self.show(&you).await?;
+            self.ai_show(&you).await?;
             self.ai_ink = trailing_codes(&you);
             let Some(line) = self.ai_read_line().await? else { break };
             let line = line.trim().to_string();
@@ -493,6 +524,7 @@ impl Session {
                 history.drain(..history.len() - MAX_HISTORY);
             }
             let replied = self.ai_reply(client, &cfg, &system, &mut history).await;
+            self.ai_stop_pausing();
             if let Ok(u) = &replied
                 && u.prompt > 0
             {
@@ -532,10 +564,10 @@ impl Session {
     }
 
     /// A fresh screen: AICHAT.ANS if the board has one (its header), else
-    /// a plain one. The conversation scrolls in a region between the
-    /// header and the help bar on the bottom line, so both stay put.
+    /// a plain one. The conversation scrolls between the header and the
+    /// help bar on the bottom line, so both stay put.
     async fn ai_header(&mut self, cfg: &crate::config::Ai) -> io::Result<()> {
-        self.screen.reset_scroll_region();
+        self.ai_win = None;
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
         if !self.show_file("AICHAT").await? {
@@ -550,8 +582,7 @@ impl Session {
         // A header too tall to leave a few rows scrolls with the chat.
         let (top, rows) = (self.screen.where_y(), self.screen.rows());
         if top + 4 < rows {
-            self.screen.set_scroll_region(top, rows - 1);
-            self.screen.goto(1, top);
+            self.ai_win = Some(AiWindow { top, lines: Vec::new(), cur: Vec::new(), pausing: false, since: 0 });
         }
         self.ai_bar(cfg).await
     }
@@ -599,7 +630,12 @@ impl Session {
         // Where each character went, to back up over the wrap.
         let mut at: Vec<(u16, u16)> = Vec::new();
         loop {
-            match self.read_key().await? {
+            let mut key = self.read_key().await?;
+            if looks_back(key) {
+                let Some(k) = self.ai_look_back(key).await? else { continue };
+                key = k;
+            }
+            match key {
                 Key::Enter => {
                     self.ai_nl().await?;
                     return Ok(Some(s));
@@ -608,6 +644,7 @@ impl Session {
                 Key::Backspace => {
                     if let Some((x, y)) = at.pop() {
                         s.pop();
+                        self.ai_unrecord();
                         self.screen.goto(x, y);
                         self.write(" ");
                         self.screen.goto(x, y);
@@ -624,7 +661,7 @@ impl Session {
                     }
                     at.push((self.screen.where_x(), self.screen.where_y()));
                     s.push(c as char);
-                    self.write(&(c as char).to_string());
+                    self.ai_text(&(c as char).to_string());
                 }
                 _ => {}
             }
@@ -681,6 +718,10 @@ impl Session {
         let name = self.strings().fmt("AiName", &[&cfg.name]);
         let mut usage = Usage::default();
         let started = std::time::Instant::now();
+        let pause = self.user.pause;
+        if let Some(w) = &mut self.ai_win {
+            (w.pausing, w.since) = (pause, 0);
+        }
         for round in 0..=MAX_TOOL_ROUNDS {
             let mut messages = vec![json!({"role": "system", "content": system})];
             messages.extend(history.iter().cloned());
@@ -707,7 +748,17 @@ impl Session {
                 let text = resp.text().await.unwrap_or_default();
                 return Err(io_err(format!("{status}: {}", text.chars().take(200).collect::<String>())));
             }
+            // Read the reply in its own task, so it keeps coming in while
+            // the caller is at a pause.
+            let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
             let mut stream = resp.bytes_stream();
+            tokio::spawn(async move {
+                while let Some(chunk) = stream.next().await {
+                    if tx.send(chunk).is_err() {
+                        break;
+                    }
+                }
+            });
             let mut buf = Vec::new();
             let mut content = String::new();
             let mut calls: Vec<Call> = Vec::new();
@@ -715,7 +766,7 @@ impl Session {
             let indent = self.visible_len(&strip_escapes(&iniquity_term::cp437::encode(&name)));
             let mut wrap = Wrap { col: indent, ..Wrap::default() };
             let mut named = false;
-            'stream: while let Some(chunk) = stream.next().await {
+            'stream: while let Some(chunk) = rx.recv().await {
                 buf.extend_from_slice(&chunk.map_err(io_err)?);
                 // Server-sent events: one `data: {...}` per line.
                 while let Some(i) = buf.iter().position(|&b| b == b'\n') {
@@ -744,7 +795,7 @@ impl Session {
                         // The name goes up with the first words, not before
                         // a search.
                         if !out.trim().is_empty() && !named {
-                            self.show(&name).await?;
+                            self.ai_show(&name).await?;
                             self.ai_ink = trailing_codes(&name);
                             named = true;
                         }
@@ -772,7 +823,7 @@ impl Session {
             let rest = wrap.finish();
             // A reply too short to wrap hasn't put the name up yet.
             if !rest.trim().is_empty() && !named {
-                self.show(&name).await?;
+                self.ai_show(&name).await?;
                 self.ai_ink = trailing_codes(&name);
                 named = true;
             }
@@ -780,6 +831,7 @@ impl Session {
             if calls.is_empty() {
                 history.push(json!({"role": "assistant", "content": content}));
                 self.ai_nl().await?;
+                self.ai_stop_pausing();
                 return Ok(usage.finish(started));
             }
             // The model wants to search: do it, and ask again.
@@ -830,17 +882,47 @@ impl Session {
             }
         }
         self.ai_nl().await?;
+        self.ai_stop_pausing();
         Ok(usage.finish(started))
     }
 
-    /// A new line in the chat. In the scroll region (new) only the chat
-    /// scrolls. Without one (a header too tall for it) the whole screen
-    /// scrolls below the last row: the bar is cleared first, so it doesn't
-    /// scroll up with the text, and drawn again on the bottom line.
+    /// A new line in the chat. Under a header (`ai_win`), at the last
+    /// row the rows are drawn again one higher. Without one (a header too
+    /// tall for it) the whole screen scrolls below the last row: the bar
+    /// is cleared first, so it doesn't scroll up with the text, and drawn
+    /// again on the bottom line.
     async fn ai_nl(&mut self) -> io::Result<()> {
         let rows = self.screen.rows();
-        // In the scroll region, or above its last row, the bar is safe.
-        if self.screen.scroll_bottom() < rows || self.screen.where_y() < self.ai_last_row() {
+        let ink = self.ai_ink.clone();
+        if let Some(mut win) = self.ai_win.take() {
+            win.lines.push(std::mem::take(&mut win.cur));
+            if win.lines.len() > SCROLLBACK {
+                win.lines.drain(..win.lines.len() - SCROLLBACK);
+            }
+            let (top, last) = (win.top, rows - 1);
+            win.since += 1;
+            let full = win.pausing && win.since + 1 >= (last - top + 1) as usize;
+            self.ai_win = Some(win);
+            if self.screen.where_y() < last {
+                self.newline();
+            } else {
+                self.ai_paint(0).await?;
+                self.screen.goto(1, last);
+            }
+            // The text's own colour again (it may be 24-bit, which the
+            // screen model only knows roughly).
+            if !ink.is_empty() {
+                self.show(&ink).await?;
+                if let Some(win) = &mut self.ai_win {
+                    win.cur.push(AiSeg::Codes(ink));
+                }
+            }
+            if full {
+                self.ai_more().await?;
+            }
+            return Ok(());
+        }
+        if self.screen.where_y() < self.ai_last_row() {
             self.newline();
             return Ok(());
         }
@@ -852,9 +934,6 @@ impl Session {
         let bar = self.ai_bar.clone();
         self.show(&bar).await?;
         self.screen.goto(1, rows - 1);
-        // The text's own colour again (it may be 24-bit, which the screen
-        // model only knows roughly).
-        let ink = self.ai_ink.clone();
         if ink.is_empty() {
             self.screen.set_color(color);
         } else {
@@ -863,15 +942,163 @@ impl Session {
         Ok(())
     }
 
-    /// The chat's last row: the region's, else the one above the bar.
+    /// Draw the rows from the kept lines, `back` lines up from the latest
+    /// (the line being written is the latest).
+    async fn ai_paint(&mut self, back: usize) -> io::Result<()> {
+        let Some(win) = self.ai_win.take() else { return Ok(()) };
+        let height = (self.screen.rows() - win.top) as usize;
+        let total = win.lines.len() + 1;
+        let end = total.saturating_sub(back);
+        let start = end.saturating_sub(height);
+        for row in 0..height {
+            self.screen.goto(1, win.top + row as u16);
+            self.screen.set_color(iniquity_term::Color::DEFAULT);
+            let i = start + row;
+            let line = if i >= end { None } else { win.lines.get(i).or(Some(&win.cur)) };
+            for seg in line.into_iter().flatten() {
+                match seg {
+                    AiSeg::Codes(c) => self.show(c).await?,
+                    AiSeg::Text(t) => self.write(t),
+                }
+            }
+            self.screen.set_color(iniquity_term::Color::DEFAULT);
+            self.screen.clear_eol();
+        }
+        self.ai_win = Some(win);
+        Ok(())
+    }
+
+    /// Something in place of the bar on the bottom row, the cursor left
+    /// where it was.
+    async fn ai_bar_says(&mut self, s: &str) -> io::Result<()> {
+        let (x, y) = (self.screen.where_x(), self.screen.where_y());
+        self.screen.goto(1, self.screen.rows());
+        self.screen.set_color(iniquity_term::Color::DEFAULT);
+        self.screen.clear_eol();
+        self.show(s).await?;
+        self.screen.set_color(iniquity_term::Color::DEFAULT);
+        self.screen.goto(x, y);
+        Ok(())
+    }
+
+    fn ai_stop_pausing(&mut self) {
+        if let Some(w) = &mut self.ai_win {
+            w.pausing = false;
+        }
+    }
+
+    /// A reply has filled the rows: wait (`AiMore`) for a key, which may
+    /// look back first; esc lets the rest of the reply run on.
+    async fn ai_more(&mut self) -> io::Result<()> {
+        let s = self.strings().get("AiMore").to_string();
+        self.ai_bar_says(&s).await?;
+        let mut key = self.read_key().await?;
+        while looks_back(key) {
+            match self.ai_look_back(key).await? {
+                Some(k) => key = k,
+                None => {
+                    self.ai_bar_says(&s).await?;
+                    key = self.read_key().await?;
+                }
+            }
+        }
+        if let Some(w) = &mut self.ai_win {
+            w.since = 0;
+            if key == Key::Esc {
+                w.pausing = false;
+            }
+        }
+        let bar = self.ai_bar.clone();
+        self.ai_bar_says(&bar).await
+    }
+
+    /// Look back over the chat (new): up and down a line, page up and
+    /// down, home to the start; end, or coming back down, returns to the
+    /// latest (None). Any other key returns too, and is handed back.
+    async fn ai_look_back(&mut self, mut key: Key) -> io::Result<Option<Key>> {
+        let Some(win) = &self.ai_win else { return Ok(Some(key)) };
+        let height = (self.screen.rows() - win.top) as usize;
+        let most = (win.lines.len() + 1).saturating_sub(height);
+        if most == 0 {
+            return Ok(None);
+        }
+        let (x, y) = (self.screen.where_x(), self.screen.where_y());
+        let ink = self.ai_ink.clone();
+        let mut back = 0usize;
+        let handed = loop {
+            back = match key {
+                Key::Up => back + 1,
+                Key::Down => back.saturating_sub(1),
+                Key::PgUp => back + height - 1,
+                Key::PgDn => back.saturating_sub(height - 1),
+                Key::Home => most,
+                Key::End => 0,
+                other => break Some(other),
+            }
+            .min(most);
+            if back == 0 {
+                break None;
+            }
+            self.ai_paint(back).await?;
+            let s = self.strings().fmt("AiBack", &[&back.to_string()]);
+            self.ai_bar_says(&s).await?;
+            key = self.read_key().await?;
+        };
+        self.ai_paint(0).await?;
+        let bar = self.ai_bar.clone();
+        self.ai_bar_says(&bar).await?;
+        self.screen.goto(x, y);
+        if !ink.is_empty() {
+            self.show(&ink).await?;
+        }
+        Ok(handed)
+    }
+
+    /// The chat's last row, the one above the bar.
     fn ai_last_row(&self) -> u16 {
-        let (bottom, rows) = (self.screen.scroll_bottom(), self.screen.rows());
-        if bottom < rows { bottom } else { rows - 1 }
+        self.screen.rows() - 1
+    }
+
+    /// Show a string with codes in the chat, kept for redrawing.
+    async fn ai_show(&mut self, s: &str) -> io::Result<()> {
+        self.show(s).await?;
+        if let Some(win) = &mut self.ai_win {
+            win.cur.push(AiSeg::Codes(s.to_string()));
+        }
+        Ok(())
+    }
+
+    /// Write text in the chat as it is, kept for redrawing.
+    fn ai_text(&mut self, t: &str) {
+        self.write(t);
+        if let Some(win) = &mut self.ai_win {
+            match win.cur.last_mut() {
+                Some(AiSeg::Text(s)) => s.push_str(t),
+                _ => win.cur.push(AiSeg::Text(t.to_string())),
+            }
+        }
+    }
+
+    /// Forget the last character typed (backspace), from this line or,
+    /// if it wrapped, the one before.
+    fn ai_unrecord(&mut self) {
+        let Some(win) = &mut self.ai_win else { return };
+        let pop = |line: &mut Vec<AiSeg>| {
+            line.iter_mut().rev().find_map(|seg| match seg {
+                AiSeg::Text(s) => s.pop(),
+                AiSeg::Codes(_) => None,
+            })
+        };
+        if pop(&mut win.cur).is_none()
+            && let Some(prev) = win.lines.last_mut()
+        {
+            pop(prev);
+        }
     }
 
     /// A line of text in the chat.
     async fn ai_line(&mut self, s: &str) -> io::Result<()> {
-        self.show(s).await?;
+        self.ai_show(s).await?;
         self.ai_nl().await
     }
 
@@ -887,7 +1114,7 @@ impl Session {
             if i > 0 {
                 self.ai_nl().await?;
             }
-            self.write(line);
+            self.ai_text(line);
         }
         Ok(())
     }

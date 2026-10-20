@@ -100,6 +100,10 @@ pub struct ReadOpts {
     pub required: bool,
     /// Pre-filled text.
     pub default: String,
+    /// A pattern such as `mm/dd/yy` (new): shown dim where the answer
+    /// goes, its letters taken by digits and its other characters filled
+    /// in as the caller types.
+    pub mask: &'static str,
 }
 
 impl ReadOpts {
@@ -132,6 +136,11 @@ impl ReadOpts {
 
     pub fn prefill(mut self, s: impl Into<String>) -> Self {
         self.default = s.into();
+        self
+    }
+
+    pub fn mask(mut self, mask: &'static str) -> Self {
+        self.mask = mask;
         self
     }
 }
@@ -323,6 +332,9 @@ impl Session {
     /// `iReadString`: read a line with editing. Backspace deletes,
     /// Ctrl-U/Ctrl-X clear, Enter finishes.
     pub async fn read_string(&mut self, opts: ReadOpts) -> io::Result<String> {
+        if !opts.mask.is_empty() {
+            return self.read_masked(opts.mask, opts.required).await;
+        }
         let echo = self.state.config().prompts.password_echo;
         loop {
             let mut s = String::new();
@@ -360,6 +372,64 @@ impl Session {
             let s = s.trim_end().to_string();
             if !opts.required || !s.is_empty() {
                 return Ok(s);
+            }
+        }
+    }
+
+    /// `read_string` with a mask: digits fill its letters, and the rest
+    /// (the `/` in `mm/dd/yy`) goes in by itself. Backspace takes back a
+    /// digit and any filler before it, showing the mask again. Only a
+    /// complete answer (or, unless required, none) is taken.
+    async fn read_masked(&mut self, mask: &str, required: bool) -> io::Result<String> {
+        let mask: Vec<char> = mask.chars().collect();
+        let (ink, dim) = (self.screen.color(), iniquity_term::Color::new(8, 0));
+        let (x0, y) = (self.screen.where_x(), self.screen.where_y());
+        let mut s = String::new();
+        // Show the mask from `from` on, and leave the cursor at the answer's end.
+        let redraw = |me: &mut Self, s: &str, from: usize| {
+            me.screen.goto(x0 + from as u16, y);
+            me.screen.set_color(dim);
+            me.screen.write_str(&mask[from..].iter().collect::<String>());
+            me.screen.set_color(ink);
+            me.screen.goto(x0 + s.chars().count() as u16, y);
+        };
+        redraw(self, &s, 0);
+        loop {
+            match self.read_key().await? {
+                Key::Enter => {
+                    let n = s.chars().count();
+                    if n == mask.len() || n == 0 && !required {
+                        self.screen.goto(x0 + n as u16, y);
+                        self.screen.clear_eol();
+                        return Ok(s);
+                    }
+                }
+                Key::Backspace => {
+                    while s.pop().is_some_and(|c| !c.is_ascii_digit()) {}
+                    // Fillers left at the end go too.
+                    while s.ends_with(|c: char| !c.is_ascii_digit()) {
+                        s.pop();
+                    }
+                    let n = s.chars().count();
+                    redraw(self, &s, n);
+                }
+                Key::Char(0x15 | 0x18) => {
+                    s.clear();
+                    redraw(self, &s, 0);
+                }
+                Key::Char(c) if c.is_ascii_digit() && s.chars().count() < mask.len() => {
+                    s.push(c as char);
+                    self.screen.write_str(&(c as char).to_string());
+                    // Fill in what comes next, up to the next digit.
+                    while let Some(&m) = mask.get(s.chars().count()) {
+                        if m.is_ascii_alphabetic() {
+                            break;
+                        }
+                        s.push(m);
+                        self.screen.write_str(&m.to_string());
+                    }
+                }
+                _ => {}
             }
         }
     }
