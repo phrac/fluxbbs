@@ -265,6 +265,54 @@ impl FileBase {
         tx.commit()?;
         Ok(())
     }
+
+    /// New: what the validated files in `areas` add up to, for the file
+    /// menu's `%F?` codes. `since` counts the uploads on or after it.
+    pub fn stats(&self, areas: &[String], since: Option<NaiveDate>) -> anyhow::Result<FileStats> {
+        let mut s = FileStats::default();
+        if areas.is_empty() {
+            return Ok(s);
+        }
+        let db = self.db.lock().unwrap();
+        let ins = vec!["?"; areas.len()].join(",");
+        let w = format!("valid AND area IN ({ins})");
+        let p = rusqlite::params_from_iter(areas);
+        (s.files, s.bytes) = db.query_row(&format!("SELECT COUNT(*), COALESCE(SUM(size), 0) FROM files WHERE {w}"), p.clone(), |r| Ok((r.get(0)?, r.get::<_, i64>(1)? as u64)))?;
+        let one = |sql: String| db.query_row(&sql, p.clone(), from_row).optional();
+        s.newest = one(format!("SELECT * FROM files WHERE {w} ORDER BY uploaded DESC, id DESC LIMIT 1"))?;
+        s.popular = one(format!("SELECT * FROM files WHERE {w} AND downloads > 0 ORDER BY downloads DESC, uploaded DESC LIMIT 1"))?;
+        s.biggest = one(format!("SELECT * FROM files WHERE {w} ORDER BY size DESC LIMIT 1"))?;
+        s.random = db
+            .prepare(&format!("SELECT * FROM files WHERE {w} ORDER BY TRIM(description) <> '' DESC, RANDOM() LIMIT 20"))?
+            .query_map(p.clone(), from_row)?
+            .collect::<Result<_, _>>()?;
+        s.top_uploader = db
+            .query_row(&format!("SELECT uploader, COUNT(*) FROM files WHERE {w} AND uploader <> '' GROUP BY uploader COLLATE NOCASE ORDER BY 2 DESC LIMIT 1"), p.clone(), |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        if let Some(d) = since {
+            s.since = db.query_row(&format!("SELECT COUNT(*) FROM files WHERE {w} AND uploaded >= ?"), rusqlite::params_from_iter(areas.iter().map(|a| a as &dyn rusqlite::ToSql).chain([&d as &dyn rusqlite::ToSql])), |r| r.get(0))?;
+        } else {
+            s.since = s.files;
+        }
+        Ok(s)
+    }
+}
+
+/// See [`FileBase::stats`].
+#[derive(Clone, Debug, Default)]
+pub struct FileStats {
+    pub files: u32,
+    pub bytes: u64,
+    /// Uploads since the date asked about.
+    pub since: u32,
+    pub newest: Option<FileRec>,
+    /// The most downloaded.
+    pub popular: Option<FileRec>,
+    pub biggest: Option<FileRec>,
+    /// A few at random, those with descriptions first.
+    pub random: Vec<FileRec>,
+    /// Handle and how many files.
+    pub top_uploader: Option<(String, u32)>,
 }
 
 #[cfg(test)]
@@ -344,6 +392,35 @@ mod tests {
         fb.rename_area("TEXT", "DOCS").unwrap();
         assert_eq!(names(&fb, "DOCS"), ["1:A.TXT"]);
         assert_eq!(fb.delete_area("UTILS").unwrap(), 2);
+    }
+
+    #[test]
+    fn stats() {
+        let fb = FileBase::open_memory().unwrap();
+        let mut a = rec("UTILS", "OLD.ZIP");
+        a.uploaded = NaiveDate::from_ymd_opt(2026, 1, 1);
+        a.downloads = 9;
+        let mut b = rec("UTILS", "NEW.ZIP");
+        b.size = 99_999;
+        b.uploader = "phrac".into();
+        let mut c = rec("UTILS", "NEWER.ZIP");
+        c.uploader = "phrac".into();
+        let mut hidden = rec("SECRET", "HIDDEN.ZIP");
+        hidden.size = 1 << 40;
+        let mut bad = rec("UTILS", "BAD.ZIP");
+        bad.valid = false;
+        for f in [&mut a, &mut b, &mut c, &mut hidden, &mut bad] {
+            fb.add(f).unwrap();
+        }
+        let s = fb.stats(&["utils".into()], NaiveDate::from_ymd_opt(2026, 10, 1)).unwrap();
+        assert_eq!((s.files, s.bytes, s.since), (3, 1234 * 2 + 99_999, 2));
+        assert_eq!(s.newest.unwrap().name, "NEWER.ZIP");
+        assert_eq!(s.popular.unwrap().name, "OLD.ZIP");
+        assert_eq!(s.biggest.unwrap().name, "NEW.ZIP");
+        assert_eq!(s.top_uploader, Some(("phrac".into(), 2)));
+        assert_eq!(s.random.len(), 3);
+        assert!(s.random.iter().all(|f| f.area == "UTILS"));
+        assert_eq!(fb.stats(&[], None).unwrap().files, 0);
     }
 
     #[test]

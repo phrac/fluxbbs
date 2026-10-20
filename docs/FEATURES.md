@@ -70,7 +70,11 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   and Enter shows a file: text and ANSI in the viewer, pictures as ANSI
   (animated GIFs play); D downloads, with the area's usual checks. `FV`
   opens an archive the same way. Names are shown whole, sizes as
-  "4.5 KB", and typed names keep their case. Zmodem built in; other protocols and archivers
+  "4.5 KB", and typed names keep their case. Q leaves the browser from
+  anywhere; back goes up a level. Screens can show what's in the file
+  base (new, `%FT`...`%FV` in `CODES.md`): totals, the newest upload, the
+  most downloaded and biggest files, the top uploader, and a file at
+  random with a line of its description. Zmodem built in; other protocols and archivers
   (RAR, 7Z, LHA via bsdtar/7-Zip) are external programs. Before a
   download the caller can ask to be logged off when it's done (a
   countdown afterwards; `*C`, Transfers).

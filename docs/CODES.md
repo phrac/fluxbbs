@@ -81,6 +81,15 @@ Replaced by a value. An unknown `%XX` is shown as it is in prompts, and dropped 
 | `%MP` | the menu's prompt name |
 | `%IS` | the last thing typed at a menu input |
 
+| The file base (new; over the areas the caller can see, worked out once a minute) | |
+|---|---|
+| `%FT` `%FZ` `%FY` | files / their total size / new since the caller's scan date |
+| `%FN` `%FU` `%FW` `%FG` | the newest upload / who uploaded it / its area / how long ago ("today", "3d ago") |
+| `%FM` `%FX` | the most downloaded file / its downloads |
+| `%FB` `%FL` | the biggest file / its size |
+| `%FK` `%FQ` | the top uploader / how many files |
+| `%FR` `%FV` | a file at random / the first line of its description with words in it |
+
 ## Fitting values: `{NN` and `}NN`
 
 Put before a `%XX` code. `{20%UN` cuts the handle to 20 characters;

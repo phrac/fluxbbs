@@ -24,7 +24,91 @@ fn initials(name: &str) -> String {
     name.split_whitespace().filter_map(|w| w.chars().next()).collect::<String>().to_uppercase()
 }
 
+/// The second letters of the file menu's stats codes (new).
+const FILE_STATS: &[u8] = b"BGKLMNQRTUVWXYZ";
+
+/// How long ago, briefly ("3d ago").
+fn ago(d: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> String {
+    let Some(d) = d else { return String::new() };
+    match (today - d).num_days() {
+        ..=0 => "today".into(),
+        n @ 1..=13 => format!("{n}d ago"),
+        n @ 14..=60 => format!("{}w ago", n / 7),
+        n @ 61..=729 => format!("{}mo ago", n / 30),
+        n => format!("{}y ago", n / 365),
+    }
+}
+
+/// The first line of a description with words in it (FILE_ID.DIZ files
+/// often open with a banner), spaces squeezed.
+fn blurb(desc: &[String]) -> String {
+    desc.iter()
+        .find(|l| {
+            // Mostly plain words: letters and digits with ordinary punctuation.
+            let plain = |w: &str| w.chars().filter(char::is_ascii_alphabetic).count() >= 2 && w.chars().all(|c| c.is_ascii_alphanumeric() || ".,'-!?:;()/&".contains(c));
+            let (mut good, mut good_len, mut len) = (0, 0, 0);
+            for w in l.split_whitespace() {
+                len += w.len();
+                if plain(w) {
+                    good += 1;
+                    good_len += w.len();
+                }
+            }
+            good >= 2 && good_len * 10 >= len * 7
+        })
+        .map(|l| l.split_whitespace().collect::<Vec<_>>().join(" "))
+        .unwrap_or_default()
+}
+
 impl Session {
+    /// New: stats over the file areas the caller can see, for the file
+    /// menu. `T` files, `Z` their size, `Y` new since the caller's scan
+    /// date; the newest upload's name `N`, uploader `U`, area `W` and age
+    /// `G`; the most downloaded `M` and its downloads `X`; the biggest `B`
+    /// and its size `L`; the top uploader `K` and their files `Q`; and a
+    /// random file `R` (one whose description has words in it, where it
+    /// can) with that line `V`.
+    fn file_stat(&self, c: u8) -> String {
+        let fresh = self.file_stats.borrow().as_ref().filter(|(at, _)| at.elapsed().as_secs() < 60).map(|(_, s)| s.clone());
+        let s = fresh.unwrap_or_else(|| {
+            let fa = self.state.fareas();
+            let areas: Vec<String> = self.visible_fareas().into_iter().filter_map(|(n, _)| fa.get(n).map(|a| a.file.clone())).collect();
+            let s = std::sync::Arc::new(self.state.files.stats(&areas, self.user.file_scan).unwrap_or_default());
+            *self.file_stats.borrow_mut() = Some((std::time::Instant::now(), s.clone()));
+            s
+        });
+        let name = |f: &Option<crate::filebase::FileRec>| f.as_ref().map(|f| f.name.clone()).unwrap_or_default();
+        let commas = |n: u32| crate::files::commas(n as u64);
+        match c {
+            b'T' => commas(s.files),
+            b'Z' => crate::upscan::human_size(s.bytes),
+            b'Y' => commas(s.since),
+            b'N' => name(&s.newest),
+            b'U' => s.newest.as_ref().map(|f| f.uploader.clone()).unwrap_or_default(),
+            b'W' => {
+                let fa = self.state.fareas();
+                s.newest.as_ref().and_then(|f| fa.areas.iter().find(|a| a.file.eq_ignore_ascii_case(&f.area))).map(|a| a.name.clone()).unwrap_or_default()
+            }
+            b'G' => ago(s.newest.as_ref().and_then(|f| f.uploaded), Local::now().date_naive()),
+            b'M' => name(&s.popular),
+            b'X' => s.popular.as_ref().map_or(0, |f| f.downloads).to_string(),
+            b'B' => name(&s.biggest),
+            b'L' => s.biggest.as_ref().map(|f| crate::upscan::human_size(f.size)).unwrap_or_default(),
+            b'K' => s.top_uploader.as_ref().map(|t| t.0.clone()).unwrap_or_default(),
+            b'Q' => commas(s.top_uploader.as_ref().map_or(0, |t| t.1)),
+            b'R' | b'V' => {
+                // One with something to say, if any of them has.
+                let pick = s.random.iter().find(|f| !blurb(&f.description).is_empty()).or(s.random.first());
+                match (c, pick) {
+                    (b'R', Some(f)) => f.name.clone(),
+                    (_, Some(f)) => blurb(&f.description),
+                    _ => String::new(),
+                }
+            }
+            _ => String::new(),
+        }
+    }
+
     /// Value for an MCI code, or `None` if it isn't one (the caller then
     /// writes the text literally).
     pub fn mci_value(&self, code: [u8; 2]) -> Option<String> {
@@ -53,6 +137,7 @@ impl Session {
             b"FI" => u.cur_file_area.to_string(),
             b"FA" => self.current_farea().map(|a| a.area.name).unwrap_or_default(),
             b"FD" | b"FS" => fmt_date(u.file_scan),
+            [b'F', c] if FILE_STATS.contains(c) => self.file_stat(*c),
             b"FP" => u.file_points.to_string(),
             b"CF" => self.state.fareas().conf(u.conf_file).map(|c| c.desc.clone()).unwrap_or_default(),
             b"HK" => yes_no(u.hot_keys),
@@ -150,5 +235,15 @@ mod tests {
         assert_eq!(initials("mike fricker"), "MF");
         assert_eq!(ratio(1, 4), "25%");
         assert_eq!(ratio(1, 0), "0%");
+        let d = |m, d| chrono::NaiveDate::from_ymd_opt(2026, m, d);
+        let today = d(10, 20).unwrap();
+        assert_eq!(ago(d(10, 20), today), "today");
+        assert_eq!(ago(d(10, 19), today), "1d ago");
+        assert_eq!(ago(d(10, 15), today), "5d ago");
+        assert_eq!(ago(d(9, 20), today), "4w ago");
+        assert_eq!(ago(d(1, 1), today), "9mo ago");
+        assert_eq!(ago(None, today), "");
+        let d: Vec<String> = ["▒▒▒▒", "i n i q u", ".g\"\"^'°`\"^'+AXF+°", "-=[ AXF ]=-", "  The   best  pack ", "more"].map(String::from).into();
+        assert_eq!(blurb(&d), "The best pack");
     }
 }

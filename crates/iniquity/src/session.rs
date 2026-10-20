@@ -127,6 +127,8 @@ pub struct Session {
     pub new_user: bool,
     /// `XI` in the matrix: this call stays out of the callers list.
     pub hidden_call: bool,
+    /// The `%F?` file stats, worked out at most once a minute.
+    pub file_stats: std::cell::RefCell<Option<(Instant, std::sync::Arc<crate::filebase::FileStats>)>>,
     /// `~XX` / `^NN` markers from the last displayed file: (x, y, colour).
     pub positions: HashMap<[u8; 2], (u16, u16, Color)>,
     pub positions2: HashMap<u8, (u16, u16, Color)>,
@@ -293,6 +295,7 @@ impl Session {
             time_on: Instant::now(),
             logged_in: false,
             hidden_call: false,
+            file_stats: Default::default(),
             hangup: false,
             menu: MenuState::default(),
             input_string: String::new(),
