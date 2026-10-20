@@ -395,7 +395,7 @@ impl Session {
                 Pick::Back if path.len() > 1 => {
                     path.pop();
                 }
-                Pick::Back => {
+                Pick::Back | Pick::Quit => {
                     // Leave a clean screen for what comes next.
                     self.screen.set_color(iniquity_term::Color::DEFAULT);
                     self.clear_screen();
@@ -616,7 +616,9 @@ impl Session {
                     Some('P') => Some("play"),
                     Some('S') => Some("speed"),
                     Some('G' | 'D') => Some("get"),
-                    Some('B' | 'Q') => Some("back"),
+                    Some('B') => Some("back"),
+                    // Q leaves altogether; back goes up a level.
+                    Some('Q') => return Ok(Pick::Quit),
                     _ => None,
                 },
             };
@@ -1022,6 +1024,7 @@ fn downloadable(item: &Item) -> bool {
 
 enum Pick {
     Back,
+    Quit,
     Open(usize),
     Play(usize),
     Download(usize),

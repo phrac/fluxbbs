@@ -65,7 +65,8 @@ git: copy `data/` and `files/` across if the board should move with you.
   originals), using the repo's `text/` as `stock_text` and its menus as
   `stock_menus` (the board's own `menus/` has just MATRIX.toml). Many of
   its screens are generated from their art by `art/*-gen.py` (menus,
-  lists, PRELOGON, MATRIX, WELCOME, AICHAT; each says how to run it):
+  lists including last callers, USERSTAT, PRELOGON, MATRIX, WELCOME, AICHAT;
+  each says how to run it):
   change the script and rerun it rather than editing the `.ANS`.
   Board settings go there, not in the repo's `iniquity.toml`: handles
   kept as typed (`alias_format = 1`), new users asked only for handle and
