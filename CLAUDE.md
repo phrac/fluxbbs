@@ -195,7 +195,10 @@ container: a `debian:bookworm-slim` image with `binkd` installed, a
 config with `address 21:1/100@fsxnet`, `node 21:1/999@fsxnet - SESSPW`
 and `domain fsxnet /hub/outbound 21`, packets for the node dropped in its
 outbound as `000103e7.out`, and the board polled with `iniquity ftn
-poll`. The live board isn't a node yet: the SysOp applies to fsxNet for
+poll`. For the hub calling in, run binkd with `--network host` (rzn's
+firewall drops Docker-to-host connections), give its `node` line
+`127.0.0.1:<port>`, set `[ftn] listen` to that port, and drop the packet
+as `000103e7.cut` (crash): binkd calls within seconds. The live board isn't a node yet: the SysOp applies to fsxNet for
 an address and passwords. Next:
 real doors (LORD, TW2002, Usurper, BRE) in the DOS machine, fixing what
 they trip over. The MeshCore bridge (`meshcore.rs`, channels to message

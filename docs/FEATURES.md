@@ -346,10 +346,17 @@ been posted here and tosses what came (`ftntoss.rs`).
 - Netmail for the node goes to the named caller's email (else the
   SysOp's), from `name@address`. `iniquity ftn areafix +FSX_GEN -FSX_X`
   (or `%LIST`) asks the hub's AreaFix to link and unlink echoes.
+- The hub can call the board too, to deliver mail as it arrives
+  ("crash" rather than "hold"): with `[ftn] listen` set (`0.0.0.0:24554`,
+  published by the Docker compose file) the board answers binkp, offers
+  CRAM-MD5, and lets in only its hub with the session password; a wrong
+  one counts as a failed login (security log, bans), and connections
+  are held to the same per-address limits as callers. One session runs
+  at a time: a call during a poll is told to try again.
 - `[ftn]` (or "FTN Echomail" in `*C`): the node's address with its
   domain (`21:1/999@fsxnet`), the hub's address and binkp host, the
-  session, packet and AreaFix passwords, the origin line, and how often
-  to poll. `iniquity ftn poll`, `toss` and `scan` run the jobs by hand.
+  session, packet and AreaFix passwords, the origin line, how often
+  to poll, and where to answer. `iniquity ftn poll`, `toss` and `scan` run the jobs by hand.
 
     [ftn]
     enabled = true
@@ -364,8 +371,8 @@ been posted here and tosses what came (`ftntoss.rs`).
     tag = "FSX_GEN"
     area = "FSXGEN"
 
-Not yet: callers writing netmail to an FTN address, file echoes (TIC),
-and the hub calling in (the board polls; it doesn't answer binkp).
+Not yet: callers writing netmail to an FTN address, and file echoes
+(TIC).
 
 ## From 2.0 and 2.20
 

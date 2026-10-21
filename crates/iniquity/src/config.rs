@@ -391,6 +391,10 @@ pub struct Ftn {
     /// Minutes between polls of the hub (0: only by hand, `iniquity ftn
     /// poll`).
     pub poll_minutes: u32,
+    /// Where to answer the hub's binkp calls (`0.0.0.0:24554`), so it can
+    /// send mail as it arrives ("crash"); blank: poll only ("hold").
+    /// Takes effect at restart.
+    pub listen: String,
     /// Echo areas: the network's tag and the message area it's tossed to.
     #[serde(rename = "area", default)]
     pub areas: Vec<FtnArea>,
@@ -418,6 +422,7 @@ impl Default for Ftn {
             areafix_password: String::new(),
             origin: String::new(),
             poll_minutes: 60,
+            listen: String::new(),
             areas: Vec::new(),
         }
     }

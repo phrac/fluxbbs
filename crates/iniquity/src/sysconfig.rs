@@ -297,6 +297,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('G', "AreaFix password", 20, "AreaFix's password; blank to use the session password.", Text(|c| &mut c.ftn.areafix_password, TEXT.max(40))),
             set('H', "Origin line", 50, "Text of the origin line on messages sent; blank for the board's name.", Text(|c| &mut c.ftn.origin, TEXT.max(60))),
             set('I', "Poll minutes", 4, "Minutes between polls of the hub (0: only by hand, iniquity ftn poll).", Num(|c| c.ftn.poll_minutes as u64, |c, v| c.ftn.poll_minutes = v as u32, 0, 1440)),
+            set('J', "Answer on", 22, "Where to answer the hub's binkp calls (0.0.0.0:24554), so it can send mail as it comes (crash); blank: poll only (hold). Restart to apply.", Text(|c| &mut c.ftn.listen, TEXT.max(60))),
         ]),
         ("File System", false, vec![
             set('A', "Use file points", 3, "Charge file points for downloads?", Bool(|c| &mut c.files.use_file_points)),

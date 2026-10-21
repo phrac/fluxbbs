@@ -7,7 +7,8 @@
 # so the board's `../inq/iniquity/...` paths resolve inside the container
 # as they do outside. It is mounted writable and the server runs as
 # BBS_UID:BBS_GID (default 1000:1000), so match the directory's owner.
-# SSH is on 2222 and telnet on 23 of the host. The status feed ([web],
+# SSH is on 2222 and telnet on 23 of the host, and binkp (FTN mail, if
+# [ftn] listen is set) on 24554. The status feed ([web],
 # listening on 0.0.0.0:8099 inside the container) is published on the
 # host's loopback only, for a web server there to pass through.
 services:
@@ -23,6 +24,7 @@ services:
     ports:
       - "2222:2222"
       - "23:2323"
+      - "24554:24554"
       - "127.0.0.1:8099:8099"
     environment:
       # e.g. RUST_LOG=info,russh=trace to watch the SSH protocol.

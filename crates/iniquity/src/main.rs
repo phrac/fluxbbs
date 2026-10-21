@@ -476,6 +476,7 @@ async fn main() -> anyhow::Result<()> {
     tokio::spawn(events::scheduler(state.clone()));
     tokio::spawn(meshcore::run(state.clone()));
     tokio::spawn(binkp::run(state.clone()));
+    tokio::spawn(binkp::listen(state.clone()));
 
     // Forget idle addresses now and then, and clear out abandoned
     // applications.

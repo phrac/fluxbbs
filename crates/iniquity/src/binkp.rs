@@ -92,47 +92,83 @@ fn mtime(p: &Path) -> u64 {
     std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs())
 }
 
+/// One binkp session at a time, a poll or a call in: two at once would
+/// send the same packets.
+static SESSION: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
+/// A connection's two halves: frames to send go through `send` (one
+/// writer, so they go out whole and in order while we read).
+struct Link {
+    rd: tokio::net::tcp::OwnedReadHalf,
+    tx: mpsc::UnboundedSender<Vec<u8>>,
+    writer: tokio::task::JoinHandle<std::io::Result<()>>,
+}
+
+impl Link {
+    fn new(stream: TcpStream) -> anyhow::Result<Link> {
+        stream.set_nodelay(true)?;
+        let (rd, mut wr) = stream.into_split();
+        let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let writer = tokio::spawn(async move {
+            while let Some(f) = rx.recv().await {
+                wr.write_all(&f).await?;
+            }
+            wr.shutdown().await
+        });
+        Ok(Link { rd, tx, writer })
+    }
+
+    fn send(&self, f: Vec<u8>) -> anyhow::Result<()> {
+        self.tx.send(f).map_err(|_| anyhow!("binkp: connection closed"))
+    }
+
+    /// Send what's queued, then close.
+    async fn close(self) {
+        drop(self.tx);
+        let _ = self.writer.await;
+    }
+
+    /// Who we are: M_NUL lines (and `extra`, e.g. a CRAM challenge), then
+    /// M_ADR.
+    fn greet(&self, state: &BbsState, extra: Option<String>) -> anyhow::Result<()> {
+        let cfg = state.config();
+        let me = cfg.ftn.address.trim().to_string();
+        for nul in [
+            format!("SYS {}", cfg.bbs.name),
+            format!("ZYZ {}", cfg.bbs.sysop_alias),
+            format!("LOC {}", cfg.bbs.location),
+            "NDL 115200,TCP,BINKP".to_string(),
+            format!("TIME {}", chrono::Local::now().to_rfc2822()),
+            format!("VER Iniquity/{} binkp/1.0", env!("CARGO_PKG_VERSION")),
+        ]
+        .into_iter()
+        .chain(extra)
+        {
+            self.send(cmd(M_NUL, &nul))?;
+        }
+        self.send(cmd(M_ADR, &me))
+    }
+}
+
+/// Is `s` (an M_ADR's addresses) the hub?
+fn is_hub(s: &str, hub: Addr) -> bool {
+    s.split_whitespace().filter_map(Addr::parse).any(|a| a.zone == hub.zone && a.net == hub.net && a.node == hub.node)
+}
+
 /// Poll the hub once. Returns what was sent and received.
 pub async fn poll(state: Arc<BbsState>) -> anyhow::Result<Polled> {
-    let cfg = state.config().clone();
-    let ftn = &cfg.ftn;
-    let (me, hub) = crate::ftntoss::addresses(ftn)?;
-    let domain = ftn.address.split_once('@').map(|(_, d)| d.trim().to_string()).unwrap_or_default();
+    let ftn = state.config().ftn.clone();
+    let (_, hub) = crate::ftntoss::addresses(&ftn)?;
     let host = if ftn.hub_host.contains(':') { ftn.hub_host.clone() } else { format!("{}:24554", ftn.hub_host) };
-    let (inbound, outbound, _) = crate::ftntoss::dirs(&state);
-    std::fs::create_dir_all(&inbound)?;
-    std::fs::create_dir_all(&outbound)?;
-
+    let _busy = SESSION.lock().await;
     let stream = tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&host)).await.with_context(|| format!("binkp: connecting to {host}"))??;
-    stream.set_nodelay(true)?;
-    let (mut rd, mut wr) = stream.into_split();
-    // One writer, so frames go out whole and in order while we read.
-    let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
-    let writer = tokio::spawn(async move {
-        while let Some(f) = rx.recv().await {
-            wr.write_all(&f).await?;
-        }
-        wr.shutdown().await
-    });
-    let send = |f: Vec<u8>| tx.send(f).map_err(|_| anyhow!("binkp: connection closed"));
-
-    let me_full = if domain.is_empty() { me.to_string() } else { format!("{me}@{domain}") };
-    for nul in [
-        format!("SYS {}", cfg.bbs.name),
-        format!("ZYZ {}", cfg.bbs.sysop_alias),
-        format!("LOC {}", cfg.bbs.location),
-        "NDL 115200,TCP,BINKP".to_string(),
-        format!("TIME {}", chrono::Local::now().to_rfc2822()),
-        format!("VER Iniquity/{} binkp/1.0", env!("CARGO_PKG_VERSION")),
-    ] {
-        send(cmd(M_NUL, &nul))?;
-    }
-    send(cmd(M_ADR, &me_full))?;
+    let mut link = Link::new(stream)?;
+    link.greet(&state, None)?;
 
     // The hub says who it is (and may offer CRAM-MD5); then our password.
     let mut challenge = None;
     loop {
-        match read_frame(&mut rd).await? {
+        match read_frame(&mut link.rd).await? {
             Frame::Cmd(M_NUL, s) => {
                 if let Some(opt) = s.strip_prefix("OPT ") {
                     challenge = opt.split_whitespace().find_map(|o| o.strip_prefix("CRAM-MD5-")).map(String::from);
@@ -140,8 +176,7 @@ pub async fn poll(state: Arc<BbsState>) -> anyhow::Result<Polled> {
                 tracing::debug!("binkp: {s}");
             }
             Frame::Cmd(M_ADR, s) => {
-                let addrs: Vec<Addr> = s.split_whitespace().filter_map(Addr::parse).collect();
-                if !addrs.iter().any(|a| a.zone == hub.zone && a.net == hub.net && a.node == hub.node) {
+                if !is_hub(&s, hub) {
                     bail!("binkp: {host} is {s}, not {hub}");
                 }
                 break;
@@ -156,35 +191,128 @@ pub async fn poll(state: Arc<BbsState>) -> anyhow::Result<Polled> {
         _ if pw.is_empty() => "-".to_string(),
         _ => pw.clone(),
     };
-    send(cmd(M_PWD, &answer))?;
+    link.send(cmd(M_PWD, &answer))?;
     loop {
-        match read_frame(&mut rd).await? {
+        match read_frame(&mut link.rd).await? {
             Frame::Cmd(M_OK, _) => break,
             Frame::Cmd(M_ERR | M_BSY, s) => bail!("binkp: hub refused us: {s}"),
             _ => {}
         }
     }
+    let polled = exchange(&state, &mut link).await;
+    link.close().await;
+    let polled = polled?;
+    tracing::info!("binkp: poll of {hub}: sent {:?}, received {:?}", polled.sent, polled.received);
+    Ok(polled)
+}
 
-    // Our files, then end-of-batch; GOTs for theirs go out as they finish.
-    let ours: Vec<PathBuf> = crate::ftntoss::outbound_files(&outbound);
-    let mut waiting: Vec<(String, PathBuf)> = Vec::new();
-    for p in &ours {
-        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let body = std::fs::read(p)?;
-        send(cmd(M_FILE, &format!("{name} {} {} 0", body.len(), mtime(p))))?;
-        for chunk in body.chunks(BLOCK) {
-            send(data(chunk))?;
+/// A session the hub opens (new): it calls us when mail arrives for us
+/// ("crash"). Only the hub, with the session password (CRAM-MD5 offered,
+/// or plain), gets in; then files go both ways as in a poll, and what came
+/// is tossed. `peer` is who connected.
+async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketAddr) -> anyhow::Result<()> {
+    let ftn = state.config().ftn.clone();
+    let (_, hub) = crate::ftntoss::addresses(&ftn)?;
+    let mut link = Link::new(stream)?;
+    let challenge: String = (0..16).map(|_| format!("{:02x}", rand::random::<u8>())).collect();
+    link.greet(&state, Some(format!("OPT CRAM-MD5-{challenge}")))?;
+    let mut remote_is_hub = false;
+    let pwd = loop {
+        match read_frame(&mut link.rd).await? {
+            Frame::Cmd(M_NUL, s) => tracing::debug!("binkp in: {s}"),
+            Frame::Cmd(M_ADR, s) => remote_is_hub = is_hub(&s, hub),
+            Frame::Cmd(M_PWD, p) => break p,
+            Frame::Cmd(M_ERR, s) => bail!("binkp: {peer} said {s}"),
+            _ => {}
         }
-        waiting.push((name, p.clone()));
+    };
+    let pw = &ftn.session_password;
+    let good = remote_is_hub && !pw.is_empty() && (cram_md5(pw, &challenge).is_some_and(|c| c.eq_ignore_ascii_case(&pwd)) || pwd == *pw);
+    if !good {
+        let why = if remote_is_hub { "Incorrect password" } else { "Unknown address" };
+        link.send(cmd(M_ERR, why))?;
+        link.close().await;
+        crate::logon::record_failure(&state, peer, &format!("binkp: {}", why.to_ascii_lowercase()));
+        return Ok(());
     }
-    send(cmd(M_EOB, ""))?;
+    // A poll is already under way: try again later.
+    let Ok(_busy) = SESSION.try_lock() else {
+        link.send(cmd(M_BSY, "busy, try again later"))?;
+        link.close().await;
+        return Ok(());
+    };
+    link.send(cmd(M_OK, "secure"))?;
+    let polled = exchange(&state, &mut link).await;
+    link.close().await;
+    let polled = polled?;
+    tracing::info!("binkp: {hub} called: sent {:?}, received {:?}", polled.sent, polled.received);
+    if !polled.received.is_empty() {
+        let s = state.clone();
+        tokio::task::spawn_blocking(move || crate::ftntoss::toss(&s)).await??;
+    }
+    Ok(())
+}
+
+/// Listen for the hub's calls on `[ftn] listen`, if set.
+pub async fn listen(state: Arc<BbsState>) {
+    let addr = state.config().ftn.listen.trim().to_string();
+    if addr.is_empty() {
+        return;
+    }
+    let listener = match tokio::net::TcpListener::bind(&addr).await {
+        Ok(l) => l,
+        Err(e) => return tracing::error!("binkp: can't listen on {addr}: {e}"),
+    };
+    tracing::info!("binkp listening on {addr}");
+    loop {
+        let Ok((stream, peer)) = listener.accept().await else { continue };
+        let cfg = state.config();
+        if !cfg.ftn.enabled {
+            continue;
+        }
+        let ticket = match state.guard.admit(&cfg.security, peer.ip()) {
+            Ok(t) => t,
+            Err(why) => {
+                tracing::info!("{peer}: binkp refused: {why}");
+                continue;
+            }
+        };
+        let state = state.clone();
+        tokio::spawn(async move {
+            let _ticket = ticket;
+            if let Err(e) = answer(state, stream, peer).await {
+                tracing::info!("{peer}: {e:#}");
+            }
+        });
+    }
+}
+
+/// Files both ways once the session is up: ours, then end-of-batch; GOTs
+/// for theirs go out as they finish. Done when both sides are, and every
+/// file we sent is acknowledged.
+async fn exchange(state: &BbsState, link: &mut Link) -> anyhow::Result<Polled> {
+    let (inbound, outbound, _) = crate::ftntoss::dirs(state);
+    std::fs::create_dir_all(&inbound)?;
+    std::fs::create_dir_all(&outbound)?;
+    let mut waiting: Vec<(String, PathBuf)> = Vec::new();
+    for p in crate::ftntoss::outbound_files(&outbound) {
+        let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let body = std::fs::read(&p)?;
+        link.send(cmd(M_FILE, &format!("{name} {} {} 0", body.len(), mtime(&p))))?;
+        for chunk in body.chunks(BLOCK) {
+            link.send(data(chunk))?;
+        }
+        waiting.push((name, p));
+    }
+    link.send(cmd(M_EOB, ""))?;
 
     let mut polled = Polled::default();
     let mut their_eob = false;
     // The file coming in: its name, size, time, what's arrived, and where.
     let mut incoming: Option<(String, u64, String, u64, std::fs::File, PathBuf)> = None;
+    let send = |f: Vec<u8>| link.tx.send(f).map_err(|_| anyhow!("binkp: connection closed"));
     while !(their_eob && waiting.is_empty() && incoming.is_none()) {
-        match read_frame(&mut rd).await? {
+        match read_frame(&mut link.rd).await? {
             Frame::Cmd(M_FILE, s) => {
                 let w: Vec<&str> = s.split_whitespace().collect();
                 let [name, size, time, ..] = w.as_slice() else { bail!("binkp: bad M_FILE {s}") };
@@ -213,20 +341,17 @@ pub async fn poll(state: Arc<BbsState>) -> anyhow::Result<Polled> {
                     polled.sent.push(n);
                 }
             }
-            // Left for the next poll.
+            // Left for the next session.
             Frame::Cmd(M_SKIP, s) => {
                 let name = s.split_whitespace().next().unwrap_or("");
                 waiting.retain(|(n, _)| n != name);
             }
             Frame::Cmd(M_EOB, _) => their_eob = true,
-            Frame::Cmd(M_ERR | M_BSY, s) => bail!("binkp: hub said {s}"),
-            Frame::Cmd(M_GET, s) => tracing::info!("binkp: hub asked again for {s} (not supported; it'll come next poll)"),
+            Frame::Cmd(M_ERR | M_BSY, s) => bail!("binkp: other side said {s}"),
+            Frame::Cmd(M_GET, s) => tracing::info!("binkp: asked again for {s} (not supported; it'll come next session)"),
             Frame::Cmd(_, _) => {}
         }
     }
-    drop(tx);
-    let _ = writer.await;
-    tracing::info!("binkp: poll of {hub}: sent {:?}, received {:?}", polled.sent, polled.received);
     Ok(polled)
 }
 
