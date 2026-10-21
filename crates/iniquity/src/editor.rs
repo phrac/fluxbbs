@@ -431,6 +431,18 @@ pub fn printable(s: &str) -> std::borrow::Cow<'_, str> {
 /// (`ESC[..m`) and cursor-right (`ESC[nC`, art's spacing) kept; any other
 /// escape sequence, and control characters, left out. However the line
 /// got in (radio, an uploaded file), it can't drive the reader's terminal.
+/// A line as the editor shows it: one column a character, so the cursor
+/// stays put. `write_text` drops control characters (an uploaded message's
+/// escapes, say), and CP437's glyphs for them; ESC shows as `«`, the rest
+/// as `?`.
+fn on_screen(l: &str) -> std::borrow::Cow<'_, str> {
+    let hidden = |c: char| c != '\u{2022}' && iniquity_term::cp437::encode(c.encode_utf8(&mut [0; 4])).first().is_some_and(|&b| b < 0x20 || b == 0x7f);
+    if !l.chars().any(hidden) {
+        return l.into();
+    }
+    l.chars().map(|c| if c == '\x1b' { '«' } else if hidden(c) { '?' } else { c }).collect::<String>().into()
+}
+
 pub fn ansi_bytes(s: &str) -> Vec<u8> {
     let mut out = Vec::new();
     let mut text = String::new();
@@ -650,7 +662,7 @@ impl Session {
         self.screen.goto(1, y);
         if let Some(l) = d.line(i) {
             self.screen.set_color(if is_quote(&l) { v.quote } else { v.text });
-            self.write(&l);
+            self.write(&on_screen(&l));
         }
         self.screen.clear_eol();
     }
@@ -666,7 +678,7 @@ impl Session {
                 let line = d.line(i).unwrap_or_default();
                 self.screen.goto(col as u16 + 1, v.top + (i - v.first) as u16);
                 self.screen.set_color(if is_quote(&line) { v.quote } else { v.text });
-                self.write(&line.chars().skip(col).collect::<String>());
+                self.write(&on_screen(&line.chars().skip(col).collect::<String>()));
                 self.screen.clear_eol();
             }
             Redraw::Line(_) | Redraw::Tail(..) => {}
@@ -829,6 +841,12 @@ mod tests {
                 d.type_char(c);
             }
         }
+    }
+
+    #[test]
+    fn editor_lines_keep_their_width() {
+        assert_eq!(on_screen("plain • text"), "plain • text");
+        assert_eq!(on_screen("\x1b[31mred\u{263a}"), "«[31mred?");
     }
 
     #[test]

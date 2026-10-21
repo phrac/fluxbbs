@@ -561,6 +561,8 @@ impl Session {
             tracing::info!("{}: QWK download failed", self.user.handle);
             return self.say_line("QwkDLerror").await;
         }
+        let confs: Vec<(u16, String)> = packed.iter().filter(|p| p.conf != 0).map(|p| (p.conf, p.area.key().to_string())).collect();
+        self.state.msgs.set_qwk_confs(self.user.id, &confs).map_err(io_err)?;
         self.say("QwkDLaskUpdatePtrs").await?;
         if self.yes_no(true).await? {
             self.say("QwkDLupdatingPtrs").await?;
@@ -659,7 +661,7 @@ impl Session {
         self.qwk_step(screen, b"LP", "Importing replies, please wait").await?;
         let (mut posted, mut refused) = (0u32, refused_extra);
         for (i, r) in replies.into_iter().enumerate().skip(done) {
-            let area = if r.conf == 0 { Some(self.email_area()) } else { self.msg_area(r.conf) };
+            let area = if r.conf == 0 { Some(self.email_area()) } else { self.qwk_area(r.conf).map_err(io_err)? };
             self.qwk_field(screen, b"MA", &area.as_ref().map_or("?".into(), |a| a.area.name.clone()), 30);
             self.qwk_field(screen, b"TM", &(i + 1).to_string(), 5);
             self.qwk_field(screen, b"SN", &self.user.handle.clone(), 30);
@@ -690,6 +692,15 @@ impl Session {
         self.show_line(&s).await
     }
 
+    /// Conference `conf` of the caller's last packet: the area it was then,
+    /// wherever that is now (gone: none), or for a packet from before
+    /// conferences were recorded, the area at that place.
+    fn qwk_area(&self, conf: u32) -> anyhow::Result<Option<AreaRef>> {
+        let Some(key) = self.state.msgs.qwk_conf(self.user.id, conf)? else { return Ok(self.msg_area(conf)) };
+        let areas = self.state.areas();
+        Ok(areas.areas.iter().position(|a| a.file.eq_ignore_ascii_case(&key)).and_then(|i| self.msg_area(i as u32 + 1)))
+    }
+
     /// Post one reply, if the caller may post there. Ok(false): refused.
     fn qwk_post(&mut self, area: Option<AreaRef>, r: Reply) -> anyhow::Result<bool> {
         let Some(a) = area else { return Ok(false) };
@@ -702,7 +713,7 @@ impl Session {
         };
         // Marked private where that isn't allowed: refused, not posted in
         // public (in an echo area it would go out to the network).
-        if !allowed || r.lines.is_empty() || (r.private && !email && !a.area.private) {
+        if !allowed || r.lines.is_empty() || (r.private && !email && !self.private_ok(&a)) {
             return Ok(false);
         }
         // A reply to a message in the packet joins its thread, and goes to

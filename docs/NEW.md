@@ -243,6 +243,21 @@ Where the original's behaviour was a hazard or no longer fits:
 - A message the editor can't hold whole (over 200 lines, wider than
   79 columns, or with ANSI codes, as echomail can be) isn't opened for
   editing, rather than cut short.
+- Reply counts leave out private replies to public messages (they
+  gave away that someone had written privately) and deleted ones.
+- The message centre's lists (threads, new, search, mentions) follow
+  messages by row too, so a pack while one is open doesn't show others.
+- QWK replies go to the area each conference was when the packet was
+  made, even if areas have been added or moved since.
+- Private messages aren't offered in areas linked to an echo (echomail
+  is public; the scanner never sent them).
+- Echomail sent as CP850 or CP866 (`CHRS`) is read as such, not as
+  CP437; an echomail writer with a local caller's name isn't taken for
+  them.
+- `M#` / `F#` with no number open the area list to pick from.
+- Deleting an area keeps its echomail dupe history, so relinking the
+  echo doesn't take old messages in again.
+- The message menu's figures read an index, not every message.
 
 ## From 2.0 and 2.20
 

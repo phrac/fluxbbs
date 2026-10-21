@@ -271,7 +271,12 @@ enum Charset {
     /// Windows' Latin-1 (and Latin-9, near enough): 0x80-0x9F are letters
     /// and signs, not controls.
     Cp1252,
+    /// Other DOS code pages: 0x80-0xFF from the table.
+    Dos(&'static str),
 }
+
+const CP850_HIGH: &str = "ÇüéâäàåçêëèïîìÄÅÉæÆôöòûùÿÖÜø£Ø×ƒáíóúñÑªº¿®¬½¼¡«»░▒▓│┤ÁÂÀ©╣║╗╝¢¥┐└┴┬├─┼ãÃ╚╔╩╦╠═╬¤ðÐÊËÈıÍÎÏ┘┌█▄¦Ì▀ÓßÔÒõÕµþÞÚÛÙýÝ¯´\u{ad}±‗¾¶§÷¸°¨·¹³²■\u{a0}";
+const CP866_HIGH: &str = "АБВГДЕЖЗИЙКЛМНОПРСТУФХЦЧШЩЪЫЬЭЮЯабвгдежзийклмноп░▒▓│┤╡╢╖╕╣║╗╝╜╛┐└┴┬├─┼╞╟╚╔╩╦╠═╬╧╨╤╥╙╘╒╓╫╪┘┌█▄▌▐▀рстуфхцчшщъыьэюяЁёЄєЇїЎў°∙·√№¤■\u{a0}";
 
 /// CP1252's 0x80-0x9F (0: unused).
 const CP1252_HIGH: [char; 32] = [
@@ -293,6 +298,10 @@ fn charset(lines: &[&[u8]]) -> Option<Charset> {
             Charset::Latin1
         } else if v.starts_with("CP1252") || v.starts_with("WINDOWS-1252") || v.starts_with("LATIN-9") || v.starts_with("ISO-8859-15") {
             Charset::Cp1252
+        } else if v.starts_with("CP850") || v.starts_with("IBM850") {
+            Charset::Dos(CP850_HIGH)
+        } else if v.starts_with("CP866") || v.starts_with("IBM866") || v == "+7_FIDO" {
+            Charset::Dos(CP866_HIGH)
         } else {
             Charset::Cp437
         });
@@ -317,6 +326,7 @@ fn decode_line(raw: &[u8], cs: Charset) -> String {
         Charset::Latin1 => b.iter().map(|&c| c as char).collect(),
         Charset::Cp1252 => b.iter().filter_map(|&c| if (0x80..0xa0).contains(&c) { Some(CP1252_HIGH[c as usize - 0x80]).filter(|&h| h != '\0') } else { Some(c as char) }).collect(),
         Charset::Cp437 => iniquity_term::cp437::decode(b),
+        Charset::Dos(high) => b.iter().filter_map(|&c| if c < 0x80 { Some(c as char) } else { high.chars().nth(c as usize - 0x80) }).collect(),
     };
     // The column, for tabs: escapes take none, nor do UTF-8's
     // continuation bytes.
@@ -361,7 +371,8 @@ fn decode_line(raw: &[u8], cs: Charset) -> String {
 }
 
 /// Take a message's text apart. `CHRS: UTF-8` text is read as UTF-8,
-/// `LATIN-1` as ISO 8859-1, anything else as CP437.
+/// `LATIN-1` as ISO 8859-1, CP1252, CP850 and CP866 as themselves,
+/// anything else as CP437.
 pub fn split_text(text: &[u8]) -> Parts {
     let mut p = Parts::default();
     let lines = text_lines(text);
@@ -570,6 +581,8 @@ mod tests {
         assert_eq!(split_text(b"caf\x82\r").body, ["caf\u{e9}"]);
         assert_eq!(split_text("\x01CHRS: UTF-8 4\rcaf\u{e9}\r".as_bytes()).body, ["caf\u{e9}"]);
         assert_eq!(split_text(b"\x01CHRS: LATIN-1 2\rcaf\xe9\r").body, ["caf\u{e9}"]);
+        assert_eq!(split_text(b"\x01CHRS: CP850 2\rS\xb5o \x82\r").body, ["S\u{c1}o \u{e9}"]);
+        assert_eq!(split_text(b"\x01CHRS: CP866 2\r\x8f\xe0\xa8\xa2\xa5\xe2\r").body, ["\u{41f}\u{440}\u{438}\u{432}\u{435}\u{442}"]);
         // Only a kludge names the character set, not the text.
         assert_eq!(split_text(b"say CHRS: UTF-8 \x82\r").body, ["say CHRS: UTF-8 \u{e9}"]);
         // Colours and cursor-right are kept; other escapes and controls go.

@@ -52,6 +52,13 @@ impl Session {
         self.msg_area(self.user.cur_msg_area).filter(|a| self.area_open(a))
     }
 
+    /// Private messages may be posted in this (non-email) area: it allows
+    /// them, and isn't linked to an echo, which would carry it to every
+    /// board as public (so the scanner leaves private posts behind).
+    pub(crate) fn private_ok(&self, a: &AreaRef) -> bool {
+        !a.is_email() && a.area.private && !self.state.config().ftn.areas.iter().any(|m| m.area.eq_ignore_ascii_case(a.key()))
+    }
+
     /// The caller may read the area now: its ACS passes and, if it has a
     /// password, that was given this call.
     pub(crate) fn area_open(&self, a: &AreaRef) -> bool {
@@ -166,9 +173,13 @@ impl Session {
     }
 
     /// `M#` / `F#`: change to the area whose listed number was typed at
-    /// the menu (the `#` key).
+    /// the menu (the `#` key). With no number, the area list to pick from,
+    /// as `MC` / `FC` without one.
     pub async fn jump_area(&mut self, msg: bool, typed: &str) -> io::Result<()> {
-        let Ok(label) = typed.trim().parse::<u32>() else { return Ok(()) };
+        if typed.trim().is_empty() {
+            return if msg { self.list_areas(true).await } else { self.list_fareas(true, None).await };
+        }
+        let Ok(label) = typed.trim().parse::<u32>() else { return self.say_line("AreaNotFound").await };
         let labels = if msg { self.msg_area_labels() } else { self.file_area_labels() };
         let target = labels.iter().find(|(l, _)| *l == label).map(|&(_, n)| n);
         let changed = match target {
@@ -548,7 +559,7 @@ impl Session {
             show = false;
             let s = self.strings().fmt("MsgReadPrompt", &[&cur.to_string(), &total.to_string()]);
             self.show(&s).await?;
-            let (key, typed) = self.read_command_or_number(total, "QPA?RDEHLISXU-").await?;
+            let (key, typed) = self.read_command_or_number(total, "QPA?RDEHLISXUZ-").await?;
             // Where this message is now, should another node have packed.
             if let Some(n) = self.state.msgs.num_of(m.id).map_err(io_err)? {
                 cur = n;
@@ -613,7 +624,9 @@ impl Session {
                 'A' => show = true,
                 'R' => {
                     if self.post(a, "", "", Some(&m)).await?.is_some() {
-                        m.replies += 1;
+                        if let Some(now) = self.state.msgs.by_id(m.id).map_err(io_err)? {
+                            m.replies = now.replies;
+                        }
                         total = self.state.msgs.count(a.key()).map_err(io_err)?;
                         self.newline();
                     }
@@ -635,6 +648,13 @@ impl Session {
                 }
                 'U' if self.is_sysop() && m.from.user_id != 0 => {
                     self.user_editor(&m.from.user_id.to_string()).await?;
+                    show = true;
+                }
+                // Re-date it to now (in the original, that made it new to
+                // every newscan; here it sorts as the latest post).
+                'Z' if self.is_cosysop() => {
+                    m.posted = chrono::Local::now().naive_local();
+                    self.state.msgs.set_posted(m.id, m.posted).map_err(io_err)?;
                     show = true;
                 }
                 'H' => {
@@ -805,8 +825,8 @@ impl Session {
                 let subj = if r.subject.to_ascii_uppercase().starts_with("RE:") { r.subject.clone() } else { format!("Re: {}", r.subject) };
                 // A reply to a private message is private unless the
                 // writer says otherwise (`maPostMessage` asked).
-                private = a.is_email() || r.private;
-                if a.area.private && !a.is_email() && ask_private_reply {
+                private = a.is_email() || (r.private && self.private_ok(a));
+                if self.private_ok(a) && ask_private_reply {
                     self.say("MsgAskPrivate").await?;
                     private = self.yes_no(r.private).await?;
                 }
@@ -833,7 +853,7 @@ impl Session {
                 }
                 let party = match self.state.users.find(&name, false).map_err(io_err)? {
                     Some(u) => {
-                        if a.area.private && !a.is_email() && ask_private {
+                        if self.private_ok(a) && ask_private {
                             self.say("MsgAskPrivate").await?;
                             private = self.yes_no(false).await?;
                         }
@@ -1235,8 +1255,10 @@ impl Session {
                 'R' => {
                     let orig = mail[idx].clone();
                     if self.post(&a, "", "", Some(&orig)).await?.is_some() {
+                        if let Some(now) = self.state.msgs.by_id(mail[idx].id).map_err(io_err)? {
+                            mail[idx].replies = now.replies;
+                        }
                         let m = &mut mail[idx];
-                        m.replies += 1;
                         self.newline();
                         if self.state.config().messages.ask_delete_replied && !m.deleted {
                             self.say("EmailKillOriginal").await?;

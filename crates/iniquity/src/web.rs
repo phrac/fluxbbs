@@ -223,7 +223,7 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
             area: a.name.clone(),
             subject: m.subject,
             // Handles, never real names (a real-name area's `name`).
-            from: if m.anonymous { m.from.name } else if a.real_names { shown(&m.from.alias) } else { shown(&m.from.name) },
+            from: if m.anonymous { m.from.name } else if a.real_names && !m.from.alias.is_empty() { shown(&m.from.alias) } else { shown(&m.from.name) },
             posted: m.posted.format("%Y-%m-%dT%H:%M:%S").to_string(),
             replies: m.replies,
             reply: m.reply_to != 0,

@@ -286,7 +286,9 @@ fn toss_echo(state: &BbsState, cfg: &Ftn, tag: &str, m: &PackedMsg, parts: &Part
         Some(r) => state.msgs.ftn_find(area, r)?,
         None => None,
     };
-    let mut from = party(&m.from);
+    // No alias: a writer elsewhere with a local caller's name mustn't
+    // pass for them (`is_me` matches aliases).
+    let mut from = Party { alias: String::new(), ..party(&m.from) };
     from.note = parts.origin_addr().map(|a| a.to_string()).unwrap_or_default();
     let mut msg = Message {
         id: 0,

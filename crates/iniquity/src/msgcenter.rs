@@ -16,8 +16,9 @@ use crate::session::{BarPick, BarRow, BarSpec, Session, waves};
 
 /// A conversation: a message and the replies under it.
 pub struct Thread {
-    /// (message number, depth) in reading order; the first is the root.
-    pub msgs: Vec<(u32, usize)>,
+    /// (message row id, depth) in reading order; the first is the root.
+    /// Ids, not numbers: a pack renumbers while a list is open.
+    pub msgs: Vec<(i64, usize)>,
     pub last: NaiveDateTime,
 }
 
@@ -46,7 +47,7 @@ pub fn threads(msgs: &[Message]) -> Vec<Thread> {
                 }
             }
             let last = order.iter().map(|&(i, _)| msgs[i].posted).max().unwrap_or_default();
-            Thread { msgs: order.into_iter().map(|(i, d)| (msgs[i].num, d)).collect(), last }
+            Thread { msgs: order.into_iter().map(|(i, d)| (msgs[i].id, d)).collect(), last }
         })
         .collect()
 }
@@ -69,9 +70,13 @@ impl AreaView {
     }
 
     /// The new messages, a thread at a time.
-    fn new_in_thread_order(&self) -> Vec<u32> {
-        let by_num: HashMap<u32, &Message> = self.msgs.iter().map(|m| (m.num, m)).collect();
-        threads(&self.msgs).iter().flat_map(|t| t.msgs.iter().map(|&(n, _)| n)).filter(|n| by_num.get(n).is_some_and(|m| self.is_new(m))).collect()
+    fn new_in_thread_order(&self) -> Vec<i64> {
+        let by_id = self.by_id();
+        threads(&self.msgs).iter().flat_map(|t| t.msgs.iter().map(|&(n, _)| n)).filter(|&n| self_new(self, &by_id, n)).collect()
+    }
+
+    fn by_id(&self) -> HashMap<i64, &Message> {
+        self.msgs.iter().map(|m| (m.id, m)).collect()
     }
 }
 
@@ -214,9 +219,9 @@ impl Session {
         };
         let Some((m, a)) = m.and_then(|m| find(&m.area).map(|a| (m, a))) else { return Ok(()) };
         let v = self.area_view(&a)?;
-        let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.num)) else { return Ok(()) };
-        let seq: Vec<u32> = t.msgs.iter().map(|&(n, _)| n).collect();
-        let at = seq.iter().position(|&n| n == m.num).unwrap_or(0);
+        let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.id)) else { return Ok(()) };
+        let seq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
+        let at = seq.iter().position(|&n| n == m.id).unwrap_or(0);
         self.read_seq(&a, &seq, at).await?;
         Ok(())
     }
@@ -305,18 +310,18 @@ impl Session {
     /// `~MT` subject, `~SN` who started it, `~RP` replies, `~NW` new, `~DT`
     /// and `~TI` the latest post's date and time).
     async fn thread_list(&mut self, a: &AreaRef) -> io::Result<()> {
-        let mut on_root: Option<u32> = None;
+        let mut on_root: Option<i64> = None;
         loop {
             let v = self.area_view(a)?;
-            let by_num: HashMap<u32, &Message> = v.msgs.iter().map(|m| (m.num, m)).collect();
+            let by_id = v.by_id();
             let mut ts = threads(&v.msgs);
             ts.sort_by(|x, y| y.last.cmp(&x.last));
             let mut rows = Vec::new();
             let mut labels = Vec::new();
             let mut first_new = None;
             for (i, t) in ts.iter().enumerate() {
-                let root = by_num[&t.msgs[0].0];
-                let new = t.msgs.iter().filter(|(n, _)| self_new(&v, &by_num, *n)).count();
+                let root = by_id[&t.msgs[0].0];
+                let new = t.msgs.iter().filter(|(n, _)| self_new(&v, &by_id, *n)).count();
                 if new > 0 && first_new.is_none() {
                     first_new = Some(i);
                 }
@@ -360,8 +365,8 @@ impl Session {
                 BarPick::Area(i) => {
                     let t = &ts[i as usize];
                     on_root = Some(t.msgs[0].0);
-                    let seq: Vec<u32> = t.msgs.iter().map(|&(n, _)| n).collect();
-                    let from = seq.iter().position(|&n| self_new(&v, &by_num, n)).unwrap_or(0);
+                    let seq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
+                    let from = seq.iter().position(|&n| self_new(&v, &by_id, n)).unwrap_or(0);
                     self.read_seq(a, &seq, from).await?;
                 }
                 BarPick::Key('N', _) => {
@@ -469,7 +474,7 @@ impl Session {
         }
         for (a, m) in found {
             self.state.msgs.mention_seen(self.user.id, m.id).map_err(io_err)?;
-            if self.read_seq(&a, &[m.num], 0).await? == ReadEnd::Quit || self.hangup {
+            if self.read_seq(&a, &[m.id], 0).await? == ReadEnd::Quit || self.hangup {
                 break;
             }
         }
@@ -531,7 +536,7 @@ impl Session {
             let s = self.strings().fmt("MsgSearchArea", &[&a.area.name]);
             self.show_line(&s).await?;
             let v = self.area_view(&a)?;
-            let seq: Vec<u32> = v
+            let seq: Vec<i64> = v
                 .msgs
                 .iter()
                 .filter(|m| !new_only || v.is_new(m))
@@ -542,7 +547,7 @@ impl Session {
                     'Y' => self.is_me(&m.from) || self.is_me(&m.to),
                     _ => has(&m.subject) || has(&m.from.name) || has(&m.to.name) || m.body().iter().any(|l| has(l)),
                 })
-                .map(|m| m.num)
+                .map(|m| m.id)
                 .collect();
             if seq.is_empty() {
                 continue;
@@ -560,10 +565,10 @@ impl Session {
 
     // ---- the reader -----------------------------------------------------
 
-    /// Read the messages numbered `seq` in `a`, from `seq[at]`: the header
+    /// Read the messages with row ids `seq` in `a`, from `seq[at]`: the header
     /// (MSGHEAD) at the top, the text scrolling under it, and a line of
     /// keys at the bottom (`MsgReaderBar`).
-    async fn read_seq(&mut self, a: &AreaRef, seq: &[u32], at: usize) -> io::Result<ReadEnd> {
+    async fn read_seq(&mut self, a: &AreaRef, seq: &[i64], at: usize) -> io::Result<ReadEnd> {
         if seq.is_empty() {
             return Ok(ReadEnd::Back);
         }
@@ -577,7 +582,7 @@ impl Session {
                 return Ok(ReadEnd::Quit);
             }
             if cur.is_none() {
-                match self.state.msgs.get(a.key(), seq[i]).map_err(io_err)?.filter(|m| self.ok_to_read(a, m)) {
+                match self.state.msgs.by_id(seq[i]).map_err(io_err)?.filter(|m| m.area.eq_ignore_ascii_case(a.key()) && self.ok_to_read(a, m)) {
                     Some(m) => {
                         self.mark_read(a, &m)?;
                         self.menu_msg = m.num;
@@ -664,12 +669,12 @@ impl Session {
                     self.screen.clear_eol();
                     self.say("MsgReaderGoto").await?;
                     let s = self.read_string(ReadOpts::new(6).allowed(DIGITS).prefill((c as char).to_string())).await?;
-                    if let Ok(n) = s.parse::<u32>() {
-                        if let Some(p) = seq.iter().position(|&x| x == n) {
+                    if let Some(x) = s.parse::<u32>().ok().and_then(|n| self.state.msgs.get(a.key(), n).ok().flatten()).filter(|x| self.ok_to_read(a, x)) {
+                        if let Some(p) = seq.iter().position(|&id| id == x.id) {
                             i = p;
                             cur = None;
-                        } else if self.state.msgs.get(a.key(), n).map_err(io_err)?.is_some_and(|x| self.ok_to_read(a, &x)) {
-                            if Box::pin(self.read_seq(a, &[n], 0)).await? == ReadEnd::Quit {
+                        } else {
+                            if Box::pin(self.read_seq(a, &[x.id], 0)).await? == ReadEnd::Quit {
                                 return Ok(ReadEnd::Quit);
                             }
                             cur = None;
@@ -706,11 +711,11 @@ impl Session {
                     }
                     Some('U') if m.reply_to != 0 => {
                         if let Some(p) = self.state.msgs.by_id(m.reply_to).map_err(io_err)?.filter(|p| p.area == m.area && self.ok_to_read(a, p)) {
-                            if let Some(at) = seq.iter().position(|&x| x == p.num) {
+                            if let Some(at) = seq.iter().position(|&x| x == p.id) {
                                 i = at;
                                 cur = None;
                             } else {
-                                if Box::pin(self.read_seq(a, &[p.num], 0)).await? == ReadEnd::Quit {
+                                if Box::pin(self.read_seq(a, &[p.id], 0)).await? == ReadEnd::Quit {
                                     return Ok(ReadEnd::Quit);
                                 }
                                 cur = None;
@@ -720,10 +725,10 @@ impl Session {
                     Some('T') => {
                         // The whole conversation this message is in.
                         let v = self.area_view(a)?;
-                        if let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.num)) {
-                            let tseq: Vec<u32> = t.msgs.iter().map(|&(n, _)| n).collect();
+                        if let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.id)) {
+                            let tseq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
                             if tseq != seq {
-                                let at = tseq.iter().position(|&n| n == m.num).unwrap_or(0);
+                                let at = tseq.iter().position(|&n| n == m.id).unwrap_or(0);
                                 if Box::pin(self.read_seq(a, &tseq, at)).await? == ReadEnd::Quit {
                                     return Ok(ReadEnd::Quit);
                                 }
@@ -827,9 +832,9 @@ impl Session {
     }
 }
 
-/// Whether message `n` is new to the caller.
-fn self_new(v: &AreaView, by_num: &HashMap<u32, &Message>, n: u32) -> bool {
-    by_num.get(&n).is_some_and(|m| v.is_new(m))
+/// Whether message (row id) `n` is new to the caller.
+fn self_new(v: &AreaView, by_id: &HashMap<i64, &Message>, n: i64) -> bool {
+    by_id.get(&n).is_some_and(|m| v.is_new(m))
 }
 
 #[cfg(test)]
@@ -863,10 +868,10 @@ mod tests {
         let msgs = vec![msg(10, 1, 0, 1), msg(11, 2, 10, 2), msg(12, 3, 0, 3), msg(13, 4, 11, 4), msg(14, 5, 10, 5), msg(15, 6, 99, 6)];
         let t = threads(&msgs);
         assert_eq!(t.len(), 3);
-        assert_eq!(t[0].msgs, vec![(1, 0), (2, 1), (4, 2), (5, 1)]);
+        assert_eq!(t[0].msgs, vec![(10, 0), (11, 1), (13, 2), (14, 1)]);
         assert_eq!(t[0].last, msgs[4].posted);
-        assert_eq!(t[1].msgs, vec![(3, 0)]);
-        assert_eq!(t[2].msgs, vec![(6, 0)]);
+        assert_eq!(t[1].msgs, vec![(12, 0)]);
+        assert_eq!(t[2].msgs, vec![(15, 0)]);
     }
 
     #[test]
@@ -875,7 +880,7 @@ mod tests {
         let msgs = vec![msg(10, 1, 11, 1), msg(11, 2, 10, 2)];
         let t = threads(&msgs);
         assert_eq!(t.len(), 1);
-        assert_eq!(t[0].msgs, vec![(1, 0), (2, 1)]);
+        assert_eq!(t[0].msgs, vec![(10, 0), (11, 1)]);
     }
 
     #[test]
@@ -883,6 +888,6 @@ mod tests {
         let msgs = vec![msg(10, 1, 0, 1), msg(11, 2, 0, 2), msg(12, 3, 10, 3), msg(13, 4, 11, 4)];
         let v = AreaView { msgs, lastread: 1, seen: HashSet::from([13]) };
         assert_eq!(v.new_count(), 2);
-        assert_eq!(v.new_in_thread_order(), vec![3, 2]);
+        assert_eq!(v.new_in_thread_order(), vec![12, 11]);
     }
 }
