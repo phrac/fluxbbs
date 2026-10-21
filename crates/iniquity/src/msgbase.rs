@@ -666,10 +666,10 @@ impl MsgBase {
     }
 
     /// New: `user` was @mentioned in message `msg_id`.
-    pub fn add_mention(&self, user: u32, msg_id: i64) -> anyhow::Result<()> {
+    /// Record a mention; false if it was already recorded.
+    pub fn add_mention(&self, user: u32, msg_id: i64) -> anyhow::Result<bool> {
         let db = self.db.lock().unwrap();
-        db.execute("INSERT OR IGNORE INTO mentions (user_id, msg_id) VALUES (?1, ?2)", params![user, msg_id])?;
-        Ok(())
+        Ok(db.execute("INSERT OR IGNORE INTO mentions (user_id, msg_id) VALUES (?1, ?2)", params![user, msg_id])? > 0)
     }
 
     /// The messages `user` was mentioned in (newest first), unseen ones

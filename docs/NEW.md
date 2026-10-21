@@ -239,6 +239,7 @@ Where the original's behaviour was a hazard or no longer fits:
 - "Anonymous" and "None" can't be taken as handles (mail to those
   parties would reach whoever had them); "delete all read mail" deletes
   only the letters read just now; packing all areas packs email too.
+  Editing a post tells callers it now mentions (not those told before).
 - A message the editor can't hold whole (over 200 lines, wider than
   79 columns, or with ANSI codes, as echomail can be) isn't opened for
   editing, rather than cut short.

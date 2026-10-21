@@ -548,7 +548,7 @@ impl Session {
             show = false;
             let s = self.strings().fmt("MsgReadPrompt", &[&cur.to_string(), &total.to_string()]);
             self.show(&s).await?;
-            let (key, typed) = self.read_command_or_number(total, "QPA?RDEHLIS-").await?;
+            let (key, typed) = self.read_command_or_number(total, "QPA?RDEHLISXU-").await?;
             // Where this message is now, should another node have packed.
             if let Some(n) = self.state.msgs.num_of(m.id).map_err(io_err)? {
                 cur = n;
@@ -629,6 +629,14 @@ impl Session {
                     self.edit_existing(a, &mut m).await?;
                     show = true;
                 }
+                'X' => {
+                    self.download_message(a, &m).await?;
+                    show = true;
+                }
+                'U' if self.is_sysop() && m.from.user_id != 0 => {
+                    self.user_editor(&m.from.user_id.to_string()).await?;
+                    show = true;
+                }
                 'H' => {
                     self.say_line("MsgSetPointer").await?;
                     self.state.msgs.set_lastread(self.user.id, a.key(), cur).map_err(io_err)?;
@@ -644,6 +652,33 @@ impl Session {
                 _ => {}
             }
         }
+    }
+
+    /// `maDownloadMessage` (`X` in the readers): the message as a text
+    /// file (`maExportMessage`'s layout, without the signature), sent with
+    /// a protocol.
+    async fn download_message(&mut self, a: &AreaRef, m: &Message) -> io::Result<()> {
+        let plain = crate::editor::strip_codes;
+        let mut lines = vec![
+            format!("From      : {}", plain(&m.from.name)),
+            format!("To        : {}", plain(&m.to.name)),
+            format!("Subject   : {}", plain(&m.subject)),
+            format!("Area      : {}", plain(&a.area.name)),
+            format!("Status    : {}", plain(&Self::status_str(m))),
+            String::new(),
+        ];
+        lines.extend(m.body().iter().map(|l| crate::editor::strip_colours(l)));
+        let cfg = self.state.config();
+        let dir = cfg.resolve(&cfg.paths.temp).join(format!("msg{}", self.node.number()));
+        let path = dir.join("DOWNLOAD.MSG");
+        let text: Vec<u8> = lines.iter().flat_map(|l| iniquity_term::cp437::encode(l).into_iter().chain(*b"\r\n")).collect();
+        std::fs::create_dir_all(&dir).and_then(|_| std::fs::write(&path, text))?;
+        self.newline();
+        if let Some(proto) = self.select_protocol(false).await? {
+            self.send_files(&proto, std::slice::from_ref(&path)).await?;
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+        Ok(())
     }
 
     /// Read a reader command, or a message number (digits, then Enter or
@@ -975,6 +1010,10 @@ impl Session {
             }
             self.state.msgs.update_text(m).map_err(io_err)?;
             tracing::info!("{}: edited #{} in {}", self.user.handle, m.num, a.area.name);
+            // Names added by the edit are told; those already told aren't.
+            if !a.is_email() {
+                crate::mentions::record(&self.state, m, &a.area.name, if m.anonymous { 0 } else { self.node.number() });
+            }
         }
         Ok(())
     }
@@ -1156,7 +1195,7 @@ impl Session {
             show = false;
             let s = self.strings().fmt("EmailReadPrompt", &[&cur.to_string(), &total.to_string()]);
             self.show(&s).await?;
-            let (key, typed) = self.read_command_or_number(total, "QA?RDE-").await?;
+            let (key, typed) = self.read_command_or_number(total, "QA?RDEXU-").await?;
             if let Some(n) = typed {
                 self.newline();
                 if (1..=total).contains(&n) {
@@ -1208,6 +1247,16 @@ impl Session {
                             self.newline();
                         }
                     }
+                }
+                'X' => {
+                    let m = mail[idx].clone();
+                    self.download_message(&a, &m).await?;
+                    show = true;
+                }
+                'U' if self.is_sysop() && mail[idx].from.user_id != 0 => {
+                    let who = mail[idx].from.user_id.to_string();
+                    self.user_editor(&who).await?;
+                    show = true;
                 }
                 'D' => {
                     let m = &mut mail[idx];

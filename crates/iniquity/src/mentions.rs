@@ -105,9 +105,14 @@ pub fn record(state: &BbsState, m: &Message, area: &str, from_node: usize) {
             continue;
         }
         told.push(u.id);
-        if let Err(e) = state.msgs.add_mention(u.id, m.id) {
-            tracing::warn!("mention of {}: {e}", u.handle);
-            continue;
+        // Told already (the post was edited since): not again.
+        match state.msgs.add_mention(u.id, m.id) {
+            Ok(true) => {}
+            Ok(false) => continue,
+            Err(e) => {
+                tracing::warn!("mention of {}: {e}", u.handle);
+                continue;
+            }
         }
         tracing::info!("{} mentioned {} in {area}", m.from.name, u.handle);
         if let Some(node) = state.nodes.find_user(&u.handle) {
