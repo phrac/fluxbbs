@@ -42,6 +42,12 @@ git: copy `data/` and `files/` across if the board should move with you.
   suite: unpack its `v2/*.json.gz` and `metadata.json` somewhere and run
   `SST8088_DIR=dir cargo test -p iniquity-dos --release --test sst8088
   -- --ignored --nocapture`.
+  The 286 and 386 real-mode suites (SingleStepTests/80286, /80386) run the
+  same way through `tests/sst286.rs` and `tests/sst386.rs` (their headers
+  say how to convert the MOO files; convert one file at a time, as /tmp is
+  RAM on rzn). The CPU is a 386 by default; `model_286` gives the 286's
+  differences for its suite. At last run: 4 of 1.48M (a 286 IDIV quirk)
+  and 1,814 of 1.76M (segment-limit edge cases) fail.
   To try a door outside the BBS, `cargo build --release -p iniquity-dos
   --examples` gives `target/release/examples/dosrun C_ROOT D_ROOT CMD`:
   stdin is the caller, stdout what they'd see, the machine's log on

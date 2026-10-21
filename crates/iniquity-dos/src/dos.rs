@@ -1101,8 +1101,23 @@ fn read(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) {
     let h = cpu.bx();
     match sys.dos.files.get_mut(h as usize) {
         Some(Some(Handle::File { f, .. })) => {
+            // DOS returns fewer bytes only at the end of the file.
             let mut buf = vec![0u8; n];
-            match f.read(&mut buf) {
+            let mut got = 0;
+            let r = loop {
+                match f.read(&mut buf[got..]) {
+                    Ok(0) => break Ok(got),
+                    Ok(k) => {
+                        got += k;
+                        if got == n {
+                            break Ok(got);
+                        }
+                    }
+                    Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+                    Err(e) => break Err(e),
+                }
+            };
+            match r {
                 Ok(got) => {
                     mem.write(a, &buf[..got]);
                     cpu.set_ax(got as u16);
