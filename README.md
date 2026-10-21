@@ -77,7 +77,7 @@ All of it in detail: [docs/FEATURES.md](docs/FEATURES.md).
 
 | Feature | Original | Notes |
 |---|---|---|
-| Echomail / netmail | echomail.pas, INIQMAIL.PAS | FidoNet-style networking; would need a mailer/tosser bridge today. |
+| Netmail from callers | echomail.pas, INIQMAIL.PAS | Echomail and netmail to the board work natively now (binkp, [FTN](docs/FEATURES.md#ftn-echomail)); callers can't yet write netmail to an FTN address. |
 
 **Not planned:** Tetris (its source isn't in this release), modem
 setup, MicroDOS, the local status bar, and the Oblivion/Renegade
@@ -87,7 +87,7 @@ converters.
 
 | | |
 |---|---|
-| [FEATURES.md](docs/FEATURES.md) | Everything the port does, QWK, infoforms, AI chat, MeshCore |
+| [FEATURES.md](docs/FEATURES.md) | Everything the port does, QWK, infoforms, AI chat, MeshCore, FTN echomail |
 | [NEW.md](docs/NEW.md) | What's new over the original, and what changed on purpose |
 | [SYSOP.md](docs/SYSOP.md) | Configuration, importing, security, the website feed, themes |
 | [FILES.md](docs/FILES.md) | Sub-areas, transfers, upload screening, the art gallery |

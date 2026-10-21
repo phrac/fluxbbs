@@ -109,6 +109,17 @@ CREATE TABLE IF NOT EXISTS lastread (
     num     INTEGER NOT NULL,
     PRIMARY KEY (user_id, area)
 );
+CREATE TABLE IF NOT EXISTS ftn_msgs (
+    msg_id INTEGER PRIMARY KEY,
+    msgid  TEXT NOT NULL,
+    area   TEXT NOT NULL COLLATE NOCASE,
+    local  INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ftn_msgs_msgid ON ftn_msgs(msgid);
+CREATE TABLE IF NOT EXISTS ftn_state (
+    key   TEXT PRIMARY KEY,
+    value INTEGER NOT NULL
+);
 CREATE TABLE IF NOT EXISTS mentions (
     user_id INTEGER NOT NULL,
     msg_id  INTEGER NOT NULL,
@@ -412,6 +423,57 @@ impl MsgBase {
     /// Every message in an area, by number.
     pub fn all(&self, area: &str) -> anyhow::Result<Vec<Message>> {
         self.range(area, 1, u32::MAX)
+    }
+
+    // ---- FTN (new) -------------------------------------------------------
+
+    /// The message whose MSGID is `msgid` in `area` (for dupes and REPLY).
+    pub fn ftn_find(&self, area: &str, msgid: &str) -> anyhow::Result<Option<i64>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT msg_id FROM ftn_msgs WHERE msgid = ?1 AND area = ?2", params![msgid, area], |r| r.get(0)).optional()?)
+    }
+
+    /// A message's MSGID, if it has one.
+    pub fn ftn_msgid(&self, msg_id: i64) -> anyhow::Result<Option<String>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT msgid FROM ftn_msgs WHERE msg_id = ?1", [msg_id], |r| r.get(0)).optional()?)
+    }
+
+    /// Remember message `msg_id`'s MSGID; `local` if it was written here.
+    pub fn ftn_record(&self, msg_id: i64, msgid: &str, area: &str, local: bool) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT OR REPLACE INTO ftn_msgs (msg_id, msgid, area, local) VALUES (?1, ?2, ?3, ?4)", params![msg_id, msgid, area, local])?;
+        Ok(())
+    }
+
+    /// A stored number (watermarks, the MSGID serial).
+    pub fn ftn_get(&self, key: &str) -> anyhow::Result<Option<i64>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT value FROM ftn_state WHERE key = ?1", [key], |r| r.get(0)).optional()?)
+    }
+
+    pub fn ftn_set(&self, key: &str, value: i64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT OR REPLACE INTO ftn_state (key, value) VALUES (?1, ?2)", params![key, value])?;
+        Ok(())
+    }
+
+    /// Public messages in `area` after row `after` with no MSGID yet:
+    /// written here and not sent, by row.
+    pub fn ftn_unsent(&self, area: &str, after: i64) -> anyhow::Result<Vec<Message>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare(
+            "SELECT * FROM messages m WHERE area = ?1 AND id > ?2 AND NOT deleted AND NOT private
+             AND NOT EXISTS (SELECT 1 FROM ftn_msgs f WHERE f.msg_id = m.id) ORDER BY id",
+        )?;
+        let rows = stmt.query_map(params![area, after], from_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// The newest row id (0 if none).
+    pub fn max_id(&self) -> anyhow::Result<i64> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT COALESCE(MAX(id), 0) FROM messages", [], |r| r.get(0))?)
     }
 
     /// New: `user`'s latest public post (not anonymous) in `areas`.

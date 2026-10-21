@@ -287,6 +287,17 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('C', "Reconnect (secs)", 4, "How long to wait between tries while the radio can't be reached.", Num(|c| c.meshcore.reconnect_seconds, |c, v| c.meshcore.reconnect_seconds = v, 5, 3600)),
             set('D', "Parts per post", 2, "Messages a long post may be split into on the mesh (each about 140 characters).", Num(|c| c.meshcore.max_parts as u64, |c, v| c.meshcore.max_parts = v as u8, 1, 10)),
         ]),
+        ("FTN Echomail", false, vec![
+            set('A', "Enabled", 3, "Be a node of an FTN network (fsxNet...), polling the hub over binkp? Echoes: [[ftn.area]] in iniquity.toml.", Bool(|c| &mut c.ftn.enabled)),
+            set('B', "Our address", 30, "This board's address with the network's domain, e.g. 21:1/999@fsxnet.", Text(|c| &mut c.ftn.address, TEXT.max(40))),
+            set('C', "Hub address", 30, "The hub's FTN address, e.g. 21:1/100.", Text(|c| &mut c.ftn.hub, TEXT.max(40))),
+            set('D', "Hub host", 40, "Where the hub's binkp mailer listens: host or host:port (24554 if none).", Text(|c| &mut c.ftn.hub_host, TEXT.max(100))),
+            set('E', "Session password", 20, "The binkp session password the hub gave (sent as CRAM-MD5 when the hub offers it).", Text(|c| &mut c.ftn.session_password, TEXT.max(40))),
+            set('F', "Packet password", 8, "The packet password (up to 8 characters); blank if none.", Text(|c| &mut c.ftn.packet_password, TEXT.max(8))),
+            set('G', "AreaFix password", 20, "AreaFix's password; blank to use the session password.", Text(|c| &mut c.ftn.areafix_password, TEXT.max(40))),
+            set('H', "Origin line", 50, "Text of the origin line on messages sent; blank for the board's name.", Text(|c| &mut c.ftn.origin, TEXT.max(60))),
+            set('I', "Poll minutes", 4, "Minutes between polls of the hub (0: only by hand, iniquity ftn poll).", Num(|c| c.ftn.poll_minutes as u64, |c, v| c.ftn.poll_minutes = v as u32, 0, 1440)),
+        ]),
         ("File System", false, vec![
             set('A', "Use file points", 3, "Charge file points for downloads?", Bool(|c| &mut c.files.use_file_points)),
             set('B', "Kb per point", 5, "One file point per this many kb.", Num(|c| c.files.kb_per_point as u64, |c, v| c.files.kb_per_point = v as u16, 1, 65_535)),

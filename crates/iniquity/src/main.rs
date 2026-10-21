@@ -10,6 +10,7 @@ mod aiboard;
 mod aichat;
 mod archview;
 mod attach;
+mod binkp;
 mod commands;
 mod cfgedit;
 mod challenge;
@@ -39,6 +40,8 @@ mod msgcenter;
 mod editor;
 mod extras;
 mod fileareas;
+mod ftn;
+mod ftntoss;
 mod filebase;
 mod files;
 mod transfer;
@@ -338,6 +341,89 @@ fn add_files(path: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// `iniquity ftn poll|toss|scan|areafix +TAG -TAG... [config]`: the FTN
+/// jobs by hand (new); `areafix` asks the hub's AreaFix to link (+) or
+/// unlink (-) echoes, `areafix %LIST` for what it carries.
+async fn ftn_command(args: &[String]) -> anyhow::Result<()> {
+    let (path, rest): (PathBuf, &[String]) = match args.split_last() {
+        Some((last, rest)) if last.ends_with(".toml") => (last.into(), rest),
+        _ => ("iniquity.toml".into(), args),
+    };
+    let state = load_state(&path)?;
+    match rest.first().map(String::as_str) {
+        Some("poll") => binkp::cycle(state).await,
+        Some("toss") => {
+            println!("{:?}", ftntoss::toss(&state)?);
+            Ok(())
+        }
+        Some("scan") => {
+            println!("{} message(s) packed", ftntoss::scan(&state)?);
+            Ok(())
+        }
+        Some("areafix") if rest.len() > 1 => {
+            let cfg = state.config().ftn.clone();
+            let (_, hub) = ftntoss::addresses(&cfg)?;
+            let pw = if cfg.areafix_password.is_empty() { cfg.session_password.clone() } else { cfg.areafix_password.clone() };
+            let sysop = state.config().bbs.sysop_alias.clone();
+            ftntoss::netmail(&state, &sysop, "AreaFix", hub, &pw, &rest[1..])?;
+            println!("queued for AreaFix at {hub}; it goes with the next poll (iniquity ftn poll)");
+            Ok(())
+        }
+        _ => anyhow::bail!("usage: iniquity ftn poll|toss|scan|areafix +TAG -TAG... [config]"),
+    }
+}
+
+/// Load a board: its config, strings, databases and areas.
+fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
+    let config = Config::load(path)?;
+    let strings = Strings::load(&config.resolve(&config.paths.strings))?;
+    let db = config.resolve(&config.paths.data).join("iniquity.db");
+    let users = UserStore::open(&db).with_context(|| format!("user database {}", db.display()))?;
+    tracing::info!("{} users in {}", users.count()?, db.display());
+    let areas = MsgAreas::load(&config.resolve(&config.paths.msgareas))?;
+    let msgs = MsgBase::open(&db)?;
+    let fareas = FileAreas::load(&config.resolve(&config.paths.fileareas))?;
+    for a in &fareas.areas {
+        let dir = config.resolve(&a.path);
+        std::fs::create_dir_all(&dir).with_context(|| format!("file area directory {}", dir.display()))?;
+    }
+    let protocols = extprog::load(&config.resolve(&config.paths.protocols))?
+        .unwrap_or_else(|| extprog::Protocols { list: config.protocols.clone() });
+    let archivers: extprog::Archivers = extprog::load(&config.resolve(&config.paths.archivers))?.unwrap_or_default();
+    let levels = extprog::load(&config.resolve(&config.paths.levels))?
+        .unwrap_or_else(|| extprog::Levels(config.levels.clone()));
+    let infoforms: infoform::Infoforms = extprog::load(&config.resolve(&config.paths.infoforms))?.unwrap_or_default();
+    let forms = infoform::FormStore::open(&db)?;
+    let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
+    let events: events::Events = extprog::load(&config.resolve(&config.paths.events))?.unwrap_or_default();
+    let files = FileBase::open(&db)?;
+    let sys = SysData::open(&db)?;
+    let nodes = Nodes::new(config.bbs.max_nodes);
+    Ok(Arc::new(BbsState {
+        config: std::sync::RwLock::new(Arc::new(config)),
+        config_path: path.to_path_buf(),
+        strings: std::sync::RwLock::new(Arc::new(strings)),
+        users,
+        areas: std::sync::RwLock::new(Arc::new(areas)),
+        msgs,
+        fareas: std::sync::RwLock::new(Arc::new(fareas)),
+        protocols: std::sync::RwLock::new(Arc::new(protocols)),
+        archivers: std::sync::RwLock::new(Arc::new(archivers)),
+        levels: std::sync::RwLock::new(Arc::new(levels)),
+        infoforms: std::sync::RwLock::new(Arc::new(infoforms)),
+        themes: std::sync::RwLock::new(Arc::new(themes)),
+        events: std::sync::RwLock::new(Arc::new(events)),
+        forms,
+        files,
+        sys,
+        text_lock: std::sync::Mutex::new(()),
+        nodes,
+        guard: guard::Guard::new(),
+        ai_usage: Default::default(),
+        mesh: Default::default(),
+    }))
+}
+
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
@@ -370,55 +456,12 @@ async fn main() -> anyhow::Result<()> {
     if args.first().is_some_and(|a| a == "add-files") {
         return add_files(args.get(1).map_or("iniquity.toml".into(), PathBuf::from));
     }
+    if args.first().is_some_and(|a| a == "ftn") {
+        return ftn_command(&args[1..]).await;
+    }
 
     let path = args.first().map(PathBuf::from).unwrap_or_else(|| "iniquity.toml".into());
-    let config = Config::load(&path)?;
-    let strings = Strings::load(&config.resolve(&config.paths.strings))?;
-    let db = config.resolve(&config.paths.data).join("iniquity.db");
-    let users = UserStore::open(&db).with_context(|| format!("user database {}", db.display()))?;
-    tracing::info!("{} users in {}", users.count()?, db.display());
-    let areas = MsgAreas::load(&config.resolve(&config.paths.msgareas))?;
-    let msgs = MsgBase::open(&db)?;
-    let fareas = FileAreas::load(&config.resolve(&config.paths.fileareas))?;
-    for a in &fareas.areas {
-        let dir = config.resolve(&a.path);
-        std::fs::create_dir_all(&dir).with_context(|| format!("file area directory {}", dir.display()))?;
-    }
-    let protocols = extprog::load(&config.resolve(&config.paths.protocols))?
-        .unwrap_or_else(|| extprog::Protocols { list: config.protocols.clone() });
-    let archivers: extprog::Archivers = extprog::load(&config.resolve(&config.paths.archivers))?.unwrap_or_default();
-    let levels = extprog::load(&config.resolve(&config.paths.levels))?
-        .unwrap_or_else(|| extprog::Levels(config.levels.clone()));
-    let infoforms: infoform::Infoforms = extprog::load(&config.resolve(&config.paths.infoforms))?.unwrap_or_default();
-    let forms = infoform::FormStore::open(&db)?;
-    let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
-    let events: events::Events = extprog::load(&config.resolve(&config.paths.events))?.unwrap_or_default();
-    let files = FileBase::open(&db)?;
-    let sys = SysData::open(&db)?;
-    let nodes = Nodes::new(config.bbs.max_nodes);
-    let state = Arc::new(BbsState {
-        config: std::sync::RwLock::new(Arc::new(config)),
-        config_path: path.clone(),
-        strings: std::sync::RwLock::new(Arc::new(strings)),
-        users,
-        areas: std::sync::RwLock::new(Arc::new(areas)),
-        msgs,
-        fareas: std::sync::RwLock::new(Arc::new(fareas)),
-        protocols: std::sync::RwLock::new(Arc::new(protocols)),
-        archivers: std::sync::RwLock::new(Arc::new(archivers)),
-        levels: std::sync::RwLock::new(Arc::new(levels)),
-        infoforms: std::sync::RwLock::new(Arc::new(infoforms)),
-        themes: std::sync::RwLock::new(Arc::new(themes)),
-        events: std::sync::RwLock::new(Arc::new(events)),
-        forms,
-        files,
-        sys,
-        text_lock: std::sync::Mutex::new(()),
-        nodes,
-        guard: guard::Guard::new(),
-        ai_usage: Default::default(),
-        mesh: Default::default(),
-    });
+    let state = load_state(&path)?;
     // Bans survive restarts.
     match state.sys.bans() {
         Ok(bans) => {
@@ -432,6 +475,7 @@ async fn main() -> anyhow::Result<()> {
     }
     tokio::spawn(events::scheduler(state.clone()));
     tokio::spawn(meshcore::run(state.clone()));
+    tokio::spawn(binkp::run(state.clone()));
 
     // Forget idle addresses now and then, and clear out abandoned
     // applications.

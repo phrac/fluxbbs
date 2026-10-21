@@ -95,6 +95,9 @@ have, add it here (and the details in the doc it belongs to).
 - @mentions: `@handle` in a public post tells that caller, by node
   message if they're on and at their next logon; `M@` reads them.
   ([FEATURES](FEATURES.md#message-centre))
+- FTN echomail (fsxNet and the like) built in: a binkp mailer
+  (CRAM-MD5), a tosser and scanner with threading and dupe checking,
+  netmail to email, and AreaFix. ([FEATURES](FEATURES.md#ftn-echomail))
 - MeshCore radio channels bridged to message areas.
   ([FEATURES](FEATURES.md#meshcore))
 - QWK: email as conference 0, threads in and out, four-digit years.
@@ -168,7 +171,7 @@ short), `~P?` (SSH keys) and `~Q?` (plan) in USERCFG.
 
 New settings sections in `iniquity.toml`: `[ssh]`, `[telnet]`, `[web]`,
 `[gallery]`, `[security]`, `[passwords]`, `[dos]`, `[ai]`,
-`[meshcore]`; and new keys elsewhere, chiefly upload screening in
+`[meshcore]`, `[ftn]`; and new keys elsewhere, chiefly upload screening in
 `[files]` and sign-up limits in `[newuser]`. New prompt strings are at
 the end of `assets/strings.toml` (about 140: bot check, passwords,
 upload checks, gallery, viewer, AI, the message centre, themes...).

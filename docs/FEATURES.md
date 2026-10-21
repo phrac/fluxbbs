@@ -323,6 +323,50 @@ settings within a minute. `*C`, MeshCore, has the switch, the address,
 the reconnect delay and the parts; channels are listed in the file.
 `tools/fake_meshcore.py` is a pretend radio for trying it out.
 
+## FTN echomail
+
+New: the board can be a node of a FidoNet-style network such as fsxNet,
+with its own mailer and tosser (the original handed packets to outside
+programs). It polls its hub over binkp (`binkp.rs`, FTS-1026; the
+session password goes as CRAM-MD5 when the hub offers it), sends what's
+been posted here and tosses what came (`ftntoss.rs`).
+
+- Echoes are message areas: `[[ftn.area]]` maps a network tag to an
+  area's storage key. Messages come in with their kludges read (MSGID
+  for duplicates, REPLY for threads, CHRS for UTF-8 or CP437), long
+  lines wrapped, and the sender's address (from the origin line) as
+  their note; @mentions of local callers work. ZIP bundles and plain
+  packets are both read; anything that can't be goes to
+  `data/ftn/bad`.
+- What callers post in those areas goes out at the next poll with
+  MSGID, REPLY (a reply to a network message threads there too), PID,
+  TZUTC and CHRS, a tear and origin line, SEEN-BY and PATH; colour codes
+  are taken out. An area starts from what's in it when it's first
+  scanned, so old posts aren't sent.
+- Netmail for the node goes to the named caller's email (else the
+  SysOp's), from `name@address`. `iniquity ftn areafix +FSX_GEN -FSX_X`
+  (or `%LIST`) asks the hub's AreaFix to link and unlink echoes.
+- `[ftn]` (or "FTN Echomail" in `*C`): the node's address with its
+  domain (`21:1/999@fsxnet`), the hub's address and binkp host, the
+  session, packet and AreaFix passwords, the origin line, and how often
+  to poll. `iniquity ftn poll`, `toss` and `scan` run the jobs by hand.
+
+    [ftn]
+    enabled = true
+    address = "21:1/999@fsxnet"
+    hub = "21:1/100"
+    hub_host = "agency.bbs.nz:24556"
+    session_password = "..."
+    packet_password = "..."
+    poll_minutes = 60
+
+    [[ftn.area]]
+    tag = "FSX_GEN"
+    area = "FSXGEN"
+
+Not yet: callers writing netmail to an FTN address, file echoes (TIC),
+and the hub calling in (the board polls; it doesn't answer binkp).
+
 ## From 2.0 and 2.20
 
 Iniquity 2.0 (IDT, 1998) and jack phlash's 2.20A (2001) came after the

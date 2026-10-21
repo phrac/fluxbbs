@@ -33,6 +33,7 @@ pub struct Config {
     pub wfc: Wfc,
     pub ai: Ai,
     pub meshcore: MeshCore,
+    pub ftn: Ftn,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -365,6 +366,60 @@ fn yes() -> bool {
 impl Default for MeshCore {
     fn default() -> Self {
         Self { enabled: false, address: String::new(), reconnect_seconds: 30, max_parts: 2, channels: Vec::new() }
+    }
+}
+
+/// FTN echomail (new): a node of a network such as fsxNet, polling its
+/// hub over binkp (`ftntoss.rs`, `binkp.rs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Ftn {
+    pub enabled: bool,
+    /// This board's address, with the network's domain: `21:1/999@fsxnet`.
+    pub address: String,
+    /// The hub's address, and where its binkp mailer listens (`host:port`;
+    /// 24554 if no port).
+    pub hub: String,
+    pub hub_host: String,
+    /// The binkp session password, packet password and AreaFix password
+    /// the hub gave (AreaFix's, if blank, is the session password).
+    pub session_password: String,
+    pub packet_password: String,
+    pub areafix_password: String,
+    /// The origin line's text; blank for the board's name.
+    pub origin: String,
+    /// Minutes between polls of the hub (0: only by hand, `iniquity ftn
+    /// poll`).
+    pub poll_minutes: u32,
+    /// Echo areas: the network's tag and the message area it's tossed to.
+    #[serde(rename = "area", default)]
+    pub areas: Vec<FtnArea>,
+}
+
+/// One echo and the message area it lives in.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct FtnArea {
+    /// The echo's tag on the network (`FSX_GEN`).
+    pub tag: String,
+    /// The message area's storage key.
+    pub area: String,
+}
+
+impl Default for Ftn {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            address: String::new(),
+            hub: String::new(),
+            hub_host: String::new(),
+            session_password: String::new(),
+            packet_password: String::new(),
+            areafix_password: String::new(),
+            origin: String::new(),
+            poll_minutes: 60,
+            areas: Vec::new(),
+        }
     }
 }
 

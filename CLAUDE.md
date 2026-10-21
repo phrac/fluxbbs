@@ -188,8 +188,15 @@ Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
 
 ## Next
 
-Feature parity with the manual is done bar echomail/netmail (a FidoNet
-mailer/tosser bridge) and the "not planned" items in the README. Next:
+Feature parity with the manual is done bar callers' outgoing netmail
+and the "not planned" items in the README. FTN echomail (fsxNet) is
+built (`ftn.rs`, `ftntoss.rs`, `binkp.rs`) and tested against binkd in a
+container: a `debian:bookworm-slim` image with `binkd` installed, a
+config with `address 21:1/100@fsxnet`, `node 21:1/999@fsxnet - SESSPW`
+and `domain fsxnet /hub/outbound 21`, packets for the node dropped in its
+outbound as `000103e7.out`, and the board polled with `iniquity ftn
+poll`. The live board isn't a node yet: the SysOp applies to fsxNet for
+an address and passwords. Next:
 real doors (LORD, TW2002, Usurper, BRE) in the DOS machine, fixing what
 they trip over. The MeshCore bridge (`meshcore.rs`, channels to message
 areas, ported from the firmware's examples/companion_radio/MyMesh.cpp)
