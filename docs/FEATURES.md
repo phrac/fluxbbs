@@ -7,7 +7,8 @@ Everything the port does, in detail. The [README](../README.md) has the short li
 **Connections**
 - SSH (russh), including the older algorithms SyncTERM's cryptlib needs.
   New: log in with an SSH key kept on the account (`UK`, `k` in user
-  config), with no bot check or login prompts (SYSOP.md).
+  config), or the account's password as the SSH password (a terminal's
+  stored login), with no bot check or login prompts (SYSOP.md).
 - Telnet: binary, server echo, window size (NAWS) and terminal type;
   Zmodem works over it.
 - CP437 for BBS terminals, UTF-8 (with DOS wrap and clear behaviour)

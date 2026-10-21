@@ -12,8 +12,11 @@ have, add it here (and the details in the doc it belongs to).
 
 - SSH (with the older algorithms SyncTERM needs) and telnet (binary,
   NAWS, terminal type, Zmodem over it) in place of modems.
-- SSH key login: keys kept on the account log the caller straight in
-  (no bot check or login prompts). ([SYSOP](SYSOP.md#ssh-keys))
+- SSH key login and stored logins: a key kept on the account, or the
+  account's password as the SSH password (SyncTERM's stored login),
+  logs the caller straight in (no bot check or login prompts), under the
+  handle or another SSH user name they choose.
+  ([SYSOP](SYSOP.md#ssh-keys-and-stored-logins))
 - CP437 or UTF-8 terminals; aixterm bright colours, iCE backgrounds, and
   256 and 24-bit colour art passed through.
 - Output paced to the terminal for fast streams (animated GIFs), and a

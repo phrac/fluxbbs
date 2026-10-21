@@ -68,7 +68,8 @@ git: copy `data/` and `files/` across if the board should move with you.
   `stock_menus` (the board's own `menus/` has MATRIX.toml and the
   lightbar menus `art/mainmenu-gen.py` writes beside each menu screen). Many of
   its screens are generated from their art by `art/*-gen.py` (menus,
-  lists including last callers, USERSTAT, PRELOGON, MATRIX, WELCOME, AICHAT;
+  lists including last callers, USERSTAT, USERCFG, BOTCHECK, PRELOGON, MATRIX,
+  WELCOME, AICHAT;
   each says how to run it):
   change the script and rerun it rather than editing the `.ANS`.
   Board settings go there, not in the repo's `iniquity.toml`: handles
@@ -111,7 +112,8 @@ with the scripted callers in `tools/`:
 
 `PORT=3222` points `drive_ssh.py` at a test server while a live board
 holds 2222; `SSH_KEY=file` logs in with that key (otherwise it offers
-none, not even `~/.ssh`'s). For uploads without lrzsz, `cargo build --release --examples`
+none, not even `~/.ssh`'s), and `SSH_PASSWORD=1` uses password auth
+(answer ssh's `password:` prompt in a step). For uploads without lrzsz, `cargo build --release --examples`
 gives `target/release/examples/zsend FILE...`, a Zmodem sender on the
 same library (`'(?i)initiate=>!/abs/path/zsend a.zip'`, with `XFER_DIR`
 as its working directory). Remember `cargo build --release` for the

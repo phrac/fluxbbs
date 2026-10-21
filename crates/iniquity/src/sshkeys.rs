@@ -1,6 +1,8 @@
 //! New: SSH public keys a caller keeps on their account, so their SSH
 //! client logs them straight in (no bot check or login prompts). Keys are
 //! `authorized_keys` lines; only the key itself counts, not the comment.
+//! They work under the handle as the SSH user name, or another name the
+//! caller picks (`ssh_user`), e.g. their own login so plain `ssh` works.
 
 use std::io;
 
@@ -13,6 +15,8 @@ use crate::session::Session;
 
 /// Most keys a caller may keep.
 pub const MAX_KEYS: usize = 8;
+/// What an SSH user name may be made of.
+const SSH_USER_CHARS: &str = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-";
 
 /// A key from an `authorized_keys` line (`ssh-ed25519 AAAA... comment`).
 pub fn parse(line: &str) -> Option<PublicKey> {
@@ -45,7 +49,9 @@ impl Session {
             self.screen.set_color(iniquity_term::Color::DEFAULT);
             self.clear_screen();
             self.say_line("SshKeysTitle").await?;
-            self.say_line("SshKeysHow").await?;
+            let name = if self.user.ssh_user.is_empty() { self.user.handle.clone() } else { self.user.ssh_user.clone() };
+            let how = self.strings().fmt("SshKeysHow", &[&name]);
+            self.show_line(&how).await?;
             self.newline();
             if self.user.ssh_keys.is_empty() {
                 self.say_line("SshKeysNone").await?;
@@ -80,6 +86,18 @@ impl Session {
                     self.say_line(reply).await?;
                     self.prompt_key().await?;
                 }
+                Some('U') => {
+                    self.say("SshKeysAskUser").await?;
+                    let name = self.read_string(ReadOpts::new(32).allowed(SSH_USER_CHARS).prefill(self.user.ssh_user.clone())).await?;
+                    self.newline();
+                    if let Some(why) = self.ssh_user_taken(&name)? {
+                        self.say_line(why).await?;
+                        self.prompt_key().await?;
+                    } else {
+                        self.user.ssh_user = name;
+                        self.state.users.save(&self.user).map_err(io_err)?;
+                    }
+                }
                 Some('D') if !self.user.ssh_keys.is_empty() => {
                     let s = self.strings().fmt("SshKeysAskDelete", &[&self.user.ssh_keys.len().to_string()]);
                     self.show(&s).await?;
@@ -98,6 +116,19 @@ impl Session {
                 return Ok(());
             }
         }
+    }
+
+    /// Why `name` can't be the caller's SSH user name, if it can't: someone
+    /// else's handle, or their SSH user name.
+    fn ssh_user_taken(&self, name: &str) -> io::Result<Option<&'static str>> {
+        if name.is_empty() || name.eq_ignore_ascii_case(&self.user.handle) {
+            return Ok(None);
+        }
+        let other = |u: Option<crate::user::User>| u.is_some_and(|u| u.id != self.user.id);
+        if other(self.state.users.find(name, true).map_err(io_err)?) || other(self.state.users.by_ssh_user(name).map_err(io_err)?) {
+            return Ok(Some("SshKeysUserTaken"));
+        }
+        Ok(None)
     }
 
     /// A pasted key: hundreds of characters, so the count is shown rather

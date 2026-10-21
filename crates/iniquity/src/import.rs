@@ -719,6 +719,7 @@ fn convert_user(l: &LegacyUser) -> User {
         bank_kb_in: 0,
         bank_kb_out: 0,
         ssh_keys: Vec::new(),
+        ssh_user: String::new(),
         plan: Vec::new(),
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.

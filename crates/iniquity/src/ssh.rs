@@ -1,9 +1,11 @@
 //! SSH transport. Authentication is left to the BBS's own logon screens,
 //! as with a telnet or modem caller, so every SSH auth attempt is accepted
-//! and the SSH user name is only used as a suggested handle. New: a
-//! caller whose SSH user name is a handle with keys on file (`sshkeys`)
-//! is asked for a key; the right one logs them straight in, and anything
-//! else falls back to the board's own login.
+//! and the SSH user name is only used as a suggested handle. New: when
+//! the SSH user name is an account (a handle, or the SSH user name it
+//! chose), the client is asked for a key or a password first: a key on
+//! file (`sshkeys`), or the account's own password (a terminal's stored
+//! login, as SyncTERM keeps), logs straight in; anything else falls back
+//! to the board's own login.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -109,7 +111,7 @@ struct Connection {
     state: Arc<BbsState>,
     peer: Option<SocketAddr>,
     user: String,
-    /// The user whose key logged this connection in.
+    /// The user whose key or password logged this connection in.
     key_user: Option<u32>,
     channel: Option<Channel<Msg>>,
     term: String,
@@ -136,9 +138,15 @@ impl Connection {
         }
     }
 
-    /// The account named `user`, if it has SSH keys on file.
+    /// The account `user` names: its handle, or the SSH user name it chose.
+    fn account(&self, user: &str) -> Option<crate::user::User> {
+        let users = &self.state.users;
+        users.find(user, false).ok().flatten().or_else(|| users.by_ssh_user(user).ok().flatten()).filter(|u| !u.deleted)
+    }
+
+    /// [`Self::account`], if it has SSH keys on file.
     fn keyed_user(&self, user: &str) -> Option<crate::user::User> {
-        self.state.users.find(user, false).ok().flatten().filter(|u| !u.deleted && !u.ssh_keys.is_empty())
+        self.account(user).filter(|u| !u.ssh_keys.is_empty())
     }
 }
 
@@ -148,9 +156,10 @@ impl russh::server::Handler for Connection {
     async fn auth_none(&mut self, user: &str) -> Result<Auth, Self::Error> {
         self.user = user.to_string();
         let auth = self.auth();
-        // Someone with keys on file: ask for one first. Without it, either
-        // of the others still gets in (to the board's own login).
-        if matches!(auth, Auth::Accept) && self.keyed_user(user).is_some() {
+        // A name that's an account: ask for a key or a password first, which
+        // may log straight in. Without either, keyboard-interactive (no
+        // questions) still gets in, to the board's own login.
+        if matches!(auth, Auth::Accept) && self.account(user).is_some() {
             let methods: &[MethodKind] = &[MethodKind::PublicKey, MethodKind::KeyboardInteractive, MethodKind::Password];
             return Ok(Auth::Reject { proceed_with_methods: Some(MethodSet::from(methods)), partial_success: false });
         }
@@ -180,9 +189,28 @@ impl russh::server::Handler for Connection {
         Ok(self.auth())
     }
 
-    async fn auth_password(&mut self, user: &str, _password: &str) -> Result<Auth, Self::Error> {
+    async fn auth_password(&mut self, user: &str, password: &str) -> Result<Auth, Self::Error> {
         self.user = user.to_string();
-        Ok(self.auth())
+        let auth = self.auth();
+        // New: the account's own password logs straight in; a wrong one
+        // counts as a failed login. Either way (and for names that aren't
+        // accounts) the board's own login follows if it didn't.
+        if matches!(auth, Auth::Accept) && !password.is_empty()
+            && let Some(u) = self.account(user)
+        {
+            if u.check_password(password) {
+                tracing::info!("{}: ssh password accepted for {}", self.peer.map_or("?".into(), |p| p.to_string()), u.handle);
+                self.key_user = Some(u.id);
+                if let Some(p) = self.peer {
+                    self.state.guard.success(p.ip());
+                }
+            } else if let Some(p) = self.peer
+                && crate::logon::record_failure(&self.state, p, &format!("wrong ssh password for {}", u.handle))
+            {
+                return Ok(Auth::Reject { proceed_with_methods: None, partial_success: false });
+            }
+        }
+        Ok(auth)
     }
 
     async fn channel_open_session(

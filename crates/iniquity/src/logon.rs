@@ -12,6 +12,32 @@ use crate::password;
 use crate::session::Session;
 use crate::user::{User, parse_date};
 
+/// Count a failed bot check or password against `addr` (in the security
+/// log, and toward a ban). True if it earned a ban.
+pub(crate) fn record_failure(state: &crate::BbsState, addr: std::net::SocketAddr, what: &str) -> bool {
+    tracing::warn!("{addr}: {what}");
+    let ip = addr.ip().to_string();
+    let log = |what: &str| {
+        if let Err(e) = state.sys.log_security(&ip, what) {
+            tracing::error!("security log: {e}");
+        }
+    };
+    log(what);
+    match state.guard.failure(&state.config().security, addr.ip()) {
+        Some(len) => {
+            let minutes = len.as_secs() / 60;
+            tracing::warn!("{ip}: banned for {minutes} minutes");
+            log(&format!("banned for {minutes} minutes"));
+            let until = Local::now().naive_local() + chrono::Duration::from_std(len).unwrap_or_default();
+            if let Err(e) = state.sys.set_ban(&ip, until, state.guard.strikes(addr.ip())) {
+                tracing::error!("recording ban: {e}");
+            }
+            true
+        }
+        None => false,
+    }
+}
+
 impl Session {
     /// A whole call: prelogon, logon (via the matrix menu or directly),
     /// then the menu loop until hang-up.
@@ -82,9 +108,10 @@ impl Session {
     }
 
     /// New: a caller whose SSH client logged in with a key on their
-    /// account comes straight in, without the bot check or the login
-    /// prompts (SysOps are still asked the system password). False if the
-    /// account is gone, to go the usual way.
+    /// account, or with their own password as the SSH password, comes
+    /// straight in, without the bot check or the login prompts (SysOps are
+    /// still asked the system password). False if the account is gone, to
+    /// go the usual way.
     async fn key_logon(&mut self, id: u32) -> io::Result<bool> {
         let Some(user) = self.state.users.get(id).map_err(io::Error::other)?.filter(|u| !u.deleted) else { return Ok(false) };
         let prelogon = std::mem::replace(&mut self.user, user);
@@ -96,7 +123,7 @@ impl Session {
             self.hangup = true;
             return Ok(true);
         }
-        tracing::info!("{}: logged in with an SSH key", self.user.handle);
+        tracing::info!("{}: logged in over SSH, no prompts", self.user.handle);
         self.logged_in = true;
         if let Some(addr) = self.caller.remote {
             self.state.guard.success(addr.ip());
@@ -339,28 +366,7 @@ impl Session {
     /// Count a failed bot check or password against the caller's address.
     /// True if it earned a ban (the caller should be cut off).
     fn record_failure(&self, what: &str) -> bool {
-        let Some(addr) = self.caller.remote else { return false };
-        tracing::warn!("{addr}: {what}");
-        let ip = addr.ip().to_string();
-        let log = |what: &str| {
-            if let Err(e) = self.state.sys.log_security(&ip, what) {
-                tracing::error!("security log: {e}");
-            }
-        };
-        log(what);
-        match self.state.guard.failure(&self.state.config().security, addr.ip()) {
-            Some(len) => {
-                let minutes = len.as_secs() / 60;
-                tracing::warn!("{ip}: banned for {minutes} minutes");
-                log(&format!("banned for {minutes} minutes"));
-                let until = Local::now().naive_local() + chrono::Duration::from_std(len).unwrap_or_default();
-                if let Err(e) = self.state.sys.set_ban(&ip, until, self.state.guard.strikes(addr.ip())) {
-                    tracing::error!("recording ban: {e}");
-                }
-                true
-            }
-            None => false,
-        }
+        self.caller.remote.is_some_and(|addr| record_failure(&self.state, addr, what))
     }
 
     /// `userLogonInit`: count the call and reset daily limits.

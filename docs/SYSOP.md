@@ -155,18 +155,29 @@ New, in `[passwords]` and `[newuser]`, or "Passwords and Sign-ups" in
   called back are marked deleted after that many days, checked every 10
   minutes.
 
-### SSH keys
+### SSH keys and stored logins
 
-New: callers can keep SSH public keys on their account (`k` in user
-config, or `UK` on a menu): paste the line from the `.pub` file, up to
-eight keys. Logging in over SSH with the handle as the SSH user name
-(`ssh phrac@bbs.example.com -p 2222`) and one of those keys comes
-straight in, with no bot check or login prompts; SysOps are still asked
-the system password. A handle with keys on file is asked for a key
-first; without the right one the client falls back to the usual way in
-(no SSH password is asked; the board's own login follows), so nobody is
-locked out. The USERCFG screen shows the count at a `~P` field (`~PK`,
-key `k`).
+New: an SSH caller whose SSH user name is an account (the handle, or
+another SSH user name they set; see below) comes straight in, with no
+bot check or login prompts, when the client brings either of:
+
+- **A key** kept on the account (`k` in user config, or `UK` on a menu:
+  paste the line from the `.pub` file, up to eight keys; the comment at
+  the end doesn't matter).
+- **The account's own password** as the SSH password: a terminal's
+  stored login, e.g. the Username and Password in a SyncTERM directory
+  entry. A wrong one counts as a failed login (security log, bans).
+
+SysOps are still asked the system password. Without either, the client
+falls back to the usual way in (OpenSSH asks nothing; the board's own
+login follows), so nobody is locked out; names that aren't accounts, as
+bots use, are let in to the login as before.
+
+The other SSH user name (`U` on the key screen) lets keys and stored
+logins work under, say, the caller's own login, so plain `ssh
+bbs.example.com -p 2222` works; it can't be someone else's handle or SSH
+user name. The USERCFG screen shows the key count at a `~P` field
+(`~PK`, key `k`).
 
 ## Website feed
 
