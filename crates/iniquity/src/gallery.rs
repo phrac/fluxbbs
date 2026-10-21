@@ -430,7 +430,9 @@ impl Session {
                         Item::Folder { name, place, .. } => path.push((name.clone(), place.clone(), 0)),
                         Item::Art { name, sauce, src, .. } => {
                             // From the viewer, P plays and D downloads.
-                            let picked = if is_image(name) {
+                            let picked = if crate::pdf::is_pdf(name) {
+                                self.pdf_open(name, src, false).await?
+                            } else if is_image(name) {
                                 self.gallery_picture(name, src).await?
                             } else if is_art(name) {
                                 self.gallery_view(name, sauce.as_ref(), src).await?
@@ -449,7 +451,11 @@ impl Session {
                 Pick::Play(i) => {
                     path.last_mut().expect("root").2 = i;
                     if let Item::Art { src, name, .. } = &items[i] {
-                        if is_image(name) {
+                        if crate::pdf::is_pdf(name) {
+                            if self.pdf_open(name, src, true).await? == Some('D') {
+                                self.gallery_download(&items[i]).await?;
+                            }
+                        } else if is_image(name) {
                             if self.gallery_picture(name, src).await? == Some('D') {
                                 self.gallery_download(&items[i]).await?;
                             }
@@ -654,7 +660,7 @@ impl Session {
                 }
                 match c {
                     "open" if !items.is_empty() => return Ok(Pick::Open(cur)),
-                    "play" if matches!(items.get(cur), Some(Item::Art { name, .. }) if is_art(name) || is_image(name)) => return Ok(Pick::Play(cur)),
+                    "play" if matches!(items.get(cur), Some(Item::Art { name, .. }) if is_art(name) || is_image(name) || crate::pdf::is_pdf(name)) => return Ok(Pick::Play(cur)),
                     "play" => note = Some(self.strings().get("GalleryPlayWhat").to_string()),
                     "get" if items.get(cur).is_some_and(downloadable) => return Ok(Pick::Download(cur)),
                     "get" => note = Some(self.strings().get("GalleryNotFile").to_string()),
@@ -743,6 +749,45 @@ impl Session {
         self.screen.clear_eol();
     }
 
+    /// A PDF: its text (or with `pages`, its pages), switching between the
+    /// two with P and T. D is passed back to download it. One inside an
+    /// archive is copied out first (Poppler reads files).
+    async fn pdf_open(&mut self, name: &str, src: &Src, mut pages: bool) -> io::Result<Option<char>> {
+        let path = match src {
+            Src::Disk(p) => p.clone(),
+            Src::Zip(z, n) | Src::Tar(z, _, n) => {
+                let cfg = self.state.config();
+                let dir = cfg.resolve(&cfg.paths.data).join("cache").join("pdf");
+                let max = crate::upscan::Limits::from_config(&cfg.files).max_unpacked.max(MAX_PIECE);
+                drop(cfg);
+                let out = dir.join(format!("{:016x}.pdf", {
+                    use std::hash::{Hash, Hasher};
+                    let mut h = std::collections::hash_map::DefaultHasher::new();
+                    (z, n).hash(&mut h);
+                    std::fs::metadata(z).and_then(|m| m.modified()).ok().hash(&mut h);
+                    h.finish()
+                }));
+                if !out.exists() {
+                    let data = match read_limited(src, max) {
+                        Ok(d) => d,
+                        Err(e) => return self.archive_note(&format!("|U6{name}|U5: |U4Couldn't read it ({e})|U5.")).await.map(|_| None),
+                    };
+                    std::fs::create_dir_all(&dir)?;
+                    std::fs::write(&out, data)?;
+                }
+                out
+            }
+        };
+        loop {
+            let got = if pages { self.pdf_pages(name, &path).await? } else { self.pdf_text(name, &path).await? };
+            match got {
+                Some('P') => pages = true,
+                Some('T') => pages = false,
+                other => return Ok(other),
+            }
+        }
+    }
+
     /// Any other file: text in the viewer, else a word that it can't be
     /// shown. D is passed back to download it.
     async fn gallery_file(&mut self, name: &str, src: &Src) -> io::Result<Option<char>> {
@@ -800,6 +845,23 @@ impl Session {
         inner: String,
         read: impl FnOnce() -> io::Result<Vec<u8>> + Send + 'static,
     ) -> io::Result<Option<char>> {
+        Ok(match self.show_picture_key(name, None, file, inner, read).await? {
+            Some(k) if k.upper() == Some('D') => Some('D'),
+            _ => None,
+        })
+    }
+
+    /// [`Session::show_picture`], giving back the key that ended it (P,
+    /// play again, is handled here); `None` if it couldn't be shown.
+    /// `caption`, if given, is the bottom line in place of the usual one.
+    pub(crate) async fn show_picture_key(
+        &mut self,
+        name: &str,
+        caption: Option<String>,
+        file: PathBuf,
+        inner: String,
+        read: impl FnOnce() -> io::Result<Vec<u8>> + Send + 'static,
+    ) -> io::Result<Option<Key>> {
         let (cols, rows) = (80usize, self.screen.rows().saturating_sub(1).max(2) as usize);
         let lim = self.state.config().files.image_limits();
         let stamp = std::fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
@@ -846,8 +908,8 @@ impl Session {
             self.clear_screen();
             self.screen.goto(1, self.screen.rows());
             // Kept to one line: the bottom row mustn't scroll.
-            let mut s = self.strings().fmt("GalleryPicture", &[name, &pic.describe()]);
-            if self.visible_len(&iniquity_term::cp437::encode(&s)) > 79 {
+            let mut s = caption.clone().unwrap_or_else(|| self.strings().fmt("GalleryPicture", &[name, &pic.describe()]));
+            if caption.is_none() && self.visible_len(&iniquity_term::cp437::encode(&s)) > 79 {
                 s = self.strings().fmt("GalleryPicture", &[&squish(name, 16), &pic.describe()]);
             }
             self.show(&s).await?;
@@ -892,8 +954,7 @@ impl Session {
             };
             match key.upper() {
                 Some('P') => continue,
-                Some('D') => return Ok(Some('D')),
-                _ => return Ok(None),
+                _ => return Ok(Some(key)),
             }
         }
     }

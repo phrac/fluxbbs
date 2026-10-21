@@ -14,7 +14,9 @@ purpose): add a line there for every feature the original didn't have.
 That unpacks the stock install into `original/stock/` (git-ignored), builds,
 and, if there's no `data/iniquity.db`, creates one from the stock install
 (SysOp / `SYSOP`, system password `SYSTEM`) without touching the committed
-config. SSH host keys are made in `data/` on first run. Needs `cargo` and
+config. SSH host keys are made in `data/` on first run. Showing PDFs
+needs Poppler (`poppler-utils`; in the Docker image, not on rzn itself,
+so test PDFs in a container). Needs `cargo` and
 `unzip`; live tests also want `python3` and `ssh`, and Zmodem tests `sz`/`rz`
 (lrzsz) on the PATH. The board's real database and uploaded files are not in
 git: copy `data/` and `files/` across if the board should move with you.

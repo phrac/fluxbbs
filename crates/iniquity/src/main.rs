@@ -47,6 +47,7 @@ mod upscan;
 mod web;
 mod nodes;
 mod pager;
+mod pdf;
 mod profile;
 mod picture;
 mod password;

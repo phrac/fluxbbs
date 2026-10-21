@@ -507,3 +507,6 @@ PlanAsk = "|U1Your plan|U2: |U1up to |U3%S1|U1 lines about yourself, for finger.
 UserListFinger = "|U1Finger who |U2(|U1a number or a handle, enter for nobody|U2)? |U3"
 SshKeysAskUser = "|07SSH user name (blank for your handle)|08: |15"
 SshKeysUserTaken = "|12That name belongs to someone else|08."
+PdfViewHelp = " |U5[|U6arrows|U5/|U6pgup|U5/|U6pgdn|U5] |U4scroll  |U5[|U6p|U5] |U4pages  |U5[|U6d|U5] |U4download  |U5[|U6q|U5] |U4back"
+PdfPageBar = " |U6%S1 |U5- |U4page %S2 of %S3  |U5[|U6arrows|U5]|U4turn |U5[|U6t|U5]|U4text |U5[|U6d|U5]|U4download"
+PdfCantRead = "|U6%S1|U5: |U4Can't be shown here (%S2)|U5. |U4It can still be downloaded|U5."

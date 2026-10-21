@@ -18,9 +18,10 @@ RUN cargo build --release -p iniquity \
     && strip target/release/iniquity
 
 FROM debian:bookworm-slim
-# CA certificates for HTTPS (the AI chat and web search clients).
+# CA certificates for HTTPS (the AI chat and web search clients);
+# Poppler's tools to show PDFs (pdftotext, pdftoppm, pdfinfo).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates \
+    && apt-get install -y --no-install-recommends ca-certificates poppler-utils \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 bbs
 COPY --from=build /src/target/release/iniquity /usr/local/bin/iniquity

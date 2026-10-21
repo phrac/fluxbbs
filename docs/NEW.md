@@ -72,6 +72,8 @@ have, add it here (and the details in the doc it belongs to).
   `heavy`, `dig`, `kingpin` opens it on that file.
 - The art gallery (`AG`), after Mystic's: a folder or a file area of
   art, played at a chosen speed, SAUCE shown. ([FILES](FILES.md#art-gallery))
+- PDFs in the browser: the text to read, and the pages as pictures
+  (Poppler). ([FILES](FILES.md#art-gallery))
 - Upload screening: allowed types, contents matching the name, a summary
   of what's inside added to the description, zip bombs and unsafe paths
   refused, an outside virus scanner, an ad file added to ZIPs.

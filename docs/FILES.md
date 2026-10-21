@@ -128,6 +128,15 @@ their own timing until a key, but never faster than the terminal shows
 them: each frame asks where the cursor is (`ESC[6n`) and the next waits
 for the answer, so a slow link doesn't pile up frames ahead of the
 caller's keys. P replays, D downloads the file as it is.
+
+PDFs (new): Enter shows the text, in reading order with a rule where
+each page starts (OCR'd scans read fine, slips and all), and P shows
+the pages as pictures, one at a time: arrows, space and pgup/pgdn turn
+them, T goes back to the text, D downloads. A PDF with no text in it
+opens on its pages. The text and page pictures are made once and kept
+in the data directory's `cache/pdf`. This uses Poppler's `pdftotext`,
+`pdftoppm` and `pdfinfo` (`poppler-utils`; the Docker image has them);
+without them PDFs can still be downloaded.
 Picture uploads are decoded first and refused past `[files]`
 `max_image_bytes`, `max_image_pixels` or `max_gif_frames` (`*C`, Upload
 Tests); an animated one gets a note that it plays in the gallery, and a
