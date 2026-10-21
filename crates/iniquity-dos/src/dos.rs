@@ -640,6 +640,9 @@ fn find_ci(dir: &Path, name: &str) -> Option<String> {
 // ---- INT 21h -----------------------------------------------------------------
 
 fn fail(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, code: u16) {
+    if sys.trace {
+        sys.log.push(format!("  -> error {code}"));
+    }
     sys.dos.last_error = code;
     cpu.set_ax(code);
     set_cf(cpu, mem, true);
@@ -651,6 +654,14 @@ fn ok(cpu: &Cpu, mem: &mut Memory) {
 
 pub fn int21(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) -> After {
     let ah = cpu.ah();
+    if sys.trace && !matches!(ah, 0x0B | 0x2C | 0x2A | 0x06) {
+        let name = if matches!(ah, 0x39..=0x3D | 0x41 | 0x43 | 0x4B | 0x4E | 0x56 | 0x5A | 0x5B | 0x6C) {
+            read_asciiz(mem, cpu.ds(), if ah == 0x6C { cpu.r16(cpu::SI) } else { cpu.dx() })
+        } else {
+            String::new()
+        };
+        sys.log.push(format!("21h {:04X} bx={:04X} cx={:04X} dx={:04X} {name}", cpu.ax(), cpu.r16(cpu::BX), cpu.cx(), cpu.dx()));
+    }
     ok(cpu, mem);
     match ah {
         0x00 => return exit(sys, 0, cpu, mem),
@@ -1282,7 +1293,9 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
             if !host.is_file() && ah == 0x3D {
                 return fail(sys, cpu, mem, if host.is_dir() { ERR_ACCESS_DENIED } else { ERR_FILE_NOT_FOUND });
             }
-            let mode = if ah == 0x3D { cpu.al() } else { cpu.bx() as u8 } & 3;
+            // Any access code but read-only (0) may write: LORDCFG opens
+            // LORD.EXE with code 4 (AL 44h) and writes the registration in.
+            let mode = if ah == 0x3D { cpu.al() } else { cpu.bx() as u8 } & 7;
             let mut o = File::options();
             o.read(true);
             if mode != 0 {

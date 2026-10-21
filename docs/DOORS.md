@@ -38,6 +38,13 @@ carrier, and a door that doesn't notice within a few seconds is
 stopped. In DOS commands `%PN` is `D:\`, and values lose the characters
 DOS would act on (`<>|"%`).
 
+LORD 4.07, for instance: unzip it (and the LORD.ZIP inside) into
+`doors/dos/LORD`, run LORDCFG once (as a door, or with `dosrun`) to
+make LORD.DAT, and give each node a `NODEn.DAT` (copy NODE0.DAT) with
+`BBSTYPE DOORSYS`, `COMPORT 1`, `FOSSIL` and `BBSDROP D:\`. Then
+`doors/dos/LORD.BAT` is `@ECHO OFF`, `C:`, `CD \LORD`, `CALL START.BAT
+%1`, and the menu's `DZ` parameter `LORD.BAT %ND`.
+
 Not in the machine: protected mode (DPMI doors), EMS/XMS, the FPU,
 sound. For a door that needs one, `[dos] emulator` names a DOSBox
 command (`dosbox-staging -noprimaryconf -nolocalconf -conf %C`), with

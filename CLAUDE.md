@@ -42,6 +42,11 @@ git: copy `data/` and `files/` across if the board should move with you.
   suite: unpack its `v2/*.json.gz` and `metadata.json` somewhere and run
   `SST8088_DIR=dir cargo test -p iniquity-dos --release --test sst8088
   -- --ignored --nocapture`.
+  To try a door outside the BBS, `cargo build --release -p iniquity-dos
+  --examples` gives `target/release/examples/dosrun C_ROOT D_ROOT CMD`:
+  stdin is the caller, stdout what they'd see, the machine's log on
+  stderr, and `SCREEN=file` keeps the local text screen. LORD 4.07
+  (gameport.com) plays through this way and as a door.
 - `Dockerfile` and `deploy/docker-compose.yml` run a board in a
   container: the image holds the server and the stock `text/`, `themes/`,
   `menus/`, `scripts/` at `/srv/inq/iniquity`, and the board directory is

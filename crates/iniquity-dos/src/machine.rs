@@ -81,6 +81,8 @@ pub struct System {
     retrace: bool,
     /// Log lines for the host (DOS errors, unknown calls).
     pub log: Vec<String>,
+    /// Log every DOS call and error too, for finding what a door trips on.
+    pub trace: bool,
 }
 
 impl System {
@@ -107,6 +109,7 @@ impl System {
             pit_count: 0,
             retrace: false,
             log: Vec::new(),
+            trace: false,
         }
     }
 
@@ -264,6 +267,10 @@ impl Machine {
         mem.write16(BDA_KBD_TAIL, 0x1E);
         mem.write16(BDA_KBD_START, 0x1E);
         mem.write16(BDA_KBD_END, 0x3E);
+        // The BIOS counts ticks from midnight, and programs read the time
+        // of day from it (LORD's "arrived at").
+        let secs = chrono::Timelike::num_seconds_from_midnight(&chrono::Local::now().time()) as u64;
+        mem.write32(BDA_TICKS, (secs * 1_193_182 / 65_536) as u32);
         let dos = Dos::new(&mut mem, c_root, d_root);
         cpu.flags |= cpu::IF;
         Self { cpu, mem, sys: System::new(dos), next_tick: TICK_INSTRUCTIONS, ticks: 0 }
