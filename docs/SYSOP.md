@@ -158,8 +158,9 @@ New, in `[passwords]` and `[newuser]`, or "Passwords and Sign-ups" in
 ### SSH keys and stored logins
 
 New: an SSH caller whose SSH user name is an account (the handle, or
-another SSH user name they set; see below) comes straight in, with no
-bot check or login prompts, when the client brings either of:
+another SSH user name they set; see below) comes straight in after
+PRELOGON, with no bot check or login prompts, when the client brings
+either of:
 
 - **A key** kept on the account (`k` in user config, or `UK` on a menu:
   paste the line from the `.pub` file, up to eight keys; the comment at

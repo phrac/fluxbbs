@@ -109,11 +109,12 @@ impl Session {
 
     /// New: a caller whose SSH client logged in with a key on their
     /// account, or with their own password as the SSH password, comes
-    /// straight in, without the bot check or the login prompts (SysOps are
-    /// still asked the system password). False if the account is gone, to
-    /// go the usual way.
+    /// straight in after PRELOGON, without the bot check or the login
+    /// prompts (SysOps are still asked the system password). False if the
+    /// account is gone, to go the usual way.
     async fn key_logon(&mut self, id: u32) -> io::Result<bool> {
         let Some(user) = self.state.users.get(id).map_err(io::Error::other)?.filter(|u| !u.deleted) else { return Ok(false) };
+        self.logon_init().await?;
         let prelogon = std::mem::replace(&mut self.user, user);
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
