@@ -227,7 +227,9 @@ pub fn parse_rep(data: &[u8]) -> Vec<Reply> {
         let mut lines: Vec<String> = body
             .split(|&c| c == EOL)
             .take(MAX_REPLY_LINES + 1)
-            .map(|l| cp437::decode(l).trim_end_matches([' ', '\0', '\r', '\n']).to_string())
+            // ESC kept as itself (CP437 makes it `←`), so ANSI colour
+            // shows as the reader filters it.
+            .map(|l| cp437::decode(l).replace('\u{2190}', "\x1b").trim_end_matches([' ', '\0', '\r', '\n']).to_string())
             .collect();
         while lines.last().is_some_and(String::is_empty) {
             lines.pop();
@@ -467,8 +469,10 @@ impl Session {
                     private: m.private,
                     num: m.num,
                     posted: m.posted,
-                    to: &m.to.name,
-                    from: &m.from.name,
+                    // Names as they read, without this board's colour
+                    // codes ("Anonymous" has them).
+                    to: &crate::editor::strip_codes(&m.to.name),
+                    from: &crate::editor::strip_codes(&m.from.name),
                     subject: &m.subject,
                     blocks: 1 + body.len() / BLOCK,
                     conf: p.conf,
@@ -705,7 +709,7 @@ impl Session {
         // its writer: QWK's 25-character To can't hold every handle.
         let parent = if r.refer > 0 { self.state.msgs.get(&a.area.file, r.refer)?.filter(|p| self.ok_to_read(&a, p)) } else { None };
         let to_parent = parent.as_ref().filter(|p| {
-            let (want, name) = (r.to.trim().to_ascii_uppercase(), p.from.name.to_ascii_uppercase());
+            let (want, name) = (r.to.trim().to_ascii_uppercase(), crate::editor::strip_codes(&p.from.name).to_ascii_uppercase());
             !want.is_empty() && name.starts_with(&want)
         });
         let to = match (to_parent, self.state.users.find(&r.to, false)?) {

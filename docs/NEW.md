@@ -231,6 +231,14 @@ Where the original's behaviour was a hazard or no longer fits:
 - MeshCore text loses control characters, and a sender using a
   caller's name here shows as `name@mesh`.
 - The website feed shows handles, not real names, from real-name areas.
+- Typing: CP437 characters go in prompts and the editor as the
+  original allowed (only ASCII did before), and a UTF-8 terminal's keys
+  are decoded to them; an escape sequence the board doesn't know is
+  ignored rather than taken as Esc. Fixed-width fields don't count
+  colour codes.
+- "Anonymous" and "None" can't be taken as handles (mail to those
+  parties would reach whoever had them); "delete all read mail" deletes
+  only the letters read just now; packing all areas packs email too.
 - A message the editor can't hold whole (over 200 lines, wider than
   79 columns, or with ANSI codes, as echomail can be) isn't opened for
   editing, rather than cut short.

@@ -547,7 +547,7 @@ impl Session {
                     Some(save) => break save,
                     None => Redraw::Cursor,
                 },
-                Key::Char(c @ 0x20..=0x7E) => d.type_char(c as char),
+                Key::Char(c) if crate::input::text_char(c).is_some() => d.type_char(crate::input::text_char(c).unwrap_or(' ')),
                 Key::Char(c @ 0x80..=0xFF) => d.type_char(iniquity_term::cp437::TO_UNICODE[c as usize]),
                 _ => Redraw::Cursor,
             };

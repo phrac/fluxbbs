@@ -246,6 +246,7 @@ impl Session {
             let expecting = self.cursor_asks > self.cursor_reports;
             let (keys, reports, tail) = strip_cursor_reports(&data, expecting);
             self.cursor_reports += reports;
+            let keys = if self.screen.charset() == iniquity_term::Charset::Utf8 { utf8_keys(&keys, &mut self.utf8_tail) } else { keys };
             self.input.extend(keys);
             self.report_tail = tail;
         }
@@ -302,27 +303,35 @@ impl Session {
     /// Next key from the caller. Enter is a single `\r` whatever the
     /// client sends; VT/ANSI cursor-key sequences are decoded.
     pub async fn read_key(&mut self) -> io::Result<Key> {
-        let b = self.next_byte(Wait::Idle).await?.expect("idle wait returns a byte");
-        Ok(match b {
-            b'\r' | b'\n' => Key::Enter,
-            0x08 | 0x7F => Key::Backspace,
-            b'\t' => Key::Tab,
-            0x1B => self.escape_sequence().await?,
-            c => Key::Char(c),
-        })
+        loop {
+            let b = self.next_byte(Wait::Idle).await?.expect("idle wait returns a byte");
+            return Ok(match b {
+                b'\r' | b'\n' => Key::Enter,
+                0x08 | 0x7F => Key::Backspace,
+                b'\t' => Key::Tab,
+                // A sequence we don't know (pasted colour, say) is
+                // swallowed whole: as Esc, the letters after it would run
+                // as commands.
+                0x1B => match self.escape_sequence().await? {
+                    Some(k) => k,
+                    None => continue,
+                },
+                c => Key::Char(c),
+            });
+        }
     }
 
-    async fn escape_sequence(&mut self) -> io::Result<Key> {
-        let Some(intro) = self.next_byte(Wait::Brief).await? else { return Ok(Key::Esc) };
+    async fn escape_sequence(&mut self) -> io::Result<Option<Key>> {
+        let Some(intro) = self.next_byte(Wait::Brief).await? else { return Ok(Some(Key::Esc)) };
         if intro != b'[' && intro != b'O' {
             self.input.push_front(intro);
-            return Ok(Key::Esc);
+            return Ok(Some(Key::Esc));
         }
         let mut params = Vec::new();
         loop {
-            let Some(b) = self.next_byte(Wait::Brief).await? else { return Ok(Key::Esc) };
+            let Some(b) = self.next_byte(Wait::Brief).await? else { return Ok(Some(Key::Esc)) };
             if (0x40..=0x7E).contains(&b) {
-                return Ok(match (b, params.as_slice()) {
+                return Ok(Some(match (b, params.as_slice()) {
                     (b'A', _) => Key::Up,
                     (b'B', _) => Key::Down,
                     (b'C', _) => Key::Right,
@@ -335,8 +344,8 @@ impl Session {
                     (b'~', b"3") => Key::Del,
                     (b'~', b"5") => Key::PgUp,
                     (b'~', b"6") => Key::PgDn,
-                    _ => Key::Esc,
-                });
+                    _ => return Ok(None),
+                }));
             }
             params.push(b);
         }
@@ -374,8 +383,8 @@ impl Session {
                             s = h;
                         }
                     }
-                    Key::Char(c @ 0x20..=0x7E) if s.chars().count() < opts.max => {
-                        let c = opts.case.apply(&s, c as char);
+                    Key::Char(c) if s.chars().count() < opts.max && text_char(c).is_some() => {
+                        let c = opts.case.apply(&s, text_char(c).unwrap_or(' '));
                         if !opts.allowed.is_empty() && !opts.allowed.contains(c) {
                             continue;
                         }
@@ -506,6 +515,47 @@ impl Session {
 /// Take cursor position reports (`ESC [ row ; col R`) out of what the
 /// caller sent: the keys, how many reports there were, and (if `hold`) an
 /// unfinished report at the end, kept back to join the next read.
+/// Keys from a UTF-8 terminal as the CP437 bytes the board works in:
+/// what CP437 can't hold (or holds only as a control glyph, `☺`) becomes
+/// `?`. A character split between reads waits in `tail`.
+fn utf8_keys(data: &[u8], tail: &mut Vec<u8>) -> Vec<u8> {
+    let mut buf = std::mem::take(tail);
+    buf.extend_from_slice(data);
+    let mut out = Vec::with_capacity(buf.len());
+    let mut i = 0;
+    while i < buf.len() {
+        let len = match buf[i] {
+            b @ 0..=0x7F => {
+                out.push(b);
+                i += 1;
+                continue;
+            }
+            0xC2..=0xDF => 2,
+            0xE0..=0xEF => 3,
+            0xF0..=0xF4 => 4,
+            _ => {
+                i += 1;
+                continue;
+            }
+        };
+        if i + len > buf.len() {
+            *tail = buf[i..].to_vec();
+            break;
+        }
+        if let Ok(s) = std::str::from_utf8(&buf[i..i + len]) {
+            out.extend(iniquity_term::cp437::encode(s).into_iter().map(|c| if c < 0x20 || c == 0x7F { b'?' } else { c }));
+        }
+        i += len;
+    }
+    out
+}
+
+/// A typed key as a character (CP437), if it's one that goes in text:
+/// 32 to 254 but DEL, as the original's `chNormal`.
+pub fn text_char(c: u8) -> Option<char> {
+    (c >= 0x20 && c != 0x7F && c != 0xFF).then(|| iniquity_term::cp437::TO_UNICODE[c as usize])
+}
+
 fn strip_cursor_reports(buf: &[u8], hold: bool) -> (Vec<u8>, u32, Vec<u8>) {
     // `ESC`, `ESC [` or `ESC [ 24;8` at the very end: the start of one.
     let tail_at = buf.iter().rposition(|&b| b == 0x1B).filter(|&p| {
@@ -549,6 +599,18 @@ mod tests {
             out.push(t);
         }
         out
+    }
+
+    #[test]
+    fn utf8_keys_become_cp437() {
+        let mut tail = Vec::new();
+        // "café ☺ ░" split inside the é; ESC sequences pass untouched.
+        let mut out = utf8_keys(b"caf\xc3", &mut tail);
+        out.extend(utf8_keys(b"\xa9 \xe2\x98\xba \xe2\x96\x91\x1b[A", &mut tail));
+        assert_eq!(out, b"caf\x82 ? \xb0\x1b[A");
+        assert!(tail.is_empty());
+        assert_eq!(text_char(0x82), Some('\u{e9}'));
+        assert_eq!((text_char(0x7f), text_char(0x1b)), (None, None));
     }
 
     #[test]

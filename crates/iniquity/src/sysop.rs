@@ -500,6 +500,7 @@ impl Session {
             self.newline();
             if all { (1..=areas.areas.len() as u32).collect() } else { vec![self.user.cur_msg_area] }
         };
+        let every = which.len() == areas.areas.len();
         let mut total = 0;
         for n in which {
             let Some(a) = areas.get(n).cloned() else { continue };
@@ -510,6 +511,10 @@ impl Session {
             total += self.state.msgs.pack(&a.file, a.max_msgs).map_err(io_err)?;
             let s = self.strings().fmt("MsgPackEnd", &[&a.name, &count.to_string()]);
             self.show_line(&s).await?;
+        }
+        // All of them: deleted email goes too.
+        if every {
+            total += self.state.msgs.pack(&areas.email.file, areas.email.max_msgs).map_err(io_err)?;
         }
         match crate::attach::remove_orphans(&self.state) {
             Ok(n) if n > 0 => tracing::info!("{}: {n} orphaned attachment(s) removed", self.user.handle),

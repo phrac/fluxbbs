@@ -142,7 +142,9 @@ async fn run_command(state: &BbsState, cmd: &str) -> anyhow::Result<()> {
         "" => Ok(()),
         "pack-messages" => {
             let mut total = 0;
-            for a in &state.areas().areas {
+            // Email too: deleted mail would otherwise stay for ever.
+            let areas = state.areas();
+            for a in areas.areas.iter().chain([&areas.email]) {
                 total += state.msgs.pack(&a.file, a.max_msgs)?;
             }
             crate::attach::remove_orphans(state)?;

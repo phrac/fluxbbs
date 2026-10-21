@@ -463,9 +463,15 @@ impl Session {
         if m.reply_to == 0 {
             return Ok(String::new());
         }
-        Ok(match self.state.msgs.by_id(m.reply_to).map_err(io_err)? {
-            Some(p) => self.strings().fmt("MsgReplyTo", &[&p.num.to_string(), &p.from.name]),
-            None => String::new(),
+        // Not a message the caller may not see (a private one, say).
+        let a = if m.area.eq_ignore_ascii_case(&self.state.areas().email.file) {
+            Some(self.email_area())
+        } else {
+            self.state.areas().areas.iter().position(|x| x.file.eq_ignore_ascii_case(&m.area)).and_then(|i| self.msg_area(i as u32 + 1))
+        };
+        Ok(match (self.state.msgs.by_id(m.reply_to).map_err(io_err)?, a) {
+            (Some(p), Some(a)) if self.ok_to_read(&a, &p) => self.strings().fmt("MsgReplyTo", &[&p.num.to_string(), &p.from.name]),
+            _ => String::new(),
         })
     }
 
@@ -536,6 +542,8 @@ impl Session {
                 self.show_message(a, &m, cur, total).await?;
                 // By row: a pack meanwhile may have renumbered it.
                 self.state.msgs.set_lastread_id(self.user.id, a.key(), m.id).map_err(io_err)?;
+                // Read, so not offered again as a mention.
+                self.state.msgs.mention_seen(self.user.id, m.id).map_err(io_err)?;
             }
             show = false;
             let s = self.strings().fmt("MsgReadPrompt", &[&cur.to_string(), &total.to_string()]);
@@ -1133,6 +1141,8 @@ impl Session {
             _ => return Ok(()),
         };
         let mut show = true;
+        // What was shown: "delete all read mail" means these only.
+        let mut shown = HashSet::new();
         loop {
             if self.hangup {
                 return Ok(());
@@ -1141,6 +1151,7 @@ impl Session {
             if show {
                 let m = mail[idx].clone();
                 self.show_message(&a, &m, cur, total).await?;
+                shown.insert(idx);
             }
             show = false;
             let s = self.strings().fmt("EmailReadPrompt", &[&cur.to_string(), &total.to_string()]);
@@ -1224,7 +1235,8 @@ impl Session {
             }
         }
         if self.state.config().messages.ask_delete_all_read && !all {
-            let left: Vec<usize> = (0..mail.len()).filter(|&i| !mail[i].deleted).collect();
+            // The original took every letter; only those read now.
+            let left: Vec<usize> = (0..mail.len()).filter(|&i| !mail[i].deleted && shown.contains(&i)).collect();
             if !left.is_empty() {
                 self.newline();
                 self.say("EmailAskKillAll").await?;

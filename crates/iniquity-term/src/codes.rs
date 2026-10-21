@@ -319,16 +319,65 @@ pub fn tokenize_str(s: &str, source: Source) -> Vec<Token> {
     out
 }
 
-/// `strSquish`: cut to `len` characters.
+/// `strSquish`: cut to `len` characters on screen.
 pub fn squish(s: &str, len: usize) -> String {
-    s.chars().take(len).collect()
+    let c: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    let mut shown = 0;
+    let mut i = 0;
+    while i < c.len() {
+        // Colour codes and `lit`'s marks take no room on screen: kept
+        // whole, not counted.
+        let code = colour_at(&c, i);
+        if code > 0 || c[i] == LIT_OPEN || c[i] == LIT_CLOSE {
+            let n = code.max(1);
+            out.extend(&c[i..i + n]);
+            i += n;
+            continue;
+        }
+        if shown == len {
+            break;
+        }
+        out.push(c[i]);
+        shown += 1;
+        i += 1;
+    }
+    out
 }
 
-/// `Resize`: cut or space-pad to exactly `len` characters.
+/// The length of a `|XX` colour code at `c[i]`, or 0.
+fn colour_at(c: &[char], i: usize) -> usize {
+    match (c.get(i), c.get(i + 1), c.get(i + 2)) {
+        (Some('|'), Some(&a), Some(&b)) if a.is_ascii() && b.is_ascii() && Control::parse([a as u8, b as u8]).is_some_and(|k| k.is_colour()) => 3,
+        _ => 0,
+    }
+}
+
+/// Characters `s` takes on screen: colour codes and `lit`'s marks don't
+/// count.
+pub fn width(s: &str) -> usize {
+    let c: Vec<char> = s.chars().collect();
+    let mut n = 0;
+    let mut i = 0;
+    while i < c.len() {
+        let code = colour_at(&c, i);
+        if code > 0 {
+            i += code;
+            continue;
+        }
+        if c[i] != LIT_OPEN && c[i] != LIT_CLOSE {
+            n += 1;
+        }
+        i += 1;
+    }
+    n
+}
+
+/// `Resize`: cut or space-pad to exactly `len` characters on screen.
 pub fn resize(s: &str, len: usize) -> String {
     let mut r = squish(s, len);
-    let n = r.chars().count();
-    r.extend(std::iter::repeat_n(' ', len - n));
+    let n = width(&r);
+    r.extend(std::iter::repeat_n(' ', len.saturating_sub(n)));
     r
 }
 
@@ -336,6 +385,13 @@ pub fn resize(s: &str, len: usize) -> String {
 mod tests {
     use super::*;
     use Token::*;
+
+    #[test]
+    fn widths_skip_colour_codes() {
+        assert_eq!(squish("|12Ano|04nymous", 5), "|12Ano|04ny");
+        assert_eq!(resize("|12Hi", 4), "|12Hi  ");
+        assert_eq!(width("|12Hi|CS"), 5);
+    }
 
     #[test]
     fn caller_text_stays_text() {

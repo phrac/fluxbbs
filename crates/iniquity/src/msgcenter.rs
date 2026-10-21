@@ -125,6 +125,7 @@ impl Session {
             return Ok(());
         }
         self.state.msgs.mark_seen(self.user.id, m.id).map_err(io_err)?;
+        self.state.msgs.mention_seen(self.user.id, m.id).map_err(io_err)?;
         let seen = self.state.msgs.seen(self.user.id, key).map_err(io_err)?;
         let total = self.state.msgs.count(key).map_err(io_err)?;
         let mut n = last;

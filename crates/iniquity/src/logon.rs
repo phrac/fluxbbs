@@ -458,7 +458,10 @@ impl Session {
                 self.say("NuHandle").await?;
                 let h = self.read_string(ReadOpts::new(36).case(case).required()).await?;
                 self.newline();
-                let reserved = nu.reserved_handles.iter().any(|r| r.trim().eq_ignore_ascii_case(h.trim()));
+                // And the names the board gives parties that aren't
+                // callers: mail to them mustn't reach someone.
+                let anonymous = crate::editor::strip_codes(self.strings().get("Anonymous"));
+                let reserved = nu.reserved_handles.iter().chain([&anonymous, &"None".to_string(), &"Anonymous".to_string()]).any(|r| r.trim().eq_ignore_ascii_case(h.trim()));
                 if reserved || h.eq_ignore_ascii_case("NEW") || h.eq_ignore_ascii_case("ALL") || h.starts_with(|c: char| c.is_ascii_digit()) || has_codes(&h) {
                     self.say_line("NuBadAlias").await?;
                 } else if self.name_taken(&h)? {

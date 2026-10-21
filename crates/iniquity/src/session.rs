@@ -112,6 +112,8 @@ pub struct Session {
     pub(crate) cursor_reports: u32,
     /// The start of a cursor report whose end hasn't arrived yet.
     pub(crate) report_tail: Vec<u8>,
+    /// A UTF-8 character split between reads.
+    pub(crate) utf8_tail: Vec<u8>,
     /// Bytes sent this call, for the stalled-output warning.
     sent: u64,
     saved_color: Color,
@@ -301,6 +303,7 @@ impl Session {
             cursor_asks: 0,
             cursor_reports: 0,
             report_tail: Vec::new(),
+            utf8_tail: Vec::new(),
             sent: 0,
             saved_color: Color::DEFAULT,
             time_on: Instant::now(),
