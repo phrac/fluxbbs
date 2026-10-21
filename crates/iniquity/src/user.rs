@@ -82,6 +82,11 @@ pub struct User {
     pub bank_time_out: u32,
     pub bank_kb_in: u32,
     pub bank_kb_out: u32,
+    /// New: OpenSSH public keys (`authorized_keys` lines) that log this
+    /// user straight in over SSH.
+    pub ssh_keys: Vec<String>,
+    /// New: a few lines about themselves, shown by finger (`UF`).
+    pub plan: Vec<String>,
 }
 
 impl Default for User {
@@ -149,6 +154,8 @@ impl Default for User {
             bank_time_out: 0,
             bank_kb_in: 0,
             bank_kb_out: 0,
+            ssh_keys: Vec::new(),
+            plan: Vec::new(),
         }
     }
 }

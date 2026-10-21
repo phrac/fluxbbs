@@ -16,21 +16,27 @@ impl Session {
     /// A whole call: prelogon, logon (via the matrix menu or directly),
     /// then the menu loop until hang-up.
     pub async fn call(&mut self) -> io::Result<()> {
-        if !self.bot_check().await? {
-            self.record_failure("failed the bot check");
-            return self.flush().await;
-        }
-        self.logon_init().await?;
-        if self.state.config().logon.matrix {
-            self.menu.current = "MATRIX".into();
-            self.menu_install().await?;
-            self.menu.next_cmd.clear();
-            self.menu.exec_first = false;
-            while !self.hangup && !self.logged_in {
-                self.menu_exec().await?;
+        let keyed = match self.caller.key_user {
+            Some(id) => self.key_logon(id).await?,
+            None => false,
+        };
+        if !keyed {
+            if !self.bot_check().await? {
+                self.record_failure("failed the bot check");
+                return self.flush().await;
             }
-        } else {
-            self.logon_system().await?;
+            self.logon_init().await?;
+            if self.state.config().logon.matrix {
+                self.menu.current = "MATRIX".into();
+                self.menu_install().await?;
+                self.menu.next_cmd.clear();
+                self.menu.exec_first = false;
+                while !self.hangup && !self.logged_in {
+                    self.menu_exec().await?;
+                }
+            } else {
+                self.logon_system().await?;
+            }
         }
         if !self.logged_in || self.hangup {
             return self.flush().await;
@@ -75,6 +81,49 @@ impl Session {
         self.flush().await
     }
 
+    /// New: a caller whose SSH client logged in with a key on their
+    /// account comes straight in, without the bot check or the login
+    /// prompts (SysOps are still asked the system password). False if the
+    /// account is gone, to go the usual way.
+    async fn key_logon(&mut self, id: u32) -> io::Result<bool> {
+        let Some(user) = self.state.users.get(id).map_err(io::Error::other)?.filter(|u| !u.deleted) else { return Ok(false) };
+        let prelogon = std::mem::replace(&mut self.user, user);
+        self.screen.set_color(iniquity_term::Color::DEFAULT);
+        self.clear_screen();
+        if !self.system_password_ok().await? {
+            self.user = prelogon;
+            self.record_failure("wrong system password");
+            self.hangup = true;
+            return Ok(true);
+        }
+        tracing::info!("{}: logged in with an SSH key", self.user.handle);
+        self.logged_in = true;
+        if let Some(addr) = self.caller.remote {
+            self.state.guard.success(addr.ip());
+        }
+        self.welcome_screens().await?;
+        Ok(true)
+    }
+
+    /// The system password, where the caller's access asks for it.
+    async fn system_password_ok(&mut self) -> io::Result<bool> {
+        let cfg = self.state.config();
+        let (sys_pw, acs) = (cfg.logon.system_password.clone(), cfg.logon.system_password_acs.clone());
+        drop(cfg);
+        if sys_pw.is_empty() || !self.acs(&acs) {
+            return Ok(true);
+        }
+        self.login_prompt();
+        self.say("LoginSystemPW").await?;
+        let s = self.read_string(ReadOpts::new(20).password()).await?;
+        self.login_answered();
+        let ok = s.eq_ignore_ascii_case(&sys_pw);
+        if !ok {
+            tracing::info!("{}: wrong system password", self.user.handle);
+        }
+        Ok(ok)
+    }
+
     /// `logonInit`: report the terminal and show PRELOGON.
     async fn logon_init(&mut self) -> io::Result<()> {
         self.say("DetectEmu").await?;
@@ -100,6 +149,12 @@ impl Session {
             }
             return Ok(());
         }
+        self.welcome_screens().await
+    }
+
+    /// WELCOME (and WELCOME.1-9), then the screens for the caller's
+    /// security levels.
+    async fn welcome_screens(&mut self) -> io::Result<()> {
         self.show_file("WELCOME").await?;
         for n in 1..=9 {
             if !self.show_file(&format!("WELCOME.{n}")).await? {
@@ -207,16 +262,8 @@ impl Session {
                     if ok {
                         ok = self.verify_identity().await?;
                     }
-                    let sys_pw = self.state.config().logon.system_password.clone();
-                    if ok && !sys_pw.is_empty() && self.acs(&self.state.config().logon.system_password_acs.clone()) {
-                        self.login_prompt();
-                        self.say("LoginSystemPW").await?;
-                        let s = self.read_string(ReadOpts::new(20).password()).await?;
-                        self.login_answered();
-                        ok = s.eq_ignore_ascii_case(&sys_pw);
-                        if !ok {
-                            tracing::info!("{}: wrong system password", self.user.handle);
-                        }
+                    if ok {
+                        ok = self.system_password_ok().await?;
                     }
                     if ok {
                         self.logged_in = true;

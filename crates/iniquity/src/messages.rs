@@ -859,6 +859,7 @@ impl Session {
         self.state.msgs.add(&mut m).map_err(io_err)?;
         if !private {
             self.state.mesh.post(&m);
+            crate::mentions::record(&self.state, &m, &a.area.name, self.node.number());
         }
         // Your own message isn't new to you.
         if !a.is_email() {

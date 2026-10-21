@@ -89,7 +89,13 @@ menu with a different line on it each time.
 - [ ] `AUTOTOP` / `AUTOBOT`: the automessage
 - [x] `AUTOMSG`: automessage menu
 - [ ] `USERSTAT`: your stats
-- [ ] `USERCFG`: user configuration screen
+- [ ] `USERCFG`: user configuration screen (new fields: `~P?` how many
+      SSH keys are on file, `~Q?` the plan's lines; the stock screen has
+      `~PK` and `~QP`)
+- [ ] `FINGER`: a caller's profile (`~UN` handle, `~LO` location, `~UO`
+      note, `~FC` first call, `~LS` last seen, `~CA` calls, `~PO` posts,
+      `~UL`/`~DL` uploads/downloads, `~LP` latest post, `~LU` latest
+      uploads, `~P1`-`~P6` the plan)
 - [x] `AUTOSIG`: auto-signature menu
 - [x] `BBSLIST`: BBS list menu
 - [ ] `BBSTOP` / `BBSMID` / `BBSBOT`: BBS list (`~NM` `~BN` `~TN` `~SH`

@@ -6,6 +6,8 @@ Everything the port does, in detail. The [README](../README.md) has the short li
 
 **Connections**
 - SSH (russh), including the older algorithms SyncTERM's cryptlib needs.
+  New: log in with an SSH key kept on the account (`UK`, `k` in user
+  config), with no bot check or login prompts (SYSOP.md).
 - Telnet: binary, server echo, window size (NAWS) and terminal type;
   Zmodem works over it.
 - CP437 for BBS terminals, UTF-8 (with DOS wrap and clear behaviour)
@@ -92,6 +94,14 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   of the DOS virus scanner (`clamscan --no-summary %F`, say); files on
   the delete list (BBS ads) are stripped from ZIPs and the archive
   comment added.
+- Profiles (new): finger (`UF`, `f` on a message in the reader, or a
+  name after the user list) shows a caller's location and note, since
+  when and when last on (or on now, unless invisible), calls, posts,
+  uploads and downloads, their latest post and uploads, and their plan:
+  up to six lines they write in user config (`p`). Real name, phone,
+  address and birth date stay private. A FINGER screen can dress it
+  (`~UN` `~LO` `~UO` `~FC` `~LS` `~CA` `~PO` `~UL` `~DL` `~LP` `~LU`,
+  `~P1`-`~P6`).
 - Oneliners, the automessage, last callers, history and statistics, the
   BBS list, user configuration, user listing. BBS list entries have a
   telnet and an SSH address (`host:port`) in place of the original's
@@ -273,6 +283,13 @@ and newscan (`MR`, `MN`, still there for menus that want them).
   there are and offers to read them, a thread at a time; `MW Read` reads
   them without asking.
 - The website feed lists the newest public posts (`new_posts`).
+- @mentions (new): `@handle` in a public post (typed, by QWK or from
+  MeshCore; not in quoted lines, and not yourself) tells that caller, at
+  once with a node message if they're on ("mentioned you in General:
+  subject", `MentionNotice`), and at their next logon, where `MW` first
+  offers the posts that mention them. `M@` reads the unseen ones any
+  time (`M@ All`: the last hundred). Handles with spaces work
+  (`@Dark Angel`); punctuation ends a name.
 - Screens can show what's in the message base (`%MG`...`%MJ` in
   `CODES.md`): the newest post, the most replied to, the loudest area
   of the month, the top poster, a message at random, and what's new for

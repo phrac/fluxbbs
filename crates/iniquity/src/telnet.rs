@@ -312,7 +312,7 @@ async fn connection(state: Arc<BbsState>, sock: TcpStream, peer: SocketAddr) -> 
     t.negotiate(Duration::from_millis(1500)).await?;
     // A client that doesn't say is almost certainly a BBS terminal.
     let term = t.term.clone().unwrap_or_else(|| "ansi-bbs".into());
-    let caller = Caller { remote: Some(peer), transport: "telnet", login_name: String::new(), term, size: rx };
+    let caller = Caller { remote: Some(peer), transport: "telnet", login_name: String::new(), key_user: None, term, size: rx };
     session::run(state, Box::new(t), caller).await;
     Ok(())
 }

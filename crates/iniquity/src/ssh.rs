@@ -1,6 +1,9 @@
 //! SSH transport. Authentication is left to the BBS's own logon screens,
 //! as with a telnet or modem caller, so every SSH auth attempt is accepted
-//! and the SSH user name is only used as a suggested handle.
+//! and the SSH user name is only used as a suggested handle. New: a
+//! caller whose SSH user name is a handle with keys on file (`sshkeys`)
+//! is asked for a key; the right one logs them straight in, and anything
+//! else falls back to the board's own login.
 
 use std::net::SocketAddr;
 use std::path::Path;
@@ -12,7 +15,8 @@ use russh::keys::ssh_key::LineEnding;
 use russh::keys::ssh_key::private::RsaKeypair;
 use russh::keys::{Algorithm, EcdsaCurve, PrivateKey};
 use russh::{Preferred, cipher, kex, mac};
-use russh::server::{Auth, ChannelOpenHandle, Msg, Server as _, Session};
+use russh::server::{Auth, ChannelOpenHandle, Msg, Response, Server as _, Session};
+use russh::{MethodKind, MethodSet};
 use russh::{Channel, ChannelId, Pty};
 use tokio::sync::watch;
 
@@ -91,6 +95,7 @@ impl russh::server::Server for SshServer {
             state: self.state.clone(),
             peer,
             user: String::new(),
+            key_user: None,
             channel: None,
             term: String::new(),
             size: (80, 25),
@@ -104,6 +109,8 @@ struct Connection {
     state: Arc<BbsState>,
     peer: Option<SocketAddr>,
     user: String,
+    /// The user whose key logged this connection in.
+    key_user: Option<u32>,
     channel: Option<Channel<Msg>>,
     term: String,
     size: (u16, u16),
@@ -128,12 +135,47 @@ impl Connection {
             None => Auth::Accept,
         }
     }
+
+    /// The account named `user`, if it has SSH keys on file.
+    fn keyed_user(&self, user: &str) -> Option<crate::user::User> {
+        self.state.users.find(user, false).ok().flatten().filter(|u| !u.deleted && !u.ssh_keys.is_empty())
+    }
 }
 
 impl russh::server::Handler for Connection {
     type Error = anyhow::Error;
 
     async fn auth_none(&mut self, user: &str) -> Result<Auth, Self::Error> {
+        self.user = user.to_string();
+        let auth = self.auth();
+        // Someone with keys on file: ask for one first. Without it, either
+        // of the others still gets in (to the board's own login).
+        if matches!(auth, Auth::Accept) && self.keyed_user(user).is_some() {
+            let methods: &[MethodKind] = &[MethodKind::PublicKey, MethodKind::KeyboardInteractive, MethodKind::Password];
+            return Ok(Auth::Reject { proceed_with_methods: Some(MethodSet::from(methods)), partial_success: false });
+        }
+        Ok(auth)
+    }
+
+    async fn auth_publickey_offered(&mut self, user: &str, key: &russh::keys::PublicKey) -> Result<Auth, Self::Error> {
+        let ok = self.keyed_user(user).is_some_and(|u| crate::sshkeys::matches(&u.ssh_keys, key));
+        Ok(if ok { self.auth() } else { Auth::reject() })
+    }
+
+    async fn auth_publickey(&mut self, user: &str, key: &russh::keys::PublicKey) -> Result<Auth, Self::Error> {
+        self.user = user.to_string();
+        match self.keyed_user(user).filter(|u| crate::sshkeys::matches(&u.ssh_keys, key)) {
+            Some(u) if matches!(self.auth(), Auth::Accept) => {
+                tracing::info!("{}: ssh key accepted for {}", self.peer.map_or("?".into(), |p| p.to_string()), u.handle);
+                self.key_user = Some(u.id);
+                Ok(Auth::Accept)
+            }
+            _ => Ok(Auth::reject()),
+        }
+    }
+
+    /// No questions: the board asks its own.
+    async fn auth_keyboard_interactive<'a>(&'a mut self, user: &str, _submethods: &str, _response: Option<Response<'a>>) -> Result<Auth, Self::Error> {
         self.user = user.to_string();
         Ok(self.auth())
     }
@@ -203,6 +245,7 @@ impl russh::server::Handler for Connection {
             remote: self.peer,
             transport: "ssh",
             login_name: self.user.clone(),
+            key_user: self.key_user,
             term: self.term.clone(),
             size: rx,
         };

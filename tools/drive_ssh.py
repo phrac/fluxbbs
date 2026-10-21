@@ -3,14 +3,18 @@ Each step waits (up to 8s) for the regex in the de-ANSI'd output, then sends.
 Sends understand \\r, \\e (ESC) and {UP}/{DOWN}/{LEFT}/{RIGHT}; '@solve' answers
 the bot check by replaying its cursor moves (as a terminal would).
 CPR=1 answers cursor position requests (ESC[6n) as a terminal does;
-READ_BPS=n reads the output at n bytes a second, like a slow link."""
+READ_BPS=n reads the output at n bytes a second, like a slow link;
+SSH_KEY=file logs in with that key (otherwise no keys are offered)."""
 import os, pty, re, select, sys, time
 user, term, steps = sys.argv[1], sys.argv[2], sys.argv[3:]
 pid, fd = pty.fork()
 if pid == 0:
     os.environ['TERM'] = term
+    # SSH_KEY=file offers just that key; otherwise none (not ~/.ssh's).
+    key = os.environ.get('SSH_KEY')
+    keyopts = ['-i', key, '-o', 'IdentitiesOnly=yes'] if key else ['-o', 'PubkeyAuthentication=no']
     os.execvp('ssh', ['ssh', '-F', '/dev/null', '-tt', '-p', os.environ.get("PORT", "2222"), '-o', 'StrictHostKeyChecking=no',
-                      '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR', f'{user}@{os.environ.get("HOST", "127.0.0.1")}'])
+                      '-o', 'UserKnownHostsFile=/dev/null', '-o', 'LogLevel=ERROR', *keyopts, f'{user}@{os.environ.get("HOST", "127.0.0.1")}'])
 raw = b''
 start = time.time()
 cpr = os.environ.get('CPR') == '1'

@@ -405,7 +405,10 @@ fn import(state: &BbsState, map: &[(u8, MeshChannel)], h: Heard) {
         lines: wrap(&h.text, 79),
     };
     match state.msgs.add(&mut m) {
-        Ok(()) => tracing::info!("meshcore: {} on {} -> {} #{}", h.sender, ch.channel, area.name, m.num),
+        Ok(()) => {
+            tracing::info!("meshcore: {} on {} -> {} #{}", h.sender, ch.channel, area.name, m.num);
+            crate::mentions::record(state, &m, &area.name, 0);
+        }
         Err(e) => tracing::error!("meshcore: posting in {}: {e}", area.name),
     }
 }

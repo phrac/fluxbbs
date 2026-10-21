@@ -109,6 +109,12 @@ CREATE TABLE IF NOT EXISTS lastread (
     num     INTEGER NOT NULL,
     PRIMARY KEY (user_id, area)
 );
+CREATE TABLE IF NOT EXISTS mentions (
+    user_id INTEGER NOT NULL,
+    msg_id  INTEGER NOT NULL,
+    seen    INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (user_id, msg_id)
+);
 ";
 
 fn party(r: &Row, p: &str) -> rusqlite::Result<Party> {
@@ -406,6 +412,45 @@ impl MsgBase {
     /// Every message in an area, by number.
     pub fn all(&self, area: &str) -> anyhow::Result<Vec<Message>> {
         self.range(area, 1, u32::MAX)
+    }
+
+    /// New: `user`'s latest public post (not anonymous) in `areas`.
+    pub fn latest_from(&self, user: u32, areas: &[String]) -> anyhow::Result<Option<Message>> {
+        if areas.is_empty() {
+            return Ok(None);
+        }
+        let db = self.db.lock().unwrap();
+        let sql = format!(
+            "SELECT * FROM messages WHERE from_id = ? AND NOT deleted AND NOT private AND NOT anonymous AND area IN ({}) ORDER BY posted DESC, id DESC LIMIT 1",
+            vec!["?"; areas.len()].join(",")
+        );
+        let p = rusqlite::params_from_iter(std::iter::once(&user as &dyn rusqlite::ToSql).chain(areas.iter().map(|a| a as &dyn rusqlite::ToSql)));
+        Ok(db.query_row(&sql, p, from_row).optional()?)
+    }
+
+    /// New: `user` was @mentioned in message `msg_id`.
+    pub fn add_mention(&self, user: u32, msg_id: i64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT OR IGNORE INTO mentions (user_id, msg_id) VALUES (?1, ?2)", params![user, msg_id])?;
+        Ok(())
+    }
+
+    /// The messages `user` was mentioned in (newest first), unseen ones
+    /// only if `unseen`, still there and not deleted.
+    pub fn mentions(&self, user: u32, unseen: bool) -> anyhow::Result<Vec<Message>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare(
+            "SELECT m.* FROM mentions n JOIN messages m ON m.id = n.msg_id
+             WHERE n.user_id = ?1 AND (n.seen = 0 OR NOT ?2) AND NOT m.deleted ORDER BY m.posted DESC, m.id DESC LIMIT 100",
+        )?;
+        let rows = stmt.query_map(params![user, unseen], from_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn mention_seen(&self, user: u32, msg_id: i64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("UPDATE mentions SET seen = 1 WHERE user_id = ?1 AND msg_id = ?2", params![user, msg_id])?;
+        Ok(())
     }
 
     /// New: what the public messages (not private, not deleted) in `areas`

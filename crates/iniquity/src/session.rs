@@ -88,6 +88,8 @@ pub struct Caller {
     pub transport: &'static str,
     /// SSH user name.
     pub login_name: String,
+    /// New: the user whose SSH key the client logged in with.
+    pub key_user: Option<u32>,
     pub term: String,
     /// (columns, rows), updated on window changes.
     pub size: watch::Receiver<(u16, u16)>,

@@ -688,6 +688,7 @@ impl Session {
         }
         if !private {
             self.state.mesh.post(&m);
+            crate::mentions::record(&self.state, &m, &a.area.name, self.node.number());
         }
         if private {
             self.user.email += 1;

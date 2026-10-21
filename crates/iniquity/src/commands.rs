@@ -168,6 +168,7 @@ impl Session {
             "MO" => self.msg_search(param).await?,
             "MH" => self.msg_center().await?,
             "MX" => self.msg_jump(param).await?,
+            "M@" => self.read_mentions(param).await?,
             "MW" if param.eq_ignore_ascii_case("read") => {
                 self.read_all_new().await?;
             }
@@ -239,6 +240,8 @@ impl Session {
             "*T" if self.is_sysop() => self.theme_editor().await?,
             "AG" => self.art_gallery().await?,
             "UT" => self.choose_theme().await?,
+            "UK" => self.ssh_keys_edit().await?,
+            "UF" => self.finger(param).await?,
             "-X" => Box::pin(self.script_command(param)).await?,
             "!D" => self.bank_transaction(crate::timebank::Unit::Minutes, true).await?,
             "!W" => self.bank_transaction(crate::timebank::Unit::Minutes, false).await?,
@@ -427,6 +430,15 @@ impl Session {
         self.set_slot(Slot::Border);
         self.write(&"─".repeat(79));
         self.newline();
+        // New: finger someone from the list (a number or a handle).
+        self.say("UserListFinger").await?;
+        let mut opts = crate::input::ReadOpts::new(36);
+        opts.complete_users = true;
+        let who = self.read_string(opts).await?;
+        self.newline();
+        if !who.is_empty() {
+            self.finger(&who).await?;
+        }
         Ok(())
     }
 

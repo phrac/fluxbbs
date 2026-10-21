@@ -31,7 +31,7 @@ const FILE_STATS: &[u8] = b"BGKLMNQRTUVWXYZ";
 const MSG_STATS: &[u8] = b"BCDFGHJKLQRVXY";
 
 /// How long ago, briefly ("3d ago").
-fn ago(d: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> String {
+pub(crate) fn ago(d: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> String {
     let Some(d) = d else { return String::new() };
     match (today - d).num_days() {
         ..=0 => "today".into(),

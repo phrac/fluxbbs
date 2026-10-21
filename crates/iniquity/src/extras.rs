@@ -685,9 +685,14 @@ impl Session {
             let key = self.read_key().await?;
             if matches!(key, Key::Enter | Key::Esc) {
                 if key == Key::Esc {
+                    // The password, SSH keys and plan are saved as they change.
                     let pw = std::mem::take(&mut self.user.password_hash);
+                    let keys = std::mem::take(&mut self.user.ssh_keys);
+                    let plan = std::mem::take(&mut self.user.plan);
                     self.user = original;
                     self.user.password_hash = pw;
+                    self.user.ssh_keys = keys;
+                    self.user.plan = plan;
                     self.screen.set_charset(charset);
                 }
                 self.save_user();
@@ -722,6 +727,18 @@ impl Session {
             'M' => self.emulation_name().into(),
             'N' => self.current_theme().map(|t| t.desc).unwrap_or_else(|| "n/a".into()),
             'O' => u.zip_code.clone(),
+            // New: the plan, for finger.
+            'Q' => match u.plan.len() {
+                0 => "none".into(),
+                1 => "1 line".into(),
+                n => format!("{n} lines"),
+            },
+            // New: SSH keys on file.
+            'P' => match u.ssh_keys.len() {
+                0 => "none".into(),
+                1 => "1 key".into(),
+                n => format!("{n} keys"),
+            },
             _ => String::new(),
         }
     }
@@ -741,6 +758,8 @@ impl Session {
                 let s = self.read_string(text(3).allowed(DIGITS).prefill(self.user.page_length.to_string())).await?;
                 self.user.page_length = s.parse::<u16>().unwrap_or(self.user.page_length).clamp(5, 200);
             }
+            'P' => self.ssh_keys_edit().await?,
+            'Q' => self.plan_edit().await?,
             'H' => self.user.yes_no_bars = !self.user.yes_no_bars,
             'I' => self.user.expert = !self.user.expert,
             'J' => self.user.hot_keys = !self.user.hot_keys,

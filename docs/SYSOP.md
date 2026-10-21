@@ -155,6 +155,19 @@ New, in `[passwords]` and `[newuser]`, or "Passwords and Sign-ups" in
   called back are marked deleted after that many days, checked every 10
   minutes.
 
+### SSH keys
+
+New: callers can keep SSH public keys on their account (`k` in user
+config, or `UK` on a menu): paste the line from the `.pub` file, up to
+eight keys. Logging in over SSH with the handle as the SSH user name
+(`ssh phrac@bbs.example.com -p 2222`) and one of those keys comes
+straight in, with no bot check or login prompts; SysOps are still asked
+the system password. A handle with keys on file is asked for a key
+first; without the right one the client falls back to the usual way in
+(no SSH password is asked; the board's own login follows), so nobody is
+locked out. The USERCFG screen shows the count at a `~P` field (`~PK`,
+key `k`).
+
 ## Website feed
 
 New: `[web]` (off by default; "Website Feed" in `*C`) serves a read-only

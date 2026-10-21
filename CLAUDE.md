@@ -110,7 +110,8 @@ with the scripted callers in `tools/`:
     python3 tools/drive_telnet.py 127.0.0.1:2323 'in order=>@solve' ...
 
 `PORT=3222` points `drive_ssh.py` at a test server while a live board
-holds 2222. For uploads without lrzsz, `cargo build --release --examples`
+holds 2222; `SSH_KEY=file` logs in with that key (otherwise it offers
+none, not even `~/.ssh`'s). For uploads without lrzsz, `cargo build --release --examples`
 gives `target/release/examples/zsend FILE...`, a Zmodem sender on the
 same library (`'(?i)initiate=>!/abs/path/zsend a.zip'`, with `XFER_DIR`
 as its working directory). Remember `cargo build --release` for the

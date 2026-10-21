@@ -140,7 +140,7 @@ impl Session {
     }
 
     /// The areas the caller can read, as (number shown, area).
-    fn readable_areas(&self) -> Vec<(u32, AreaRef)> {
+    pub(crate) fn readable_areas(&self) -> Vec<(u32, AreaRef)> {
         self.msg_area_labels().into_iter().filter_map(|(label, n)| self.msg_area(n).filter(|a| self.acs(&a.area.acs)).map(|a| (label, a))).collect()
     }
 
@@ -396,6 +396,17 @@ impl Session {
     /// `MW` (at logon): say how many new posts there are, and offer to read
     /// them.
     pub async fn logon_new_check(&mut self) -> io::Result<()> {
+        // New: posts the caller was @mentioned in come first.
+        let mentioned = self.mentions_to_read(true)?.len();
+        if mentioned > 0 {
+            self.newline();
+            let s = self.strings().fmt("MentionLogon", &[&mentioned.to_string()]);
+            self.show(&s).await?;
+            if self.yes_no(true).await? {
+                self.read_mentions("").await?;
+            }
+            self.newline();
+        }
         let (mut posts, mut areas) = (0, 0);
         for (_, a) in self.scanned_areas() {
             let n = self.area_view(&a)?.new_count();
@@ -414,6 +425,41 @@ impl Session {
             self.read_all_new().await?;
         }
         self.newline();
+        Ok(())
+    }
+
+    // ---- @mentions (new) ---------------------------------------------------
+
+    /// The messages the caller was @mentioned in that they may read, with
+    /// their areas; only unseen ones if `unseen`.
+    fn mentions_to_read(&self, unseen: bool) -> io::Result<Vec<(AreaRef, Message)>> {
+        let areas = self.readable_areas();
+        let found = self.state.msgs.mentions(self.user.id, unseen).map_err(io_err)?;
+        Ok(found
+            .into_iter()
+            .filter_map(|m| {
+                let a = areas.iter().map(|(_, a)| a).find(|a| a.key().eq_ignore_ascii_case(&m.area))?.clone();
+                self.ok_to_read(&a, &m).then_some((a, m))
+            })
+            .collect())
+    }
+
+    /// `M@` (new): read the posts you were @mentioned in that you haven't
+    /// seen, newest first (`All`: the last hundred, seen or not); `t` in
+    /// the reader shows the whole thread.
+    pub async fn read_mentions(&mut self, param: &str) -> io::Result<()> {
+        let all = param.trim().to_ascii_uppercase().starts_with('A');
+        let found = self.mentions_to_read(!all)?;
+        if found.is_empty() {
+            self.newline();
+            return self.say_line("MentionNone").await;
+        }
+        for (a, m) in found {
+            self.state.msgs.mention_seen(self.user.id, m.id).map_err(io_err)?;
+            if self.read_seq(&a, &[m.num], 0).await? == ReadEnd::Quit || self.hangup {
+                break;
+            }
+        }
         Ok(())
     }
 
@@ -694,6 +740,13 @@ impl Session {
                         self.reader_prompt_area();
                         self.offer_attachment(&m).await?;
                         redraw = true;
+                    }
+                    // New: finger the author.
+                    Some('F') if !m.anonymous => {
+                        if let Some(u) = self.state.users.get(m.from.user_id).map_err(io_err)?.filter(|u| !u.deleted) {
+                            self.finger_user(&u).await?;
+                            redraw = true;
+                        }
                     }
                     Some('?') => {
                         self.reader_help().await?;

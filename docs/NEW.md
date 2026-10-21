@@ -12,6 +12,8 @@ have, add it here (and the details in the doc it belongs to).
 
 - SSH (with the older algorithms SyncTERM needs) and telnet (binary,
   NAWS, terminal type, Zmodem over it) in place of modems.
+- SSH key login: keys kept on the account log the caller straight in
+  (no bot check or login prompts). ([SYSOP](SYSOP.md#ssh-keys))
 - CP437 or UTF-8 terminals; aixterm bright colours, iCE backgrounds, and
   256 and 24-bit colour art passed through.
 - Output paced to the terminal for fast streams (animated GIFs), and a
@@ -85,6 +87,9 @@ have, add it here (and the details in the doc it belongs to).
   offers to read them. ([FEATURES](FEATURES.md#message-centre))
 - `MX newest`, `hot`, `dig`, `mouth`, `loud`, `unread`: straight to a
   message, an area or what's new, for the menu's stats.
+- @mentions: `@handle` in a public post tells that caller, by node
+  message if they're on and at their next logon; `M@` reads them.
+  ([FEATURES](FEATURES.md#message-centre))
 - MeshCore radio channels bridged to message areas.
   ([FEATURES](FEATURES.md#meshcore))
 - QWK: email as conference 0, threads in and out, four-digit years.
@@ -99,6 +104,8 @@ have, add it here (and the details in the doc it belongs to).
 - Doors in a built-in DOS machine (real-mode x86, BIOS, FOSSIL, DOS,
   batch files); DOOR32.SYS (`D4`) and no drop file (`D0`). ([DOORS](DOORS.md))
 - Screen themes picked by callers (`UT`).
+- Profiles: finger (`UF`, `f` in the reader, after the user list) with
+  a plan written in user config. ([FEATURES](FEATURES.md#in-detail))
 - `*O` logon sequence: the steps after logging in, ordered and switched
   on and off, with "new users stop here".
 - `*V` events run by the server's own scheduler, with built-in pack jobs.
@@ -119,7 +126,10 @@ New commands (2.0's are in FEATURES):
 | `MH` | message centre |
 | `MW` (+ `Read`) | new posts at logon |
 | `MX` (+ `newest` `hot` `dig` `mouth` `loud` `unread`) | jump to a message from the stats |
+| `M@` (+ `All`) | posts that mention you |
 | `UT` | pick a screen theme |
+| `UK` | your SSH keys |
+| `UF` (+ handle) | finger someone |
 | `D0`, `D4` | door with no drop file, with DOOR32.SYS |
 | `*G` | security log and bans |
 | `*O` | logon sequence |
@@ -144,11 +154,12 @@ New screens ([ARTWORK](ARTWORK.md)):
 | `MTHRD` TOP/MID/HIL/BOT | an area's threads |
 | `MSGRHELP` | the reader's help |
 | `CFGFAREA` TOP/MID/HIL/BOT | `*F`'s area list |
+| `FINGER` | a caller's profile |
 
 New markers in older screens: `~RT` in MSGHEAD (what a message
 answers), `~NA` `~NF` `~SZ` in LISTFILE and GALLERY (files, folders,
 size), `~TN` `~SS` `~SH` in the BBS list screens (telnet, SSH, SSH
-short).
+short), `~P?` (SSH keys) and `~Q?` (plan) in USERCFG.
 
 New settings sections in `iniquity.toml`: `[ssh]`, `[telnet]`, `[web]`,
 `[gallery]`, `[security]`, `[passwords]`, `[dos]`, `[ai]`,

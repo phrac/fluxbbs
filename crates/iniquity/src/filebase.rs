@@ -266,6 +266,21 @@ impl FileBase {
         Ok(())
     }
 
+    /// New: `uploader`'s newest validated files in `areas`.
+    pub fn by_uploader(&self, uploader: &str, areas: &[String], limit: u32) -> anyhow::Result<Vec<FileRec>> {
+        if areas.is_empty() {
+            return Ok(Vec::new());
+        }
+        let db = self.db.lock().unwrap();
+        let sql = format!(
+            "SELECT * FROM files WHERE valid AND uploader = ? COLLATE NOCASE AND area IN ({}) ORDER BY uploaded DESC, id DESC LIMIT {limit}",
+            vec!["?"; areas.len()].join(",")
+        );
+        let p = rusqlite::params_from_iter(std::iter::once(&uploader as &dyn rusqlite::ToSql).chain(areas.iter().map(|a| a as &dyn rusqlite::ToSql)));
+        let rows = db.prepare(&sql)?.query_map(p, from_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// New: what the validated files in `areas` add up to, for the file
     /// menu's `%F?` codes. `since` counts the uploads on or after it.
     pub fn stats(&self, areas: &[String], since: Option<NaiveDate>) -> anyhow::Result<FileStats> {

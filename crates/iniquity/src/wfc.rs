@@ -668,6 +668,7 @@ impl Wfc {
             remote: None,
             transport: "local",
             login_name: String::new(),
+            key_user: None,
             term: std::env::var("TERM").unwrap_or_else(|_| "xterm".into()),
             size,
         };
