@@ -1,6 +1,7 @@
 //! Message areas, reading, posting, newscans and email (`MsgArea.pas`,
 //! `Email.pas`, `Conf.pas`).
 
+use std::collections::HashSet;
 use std::io;
 
 use chrono::Local;
@@ -46,18 +47,41 @@ impl Session {
         self.state.areas().get(n).map(|a| AreaRef { num: n, area: a.clone() })
     }
 
+    /// The current area, if it's open to the caller (`area_open`).
     pub fn current_area(&self) -> Option<AreaRef> {
-        self.msg_area(self.user.cur_msg_area)
+        self.msg_area(self.user.cur_msg_area).filter(|a| self.area_open(a))
     }
 
+    /// The caller may read the area now: its ACS passes and, if it has a
+    /// password, that was given this call.
+    pub(crate) fn area_open(&self, a: &AreaRef) -> bool {
+        self.acs(&a.area.acs) && (a.area.password.is_empty() || self.opened_areas.contains(&a.key().to_ascii_uppercase()))
+    }
+
+    /// The original matched names; a party with a user number is matched
+    /// by it instead, so a caller whose handle is "None" (the alias of
+    /// every party that isn't a user) or matches a name from an echo isn't
+    /// taken for them. Parties without a number (echomail) go by alias.
     pub(crate) fn is_me(&self, p: &Party) -> bool {
-        p.alias.eq_ignore_ascii_case(&self.user.handle)
-            || (!p.real_name.is_empty() && p.real_name.eq_ignore_ascii_case(&self.user.real_name))
+        if p.user_id != 0 {
+            return p.user_id == self.user.id;
+        }
+        !p.alias.eq_ignore_ascii_case("None") && p.alias.eq_ignore_ascii_case(&self.user.handle)
     }
 
+    /// Wrote it here: only a user number gives the right to edit or delete.
+    fn wrote(&self, p: &Party) -> bool {
+        p.user_id != 0 && p.user_id == self.user.id
+    }
+
+    /// By handle, or by real name if no one before them has it (real
+    /// names aren't unique: a new caller could give the sponsor's).
     pub(crate) fn is_sponsor(&self, a: &AreaRef) -> bool {
-        self.acs(&a.area.acs)
-            && (a.area.sponsor.eq_ignore_ascii_case(&self.user.handle) || a.area.sponsor.eq_ignore_ascii_case(&self.user.real_name))
+        let s = a.area.sponsor.trim();
+        !s.is_empty()
+            && self.acs(&a.area.acs)
+            && (s.eq_ignore_ascii_case(&self.user.handle)
+                || (s.eq_ignore_ascii_case(&self.user.real_name) && self.state.users.find(s, false).ok().flatten().is_some_and(|u| u.id == self.user.id)))
     }
 
     pub(crate) fn is_cosysop(&self) -> bool {
@@ -70,11 +94,11 @@ impl Session {
     }
 
     pub(crate) fn ok_to_delete(&self, a: &AreaRef, m: &Message) -> bool {
-        self.is_cosysop() || self.is_sponsor(a) || (m.private && self.is_me(&m.to)) || self.is_me(&m.from)
+        self.is_cosysop() || self.is_sponsor(a) || (m.private && self.is_me(&m.to)) || self.wrote(&m.from)
     }
 
     pub(crate) fn ok_to_edit(&self, a: &AreaRef, m: &Message) -> bool {
-        self.is_cosysop() || self.is_sponsor(a) || self.is_me(&m.from)
+        self.is_cosysop() || self.is_sponsor(a) || self.wrote(&m.from)
     }
 
     /// `maChangeArea`: switch to an area if the caller may, asking for its
@@ -84,13 +108,14 @@ impl Session {
         if !self.acs(&a.area.acs) {
             return Ok(false);
         }
-        if !a.area.password.is_empty() {
+        if !a.area.password.is_empty() && !self.opened_areas.contains(&a.key().to_ascii_uppercase()) {
             self.say("MsgAskPassword").await?;
             let pw = self.read_string(ReadOpts::new(20).password()).await?;
             self.newline();
             if !pw.eq_ignore_ascii_case(&a.area.password) {
                 return Ok(false);
             }
+            self.opened_areas.insert(a.key().to_ascii_uppercase());
         }
         self.user.cur_msg_area = n;
         tracing::info!("{}: changed to message area {}", self.user.handle, a.area.name);
@@ -98,12 +123,13 @@ impl Session {
     }
 
     /// `maFindAreaWithAccess`: make sure the current area is one the caller
-    /// can use.
+    /// can use. A passworded area saved from the last call isn't open
+    /// until its password is given again.
     pub fn find_area_with_access(&mut self) {
-        if self.current_area().is_some_and(|a| self.acs(&a.area.acs)) {
+        if self.current_area().is_some() {
             return;
         }
-        if let Some(n) = (1..=self.state.areas().areas.len() as u32).find(|&n| self.msg_area(n).is_some_and(|a| self.acs(&a.area.acs))) {
+        if let Some(n) = (1..=self.state.areas().areas.len() as u32).find(|&n| self.msg_area(n).is_some_and(|a| self.area_open(&a))) {
             self.user.cur_msg_area = n;
         }
     }
@@ -366,9 +392,9 @@ impl Session {
         let w = waves([
             ("TI", time.clone()),
             ("DT", date.clone()),
-            ("SN", m.from.name.clone()),
-            ("RN", m.to.name.clone()),
-            ("MT", m.subject.clone()),
+            ("SN", crate::editor::printable(&m.from.name).into_owned()),
+            ("RN", crate::editor::printable(&m.to.name).into_owned()),
+            ("MT", crate::editor::printable(&m.subject).into_owned()),
             ("MN", format!("{pos}/{total}")),
             ("MA", a.area.name.clone()),
             ("RP", m.replies.to_string()),
@@ -384,9 +410,9 @@ impl Session {
             let replies = if m.replies == 0 { "None".to_string() } else { m.replies.to_string() };
             let rows = [
                 format!("|U4Time  |U5: |U6{}   |U4Date |U5: |U6{date}        |U4Number   |U5: |U6{pos}|U4 of |U6{total}", resize(&time, 7)),
-                format!("|U4From  |U5: |U6{} |U4Msg Area |U5: |U6{}", resize(&m.from.name, 32), squish(&a.area.name, 28)),
-                format!("|U4To    |U5: |U6{} |U4Replies  |U5: |U6{replies}", resize(&m.to.name, 32)),
-                format!("|U4Title |U5: |U6{} |U4Status   |U5: |U6{}", resize(&m.subject, 32), squish(&Self::status_str(m), 28)),
+                format!("|U4From  |U5: |U6{} |U4Msg Area |U5: |U6{}", resize(&crate::editor::printable(&m.from.name), 32), squish(&a.area.name, 28)),
+                format!("|U4To    |U5: |U6{} |U4Replies  |U5: |U6{replies}", resize(&crate::editor::printable(&m.to.name), 32)),
+                format!("|U4Title |U5: |U6{} |U4Status   |U5: |U6{}", resize(&crate::editor::printable(&m.subject), 32), squish(&Self::status_str(m), 28)),
             ];
             for r in rows {
                 self.write_with_controls(&r);
@@ -409,16 +435,17 @@ impl Session {
         self.set_slot(Slot::TextHi);
         for line in &m.lines {
             if line.contains('\x1b') {
-                self.screen.write_bytes(&iniquity_term::cp437::encode(line));
+                self.screen.write_bytes(&crate::editor::ansi_bytes(line));
                 self.newline();
             } else {
+                let line = crate::editor::printable(line);
                 let quote = line.chars().take(3).any(|c| c == '>');
                 let s = if quote {
                     format!("|U1{line}|U3")
                 } else if line.starts_with("---") && (line.len() == 3 || line.as_bytes()[3] == b' ') {
                     format!("|U2{line}")
                 } else {
-                    line.clone()
+                    line.into_owned()
                 };
                 self.write_with_controls(&s);
                 self.newline();
@@ -444,19 +471,22 @@ impl Session {
 
     // ---- reading --------------------------------------------------------
 
-    /// First message after the caller's pointer that they may read
-    /// (`maNewScanMsgNum`), or 0.
+    /// First message after the caller's pointer that they may read and
+    /// haven't read in the message centre (`maNewScanMsgNum`), or 0.
     fn first_new(&self, a: &AreaRef) -> io::Result<u32> {
         let last = self.state.msgs.lastread(self.user.id, a.key()).map_err(io_err)?;
         let msgs = self.state.msgs.range(a.key(), last + 1, u32::MAX).map_err(io_err)?;
-        Ok(msgs.iter().find(|m| self.ok_to_read(a, m)).map_or(0, |m| m.num))
+        let seen = self.state.msgs.seen(self.user.id, a.key()).map_err(io_err)?;
+        Ok(msgs.iter().find(|m| !seen.contains(&m.id) && self.ok_to_read(a, m)).map_or(0, |m| m.num))
     }
 
-    /// The nearest readable message at or after/before `n`.
-    fn readable(&self, a: &AreaRef, n: u32, forward: bool, total: u32) -> io::Result<Option<Message>> {
+    /// The nearest readable message at or after/before `n`, not one in
+    /// `skip`.
+    fn readable(&self, a: &AreaRef, n: u32, forward: bool, total: u32, skip: &HashSet<i64>) -> io::Result<Option<Message>> {
         let mut n = n;
         while (1..=total).contains(&n) {
             if let Some(m) = self.state.msgs.get(a.key(), n).map_err(io_err)?
+                && !skip.contains(&m.id)
                 && self.ok_to_read(a, &m) {
                     return Ok(Some(m));
                 }
@@ -466,7 +496,8 @@ impl Session {
     }
 
     /// `maReadMessages`. `start` 0 asks where to begin. Returns false if
-    /// the caller quit (which ends a global newscan).
+    /// the caller quit (which ends a global newscan). A scan (`!show_empty`)
+    /// passes over messages already read in the message centre.
     pub async fn read_messages(&mut self, a: &AreaRef, start: u32, mandatory: bool, show_empty: bool) -> io::Result<bool> {
         let mut total = self.state.msgs.count(a.key()).map_err(io_err)?;
         if total == 0 {
@@ -490,7 +521,9 @@ impl Session {
             cur = s.parse().unwrap_or(1);
         }
         cur = cur.clamp(1, total);
-        let Some(mut m) = self.readable(a, cur, true, total)? else { return Ok(true) };
+        let none = HashSet::new();
+        let seen = if show_empty { HashSet::new() } else { self.state.msgs.seen(self.user.id, a.key()).map_err(io_err)? };
+        let Some(mut m) = self.readable(a, cur, true, total, &seen)? else { return Ok(true) };
         cur = m.num;
         let may_quit = self.state.config().messages.abort_mandatory_ok || !mandatory;
         let mut show = true;
@@ -501,17 +534,21 @@ impl Session {
             self.menu_msg = cur;
             if show {
                 self.show_message(a, &m, cur, total).await?;
-                if cur > self.state.msgs.lastread(self.user.id, a.key()).map_err(io_err)? {
-                    self.state.msgs.set_lastread(self.user.id, a.key(), cur).map_err(io_err)?;
-                }
+                // By row: a pack meanwhile may have renumbered it.
+                self.state.msgs.set_lastread_id(self.user.id, a.key(), m.id).map_err(io_err)?;
             }
             show = false;
             let s = self.strings().fmt("MsgReadPrompt", &[&cur.to_string(), &total.to_string()]);
             self.show(&s).await?;
             let (key, typed) = self.read_command_or_number(total, "QPA?RDEHLIS-").await?;
+            // Where this message is now, should another node have packed.
+            if let Some(n) = self.state.msgs.num_of(m.id).map_err(io_err)? {
+                cur = n;
+            }
+            total = self.state.msgs.count(a.key()).map_err(io_err)?;
             if let Some(n) = typed {
                 self.newline();
-                if let Some(found) = self.readable(a, n.clamp(1, total), false, total)? {
+                if let Some(found) = self.readable(a, n.clamp(1, total), false, total, &none)? {
                     m = found;
                     cur = m.num;
                 }
@@ -526,7 +563,7 @@ impl Session {
                     }
                     self.say_line("MsgReadMandatory").await?;
                 }
-                '\r' => match self.readable(a, cur + 1, true, total)? {
+                '\r' => match self.readable(a, cur + 1, true, total, &seen)? {
                     Some(next) => {
                         m = next;
                         cur = m.num;
@@ -548,7 +585,7 @@ impl Session {
                     return Ok(true);
                 }
                 '-' => {
-                    if let Some(prev) = self.readable(a, cur.saturating_sub(1), false, total)? {
+                    if let Some(prev) = self.readable(a, cur.saturating_sub(1), false, total, &none)? {
                         m = prev;
                         cur = m.num;
                     }
@@ -569,14 +606,13 @@ impl Session {
                 'R' => {
                     if self.post(a, "", "", Some(&m)).await?.is_some() {
                         m.replies += 1;
-                        self.state.msgs.update(&m).map_err(io_err)?;
                         total = self.state.msgs.count(a.key()).map_err(io_err)?;
                         self.newline();
                     }
                 }
                 'D' if self.ok_to_delete(a, &m) => {
                     m.deleted = !m.deleted;
-                    self.state.msgs.update(&m).map_err(io_err)?;
+                    self.state.msgs.set_deleted(m.id, m.deleted).map_err(io_err)?;
                     self.say_line(if m.deleted { "MsgDeleted" } else { "MsgUndeleted" }).await?;
                     tracing::info!("{}: message {} in {} {}", self.user.handle, cur, a.area.name, if m.deleted { "deleted" } else { "undeleted" });
                     show = true;
@@ -592,7 +628,7 @@ impl Session {
                 }
                 'L' => {
                     cur = self.list_messages(a, cur, total).await?;
-                    if let Some(found) = self.readable(a, cur, false, total)? {
+                    if let Some(found) = self.readable(a, cur, false, total, &none)? {
                         m = found;
                         cur = m.num;
                     }
@@ -716,18 +752,24 @@ impl Session {
         }
         let mut private = a.is_email();
         let (to_party, default_subject) = match reply {
+            // Mail from elsewhere (FTN netmail) has nobody here to answer;
+            // writing netmail isn't done yet.
+            Some(r) if a.is_email() && r.from.user_id == 0 => {
+                self.say_line("EmailUserUnknown").await?;
+                return Ok(None);
+            }
             Some(r) => {
                 let subj = if r.subject.to_ascii_uppercase().starts_with("RE:") { r.subject.clone() } else { format!("Re: {}", r.subject) };
+                // A reply to a private message is private unless the
+                // writer says otherwise (`maPostMessage` asked).
+                private = a.is_email() || r.private;
                 if a.area.private && !a.is_email() && ask_private_reply {
                     self.say("MsgAskPrivate").await?;
                     private = self.yes_no(r.private).await?;
                 }
-                // Replies to anonymous messages still reach the author.
-                let mut to = r.from.clone();
-                if r.anonymous {
-                    to.name = to.alias.clone();
-                }
-                (to, subj)
+                // Replies to anonymous messages still reach the author (by
+                // number), but the name shown stays "Anonymous".
+                (r.from.clone(), subj)
             }
             None => {
                 self.say("MsgAskWhoTo").await?;
@@ -896,6 +938,11 @@ impl Session {
 
     /// `maEditMessage` (`E` in the reader): re-edit a message's text.
     pub(crate) async fn edit_existing(&mut self, a: &AreaRef, m: &mut Message) -> io::Result<()> {
+        // The editor would cut what it can't hold (echomail, ANSI).
+        let body = m.body();
+        if body.len() > crate::editor::MAX_LINES || body.iter().any(|l| l.contains('\x1b') || l.chars().count() > crate::editor::WIDTH) {
+            return self.say_line("MsgCantEdit").await;
+        }
         let ctx = EditCtx {
             subject: m.subject.clone(),
             from: m.from.name.clone(),
@@ -918,7 +965,7 @@ impl Session {
                 m.sig_pos = m.lines.len() as u32 + 1;
                 m.lines.extend(sig);
             }
-            self.state.msgs.update(m).map_err(io_err)?;
+            self.state.msgs.update_text(m).map_err(io_err)?;
             tracing::info!("{}: edited #{} in {}", self.user.handle, m.num, a.area.name);
         }
         Ok(())
@@ -958,7 +1005,7 @@ impl Session {
         let off = if all { self.scan_off('M') } else { Default::default() };
         for n in areas {
             let Some(a) = self.msg_area(n) else { continue };
-            if !self.acs(&a.area.acs) || off.contains(a.key()) {
+            if !self.area_open(&a) || off.contains(a.key()) {
                 continue;
             }
             let count = self.state.msgs.count(a.key()).map_err(io_err)?.to_string();
@@ -989,7 +1036,7 @@ impl Session {
         };
         for n in range {
             let Some(a) = self.msg_area(n) else { continue };
-            if !a.area.mandatory || !self.acs(&a.area.acs) {
+            if !a.area.mandatory || !self.area_open(&a) {
                 continue;
             }
             let first = self.first_new(&a)?;
@@ -1050,7 +1097,7 @@ impl Session {
     /// The caller's email: all of it, or with `E+` on, only what carries
     /// the `E\` read tag.
     pub(crate) fn mailbox(&self) -> anyhow::Result<Vec<Message>> {
-        let mail = self.state.msgs.mail_for(&self.state.areas().email.file, &self.user.handle, &self.user.real_name, false)?;
+        let mail = self.state.msgs.mail_for(&self.state.areas().email.file, self.user.id, &self.user.handle, &self.user.real_name, false)?;
         Ok(if self.use_tag { mail.into_iter().filter(|m| m.tag == self.read_tag).collect() } else { mail })
     }
 
@@ -1145,17 +1192,17 @@ impl Session {
                             self.say("EmailKillOriginal").await?;
                             if self.yes_no(true).await? {
                                 mail[idx].deleted = true;
+                                self.state.msgs.set_deleted(mail[idx].id, true).map_err(io_err)?;
                             }
                             self.newline();
                         }
-                        self.state.msgs.update(&mail[idx]).map_err(io_err)?;
                     }
                 }
                 'D' => {
                     let m = &mut mail[idx];
                     m.deleted = !m.deleted;
                     let deleted = m.deleted;
-                    self.state.msgs.update(&mail[idx]).map_err(io_err)?;
+                    self.state.msgs.set_deleted(m.id, deleted).map_err(io_err)?;
                     self.say_line(if deleted { "MsgDeleted" } else { "MsgUndeleted" }).await?;
                     show = true;
                 }
@@ -1184,7 +1231,7 @@ impl Session {
                 if self.yes_no(false).await? {
                     for i in left {
                         mail[i].deleted = true;
-                        self.state.msgs.update(&mail[i]).map_err(io_err)?;
+                        self.state.msgs.set_deleted(mail[i].id, true).map_err(io_err)?;
                     }
                 }
             }

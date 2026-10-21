@@ -33,6 +33,10 @@ const BLOCK: usize = 128;
 /// Message lines are kept to this width.
 const WIDTH: usize = 79;
 
+/// Most replies taken from one REP, and lines kept of one reply.
+const MAX_REPLIES: usize = 500;
+const MAX_REPLY_LINES: usize = 1000;
+
 /// `qwkLong2BasicReal`: a number in Microsoft Binary Format, as the
 /// index files hold record numbers.
 pub fn msbin(n: u32) -> [u8; 4] {
@@ -208,13 +212,21 @@ pub fn parse_rep(data: &[u8]) -> Vec<Reply> {
             Ok(n) if n >= 1 => n,
             _ => break,
         };
+        // 0 falls back to the binary field, as `qwkUpload` did.
         let conf = match text(&h[1..8]).parse::<u32>() {
-            Ok(n) => n,
-            Err(_) => u16::from_le_bytes([h[123], h[124]]) as u32,
+            Ok(n) if n > 0 => n,
+            _ => u16::from_le_bytes([h[123], h[124]]) as u32,
         };
-        let body = &data[(at + BLOCK).min(data.len())..(at + blocks * BLOCK).min(data.len())];
+        let end = at.saturating_add(blocks.saturating_mul(BLOCK));
+        // Killed in the reader (0xE2): not posted.
+        if h[122] == 0xE2 {
+            at = end;
+            continue;
+        }
+        let body = &data[(at + BLOCK).min(data.len())..end.min(data.len())];
         let mut lines: Vec<String> = body
             .split(|&c| c == EOL)
+            .take(MAX_REPLY_LINES + 1)
             .map(|l| cp437::decode(l).trim_end_matches([' ', '\0', '\r', '\n']).to_string())
             .collect();
         while lines.last().is_some_and(String::is_empty) {
@@ -222,13 +234,13 @@ pub fn parse_rep(data: &[u8]) -> Vec<Reply> {
         }
         out.push(Reply {
             conf,
-            to: text(&h[21..46]),
-            subject: text(&h[71..96]),
+            to: crate::editor::printable(&text(&h[21..46])).into_owned(),
+            subject: crate::editor::printable(&text(&h[71..96])).into_owned(),
             private: matches!(h[0], b'*' | b'+'),
             refer: text(&h[108..116]).parse().unwrap_or(0),
             lines,
         });
-        at += blocks * BLOCK;
+        at = end;
     }
     out
 }
@@ -277,8 +289,13 @@ fn rep_messages(path: &Path) -> anyhow::Result<Vec<u8>> {
         .find(|n| n.to_ascii_uppercase().ends_with(".MSG"))
         .map(|n| n.into_owned())
         .ok_or_else(|| anyhow::anyhow!("no .MSG file in the packet"))?;
+    // A REP is a few KB; one that unpacks to more is refused, not read.
+    const LIMIT: u64 = 8 << 20;
     let mut data = Vec::new();
-    z.by_name(&name)?.read_to_end(&mut data)?;
+    z.by_name(&name)?.take(LIMIT + 1).read_to_end(&mut data)?;
+    if data.len() as u64 > LIMIT {
+        anyhow::bail!("{name} unpacks to more than {} MB", LIMIT >> 20);
+    }
     Ok(data)
 }
 
@@ -290,24 +307,28 @@ fn io_err(e: anyhow::Error) -> io::Error {
 struct Packed {
     conf: u16,
     area: AreaRef,
-    /// Newest message looked at: where the newscan pointer moves to.
-    newest: u32,
+    /// Newest message looked at (its row: a pack may renumber before the
+    /// download's done): where the newscan pointer moves to.
+    newest: Option<i64>,
 }
 
 impl Session {
     /// Can a QWK packet include this area? `all`: in any conference, not
     /// just the current one (`mandMsg`).
     fn qwk_area_ok(&self, a: &AreaRef, all: bool) -> bool {
-        if !a.area.password.is_empty() {
-            return false;
-        }
-        if self.acs(&a.area.acs) {
+        a.area.password.is_empty() && self.qwk_acs(&[&a.area.acs], all)
+    }
+
+    /// Do these ACS strings all pass, in the current conference or (`all`)
+    /// in one the caller may join?
+    fn qwk_acs(&self, acs: &[&str], all: bool) -> bool {
+        if acs.iter().all(|a| self.acs(a)) {
             return true;
         }
-        all && (1..=self.state.areas().confs.len() as u32).any(|c| {
+        all && self.state.areas().confs.iter().enumerate().any(|(i, conf)| {
             let mut u = self.user.clone();
-            u.conf_msg = c;
-            self.acs_for(&u, &a.area.acs)
+            u.conf_msg = i as u32 + 1;
+            self.acs_for(&u, &conf.acs) && acs.iter().all(|a| self.acs_for(&u, a))
         })
     }
 
@@ -364,18 +385,30 @@ impl Session {
         let end = (self.screen.where_x(), self.screen.where_y());
 
         self.qwk_step(screen, b"LC", "Creating control file").await?;
-        let mut packed = vec![Packed { conf: 0, area: self.email_area(), newest: 0 }];
+        let mut packed = vec![Packed { conf: 0, area: self.email_area(), newest: None }];
         // Areas taken out of newscans (`ME`) stay out of packets too.
         let off = self.scan_off('M');
         for n in 1..=total_areas {
             if let Some(a) = self.msg_area(n)
                 && !off.contains(a.key())
                 && self.qwk_area_ok(&a, all) {
-                    packed.push(Packed { conf: n as u16, area: a, newest: 0 });
+                    packed.push(Packed { conf: n as u16, area: a, newest: None });
                 }
         }
         let confs: Vec<(u16, String)> =
-            packed.iter().map(|p| (p.conf, crate::editor::strip_codes(if p.conf == 0 { "E-mail" } else { &p.area.area.name }))).collect();
+            // Readers hold 13 characters of a conference name: the area's
+            // QWK name if it has one.
+            packed
+                .iter()
+                .map(|p| {
+                    let name = match p.conf {
+                        0 => "E-mail",
+                        _ if !p.area.area.qwk_name.trim().is_empty() => p.area.area.qwk_name.trim(),
+                        _ => &p.area.area.name,
+                    };
+                    (p.conf, crate::editor::strip_codes(name).chars().take(13).collect())
+                })
+                .collect();
         self.qwk_done(screen, b"LC", true);
         self.qwk_step(screen, b"LD", "Creating door identification file").await?;
         self.qwk_done(screen, b"LD", true);
@@ -386,7 +419,7 @@ impl Session {
             .copy_from_slice(b"Produced by Qmail...Copyright (c) 1987 by Sparkware.  All Rights Reserved");
         let mut files: Vec<(String, Vec<u8>)> = Vec::new();
         let mut personal = Vec::new();
-        let mut seq: u16 = 0;
+        let mut seq: usize = 0;
         for p in packed.iter_mut() {
             let key = p.area.area.file.clone();
             let last = self.state.msgs.lastread(self.user.id, &key).map_err(io_err)?;
@@ -395,10 +428,12 @@ impl Session {
             } else {
                 self.state.msgs.range(&key, last + 1, u32::MAX).map_err(io_err)?
             };
-            p.newest = msgs.last().map_or(last, |m| m.num);
+            p.newest = msgs.last().map(|m| m.id);
+            // Read in the message centre already: left out.
+            let seen = self.state.msgs.seen(self.user.id, &key).map_err(io_err)?;
             let wanted: Vec<&Message> = msgs
                 .iter()
-                .filter(|m| self.ok_to_read(&p.area, m) && (own || !self.is_me(&m.from)))
+                .filter(|m| !m.deleted && !seen.contains(&m.id) && self.ok_to_read(&p.area, m) && (own || !self.is_me(&m.from)))
                 .collect();
             if p.conf != 0 {
                 self.qwk_field(screen, b"MA", &p.area.area.name, 30);
@@ -413,9 +448,10 @@ impl Session {
             }
             let mut ndx = Vec::new();
             for m in wanted {
-                seq = seq.wrapping_add(1);
+                seq += 1;
                 let record = (dat.len() / BLOCK + 1) as u32;
                 let mut entry = msbin(record).to_vec();
+                // One byte: readers take the conference from the header.
                 entry.push(p.conf as u8);
                 ndx.extend(&entry);
                 if self.is_me(&m.to) {
@@ -436,7 +472,7 @@ impl Session {
                     subject: &m.subject,
                     blocks: 1 + body.len() / BLOCK,
                     conf: p.conf,
-                    seq,
+                    seq: seq as u16,
                     refer,
                 };
                 dat.extend(h.encode());
@@ -448,7 +484,7 @@ impl Session {
             self.flush().await?;
         }
         self.qwk_done(screen, b"LE", true);
-        let total = seq as usize;
+        let total = seq;
         let when = Local::now().naive_local();
         let control = Control {
             bbs_name: &crate::editor::strip_codes(&cfg.bbs.name),
@@ -525,7 +561,12 @@ impl Session {
         if self.yes_no(true).await? {
             self.say("QwkDLupdatingPtrs").await?;
             for p in packed {
-                self.state.msgs.set_lastread(self.user.id, &p.area.area.file, p.newest).map_err(io_err)?;
+                let key = &p.area.area.file;
+                if let Some(id) = p.newest {
+                    self.state.msgs.set_lastread_id(self.user.id, key, id).map_err(io_err)?;
+                    let last = self.state.msgs.lastread(self.user.id, key).map_err(io_err)?;
+                    self.state.msgs.forget_seen(self.user.id, key, last).map_err(io_err)?;
+                }
             }
             self.newline();
         }
@@ -583,27 +624,44 @@ impl Session {
             }
         };
         self.qwk_done(screen, b"LU", true);
-        let print = fingerprint(&data);
-        if print == self.user.last_rep {
-            fail(self, "already uploaded".into());
-            return self.say_line("QwkULalready").await;
+        // The first block names the board the replies are for: conference
+        // numbers mean nothing elsewhere.
+        let id = text(&data[..BLOCK.min(data.len())]);
+        if !id.split_whitespace().next().is_some_and(|w| w.eq_ignore_ascii_case(packet)) {
+            fail(self, format!("packet is for {id:?}"));
+            return self.say_line("QwkULerror").await;
         }
-        let replies = parse_rep(&data);
+        // The last REP is remembered as "fingerprint:replies done", kept
+        // up after each one: uploaded again after a call (or the board)
+        // went down partway, it carries on where it stopped.
+        let print = fingerprint(&data);
+        let done: usize = match self.user.last_rep.split_once(':') {
+            Some((p, n)) if p == print => n.parse().unwrap_or(0),
+            _ if self.user.last_rep == print => usize::MAX,
+            _ => 0,
+        };
+        let mut replies = parse_rep(&data);
         if replies.is_empty() {
             fail(self, "no replies in the packet".into());
             return self.say_line("QwkULerror").await;
         }
+        let refused_extra = replies.len().saturating_sub(MAX_REPLIES) as u32;
+        replies.truncate(MAX_REPLIES);
+        if done >= replies.len() {
+            fail(self, "already uploaded".into());
+            return self.say_line("QwkULalready").await;
+        }
 
         self.qwk_step(screen, b"LP", "Importing replies, please wait").await?;
-        let (mut posted, mut refused) = (0u32, 0u32);
-        for (i, r) in replies.into_iter().enumerate() {
+        let (mut posted, mut refused) = (0u32, refused_extra);
+        for (i, r) in replies.into_iter().enumerate().skip(done) {
             let area = if r.conf == 0 { Some(self.email_area()) } else { self.msg_area(r.conf) };
             self.qwk_field(screen, b"MA", &area.as_ref().map_or("?".into(), |a| a.area.name.clone()), 30);
             self.qwk_field(screen, b"TM", &(i + 1).to_string(), 5);
             self.qwk_field(screen, b"SN", &self.user.handle.clone(), 30);
             self.qwk_field(screen, b"RN", &r.to, 30);
             self.qwk_field(screen, b"MT", &r.subject, 40);
-            self.flush().await?;
+            let _ = self.flush().await;
             match self.qwk_post(area, r) {
                 Ok(true) => posted += 1,
                 Ok(false) => refused += 1,
@@ -612,10 +670,11 @@ impl Session {
                     refused += 1;
                 }
             }
+            self.user.last_rep = format!("{print}:{}", i + 1);
+            self.save_user();
         }
         self.qwk_done(screen, b"LP", true);
         self.qwk_step(screen, b"LS", "Updating message statistics").await?;
-        self.user.last_rep = print;
         self.save_user();
         self.qwk_done(screen, b"LS", true);
         if screen {
@@ -634,15 +693,27 @@ impl Session {
         let allowed = if email {
             self.acs(&self.state.config().messages.acs_post_email)
         } else {
-            a.area.password.is_empty() && self.acs(&a.area.acs) && self.acs(&a.area.post_acs)
+            // In whichever conference the packet took it from.
+            a.area.password.is_empty() && self.qwk_acs(&[&a.area.acs, &a.area.post_acs], true)
         };
-        if !allowed || r.lines.is_empty() {
+        // Marked private where that isn't allowed: refused, not posted in
+        // public (in an echo area it would go out to the network).
+        if !allowed || r.lines.is_empty() || (r.private && !email && !a.area.private) {
             return Ok(false);
         }
-        let to = match self.state.users.find(&r.to, false)? {
-            Some(u) => Party { user_id: u.id, alias: u.handle.clone(), real_name: u.real_name.clone(), name: u.handle, note: u.note },
-            None if email => return Ok(false),
-            None => {
+        // A reply to a message in the packet joins its thread, and goes to
+        // its writer: QWK's 25-character To can't hold every handle.
+        let parent = if r.refer > 0 { self.state.msgs.get(&a.area.file, r.refer)?.filter(|p| self.ok_to_read(&a, p)) } else { None };
+        let to_parent = parent.as_ref().filter(|p| {
+            let (want, name) = (r.to.trim().to_ascii_uppercase(), p.from.name.to_ascii_uppercase());
+            !want.is_empty() && name.starts_with(&want)
+        });
+        let to = match (to_parent, self.state.users.find(&r.to, false)?) {
+            (Some(p), _) if !email || p.from.user_id != 0 => p.from.clone(),
+            (Some(_), _) => return Ok(false),
+            (None, Some(u)) => Party { user_id: u.id, alias: u.handle.clone(), real_name: u.real_name.clone(), name: u.handle, note: u.note },
+            (None, None) if email => return Ok(false),
+            (None, None) => {
                 let name = if r.to.is_empty() { "All".to_string() } else { title_case(&r.to) };
                 Party { user_id: 0, alias: "None".into(), real_name: "None".into(), name, note: "None".into() }
             }
@@ -655,12 +726,13 @@ impl Session {
             name: if a.area.real_names { u.real_name.clone() } else { u.handle.clone() },
             note: u.note.clone(),
         };
-        let private = email || (r.private && a.area.private);
-        let lines = fit(r.lines);
-        // The original took the last line starting "--" as the signature.
-        let sig_pos = lines.iter().rposition(|l| l.chars().take(4).collect::<String>().contains("--")).map_or(0, |i| i as u32 + 1);
-        // A reply to a message in the packet joins its thread.
-        let parent = if r.refer > 0 && !email { self.state.msgs.get(&a.area.file, r.refer)? } else { None };
+        let private = email || r.private;
+        let mut lines = fit(r.lines);
+        lines.truncate(MAX_REPLY_LINES);
+        // The original took the last line with "--" in its first four
+        // characters as the signature; only one starting so here (not
+        // "> --" or "a -- b").
+        let sig_pos = lines.iter().rposition(|l| l.starts_with("--")).map_or(0, |i| i as u32 + 1);
         let mut m = Message {
             id: 0,
             area: a.area.file.clone(),
@@ -681,10 +753,6 @@ impl Session {
         self.state.msgs.add(&mut m)?;
         if !email {
             self.mark_read(&a, &m)?;
-        }
-        if let Some(mut p) = parent {
-            p.replies += 1;
-            self.state.msgs.update(&p)?;
         }
         if !private {
             self.state.mesh.post(&m);

@@ -650,7 +650,7 @@ impl Session {
                 Resp::Unit
             }
             Req::Beep => {
-                self.write("\x07");
+                self.screen.write_bytes(b"\x07");
                 Resp::Unit
             }
             Req::Goto(x, y) => {

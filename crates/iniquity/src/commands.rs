@@ -384,7 +384,11 @@ impl Session {
                 let code = [chars[i + 1] as u8, chars[i + 2] as u8];
                 if chars[i + 1].is_ascii() && chars[i + 2].is_ascii()
                     && let Some(v) = self.mci_value(code) {
-                        out.push_str(&if limit > 0 { iniquity_term::codes::squish(&v, limit) } else { v });
+                        // Defused: a value (a handle's initials can be
+                        // `|CS`) mustn't run codes where the text ends up,
+                        // a screen file say.
+                        let v = if limit > 0 { iniquity_term::codes::squish(&v, limit) } else { v };
+                        out.push_str(&iniquity_term::defuse(&v));
                         i += 3;
                         continue;
                     }

@@ -119,7 +119,9 @@ impl Session {
     pub(crate) fn mark_read(&self, a: &AreaRef, m: &Message) -> io::Result<()> {
         let key = a.key();
         let last = self.state.msgs.lastread(self.user.id, key).map_err(io_err)?;
-        if m.num <= last {
+        // Its number now (a pack renumbers), if it's still there.
+        let Some(num) = self.state.msgs.num_of(m.id).map_err(io_err)? else { return Ok(()) };
+        if num <= last {
             return Ok(());
         }
         self.state.msgs.mark_seen(self.user.id, m.id).map_err(io_err)?;
@@ -140,8 +142,18 @@ impl Session {
     }
 
     /// The areas the caller can read, as (number shown, area).
+    /// Areas the caller may read; a passworded one only once they've
+    /// given its password this call (the original's scans skipped the
+    /// question altogether).
     pub(crate) fn readable_areas(&self) -> Vec<(u32, AreaRef)> {
-        self.msg_area_labels().into_iter().filter_map(|(label, n)| self.msg_area(n).filter(|a| self.acs(&a.area.acs)).map(|a| (label, a))).collect()
+        self.msg_area_labels()
+            .into_iter()
+            .filter_map(|(label, n)| {
+                self.msg_area(n)
+                    .filter(|a| self.area_open(a))
+                    .map(|a| (label, a))
+            })
+            .collect()
     }
 
     /// [`Self::readable_areas`] less those taken out of newscans (`ME`).
@@ -682,12 +694,7 @@ impl Session {
                     Some('Q') => return Ok(ReadEnd::Quit),
                     Some('R') => {
                         self.reader_prompt_area();
-                        if self.post(a, "", "", Some(&m)).await?.is_some()
-                            && let Some(mut p) = self.state.msgs.get(a.key(), m.num).map_err(io_err)?
-                        {
-                            p.replies += 1;
-                            self.state.msgs.update(&p).map_err(io_err)?;
-                        }
+                        self.post(a, "", "", Some(&m)).await?;
                         cur = None;
                         redraw = true;
                     }
@@ -726,7 +733,7 @@ impl Session {
                     Some('D') if self.ok_to_delete(a, &m) => {
                         let mut x = m.clone();
                         x.deleted = !x.deleted;
-                        self.state.msgs.update(&x).map_err(io_err)?;
+                        self.state.msgs.set_deleted(x.id, x.deleted).map_err(io_err)?;
                         tracing::info!("{}: message {} in {} {}", self.user.handle, x.num, a.area.name, if x.deleted { "deleted" } else { "undeleted" });
                         cur = None;
                     }
@@ -811,10 +818,10 @@ impl Session {
 
     fn reader_line(&mut self, l: &str) {
         if l.contains('\x1b') {
-            self.screen.write_bytes(&iniquity_term::cp437::encode(l));
+            self.screen.write_bytes(&crate::editor::ansi_bytes(l));
         } else {
             self.set_slot(Slot::TextHi);
-            self.write_with_controls(l);
+            self.write_with_controls(&crate::editor::printable(l));
         }
     }
 }

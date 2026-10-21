@@ -192,6 +192,48 @@ Where the original's behaviour was a hazard or no longer fits:
 - Caller numbers don't repeat when two nodes log on at once.
 - Events are one scheduler in the server, not per node; no modem
   off-hook.
+- Messages are matched to callers by user number, not name: a handle of
+  "None" (every non-user party's alias) or one that matches a name from
+  an echo no longer gives someone else's mail or the right to edit and
+  delete; mail to a user is theirs alone. Replies to anonymous posts
+  stay addressed "Anonymous".
+- Passworded message areas stay out of scans, searches, mentions and
+  the menu's figures until their password is given in the call (the
+  original's newscan skipped the question).
+- QWK: "all conferences" only packs conferences the caller may join; a
+  reply marked private in an area without private mail is refused, not
+  posted in public; a reply goes to the writer of the message it
+  answers, whatever its 25-character To says. Messages already read in the
+  message centre are left out of packets and of `MN`/`MM` scans.
+- Characters that a CP437 terminal takes as control bytes (`←` is ESC)
+  are left out when a message is shown, and lines with ANSI keep only
+  colours and cursor-right, so posts (from the network, the radio or an
+  uploaded file) can't drive readers' terminals. The same goes for any
+  text the board shows without codes (file and archive names, SAUCE,
+  values in prompts): no control characters reach the terminal, and
+  values that end up in screen files (the oneliners) can't run codes.
+- A reply to a private message is private unless the writer says
+  otherwise; deleting a message changes only that, never undoing an
+  edit made meanwhile on another node.
+- Reading follows messages by row, not number, so a pack on another
+  node while someone reads doesn't skip messages or move their pointer
+  wrong.
+- An area's sponsor is matched by handle, or by real name only for the
+  first caller with it (real names aren't unique).
+- An @mention in an anonymous post doesn't say which node it came from.
+- QWK replies must be for this board (the packet's ID), at most 500 a
+  packet and 1000 lines each; ones killed in the reader aren't posted;
+  a packet uploaded again after a dropped call carries on where it
+  stopped; a reply to an area packed from another
+  conference is taken; deleted messages aren't packed; a signature is
+  a line starting `--`. Subjects and names from packets, the radio and
+  the network lose control characters.
+- MeshCore text loses control characters, and a sender using a
+  caller's name here shows as `name@mesh`.
+- The website feed shows handles, not real names, from real-name areas.
+- A message the editor can't hold whole (over 200 lines, wider than
+  79 columns, or with ANSI codes, as echomail can be) isn't opened for
+  editing, rather than cut short.
 
 ## From 2.0 and 2.20
 

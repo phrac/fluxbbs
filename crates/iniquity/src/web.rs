@@ -207,21 +207,23 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
 
     // Posts only from areas a new caller could read, never private ones.
     let mut messages = 0;
-    let mut posts = Vec::new();
-    for a in &state.areas().areas {
+    let areas = state.areas();
+    let mut open = Vec::new();
+    for a in &areas.areas {
         messages += state.msgs.count(&a.file)?;
-        if w.new_posts > 0 && public(state, &a.acs) && a.password.is_empty() {
-            posts.extend(state.msgs.all(&a.file)?.into_iter().filter(|m| !m.private && !m.deleted).map(|m| (a.name.clone(), m)));
+        if public(state, &a.acs) && a.password.is_empty() {
+            open.push(a.file.clone());
         }
     }
-    posts.sort_by(|a, b| b.1.posted.cmp(&a.1.posted));
+    let posts = if w.new_posts > 0 { state.msgs.newest_public(&open, w.new_posts as usize)? } else { Vec::new() };
     let new_posts = posts
         .into_iter()
-        .take(w.new_posts as usize)
-        .map(|(area, m)| NewPost {
-            area,
+        .filter_map(|m| areas.areas.iter().find(|a| a.file.eq_ignore_ascii_case(&m.area)).map(|a| (a, m)))
+        .map(|(a, m)| NewPost {
+            area: a.name.clone(),
             subject: m.subject,
-            from: if m.anonymous { m.from.name } else { shown(&m.from.name) },
+            // Handles, never real names (a real-name area's `name`).
+            from: if m.anonymous { m.from.name } else if a.real_names { shown(&m.from.alias) } else { shown(&m.from.name) },
             posted: m.posted.format("%Y-%m-%dT%H:%M:%S").to_string(),
             replies: m.replies,
             reply: m.reply_to != 0,
@@ -291,7 +293,7 @@ fn file_list(state: &BbsState, html: bool) -> anyhow::Result<String> {
             let date = f.uploaded.or(f.date).map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
             let size = format!("{}k", f.size.div_ceil(1024));
             let plain = |l: &str| {
-                let l = crate::editor::strip_codes(l);
+                let l = crate::editor::strip_colours(l);
                 iniquity_term::cp437::decode(&crate::aichat::strip_escapes(&iniquity_term::cp437::encode(&l)))
             };
             let desc: Vec<String> = f.description.iter().map(|l| plain(l)).collect();
@@ -317,10 +319,23 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     let started = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
     let cache = Arc::new(Mutex::new(Cache { at: None, body: String::new() }));
     let lists = Arc::new([Mutex::new(Cache { at: None, body: String::new() }), Mutex::new(Cache { at: None, body: String::new() })]);
+    // One rebuild at a time: requests that come meanwhile get its result.
+    let building = Arc::new(tokio::sync::Mutex::new(()));
+    // Requests served at once.
+    let slots = Arc::new(tokio::sync::Semaphore::new(32));
     loop {
-        let (mut sock, _) = listener.accept().await?;
-        let (state, cache, started, lists) = (state.clone(), cache.clone(), started.clone(), lists.clone());
+        let mut sock = match listener.accept().await {
+            Ok((s, _)) => s,
+            Err(e) => {
+                tracing::warn!("status feed: accept: {e}");
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+        };
+        let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
+        let (state, cache, started, lists, building) = (state.clone(), cache.clone(), started.clone(), lists.clone(), building.clone());
         tokio::spawn(async move {
+            let _slot = slot;
             let mut buf = vec![0u8; 4096];
             let mut got = 0;
             // The request line and headers, within a few seconds.
@@ -346,6 +361,7 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
                 let html = path.ends_with("html");
                 kind = if html { "text/html; charset=utf-8" } else { "text/plain; charset=utf-8" };
                 let slot = &lists[html as usize];
+                let _b = building.lock().await;
                 let fresh = slot.lock().unwrap().at.is_some_and(|t| t.elapsed() < FRESH * 6);
                 if !fresh {
                     let st = state.clone();
@@ -358,6 +374,7 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
                 let body = slot.lock().unwrap().body.clone();
                 if body.is_empty() { ("503 Service Unavailable", String::new()) } else { ("200 OK", body) }
             } else if path == "/status.json" || path == "/api/status.json" {
+                let _b = building.lock().await;
                 let fresh = cache.lock().unwrap().at.is_some_and(|t| t.elapsed() < FRESH);
                 if !fresh {
                     let st = state.clone();

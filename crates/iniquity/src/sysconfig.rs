@@ -414,7 +414,7 @@ impl Session {
     }
 
     /// The file the configuration was loaded from.
-    fn config_path(&self) -> PathBuf {
+    pub(crate) fn config_path(&self) -> PathBuf {
         self.state.config_path.clone()
     }
 

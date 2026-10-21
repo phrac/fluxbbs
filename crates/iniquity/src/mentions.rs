@@ -2,9 +2,50 @@
 //! once with a node message if they're on, and at their next logon (`MW`)
 //! or with `M@`. Quoted lines don't count, nor naming yourself.
 
+use chrono::{Datelike, Local, Timelike};
+
 use crate::BbsState;
+use crate::acs::{self, AcsEnv};
+use crate::msgareas::MsgArea;
 use crate::msgbase::Message;
 use crate::nodes::NodeEvent;
+use crate::user::User;
+
+/// Could `u`, not necessarily on, read `area`? Its ACS, in their current
+/// conference or any other they may join; never a passworded area.
+pub fn may_read(state: &BbsState, u: &User, area: &MsgArea) -> bool {
+    if !area.password.is_empty() {
+        return false;
+    }
+    let now = Local::now();
+    let level_req = state.level(u.level).map_or(0, |l| l.post_call as u32);
+    let env = AcsEnv {
+        age: u.age(now.date_naive()),
+        conf_msg: u.conf_msg,
+        conf_file: u.conf_file,
+        dsl: u.dsl,
+        sl: u.sl,
+        flags: u.flags.clone(),
+        sex: u.sex,
+        hour: now.hour(),
+        area_code: u.area_code().to_string(),
+        posts: u.posts,
+        minutes_left: u.time_today,
+        user_id: u.id,
+        level: u.level,
+        weekday: now.weekday().num_days_from_sunday(),
+        minute_of_day: now.hour() * 60 + now.minute(),
+        ratio_ok: (u.posts * 100).checked_div(u.total_calls).unwrap_or(0) >= level_req,
+        ..AcsEnv::default()
+    };
+    if acs::check(&area.acs, &env) {
+        return true;
+    }
+    state.areas().confs.iter().enumerate().any(|(i, c)| {
+        let env = AcsEnv { conf_msg: i as u32 + 1, ..env.clone() };
+        acs::check(&c.acs, &env) && acs::check(&area.acs, &env)
+    })
+}
 
 /// The names written after `@` in `lines`, each with up to two more
 /// words after it (handles can have spaces), longest first. Quoted lines
@@ -13,7 +54,8 @@ pub fn candidates(lines: &[String]) -> Vec<Vec<String>> {
     let mut out = Vec::new();
     for line in lines {
         let t = line.trim_start();
-        if t.split_once('>').is_some_and(|(q, _)| q.len() <= 3 && q.chars().all(|c| c.is_alphanumeric())) {
+        // As `quote_lines` writes them: initials (`??` for anonymous).
+        if t.split_once('>').is_some_and(|(q, _)| q.chars().count() <= 6 && !q.contains(' ')) {
             continue;
         }
         let chars: Vec<char> = line.chars().collect();
@@ -50,10 +92,16 @@ pub fn record(state: &BbsState, m: &Message, area: &str, from_node: usize) {
     if m.private || m.deleted || m.id == 0 {
         return;
     }
+    let Some(where_) = state.areas().areas.iter().find(|a| a.file.eq_ignore_ascii_case(&m.area)).cloned() else { return };
     let mut told: Vec<u32> = Vec::new();
     for names in candidates(&m.lines) {
-        let Some(u) = names.iter().find_map(|n| state.users.find(n, false).ok().flatten()) else { continue };
+        // "@5" isn't user number 5.
+        let Some(u) = names.iter().filter(|n| !n.chars().all(|c| c.is_ascii_digit())).find_map(|n| state.users.find(n, false).ok().flatten()) else { continue };
         if u.id == m.from.user_id || told.contains(&u.id) {
+            continue;
+        }
+        // Not a word to someone who can't read it.
+        if !may_read(state, &u, &where_) {
             continue;
         }
         told.push(u.id);
@@ -65,6 +113,8 @@ pub fn record(state: &BbsState, m: &Message, area: &str, from_node: usize) {
         if let Some(node) = state.nodes.find_user(&u.handle) {
             let text = state.strings().fmt("MentionNotice", &[area, &m.subject]);
             let from = if m.anonymous { "anonymous".to_string() } else { m.from.name.clone() };
+            // An anonymous writer's node would give them away.
+            let from_node = if m.anonymous { 0 } else { from_node };
             state.nodes.send(node, NodeEvent::Message { from: from_node, user: from, text, broadcast: false });
         }
     }

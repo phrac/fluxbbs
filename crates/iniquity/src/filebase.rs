@@ -152,7 +152,7 @@ impl FileBase {
     /// lock once, not once a file).
     pub fn add_all(&self, recs: &mut [FileRec]) -> anyhow::Result<()> {
         let mut db = self.db.lock().unwrap();
-        let tx = db.transaction()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         for f in recs.iter_mut() {
             if f.num == 0 {
                 f.num = tx.query_row("SELECT COALESCE(MAX(num), 0) + 1 FROM files WHERE area = ?1", [&f.area], |r| r.get(0))?;
@@ -187,7 +187,7 @@ impl FileBase {
     /// Remove a file's record and close the gap in the numbering.
     pub fn remove(&self, area: &str, num: u32) -> anyhow::Result<()> {
         let mut db = self.db.lock().unwrap();
-        let tx = db.transaction()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM files WHERE area = ?1 AND num = ?2", params![area, num])?;
         // Two steps so UNIQUE (area, num) holds after each statement.
         tx.execute("UPDATE files SET num = -(num - 1) WHERE area = ?1 AND num > ?2", params![area, num])?;
@@ -257,7 +257,7 @@ impl FileBase {
             if descending { o.reverse() } else { o }
         });
         let mut db = self.db.lock().unwrap();
-        let tx = db.transaction()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("UPDATE files SET num = -num WHERE area = ?1", [area])?;
         for (i, f) in files.iter().enumerate() {
             tx.execute("UPDATE files SET num = ?3 WHERE area = ?1 AND num = ?2", params![area, -(f.num as i64), i as u32 + 1])?;

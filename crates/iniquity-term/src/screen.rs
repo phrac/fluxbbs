@@ -147,6 +147,15 @@ impl Screen {
         self.write_bytes(&cp437::encode(s));
     }
 
+    /// Text that mustn't drive the terminal: no control characters, nor
+    /// CP437's glyphs for them, which encode to the control bytes (`•`
+    /// becomes `∙`, as it looks the same).
+    pub fn write_text(&mut self, s: &str) {
+        let mut b = cp437::encode(&s.replace('\u{2022}', "\u{2219}"));
+        b.retain(|&c| c >= 0x20 && c != 0x7F);
+        self.write_bytes(&b);
+    }
+
     pub fn newline(&mut self) {
         self.write_bytes(b"\r\n");
     }
@@ -538,6 +547,14 @@ mod tests {
         s.write_bytes(&[0xC9, 0xCD]);
         assert_eq!(s.take_output(), vec![0xC9, 0xCD]);
         assert_eq!(s.where_x(), 3);
+    }
+
+    #[test]
+    fn text_never_carries_controls() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.take_output();
+        s.write_text("a\u{2190}[2J\u{2022}\u{266a}\u{25d9}\x07\x1b]0;x\u{2191}b");
+        assert_eq!(s.take_output(), b"a[2J\xf9]0;xb".to_vec());
     }
 
     #[test]

@@ -1464,7 +1464,7 @@ impl Session {
             Ok((_, out)) if !out.is_empty() => out,
             _ => return self.show_line(&format!("|U6{}|U5: |U4The {} lister isn't working|U5.", lit(name), arc.ext)).await,
         };
-        self.show_line(&format!("|U4 Archive|U5: |U6{name}")).await?;
+        self.show_line(&format!("|U4 Archive|U5: |U6{}", lit(name))).await?;
         self.rule().await?;
         self.set_slot(Slot::Text);
         let mut lines = 3;

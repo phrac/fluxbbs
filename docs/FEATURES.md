@@ -290,7 +290,8 @@ and newscan (`MR`, `MN`, still there for menus that want them).
   subject", `MentionNotice`), and at their next logon, where `MW` first
   offers the posts that mention them. `M@` reads the unseen ones any
   time (`M@ All`: the last hundred). Handles with spaces work
-  (`@Dark Angel`); punctuation ends a name.
+  (`@Dark Angel`); punctuation ends a name. Only callers who could read
+  the area are told, and `@5` isn't user number 5.
 - Screens can show what's in the message base (`%MG`...`%MJ` in
   `CODES.md`): the newest post, the most replied to, the loudest area
   of the month, the top poster, a message at random, and what's new for
@@ -333,16 +334,40 @@ been posted here and tosses what came (`ftntoss.rs`).
 
 - Echoes are message areas: `[[ftn.area]]` maps a network tag to an
   area's storage key. Messages come in with their kludges read (MSGID
-  for duplicates, REPLY for threads, CHRS for UTF-8 or CP437), long
-  lines wrapped, and the sender's address (from the origin line) as
-  their note; @mentions of local callers work. ZIP bundles and plain
-  packets are both read; anything that can't be goes to
-  `data/ftn/bad`.
+  for duplicates, or who/when/subject for one without; REPLY for
+  threads, even when the reply comes first; CHRS for UTF-8, Latin-1,
+  CP1252 or CP437, the names and subject too; TZUTC, so times are the
+  board's), long lines wrapped, and
+  the sender's address (from the origin line) as their note; the tear
+  and origin lines count as the signature, so quotes leave them out.
+  Escape sequences from the network are cut down to colours and
+  cursor-right (ANSI art's spacing): nothing from elsewhere can clear a
+  reader's screen or talk to their terminal. @mentions of local callers
+  work. ZIP bundles and plain packets are both read (a ZIP without
+  packets, a nodelist say, is left alone); only packets from the hub,
+  to this node, with the packet password (its first 8 characters, all
+  the header holds) are taken. Anything that can't be tossed goes to
+  `data/ftn/bad` (under a new name if one's taken), from where it can be
+  moved back to `inbound` to try again; so does a packet with mail for
+  an echo that isn't mapped to an area, or netmail for another address,
+  so nothing is lost while it's seen to (what was tossed from it comes
+  in again as dupes). The other packets in a bundle are tossed all the
+  same, and a bundle that isn't a ZIP (ARC, ARJ) goes to bad too. If
+  the board's side fails (the database busy), the packet stays in
+  inbound for the next toss. Dupes are remembered after their
+  messages are packed away. Renaming an area's key in `*M` moves its
+  mapping with it.
 - What callers post in those areas goes out at the next poll with
   MSGID, REPLY (a reply to a network message threads there too), PID,
   TZUTC and CHRS, a tear and origin line, SEEN-BY and PATH; colour codes
   are taken out. An area starts from what's in it when it's first
-  scanned, so old posts aren't sent.
+  scanned, so old posts aren't sent; posts that came from the network
+  (or from MeshCore) aren't sent back. A post is marked sent only once
+  its packet is written, and one packed again after a failed write
+  keeps its MSGID, so the network can tell a resend. A line of text
+  starting `SEEN-BY:` goes out as `SEEN+BY:`, and control characters
+  are left out, so nothing typed can pass for a control line; coming
+  in, only the SEEN-BY lines at the end of a message count.
 - Netmail for the node goes to the named caller's email (else the
   SysOp's), from `name@address`. `iniquity ftn areafix +FSX_GEN -FSX_X`
   (or `%LIST`) asks the hub's AreaFix to link and unlink echoes.
@@ -352,7 +377,16 @@ been posted here and tosses what came (`ftntoss.rs`).
   CRAM-MD5, and lets in only its hub with the session password; a wrong
   one counts as a failed login (security log, bans), and connections
   are held to the same per-address limits as callers. One session runs
-  at a time: a call during a poll is told to try again.
+  at a time, and one toss or scan, across processes too (lock files in
+  `data/ftn`, so `iniquity ftn` beside the running board is safe): a
+  call during a poll is told to try again. A hub that has part of a
+  file from a broken session can ask for the rest (M_GET). A poll the
+  hub answers as non-secure (it doesn't have the session password yet)
+  sends nothing, so mail isn't left in its unsecure inbound; the log
+  says why. Files over 256 MB are skipped, names are made safe, and a
+  session quiet both ways for five minutes is ended. A hub calling with
+  the wrong password is turned away and logged, but not banned, so a
+  password changed at its end can't cut the board off.
 - `[ftn]` (or "FTN Echomail" in `*C`): the node's address with its
   domain (`21:1/999@fsxnet`), the hub's address and binkp host, the
   session, packet and AreaFix passwords, the origin line, how often

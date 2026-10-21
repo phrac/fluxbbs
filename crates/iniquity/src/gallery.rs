@@ -571,7 +571,7 @@ impl Session {
                 }
                 if !from_screen {
                     self.screen.goto(1, 1);
-                    self.show(&format!("|U4 Art gallery |U5- |U6{place}")).await?;
+                    self.show(&format!("|U4 Art gallery |U5- |U6{}", iniquity_term::lit(place))).await?;
                     self.screen.goto(1, 2);
                     self.set_slot(Slot::Border);
                     self.write(&"─".repeat(79));

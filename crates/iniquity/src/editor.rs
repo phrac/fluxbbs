@@ -362,7 +362,7 @@ pub fn quote_lines(m: &Message, first: usize, last: usize) -> Vec<String> {
     m.body()[first..=last.min(m.body().len() - 1)]
         .iter()
         .map(|l| {
-            let plain = strip_codes(l);
+            let plain = strip_colours(l);
             let q = if plain.chars().take(3).any(|c| c == '>') { plain } else { format!("{who}> {plain}") };
             q.chars().take(WIDTH).collect()
         })
@@ -380,6 +380,90 @@ pub fn strip_codes(s: &str) -> String {
             _ => String::new(),
         })
         .collect()
+}
+
+/// Text a caller wrote, plain: its `|XX` colour codes and escape
+/// sequences go, and everything else (`@12:30`, `{10}`, `%`) stays as
+/// typed, which `strip_codes` (for screens' own text) doesn't keep.
+pub fn strip_colours(s: &str) -> String {
+    let c: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < c.len() {
+        if c[i] == '|'
+            && i + 2 < c.len()
+            && c[i + 1].is_ascii()
+            && c[i + 2].is_ascii()
+            && iniquity_term::Control::parse([c[i + 1] as u8, c[i + 2] as u8]).is_some_and(|k| k.is_colour())
+        {
+            i += 3;
+            continue;
+        }
+        if c[i] == '\x1b' {
+            i += 1;
+            if c.get(i) == Some(&'[') {
+                i += 1;
+                while i < c.len() && ('\x20'..'\x40').contains(&c[i]) {
+                    i += 1;
+                }
+                i += 1;
+            }
+            continue;
+        }
+        out.push(c[i]);
+        i += 1;
+    }
+    out
+}
+
+/// A message line made safe to print: characters that CP437 sends as
+/// control bytes (`←` is ESC, `♪` CR, `•` BEL...) would act on the
+/// reader's terminal rather than show, so they go (a bullet becomes `∙`).
+pub fn printable(s: &str) -> std::borrow::Cow<'_, str> {
+    let control = |c: char| c < ' ' || iniquity_term::cp437::TO_UNICODE[1..0x20].contains(&c);
+    if !s.chars().any(control) {
+        return std::borrow::Cow::Borrowed(s);
+    }
+    s.chars().filter_map(|c| if c == '\u{2022}' { Some('\u{2219}') } else if control(c) { None } else { Some(c) }).collect()
+}
+
+/// A message line with ANSI codes, as bytes for the terminal: colours
+/// (`ESC[..m`) and cursor-right (`ESC[nC`, art's spacing) kept; any other
+/// escape sequence, and control characters, left out. However the line
+/// got in (radio, an uploaded file), it can't drive the reader's terminal.
+pub fn ansi_bytes(s: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut text = String::new();
+    let mut it = s.chars().peekable();
+    while let Some(c) = it.next() {
+        if c != '\x1b' {
+            text.push(c);
+            continue;
+        }
+        out.extend(iniquity_term::cp437::encode(&printable(&text)));
+        text.clear();
+        if it.peek() != Some(&'[') {
+            continue;
+        }
+        it.next();
+        let mut params = String::new();
+        let mut end = None;
+        for d in it.by_ref() {
+            if ('\x20'..'\x40').contains(&d) {
+                params.push(d);
+            } else {
+                end = Some(d);
+                break;
+            }
+        }
+        if let Some(e @ ('m' | 'C')) = end
+            && params.chars().all(|d| d.is_ascii_digit() || d == ';')
+        {
+            out.extend(format!("\x1b[{params}{e}").bytes());
+        }
+    }
+    out.extend(iniquity_term::cp437::encode(&printable(&text)));
+    out
 }
 
 impl Session {
@@ -523,8 +607,8 @@ impl Session {
             let s = format!(
                 "|U9- |U4Anon|U5: |U1{:<4}|U4To|U5: |U1{:<26}|U4Subject|U5: |U1{}",
                 if ctx.anonymous { "Yes" } else { "No" },
-                ctx.to.chars().take(25).collect::<String>(),
-                ctx.subject.chars().take(27).collect::<String>()
+                iniquity_term::lit(&ctx.to.chars().take(25).collect::<String>()),
+                iniquity_term::lit(&ctx.subject.chars().take(27).collect::<String>())
             );
             self.show_line(&s).await?;
             self.set_slot(Slot::Border);
@@ -702,8 +786,8 @@ impl Session {
         self.clear_screen();
         let mut lines = 0;
         for (i, l) in body.iter().enumerate() {
-            let text = if l.contains('\x1b') { ansi.clone() } else { strip_codes(l).chars().take(74).collect() };
-            self.show_line(&format!("|U4{:<3}|U5: |U1{}", i + 1, text.replace('|', "¦"))).await?;
+            let text = if l.contains('\x1b') { ansi.clone() } else { strip_colours(l).chars().take(74).collect() };
+            self.show_line(&format!("|U4{:<3}|U5: |U1{}", i + 1, iniquity_term::lit(&printable(&text)))).await?;
             lines += 1;
             if !self.more(&mut lines).await? {
                 break;
@@ -745,6 +829,13 @@ mod tests {
                 d.type_char(c);
             }
         }
+    }
+
+    #[test]
+    fn ansi_lines_keep_colour_only() {
+        let b = ansi_bytes("\x1b[1;31mred\x1b[0m\x1b[5C!\x1b]0;title\x07\x1b[2J\x1b[6n\u{2190}[H.");
+        // What's left of a dropped sequence is plain text.
+        assert_eq!(b, b"\x1b[1;31mred\x1b[0m\x1b[5C!]0;title[H.".to_vec());
     }
 
     #[test]

@@ -48,9 +48,8 @@ impl fmt::Display for Addr {
     }
 }
 
-/// Message attributes (FTS-0001) used here.
+/// Message attribute (FTS-0001) used here.
 pub const ATTR_PRIVATE: u16 = 0x0001;
-pub const ATTR_LOCAL: u16 = 0x0100;
 
 /// One message in a packet, as it travels.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -84,16 +83,21 @@ fn u16_at(b: &[u8], i: usize) -> u16 {
     u16::from_le_bytes([b[i], b[i + 1]])
 }
 
-/// A NUL-ended string starting at `*i`, at most `max` bytes, moving `*i`
-/// past it.
+/// A NUL-ended string starting at `*i`, moving `*i` past it; cut to
+/// `max` bytes if a packer wrote it too long.
 fn cstr(b: &[u8], i: &mut usize, max: usize) -> Result<Vec<u8>, String> {
-    let start = *i;
+    let start = (*i).min(b.len());
     let end = b[start..].iter().position(|&c| c == 0).map(|p| start + p).ok_or("unterminated string")?;
-    if end - start > max {
-        return Err(format!("string longer than {max}"));
-    }
     *i = end + 1;
-    Ok(b[start..end].to_vec())
+    Ok(b[start..end.min(start.saturating_add(max))].to_vec())
+}
+
+/// Text as CP437 for a packet, without control bytes: CP437's glyphs for
+/// them (`♪` is CR, `☺` the kludge mark, `←` ESC) would turn into them.
+pub fn text_bytes(s: &str) -> Vec<u8> {
+    let mut e = iniquity_term::cp437::encode(s);
+    e.retain(|&c| c >= 0x20);
+    e
 }
 
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -170,10 +174,13 @@ impl Packet {
             let end = (i + 20).min(b.len());
             m.datetime = String::from_utf8_lossy(&b[i..end]).trim_end_matches('\0').to_string();
             i = end;
-            m.to = iniquity_term::cp437::decode(&cstr(b, &mut i, 36)?);
-            m.from = iniquity_term::cp437::decode(&cstr(b, &mut i, 36)?);
-            m.subject = iniquity_term::cp437::decode(&cstr(b, &mut i, 72)?);
+            let (to, from, subject) = (cstr(b, &mut i, 36)?, cstr(b, &mut i, 36)?, cstr(b, &mut i, 72)?);
             m.text = cstr(b, &mut i, usize::MAX)?;
+            // In the text's character set; CP437's glyphs for control
+            // bytes would be control bytes again on a reader's terminal.
+            let cs = charset(&text_lines(&m.text)).unwrap_or(Charset::Cp437);
+            let field = |c: &[u8]| crate::editor::printable(&decode_line(c, cs)).into_owned();
+            (m.to, m.from, m.subject) = (field(&to), field(&from), field(&subject));
             msgs.push(m);
         }
         Ok(Packet { orig, dest, password, created, msgs })
@@ -217,7 +224,7 @@ impl Packet {
             date[19] = 0;
             b.extend_from_slice(&date);
             for (s, max) in [(&m.to, 35), (&m.from, 35), (&m.subject, 71)] {
-                let mut e = iniquity_term::cp437::encode(s);
+                let mut e = text_bytes(s);
                 e.truncate(max);
                 b.extend_from_slice(&e);
                 b.push(0);
@@ -256,22 +263,121 @@ impl Parts {
     }
 }
 
+#[derive(Clone, Copy, PartialEq)]
+enum Charset {
+    Cp437,
+    Utf8,
+    Latin1,
+    /// Windows' Latin-1 (and Latin-9, near enough): 0x80-0x9F are letters
+    /// and signs, not controls.
+    Cp1252,
+}
+
+/// CP1252's 0x80-0x9F (0: unused).
+const CP1252_HIGH: [char; 32] = [
+    '€', '\0', '‚', 'ƒ', '„', '…', '†', '‡', 'ˆ', '‰', 'Š', '‹', 'Œ', '\0', 'Ž', '\0', '\0', '‘', '’', '“', '”', '•', '–', '—', '˜', '™', 'š', '›', 'œ',
+    '\0', 'ž', 'Ÿ',
+];
+
+/// The character set a `CHRS` (or `CHARSET`) kludge names; None if
+/// there's no such kludge (CP437, the default).
+fn charset(lines: &[&[u8]]) -> Option<Charset> {
+    for l in lines {
+        let Some(k) = l.strip_prefix(b"\x01") else { continue };
+        let k = String::from_utf8_lossy(k).to_ascii_uppercase();
+        let Some(v) = k.strip_prefix("CHRS:").or_else(|| k.strip_prefix("CHARSET:")) else { continue };
+        let v = v.split_whitespace().next().unwrap_or("");
+        return Some(if v.starts_with("UTF-8") || v == "UTF8" {
+            Charset::Utf8
+        } else if v.starts_with("LATIN-1") || v.starts_with("ISO-8859-1") || v.starts_with("ISO8859-1") {
+            Charset::Latin1
+        } else if v.starts_with("CP1252") || v.starts_with("WINDOWS-1252") || v.starts_with("LATIN-9") || v.starts_with("ISO-8859-15") {
+            Charset::Cp1252
+        } else {
+            Charset::Cp437
+        });
+    }
+    None
+}
+
+/// A message's lines: CR-ended, or LF-ended from software that gets it
+/// wrong.
+fn text_lines(text: &[u8]) -> Vec<&[u8]> {
+    let end = if text.contains(&b'\r') { b'\r' } else { b'\n' };
+    text.split(|&c| c == end).collect()
+}
+
+/// One line of text from elsewhere, decoded, with its control bytes
+/// dropped: of escape sequences only colour (`ESC[...m`) and cursor-right
+/// (`ESC[nC`, ANSI art's spacing) are kept, so nothing from the network
+/// moves the cursor, clears the screen or talks to the caller's terminal.
+fn decode_line(raw: &[u8], cs: Charset) -> String {
+    let decode = |b: &[u8]| match cs {
+        Charset::Utf8 => String::from_utf8_lossy(b).into_owned(),
+        Charset::Latin1 => b.iter().map(|&c| c as char).collect(),
+        Charset::Cp1252 => b.iter().filter_map(|&c| if (0x80..0xa0).contains(&c) { Some(CP1252_HIGH[c as usize - 0x80]).filter(|&h| h != '\0') } else { Some(c as char) }).collect(),
+        Charset::Cp437 => iniquity_term::cp437::decode(b),
+    };
+    // The column, for tabs: escapes take none, nor do UTF-8's
+    // continuation bytes.
+    let mut col = 0usize;
+    let mut out = String::new();
+    let mut text: Vec<u8> = Vec::new();
+    let mut i = 0;
+    while i < raw.len() {
+        let c = raw[i];
+        i += 1;
+        if c == 0x1b {
+            out.push_str(&decode(&text));
+            text.clear();
+            if raw.get(i) != Some(&b'[') {
+                continue;
+            }
+            let start = i + 1;
+            let mut j = start;
+            while j < raw.len() && (0x20..0x40).contains(&raw[j]) {
+                j += 1;
+            }
+            if let Some(&end) = raw.get(j)
+                && (end == b'm' || end == b'C')
+                && raw[start..j].iter().all(|&b| b.is_ascii_digit() || b == b';')
+            {
+                out.push_str(&format!("\x1b[{}{}", String::from_utf8_lossy(&raw[start..j]), end as char));
+            }
+            i = j + 1;
+        } else if c == b'\t' {
+            let n = 8 - col % 8;
+            text.extend(std::iter::repeat_n(b' ', n));
+            col += n;
+        } else if c >= 0x20 && c != 0x7f && !(cs == Charset::Latin1 && (0x80..0xa0).contains(&c)) {
+            text.push(c);
+            if !(cs == Charset::Utf8 && c & 0xC0 == 0x80) {
+                col += 1;
+            }
+        }
+    }
+    out.push_str(&decode(&text));
+    out
+}
+
 /// Take a message's text apart. `CHRS: UTF-8` text is read as UTF-8,
-/// anything else as CP437.
+/// `LATIN-1` as ISO 8859-1, anything else as CP437.
 pub fn split_text(text: &[u8]) -> Parts {
-    let utf8 = text.windows(10).any(|w| w.eq_ignore_ascii_case(b"CHRS: UTF-")) || text.windows(10).any(|w| w.eq_ignore_ascii_case(b"CHARSET: U"));
     let mut p = Parts::default();
-    let lines: Vec<&[u8]> = text.split(|&c| c == b'\r').collect();
+    let lines = text_lines(text);
+    let named = charset(&lines);
+    let cs = named.unwrap_or(Charset::Cp437);
     for (n, raw) in lines.iter().enumerate() {
-        // A LF after the CR, and soft CRs (0x8D) in CP437 text, aren't text.
-        let raw: Vec<u8> = raw.iter().copied().filter(|&c| c != b'\n' && (utf8 || c != 0x8D)).collect();
+        // A LF after the CR isn't text, nor a soft CR (0x8D) in text with
+        // no CHRS (in CP437 it's `ì`).
+        let raw: Vec<u8> = raw.iter().copied().filter(|&c| c != b'\n' && (named.is_some() || c != 0x8D)).collect();
         // The kludge mark is looked for before decoding: CP437 makes 0x01 a
         // face.
         let (kludge, raw) = match raw.split_first() {
             Some((1, rest)) => (true, rest.to_vec()),
             _ => (false, raw),
         };
-        let line = if utf8 { String::from_utf8_lossy(&raw).into_owned() } else { iniquity_term::cp437::decode(&raw) };
+        let line = decode_line(&raw, cs);
         if n == 0 && let Some(tag) = line.strip_prefix("AREA:") {
             p.area = Some(tag.trim().to_string());
             continue;
@@ -289,15 +395,24 @@ pub fn split_text(text: &[u8]) -> Parts {
             }
             continue;
         }
-        if let Some(s) = line.strip_prefix("SEEN-BY:") {
-            p.seen_by.extend(s.split_whitespace().map(String::from));
-            continue;
-        }
         p.body.push(line);
     }
-    while p.body.last().is_some_and(|l| l.trim().is_empty()) {
-        p.body.pop();
+    // SEEN-BYs are the lines at the end; one higher up (quoted, say) is
+    // text.
+    let mut seen = Vec::new();
+    loop {
+        while p.body.last().is_some_and(|l| l.trim().is_empty()) {
+            p.body.pop();
+        }
+        match p.body.last().and_then(|l| l.strip_prefix("SEEN-BY:")) {
+            Some(s) => {
+                seen.push(s.split_whitespace().map(String::from).collect::<Vec<_>>());
+                p.body.pop();
+            }
+            None => break,
+        }
     }
+    p.seen_by = seen.into_iter().rev().flatten().collect();
     p
 }
 
@@ -309,7 +424,7 @@ pub fn join_text(p: &Parts) -> Vec<u8> {
         if kludge {
             out.push(1);
         }
-        out.extend(iniquity_term::cp437::encode(s));
+        out.extend(text_bytes(s));
         out.push(b'\r');
     };
     if let Some(a) = &p.area {
@@ -321,12 +436,17 @@ pub fn join_text(p: &Parts) -> Vec<u8> {
         line(&mut out, true, &format!("{k}{sep}{v}"));
     }
     for l in &p.body {
-        line(&mut out, false, l);
+        // A line of text mustn't pass for the control line (GoldED's way).
+        match l.strip_prefix("SEEN-BY:") {
+            Some(rest) => line(&mut out, false, &format!("SEEN+BY:{rest}")),
+            None => line(&mut out, false, l),
+        }
     }
     for (name, list, kludge) in [("SEEN-BY:", &p.seen_by, false), ("PATH:", &p.path, true)] {
         let mut acc = String::new();
         for item in list {
-            if !acc.is_empty() && acc.len() + item.len() > 70 {
+            // Lines of 79 at most, the name and a space included.
+            if !acc.is_empty() && name.len() + 1 + acc.len() + 1 + item.len() > 79 {
                 line(&mut out, kludge, &format!("{name} {acc}"));
                 acc.clear();
             }
@@ -395,6 +515,46 @@ mod tests {
     }
 
     #[test]
+    fn charsets_tabs_and_line_ends() {
+        let p = split_text(b"\x1b[1ma\tb\r");
+        assert_eq!(p.body, ["\x1b[1ma       b"]);
+        let p = split_text(b"AREA:FSX_GEN\nhi\nthere\n");
+        assert_eq!((p.area.as_deref(), p.body), (Some("FSX_GEN"), vec!["hi".to_string(), "there".to_string()]));
+        let p = split_text(b"\x01CHRS: CP1252 2\rcaf\xe9 \x80\r");
+        assert_eq!(p.body, ["caf\u{e9} \u{20ac}"]);
+        let p = split_text(b"\x01CHRS: CP437 2\rital\x8dano\r");
+        assert_eq!(p.body, ["ital\u{ec}ano"]);
+        // Header fields in the text's character set.
+        let parts = Parts { area: Some("X".into()), kludges: vec![("CHRS".into(), "UTF-8 4".into())], body: vec!["hi".into()], ..Default::default() };
+        let pkt = Packet { msgs: vec![PackedMsg { from: "Jos\u{e9}".into(), to: "All".into(), subject: "s".into(), text: join_text(&parts), ..Default::default() }], ..Default::default() };
+        let mut b = pkt.to_bytes();
+        let at = b.windows(4).position(|w| w == b"Jos\x82").unwrap();
+        b.splice(at + 3..at + 4, [0xc3, 0xa9]);
+        assert_eq!(Packet::parse(&b).unwrap().msgs[0].from, "Jos\u{e9}");
+        // SEEN-BY lines stay within 79.
+        let many = Parts { seen_by: (0..40).map(|n| format!("{}/{}", 10000 + n, 20000 + n)).collect(), ..Default::default() };
+        assert!(join_text(&many).split(|&c| c == b'\r').all(|l| l.len() <= 79));
+    }
+
+    #[test]
+    fn text_lines_cant_pass_for_control_lines() {
+        let p = Parts {
+            area: Some("FSX_GEN".into()),
+            body: vec!["SEEN-BY: 1/1 1/2".into(), "hi\u{266a}\u{263a}PATH: 1/1 \u{2190}[2J".into()],
+            seen_by: vec!["1/100".into()],
+            ..Default::default()
+        };
+        let text = join_text(&p);
+        assert!(!text.iter().any(|&c| c < 0x20 && c != b'\r' && c != 1));
+        let back = split_text(&text);
+        assert_eq!(back.body, ["SEEN+BY: 1/1 1/2", "hiPATH: 1/1 [2J"]);
+        assert_eq!((back.seen_by, back.path), (vec!["1/100".to_string()], Vec::<String>::new()));
+        // A SEEN-BY quoted in the text of a network post stays text.
+        let quoted = split_text(b"AREA:X\rSEEN-BY: 9/9\rmore\rSEEN-BY: 1/100\r");
+        assert_eq!((quoted.body, quoted.seen_by), (vec!["SEEN-BY: 9/9".to_string(), "more".to_string()], vec!["1/100".to_string()]));
+    }
+
+    #[test]
     fn text_apart_and_together() {
         let raw = b"AREA:FSX_GEN\r\x01MSGID: 21:1/100 12345678\r\x01REPLY: 21:1/5 0000beef\r\x01INTL 21:1/2 21:1/3\rHello\r\r--- tool\r * Origin: a board (21:1/100)\rSEEN-BY: 1/100 1/999\r\x01PATH: 1/100\r";
         let p = split_text(raw);
@@ -409,5 +569,11 @@ mod tests {
         // CP437 by default, UTF-8 when it says so.
         assert_eq!(split_text(b"caf\x82\r").body, ["caf\u{e9}"]);
         assert_eq!(split_text("\x01CHRS: UTF-8 4\rcaf\u{e9}\r".as_bytes()).body, ["caf\u{e9}"]);
+        assert_eq!(split_text(b"\x01CHRS: LATIN-1 2\rcaf\xe9\r").body, ["caf\u{e9}"]);
+        // Only a kludge names the character set, not the text.
+        assert_eq!(split_text(b"say CHRS: UTF-8 \x82\r").body, ["say CHRS: UTF-8 \u{e9}"]);
+        // Colours and cursor-right are kept; other escapes and controls go.
+        assert_eq!(split_text(b"\x1b[1;31mred\x1b[0m\x1b[5C!\x1b[2J\x1b[H\x07\x1b]0;title\r").body, ["\x1b[1;31mred\x1b[0m\x1b[5C!]0;title"]);
+        assert_eq!(split_text(b"a\tb\r").body, ["a       b"]);
     }
 }

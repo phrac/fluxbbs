@@ -17,26 +17,33 @@ const MAX_TEXT: usize = 255;
 /// `ncOutWrap`: split chat text into lines of at most `width` columns,
 /// at spaces where possible.
 pub fn wrap(text: &str, width: usize) -> Vec<String> {
+    let width = width.max(1);
     let mut out = Vec::new();
     let mut line = String::new();
+    // Characters in `line`, kept rather than counted again (a long text
+    // would make that quadratic).
+    let mut len = 0;
     for word in text.split_whitespace() {
-        let mut word = word.to_string();
-        while word.chars().count() > width {
+        let chars: Vec<char> = word.chars().collect();
+        let mut rest = &chars[..];
+        while rest.len() > width {
             if !line.is_empty() {
                 out.push(std::mem::take(&mut line));
+                len = 0;
             }
-            let head: String = word.chars().take(width).collect();
-            word = word.chars().skip(width).collect();
-            out.push(head);
+            out.push(rest[..width].iter().collect());
+            rest = &rest[width..];
         }
-        let need = if line.is_empty() { word.chars().count() } else { line.chars().count() + 1 + word.chars().count() };
-        if need > width && !line.is_empty() {
+        if !line.is_empty() && len + 1 + rest.len() > width {
             out.push(std::mem::take(&mut line));
+            len = 0;
         }
         if !line.is_empty() {
             line.push(' ');
+            len += 1;
         }
-        line.push_str(&word);
+        line.extend(rest);
+        len += rest.len();
     }
     if !line.is_empty() {
         out.push(line);

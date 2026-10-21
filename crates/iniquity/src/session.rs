@@ -152,6 +152,9 @@ pub struct Session {
     /// Email tags for this call: what new email is tagged with (`E/`),
     /// and, when `use_tag` is on (`E+`), the only tag read (`E\`).
     pub email_tag: u16,
+    /// Passworded message areas the caller has given the password for this
+    /// call (by storage key): only those show in scans and searches.
+    pub opened_areas: std::collections::HashSet<String>,
     pub read_tag: u16,
     pub use_tag: bool,
     /// Times the SysOp has been paged this call (`numPaged`).
@@ -319,6 +322,7 @@ impl Session {
             login_line: None,
             script_depth: 0,
             email_tag: 0,
+            opened_areas: Default::default(),
             read_tag: 0,
             use_tag: false,
             pages: 0,
@@ -445,9 +449,10 @@ impl Session {
         self.screen.clear_screen();
     }
 
-    /// Write text without interpreting any codes (`oWrite`).
+    /// Write text without interpreting any codes (`oWrite`), and without
+    /// control characters.
     pub fn write(&mut self, s: &str) {
-        self.screen.write_str(s);
+        self.screen.write_text(s);
     }
 
     /// Display a prompt string with codes (`oStr`). Also handles the
@@ -546,7 +551,7 @@ impl Session {
                     if source == Source::File {
                         self.write_with_controls(&v);
                     } else {
-                        self.screen.write_str(&v);
+                        self.write(&v);
                     }
                 }
                 // `mciProcessMCICode` swallows any %XX in a screen, known or

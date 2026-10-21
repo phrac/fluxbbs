@@ -116,6 +116,12 @@ CREATE TABLE IF NOT EXISTS ftn_msgs (
     local  INTEGER NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ftn_msgs_msgid ON ftn_msgs(msgid);
+CREATE TABLE IF NOT EXISTS ftn_replies (
+    msg_id INTEGER PRIMARY KEY,
+    area   TEXT NOT NULL COLLATE NOCASE,
+    reply  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ftn_replies_reply ON ftn_replies(reply);
 CREATE TABLE IF NOT EXISTS ftn_state (
     key   TEXT PRIMARY KEY,
     value INTEGER NOT NULL
@@ -165,18 +171,32 @@ pub struct MsgBase {
 
 impl MsgBase {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = crate::sysdata::open_db(path)?;
-        db.execute_batch(SCHEMA)?;
-        // Databases from before email tags.
-        let has_tag: bool = db.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('messages') WHERE name = 'tag'", [], |r| r.get(0))?;
-        if !has_tag {
-            db.execute("ALTER TABLE messages ADD COLUMN tag INTEGER NOT NULL DEFAULT 0", [])?;
+        let mut db = crate::sysdata::open_db(path)?;
+        // One process at a time (the board and `iniquity ftn` can start
+        // together), each looking again once it has the lock.
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute_batch(SCHEMA)?;
+        // Databases from before email tags, and from before threads.
+        for (col, ddl) in [
+            ("tag", "ALTER TABLE messages ADD COLUMN tag INTEGER NOT NULL DEFAULT 0"),
+            ("reply_to", "ALTER TABLE messages ADD COLUMN reply_to INTEGER NOT NULL DEFAULT 0"),
+        ] {
+            let has: bool = tx.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('messages') WHERE name = ?1", [col], |r| r.get(0))?;
+            if !has {
+                tx.execute(ddl, [])?;
+            }
         }
-        // And from before threads.
-        let has_reply_to: bool = db.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('messages') WHERE name = 'reply_to'", [], |r| r.get(0))?;
-        if !has_reply_to {
-            db.execute("ALTER TABLE messages ADD COLUMN reply_to INTEGER NOT NULL DEFAULT 0", [])?;
-        }
+        // From before row ids were kept unique: start above every id
+        // anything still names, so a new post can't take over an old
+        // one's MSGID, mentions or attachment.
+        tx.execute(
+            "INSERT OR IGNORE INTO ftn_state (key, value) SELECT 'last_msg_id', MAX(
+                COALESCE((SELECT MAX(id) FROM messages), 0), COALESCE((SELECT MAX(msg_id) FROM ftn_msgs), 0),
+                COALESCE((SELECT MAX(msg_id) FROM mentions), 0), COALESCE((SELECT MAX(msg_id) FROM seen), 0),
+                COALESCE((SELECT MAX(msg_id) FROM attachments), 0))",
+            [],
+        )?;
+        tx.commit()?;
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -210,22 +230,49 @@ impl MsgBase {
     /// Add a message, numbering it after the area's last (or keeping
     /// `m.num` if set, for imports).
     pub fn add(&self, m: &mut Message) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        self.add_ftn(m, None)
+    }
+
+    /// `add`, recording the message's MSGID (or other FTN key) in the same
+    /// transaction (`ftn_record`), so a crash can't leave an imported
+    /// message looking like one written here.
+    pub fn add_ftn(&self, m: &mut Message, ftn: Option<&str>) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        // Immediate: `iniquity ftn` beside the board writes here too, and
+        // both mustn't pick the same number.
+        let db = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if m.num == 0 {
             m.num = db.query_row("SELECT COALESCE(MAX(num), 0) + 1 FROM messages WHERE area = ?1", [&m.area], |r| r.get(0))?;
         }
+        // Row ids are never used twice, even after the newest message is
+        // packed away: FTN's MSGIDs, mentions and read marks name rows.
+        let id: i64 = db.query_row(
+            "SELECT MAX(COALESCE((SELECT MAX(id) FROM messages), 0), COALESCE((SELECT value FROM ftn_state WHERE key = 'last_msg_id'), 0)) + 1",
+            [],
+            |r| r.get(0),
+        )?;
         db.execute(
-            "INSERT INTO messages (area, num, from_id, from_alias, from_real, from_name, from_note,
+            "INSERT INTO messages (id, area, num, from_id, from_alias, from_real, from_name, from_note,
                 to_id, to_alias, to_real, to_name, to_note, subject, posted, deleted, private,
                 anonymous, replies, sig_pos, body, tag, reply_to)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+             VALUES (?23, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 m.area, m.num, m.from.user_id, m.from.alias, m.from.real_name, m.from.name, m.from.note,
                 m.to.user_id, m.to.alias, m.to.real_name, m.to.name, m.to.note, m.subject, m.posted,
-                m.deleted, m.private, m.anonymous, m.replies, m.sig_pos, m.lines.join("\n"), m.tag, m.reply_to
+                m.deleted, m.private, m.anonymous, m.replies, m.sig_pos, m.lines.join("\n"), m.tag, m.reply_to, id
             ],
         )?;
-        m.id = db.last_insert_rowid();
+        db.execute("INSERT OR REPLACE INTO ftn_state (key, value) VALUES ('last_msg_id', ?1)", [id])?;
+        // Replies are counted here, on the row, so a stale copy saved
+        // elsewhere can't lose one.
+        if m.reply_to != 0 {
+            db.execute("UPDATE messages SET replies = replies + 1 WHERE id = ?1", [m.reply_to])?;
+        }
+        if let Some(msgid) = ftn {
+            db.execute("INSERT OR REPLACE INTO ftn_msgs (msg_id, msgid, area, local) VALUES (?1, ?2, ?3, 0)", params![id, msgid, m.area])?;
+        }
+        db.commit()?;
+        m.id = id;
         Ok(())
     }
 
@@ -302,27 +349,101 @@ impl MsgBase {
         Ok(gone)
     }
 
-    /// Save changes to an existing message (flags, replies, text).
+    /// Save changes to an existing message (flags, text), by row: a pack
+    /// may have renumbered it since it was read. The reply count is kept
+    /// by `add`.
+    /// An edit: the text, subject and signature only, so flags changed
+    /// meanwhile (a delete on another node) stay.
+    pub fn update_text(&self, m: &Message) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute(
+            "UPDATE messages SET subject = ?2, sig_pos = ?3, body = ?4 WHERE id = ?1",
+            params![m.id, m.subject, m.sig_pos, m.lines.join("\n")],
+        )?;
+        Ok(())
+    }
+
+    /// Where a message is now (its number), if it's still there: a pack
+    /// renumbers.
+    pub fn num_of(&self, id: i64) -> anyhow::Result<Option<u32>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT num FROM messages WHERE id = ?1", [id], |r| r.get(0)).optional()?)
+    }
+
+    /// Move a lastread pointer to a message by row id (to its number now),
+    /// only ever forward.
+    pub fn set_lastread_id(&self, user: u32, area: &str, id: i64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute(
+            "INSERT INTO lastread (user_id, area, num) SELECT ?1, ?2, num FROM messages WHERE id = ?3 AND area = ?2
+             ON CONFLICT (user_id, area) DO UPDATE SET num = MAX(num, excluded.num)",
+            params![user, area, id],
+        )?;
+        Ok(())
+    }
+
+    /// After a scan's packet is written: its MSGIDs recorded as sent and
+    /// the areas' marks moved, together.
+    pub fn ftn_sent(&self, sent: &[(i64, String, String)], marks: &[(String, i64)]) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for (id, msgid, area) in sent {
+            tx.execute("INSERT OR REPLACE INTO ftn_msgs (msg_id, msgid, area, local) VALUES (?1, ?2, ?3, 1)", params![id, msgid, area])?;
+        }
+        for (key, last) in marks {
+            tx.execute("INSERT OR REPLACE INTO ftn_state (key, value) VALUES (?1, ?2)", params![key, last])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
     pub fn update(&self, m: &Message) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
         db.execute(
-            "UPDATE messages SET from_name = ?3, subject = ?4, deleted = ?5, private = ?6,
-                anonymous = ?7, replies = ?8, sig_pos = ?9, body = ?10, posted = ?11
-             WHERE area = ?1 AND num = ?2",
-            params![
-                m.area, m.num, m.from.name, m.subject, m.deleted, m.private, m.anonymous, m.replies,
-                m.sig_pos, m.lines.join("\n"), m.posted
-            ],
+            "UPDATE messages SET from_name = ?2, subject = ?3, deleted = ?4, private = ?5,
+                anonymous = ?6, sig_pos = ?7, body = ?8, posted = ?9
+             WHERE id = ?1",
+            params![m.id, m.from.name, m.subject, m.deleted, m.private, m.anonymous, m.sig_pos, m.lines.join("\n"), m.posted],
         )?;
+        Ok(())
+    }
+
+    /// The newest `n` public posts (not private or deleted) in `areas`.
+    pub fn newest_public(&self, areas: &[String], n: usize) -> anyhow::Result<Vec<Message>> {
+        if areas.is_empty() || n == 0 {
+            return Ok(Vec::new());
+        }
+        let db = self.db.lock().unwrap();
+        let marks = vec!["?"; areas.len()].join(", ");
+        let mut stmt = db.prepare(&format!(
+            "SELECT * FROM messages WHERE area COLLATE NOCASE IN ({marks}) AND NOT private AND NOT deleted ORDER BY posted DESC, id DESC LIMIT {n}"
+        ))?;
+        let rows = stmt.query_map(rusqlite::params_from_iter(areas), from_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Delete or undelete a message, leaving the rest of the row alone (a
+    /// copy read earlier mustn't undo an edit made since).
+    pub fn set_deleted(&self, id: i64, deleted: bool) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("UPDATE messages SET deleted = ?2 WHERE id = ?1", params![id, deleted])?;
         Ok(())
     }
 
     /// An area's storage key changed: move its messages and lastreads.
     pub fn rename_area(&self, from: &str, to: &str) -> anyhow::Result<()> {
         let mut db = self.db.lock().unwrap();
-        let tx = db.transaction()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("UPDATE messages SET area = ?2 WHERE area = ?1", params![from, to])?;
         tx.execute("UPDATE lastread SET area = ?2 WHERE area = ?1", params![from, to])?;
+        // FTN's records and scan mark go with it.
+        tx.execute("UPDATE ftn_msgs SET area = ?2 WHERE area = ?1", params![from, to])?;
+        tx.execute("UPDATE ftn_replies SET area = ?2 WHERE area = ?1", params![from, to])?;
+        let (old, new) = (format!("sent:{}", from.to_ascii_uppercase()), format!("sent:{}", to.to_ascii_uppercase()));
+        if old != new {
+            tx.execute("DELETE FROM ftn_state WHERE key = ?1", [&new])?;
+            tx.execute("UPDATE ftn_state SET key = ?2 WHERE key = ?1", params![old, new])?;
+        }
         tx.commit()?;
         Ok(())
     }
@@ -330,10 +451,13 @@ impl MsgBase {
     /// Forget an area's messages and lastreads.
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
         let mut db = self.db.lock().unwrap();
-        let tx = db.transaction()?;
-        tx.execute("DELETE FROM seen WHERE msg_id IN (SELECT id FROM messages WHERE area = ?1)", [area])?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        for t in ["seen", "ftn_msgs", "mentions"] {
+            tx.execute(&format!("DELETE FROM {t} WHERE msg_id IN (SELECT id FROM messages WHERE area = ?1)"), [area])?;
+        }
         let n = tx.execute("DELETE FROM messages WHERE area = ?1", [area])?;
         tx.execute("DELETE FROM lastread WHERE area = ?1", [area])?;
+        tx.execute("DELETE FROM ftn_state WHERE key = ?1", [format!("sent:{}", area.to_ascii_uppercase())])?;
         tx.commit()?;
         Ok(n as u32)
     }
@@ -343,7 +467,7 @@ impl MsgBase {
     /// moves with the messages they had read. Returns how many went.
     pub fn pack(&self, area: &str, max: u32) -> anyhow::Result<u32> {
         let mut db = self.db.lock().unwrap();
-        let tx = db.transaction()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let rows: Vec<(i64, u32, bool)> = {
             let mut stmt = tx.prepare("SELECT id, num, deleted FROM messages WHERE area = ?1 ORDER BY num")?;
             stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?
@@ -356,21 +480,26 @@ impl MsgBase {
         if gone == 0 && keep.iter().enumerate().all(|(i, k)| k.1 == i as u32 + 1) {
             return Ok(0);
         }
+        // In number order, for the lastreads below.
         let kept_nums: Vec<u32> = keep.iter().map(|k| k.1).collect();
-        for (id, _, _) in rows.iter().filter(|r| !keep.iter().any(|k| k.0 == r.0)) {
-            tx.execute("DELETE FROM messages WHERE id = ?1", [id])?;
-            tx.execute("DELETE FROM seen WHERE msg_id = ?1", [id])?;
+        let kept: std::collections::HashSet<i64> = keep.iter().map(|k| k.0).collect();
+        for (id, _, _) in rows.iter().filter(|r| !kept.contains(&r.0)) {
+            tx.prepare_cached("DELETE FROM messages WHERE id = ?1")?.execute([id])?;
+            // `ftn_msgs` stays: it's the dupe history (row ids aren't
+            // used again, so nothing new takes the row).
+            tx.prepare_cached("DELETE FROM seen WHERE msg_id = ?1")?.execute([id])?;
+            tx.prepare_cached("DELETE FROM mentions WHERE msg_id = ?1")?.execute([id])?;
         }
         tx.execute("UPDATE messages SET num = -num WHERE area = ?1", [area])?;
         for (i, (id, _)) in keep.iter().enumerate() {
-            tx.execute("UPDATE messages SET num = ?2 WHERE id = ?1", params![id, i as u32 + 1])?;
+            tx.prepare_cached("UPDATE messages SET num = ?2 WHERE id = ?1")?.execute(params![id, i as u32 + 1])?;
         }
         let reads: Vec<(u32, u32)> = {
             let mut stmt = tx.prepare("SELECT user_id, num FROM lastread WHERE area = ?1")?;
             stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?
         };
         for (user, last) in reads {
-            let now = kept_nums.iter().filter(|&&n| n <= last).count() as u32;
+            let now = kept_nums.partition_point(|&n| n <= last) as u32;
             tx.execute("UPDATE lastread SET num = ?3 WHERE user_id = ?1 AND area = ?2", params![user, area, now])?;
         }
         tx.commit()?;
@@ -408,15 +537,19 @@ impl MsgBase {
     }
 
     /// Messages addressed to a user (by alias or real name), by number.
-    pub fn mail_for(&self, area: &str, alias: &str, real_name: &str, deleted_too: bool) -> anyhow::Result<Vec<Message>> {
+    /// Mail to user number `user`; mail with no user number (from
+    /// elsewhere, or old) by name, never "None".
+    pub fn mail_for(&self, area: &str, user: u32, alias: &str, real_name: &str, deleted_too: bool) -> anyhow::Result<Vec<Message>> {
         let db = self.db.lock().unwrap();
         let mut stmt = db.prepare(
             "SELECT * FROM messages WHERE area = ?1
-               AND (to_alias = ?2 COLLATE NOCASE OR to_real = ?3 COLLATE NOCASE)
+               AND ((?5 <> 0 AND to_id = ?5)
+                    OR (to_id = 0 AND to_alias <> 'None' COLLATE NOCASE
+                        AND (to_alias = ?2 COLLATE NOCASE OR (?3 <> '' AND to_real = ?3 COLLATE NOCASE))))
                AND (?4 OR NOT deleted)
              ORDER BY num",
         )?;
-        let rows = stmt.query_map(params![area, alias, real_name, deleted_too], from_row)?.collect::<Result<_, _>>()?;
+        let rows = stmt.query_map(params![area, alias, real_name, deleted_too, user], from_row)?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
@@ -427,10 +560,52 @@ impl MsgBase {
 
     // ---- FTN (new) -------------------------------------------------------
 
-    /// The message whose MSGID is `msgid` in `area` (for dupes and REPLY).
+    /// The message still here whose MSGID is `msgid` in `area` (REPLY).
     pub fn ftn_find(&self, area: &str, msgid: &str) -> anyhow::Result<Option<i64>> {
         let db = self.db.lock().unwrap();
-        Ok(db.query_row("SELECT msg_id FROM ftn_msgs WHERE msgid = ?1 AND area = ?2", params![msgid, area], |r| r.get(0)).optional()?)
+        Ok(db
+            .query_row("SELECT f.msg_id FROM ftn_msgs f JOIN messages m ON m.id = f.msg_id WHERE f.msgid = ?1 AND f.area = ?2", params![msgid, area], |r| r.get(0))
+            .optional()?)
+    }
+
+    /// Has a message with this MSGID come to `area`, even one packed away
+    /// since (dupes)?
+    pub fn ftn_known(&self, area: &str, msgid: &str) -> anyhow::Result<bool> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT 1 FROM ftn_msgs WHERE msgid = ?1 AND area = ?2", params![msgid, area], |_| Ok(())).optional()?.is_some())
+    }
+
+    /// An imported reply whose parent (`reply`, its MSGID) hasn't come yet.
+    pub fn ftn_wait_reply(&self, msg_id: i64, area: &str, reply: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT OR REPLACE INTO ftn_replies (msg_id, area, reply) VALUES (?1, ?2, ?3)", params![msg_id, area, reply])?;
+        Ok(())
+    }
+
+    /// Message `id` (MSGID `msgid`) has come: thread the replies that were
+    /// waiting for it.
+    pub fn ftn_link_replies(&self, area: &str, msgid: &str, id: i64) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let n = tx.execute(
+            "UPDATE messages SET reply_to = ?3 WHERE reply_to = 0 AND id IN (SELECT msg_id FROM ftn_replies WHERE area = ?1 AND reply = ?2)",
+            params![area, msgid, id],
+        )?;
+        if n > 0 {
+            tx.execute("UPDATE messages SET replies = replies + ?2 WHERE id = ?1", params![id, n as i64])?;
+        }
+        tx.execute("DELETE FROM ftn_replies WHERE area = ?1 AND reply = ?2", params![area, msgid])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// A MSGID given to a message about to be sent: kept if the packet is
+    /// never written, so the resend has the same one. `ftn_unsent` still
+    /// lists the message.
+    pub fn ftn_pending(&self, msg_id: i64, msgid: &str, area: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT OR REPLACE INTO ftn_msgs (msg_id, msgid, area, local) VALUES (?1, ?2, ?3, 2)", params![msg_id, msgid, area])?;
+        Ok(())
     }
 
     /// A message's MSGID, if it has one.
@@ -464,7 +639,7 @@ impl MsgBase {
         let db = self.db.lock().unwrap();
         let mut stmt = db.prepare(
             "SELECT * FROM messages m WHERE area = ?1 AND id > ?2 AND NOT deleted AND NOT private
-             AND NOT EXISTS (SELECT 1 FROM ftn_msgs f WHERE f.msg_id = m.id) ORDER BY id",
+             AND NOT EXISTS (SELECT 1 FROM ftn_msgs f WHERE f.msg_id = m.id AND f.local <> 2) ORDER BY id",
         )?;
         let rows = stmt.query_map(params![area, after], from_row)?.collect::<Result<_, _>>()?;
         Ok(rows)
@@ -635,7 +810,7 @@ mod tests {
         m.tag = 5;
         mb.add(&mut m).unwrap();
         assert_eq!(mb.get("EMAIL", 1).unwrap().unwrap().tag, 5);
-        assert_eq!(mb.mail_for("EMAIL", "phrac", "", false).unwrap()[0].tag, 5);
+        assert_eq!(mb.mail_for("EMAIL", 0, "phrac", "", false).unwrap()[0].tag, 5);
 
         let path = std::env::temp_dir().join(format!("iqtags{}.db", std::process::id()));
         let _ = std::fs::remove_file(&path);
@@ -669,6 +844,52 @@ mod tests {
         assert!(mb.orphan_attachments().unwrap().is_empty());
         mb.remove_attachment(kept.id).unwrap();
         assert_eq!(mb.attachment(kept.id).unwrap(), None);
+    }
+
+    #[test]
+    fn row_ids_are_never_used_twice() {
+        let mb = MsgBase::open_memory().unwrap();
+        let mut a = msg("GEN", "All", "first");
+        mb.add(&mut a).unwrap();
+        let mut b = msg("GEN", "All", "newest");
+        b.deleted = true;
+        mb.add(&mut b).unwrap();
+        mb.ftn_record(b.id, "21:1/999 00000001", "GEN", true).unwrap();
+        mb.pack("GEN", 0).unwrap();
+        assert_eq!(mb.ftn_find("GEN", "21:1/999 00000001").unwrap(), None, "nothing to reply to");
+        assert!(mb.ftn_known("GEN", "21:1/999 00000001").unwrap(), "still a dupe");
+        let mut c = msg("GEN", "All", "after packing");
+        mb.add(&mut c).unwrap();
+        assert!(c.id > b.id);
+    }
+
+    #[test]
+    fn updates_follow_the_row_and_replies_count_themselves() {
+        let mb = MsgBase::open_memory().unwrap();
+        let mut a = msg("GEN", "All", "gone");
+        a.deleted = true;
+        mb.add(&mut a).unwrap();
+        let mut b = msg("GEN", "All", "kept");
+        mb.add(&mut b).unwrap();
+        let mut c = msg("GEN", "All", "third");
+        mb.add(&mut c).unwrap();
+        // A reader has #2 open; a pack makes it #1 and #3 becomes #2.
+        let mut open = mb.get("GEN", 2).unwrap().unwrap();
+        mb.pack("GEN", 0).unwrap();
+        open.deleted = true;
+        mb.update(&open).unwrap();
+        assert!(mb.by_id(b.id).unwrap().unwrap().deleted);
+        assert!(!mb.by_id(c.id).unwrap().unwrap().deleted, "not the message now numbered 2");
+        let mut r = msg("GEN", "All", "a reply");
+        r.reply_to = c.id;
+        mb.add(&mut r).unwrap();
+        // A stale copy saved afterwards doesn't undo the count.
+        let stale = mb.by_id(c.id).unwrap().unwrap();
+        let mut r2 = msg("GEN", "All", "another");
+        r2.reply_to = c.id;
+        mb.add(&mut r2).unwrap();
+        mb.update(&Message { replies: 1, ..stale }).unwrap();
+        assert_eq!(mb.by_id(c.id).unwrap().unwrap().replies, 2);
     }
 
     #[test]
@@ -712,9 +933,9 @@ mod tests {
         got.replies = 3;
         mb.update(&got).unwrap();
         let got = mb.get("GENERAL", 2).unwrap().unwrap();
-        assert!(got.deleted && got.replies == 3);
-        assert_eq!(mb.mail_for("GENERAL", "fiend", "", false).unwrap().len(), 0);
-        assert_eq!(mb.mail_for("GENERAL", "fiend", "", true).unwrap().len(), 1);
+        assert!(got.deleted && got.replies == 0, "replies are counted by add");
+        assert_eq!(mb.mail_for("GENERAL", 0, "fiend", "", false).unwrap().len(), 0);
+        assert_eq!(mb.mail_for("GENERAL", 0, "fiend", "", true).unwrap().len(), 1);
     }
 
     #[test]

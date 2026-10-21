@@ -222,14 +222,18 @@ pub const LIT_CLOSE: char = '\u{E001}';
 /// codes work: no cursor moves, clears, pauses, positions or MCI codes,
 /// which could wreck other callers' screens.
 pub fn lit(s: &str) -> String {
-    format!("{LIT_OPEN}{s}{LIT_CLOSE}")
+    // Marks inside (text that has them, or `lit` text again) would end
+    // the protection early.
+    format!("{LIT_OPEN}{}{LIT_CLOSE}", unlit(s))
 }
 
 /// Text a caller typed, made safe to keep in a screen file (the stock
 /// oneliners append to ONELNMID): colour codes stay, and every other code
 /// is wrapped in `|ZA`...`|ZB`, so it shows as typed and does nothing.
 pub fn defuse(s: &str) -> String {
-    let c: Vec<char> = s.chars().collect();
+    // Without `lit`'s marks first: `encode` drops them, and a code split
+    // by one would come back together.
+    let c: Vec<char> = unlit(s).chars().collect();
     let mut out = String::new();
     let mut i = 0;
     while i < c.len() {
@@ -288,7 +292,9 @@ pub fn tokenize_user(src: &[u8]) -> Vec<Token> {
             i += 3;
             continue;
         }
-        if c != 0x1B {
+        // No control bytes at all (CP437's glyphs for them, `←` and `♪`,
+        // arrive here as ESC and CR).
+        if c >= 0x20 && c != 0x7F {
             text.push(c);
         }
         i += 1;
@@ -330,6 +336,16 @@ pub fn resize(s: &str, len: usize) -> String {
 mod tests {
     use super::*;
     use Token::*;
+
+    #[test]
+    fn caller_text_stays_text() {
+        // No way out of `lit` from inside it.
+        let t = tokenize_str(&format!("|U1{}", lit("Bob\u{E001}|CS|PA%UN")), Source::String);
+        assert!(!t.iter().any(|x| matches!(x, Ctrl(Control::ClearScreen) | Ctrl(Control::PromptKey))));
+        // Control bytes go, whatever the charset made of them.
+        let t = tokenize_user(b"**\x18B00\r\n\x07ok");
+        assert_eq!(t, vec![Text(b"**B00ok".to_vec())]);
+    }
 
     #[test]
     fn controls() {

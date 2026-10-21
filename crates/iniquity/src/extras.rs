@@ -285,7 +285,7 @@ impl Session {
         }
         if !self.show_file_with("AUTOBOT", &w).await? {
             self.rule().await?;
-            self.show_line(&format!("|U4Posted by|U5: |U6{author}")).await?;
+            self.show_line(&format!("|U4Posted by|U5: |U6{}", iniquity_term::lit(&author))).await?;
         }
         Ok(())
     }
@@ -356,7 +356,7 @@ impl Session {
         }
         self.say("AutoSigShow").await?;
         for line in self.user.autosig.clone() {
-            self.show_line(&line).await?;
+            self.show_line(&iniquity_term::lit(&line)).await?;
         }
         self.screen.set_color(self.user.palette.get(Slot::Text));
         Ok(())

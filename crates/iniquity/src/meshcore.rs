@@ -29,6 +29,7 @@ const CMD_DEVICE_QUERY: u8 = 22;
 const CMD_GET_CHANNEL: u8 = 31;
 
 const RESP_OK: u8 = 0;
+const RESP_ERR: u8 = 1;
 const RESP_SELF_INFO: u8 = 5;
 const RESP_CHANNEL_MSG_RECV: u8 = 8;
 const RESP_NO_MORE_MESSAGES: u8 = 10;
@@ -193,10 +194,11 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Radio<S> {
     pub async fn drain(&mut self) -> io::Result<Vec<Heard>> {
         self.waiting = false;
         let mut out = Vec::new();
-        loop {
+        // The radio holds a few hundred at most; an error reply ends it.
+        for _ in 0..1000 {
             let r = self.command(&[CMD_SYNC_NEXT_MESSAGE]).await?;
             match r.first() {
-                Some(&RESP_NO_MORE_MESSAGES) | None => break,
+                Some(&RESP_NO_MORE_MESSAGES) | Some(&RESP_ERR) | None => break,
                 _ => out.extend(parse_channel_msg(&r)),
             }
         }
@@ -255,7 +257,8 @@ fn parse_channel_msg(r: &[u8]) -> Option<Heard> {
     if kind != TXT_TYPE_PLAIN {
         return None;
     }
-    let text = String::from_utf8_lossy(text).trim_end_matches('\0').to_string();
+    // Plain text: no escape sequences or other control characters.
+    let text: String = String::from_utf8_lossy(text).chars().filter(|c| !c.is_control()).collect();
     let (sender, text) = match text.split_once(": ") {
         Some((s, t)) if !s.is_empty() && s.len() <= 32 => (s.to_string(), t.to_string()),
         _ => ("someone".to_string(), text),
@@ -384,7 +387,12 @@ fn import(state: &BbsState, map: &[(u8, MeshChannel)], h: Heard) {
         tracing::warn!("meshcore: no message area {:?} for {:?}", ch.area, ch.channel);
         return;
     };
-    let from = Party { user_id: 0, alias: h.sender.clone(), real_name: h.sender.clone(), name: h.sender.clone(), note: "MeshCore".into() };
+    // Anyone on the channel can call themselves anything: a name that's a
+    // caller's here is marked as from the radio, and the alias never
+    // matches a caller (`is_me`).
+    let taken = state.users.find(&h.sender, true).ok().flatten().is_some();
+    let name = if taken { format!("{}@mesh", h.sender) } else { h.sender.clone() };
+    let from = Party { user_id: 0, alias: format!("{}@mesh", h.sender), real_name: name.clone(), name, note: "MeshCore".into() };
     let to = Party { user_id: 0, alias: "All".into(), real_name: "All".into(), name: "All".into(), note: String::new() };
     let subject: String = h.text.chars().take(40).collect();
     let mut m = Message {
@@ -404,7 +412,10 @@ fn import(state: &BbsState, map: &[(u8, MeshChannel)], h: Heard) {
         reply_to: 0,
         lines: wrap(&h.text, 79),
     };
-    match state.msgs.add(&mut m) {
+    // Marked as from elsewhere (in the same transaction), so an FTN echo
+    // in the same area doesn't gate it out under this board's address.
+    let mark = format!("~meshcore {}", rand::random::<u64>());
+    match state.msgs.add_ftn(&mut m, Some(&mark)) {
         Ok(()) => {
             tracing::info!("meshcore: {} on {} -> {} #{}", h.sender, ch.channel, area.name, m.num);
             crate::mentions::record(state, &m, &area.name, 0);

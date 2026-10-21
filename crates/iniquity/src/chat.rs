@@ -209,7 +209,7 @@ impl Session {
         let mut answer: Option<bool> = None;
         for _ in 0..ch.page_beeps.max(1) {
             self.say("PagePaging").await?;
-            self.write("\x07");
+            self.screen.write_bytes(b"\x07");
             self.flush().await?;
             tokio::select! {
                 k = self.read_key() => {

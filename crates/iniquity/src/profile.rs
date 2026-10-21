@@ -144,7 +144,7 @@ impl Session {
             if line.trim().is_empty() {
                 break;
             }
-            plan.push(crate::editor::strip_codes(&line).trim_end().to_string());
+            plan.push(crate::editor::strip_colours(&line).trim_end().to_string());
         }
         self.user.plan = plan;
         self.state.users.save(&self.user).map_err(io_err)?;

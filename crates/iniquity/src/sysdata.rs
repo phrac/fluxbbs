@@ -229,7 +229,16 @@ fn counts(r: &rusqlite::Row) -> rusqlite::Result<Counts> {
 pub fn open_db(path: &std::path::Path) -> anyhow::Result<Connection> {
     let db = Connection::open(path).with_context(|| format!("opening {}", path.display()))?;
     db.busy_timeout(std::time::Duration::from_secs(5))?;
-    db.pragma_update(None, "journal_mode", "WAL")?;
+    // Switching an old database to WAL needs it to itself: another
+    // process opening it at the same moment is waited out.
+    let mut tries = 0;
+    while let Err(e) = db.pragma_update(None, "journal_mode", "WAL") {
+        tries += 1;
+        if tries > 50 {
+            return Err(e.into());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
+    }
     db.pragma_update(None, "synchronous", "NORMAL")?;
     Ok(db)
 }
@@ -582,7 +591,7 @@ impl SysData {
 
     pub fn add_question(&self, text: &str, author: &str, user_add: bool, answers: &[String]) -> anyhow::Result<i64> {
         let mut db = self.db.lock().unwrap();
-        let tx = db.transaction()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute(
             "INSERT INTO vote_questions (text, author, user_add, created) VALUES (?1, ?2, ?3, ?4)",
             params![text, author, user_add, chrono::Local::now().naive_local()],
@@ -603,7 +612,7 @@ impl SysData {
 
     pub fn delete_question(&self, id: i64) -> anyhow::Result<()> {
         let mut db = self.db.lock().unwrap();
-        let tx = db.transaction()?;
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM votes WHERE question = ?1", [id])?;
         tx.execute("DELETE FROM vote_answers WHERE question = ?1", [id])?;
         tx.execute("DELETE FROM vote_questions WHERE id = ?1", [id])?;
