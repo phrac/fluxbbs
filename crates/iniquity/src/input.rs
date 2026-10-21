@@ -239,9 +239,15 @@ impl Session {
                 let rows = self.caller.size.borrow_and_update().1;
                 self.screen.set_rows(rows);
             }
-            let (keys, reports) = strip_cursor_reports(&buf[..n]);
+            // A report can be split between reads (a slow link): while one
+            // is expected, an unfinished one waits for the rest.
+            let mut data = std::mem::take(&mut self.report_tail);
+            data.extend_from_slice(&buf[..n]);
+            let expecting = self.cursor_asks > self.cursor_reports;
+            let (keys, reports, tail) = strip_cursor_reports(&data, expecting);
             self.cursor_reports += reports;
             self.input.extend(keys);
+            self.report_tail = tail;
         }
     }
 
@@ -498,8 +504,21 @@ impl Session {
 }
 
 /// Take cursor position reports (`ESC [ row ; col R`) out of what the
-/// caller sent: the keys, and how many reports there were.
-fn strip_cursor_reports(buf: &[u8]) -> (Vec<u8>, u32) {
+/// caller sent: the keys, how many reports there were, and (if `hold`) an
+/// unfinished report at the end, kept back to join the next read.
+fn strip_cursor_reports(buf: &[u8], hold: bool) -> (Vec<u8>, u32, Vec<u8>) {
+    // `ESC`, `ESC [` or `ESC [ 24;8` at the very end: the start of one.
+    let tail_at = buf.iter().rposition(|&b| b == 0x1B).filter(|&p| {
+        hold && match buf.get(p + 1) {
+            None => true,
+            Some(b'[') => buf[p + 2..].iter().all(|b| b.is_ascii_digit() || *b == b';'),
+            Some(_) => false,
+        }
+    });
+    let (buf, tail) = match tail_at {
+        Some(p) => (&buf[..p], buf[p..].to_vec()),
+        None => (buf, Vec::new()),
+    };
     let mut keys = Vec::with_capacity(buf.len());
     let mut reports = 0;
     let mut i = 0;
@@ -516,7 +535,7 @@ fn strip_cursor_reports(buf: &[u8]) -> (Vec<u8>, u32) {
         keys.push(buf[i]);
         i += 1;
     }
-    (keys, reports)
+    (keys, reports, tail)
 }
 
 #[cfg(test)]
@@ -544,10 +563,21 @@ mod tests {
 
     #[test]
     fn cursor_reports() {
-        assert_eq!(strip_cursor_reports(b"a\x1b[24;80Rb"), (b"ab".to_vec(), 1));
-        assert_eq!(strip_cursor_reports(b"\x1b[1;1R\x1b[2;5R"), (Vec::new(), 2));
+        assert_eq!(strip_cursor_reports(b"a\x1b[24;80Rb", false), (b"ab".to_vec(), 1, Vec::new()));
+        assert_eq!(strip_cursor_reports(b"\x1b[1;1R\x1b[2;5R", false), (Vec::new(), 2, Vec::new()));
+        // Split between reads while one is expected: held, then joined.
+        let (keys, n, tail) = strip_cursor_reports(b"x\x1b[24;", true);
+        assert_eq!((keys, n, tail.clone()), (b"x".to_vec(), 0, b"\x1b[24;".to_vec()));
+        let mut next = tail;
+        next.extend_from_slice(b"80Ry");
+        assert_eq!(strip_cursor_reports(&next, true), (b"y".to_vec(), 1, Vec::new()));
+        assert_eq!(strip_cursor_reports(b"\x1b", true).2, b"\x1b".to_vec());
+        // Not expecting one: an Esc at the end is a key, now.
+        assert_eq!(strip_cursor_reports(b"\x1b", false), (b"\x1b".to_vec(), 0, Vec::new()));
+        // A finished arrow key isn't held.
+        assert_eq!(strip_cursor_reports(b"\x1b[A", true), (b"\x1b[A".to_vec(), 0, Vec::new()));
         // Keys that look a little like one stay keys.
-        assert_eq!(strip_cursor_reports(b"\x1b[A\x1b[5~\x1b[R"), (b"\x1b[A\x1b[5~\x1b[R".to_vec(), 0));
+        assert_eq!(strip_cursor_reports(b"\x1b[A\x1b[5~\x1b[R", false), (b"\x1b[A\x1b[5~\x1b[R".to_vec(), 0, Vec::new()));
     }
 }
 

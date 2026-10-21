@@ -857,6 +857,8 @@ impl Session {
             // drawing, one on the way); one that never answers is paced by
             // the clock alone.
             let mut sync = true;
+            // Start counting afresh: nothing old is still owed.
+            self.cursor_asks = self.cursor_asks.min(self.cursor_reports);
             let key = 'play: loop {
                 for f in &pic.frames {
                     self.screen.write_bytes(&picture::draw(f, prev, truecolor, left, top));
@@ -870,7 +872,7 @@ impl Session {
                     let until = std::time::Instant::now() + std::time::Duration::from_millis(f.delay_ms);
                     if sync {
                         let answering = self.cursor_reports > 0;
-                        let wait = std::time::Duration::from_secs(if answering { 30 } else { 3 });
+                        let wait = std::time::Duration::from_secs(if answering { 10 } else { 3 });
                         if !self.sync_output(wait, 1).await? && !answering {
                             sync = false;
                         }
