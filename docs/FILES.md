@@ -68,9 +68,16 @@ below by its heading), and a record for every catalogued file that's
 on disk, in the site's order, with the site's description, the file's
 own date, uploader `textfiles.com` and no downloads. `--under KEY`
 puts the sections under an existing area instead, and `--put
-SECTION=KEY,...` particular ones: `--put art=ARTSCENE` puts the site's
-Artwork under the board's art area, where the gallery shows it (its
-`.art`, `.pic`, `.pix` and `.vt` files count as art there). Access, download
+SECTION=KEY,...` folds particular sections into areas of the board's
+own: the section's files are copied into that area's directory and
+records (a name the area has already is left out, and said), and its
+directories become sub-areas of it. `--put
+bbs=BBS,hacking=HACK,phreak=PHREAK,magazines=ZINES` makes the site's
+BBS, hacking, phreaking and e-zine files part of a board's own areas
+of those names, and `--put art=ARTSCENE` puts the artwork where the
+gallery shows it (its `.art`, `.pic`, `.pix` and `.vt` files count as
+art there). A section folded in this way after an import that gave it
+an area of its own has that area's records dropped. Access, download
 access and the sponsor are copied from the board's first area
 (`--acs`, `--download-acs` and `--sponsor` override them); uploads are
 the SysOp's alone. Running it again adds only what's new: areas and

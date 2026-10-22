@@ -680,8 +680,10 @@ fn unpack(arc: &Path, section: &str, wanted: &HashMap<String, Option<u64>>, dest
 
 /// The areas and records for a fetched archive. The sections are
 /// top-level areas (or sub-areas of `under`, an existing area's key;
-/// `put` names a parent for particular sections, say the artwork under
-/// the board's art area so the gallery shows it); `acs`,
+/// `put` folds particular sections into areas of the board's own: the
+/// section's files are copied into that area and its directories
+/// become sub-areas of it, say the artwork into the board's art area
+/// so the gallery shows it); `acs`,
 /// `download_acs` and `sponsor` default to the board's first area's
 /// (uploads are the SysOp's alone: the archive is read, not added to).
 pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, download_acs: Option<&str>, sponsor: Option<&str>, under: Option<&str>, put: &[(String, String)]) -> anyhow::Result<()> {
@@ -720,12 +722,61 @@ pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, downloa
     }
     let (mut new_areas, mut new_files, mut missing, mut known) = (0, 0, 0, 0);
     let mut parent_key = HashMap::new();
+    let (mut taken, mut folded) = (0, 0);
     for d in root.walk().into_iter().filter(|d| !d.path.is_empty()) {
         let key = d.key();
+        // A section folded into an area of the board's own: its files go
+        // into that area, its directories under it.
+        if let Some((_, into)) = put.iter().find(|(s, _)| s.eq_ignore_ascii_case(&d.path)) {
+            let area = fareas.areas.iter().find(|a| a.file.eq_ignore_ascii_case(into)).cloned().with_context(|| format!("no area {into}"))?;
+            parent_key.insert(d.path.clone(), area.file.clone());
+            // Left by an earlier import that gave the section an area of
+            // its own.
+            if !fareas.areas.iter().any(|a| a.file.eq_ignore_ascii_case(&key)) {
+                let gone = files.delete_area(&key)?;
+                if gone > 0 {
+                    println!("{}: {gone} record(s) of the former {key} area dropped", d.path);
+                }
+            }
+            let dest = config.resolve(&area.path);
+            std::fs::create_dir_all(&dest).with_context(|| dest.display().to_string())?;
+            let recs: HashMap<String, String> = files.list(&area.file)?.into_iter().map(|f| (f.name.to_lowercase(), f.uploader)).collect();
+            let mut adding = Vec::new();
+            for f in &d.files {
+                let lower = f.name.to_lowercase();
+                if recs.get(&lower).is_some_and(|u| u.eq_ignore_ascii_case("textfiles.com")) {
+                    known += 1;
+                    continue;
+                }
+                let on_disk = dir.join(&d.path).join(&f.name);
+                let Some(meta) = std::fs::metadata(&on_disk).ok().filter(|m| m.is_file()) else {
+                    missing += 1;
+                    continue;
+                };
+                let to = dest.join(&f.name);
+                if recs.contains_key(&lower) || to.exists() {
+                    // The board has a file of that name already: left out.
+                    taken += 1;
+                    continue;
+                }
+                std::fs::copy(&on_disk, &to).with_context(|| to.display().to_string())?;
+                if let Ok(m) = meta.modified() {
+                    let _ = std::fs::File::options().write(true).open(&to).and_then(|f| f.set_modified(m));
+                }
+                adding.push(record(&area.file, &f.name, &meta, kb_pt, &f.desc));
+            }
+            files.add_all(&mut adding)?;
+            if !adding.is_empty() && !area.sort.is_none() {
+                files.sort_area(&area.file, area.sort, area.sort_descending)?;
+            }
+            folded += adding.len();
+            new_files += adding.len();
+            continue;
+        }
         let path = rel.join(&d.path);
         let parent = match d.path.rsplit_once('/') {
             Some((above, _)) => parent_key.get(above).cloned().unwrap_or_else(|| under.clone()),
-            None => put.iter().find(|(s, _)| s.eq_ignore_ascii_case(&d.path)).map_or_else(|| under.clone(), |(_, k)| k.to_uppercase()),
+            None => under.clone(),
         };
         parent_key.insert(d.path.clone(), key.clone());
         match fareas.areas.iter().find(|a| a.file.eq_ignore_ascii_case(&key)) {
@@ -764,23 +815,13 @@ pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, downloa
                 missing += 1;
                 continue;
             };
-            let date = meta.modified().ok().map(|t| chrono::DateTime::<chrono::Local>::from(t).date_naive());
-            recs.push(FileRec {
-                area: key.clone(),
-                num: 0,
-                name: f.name.clone(),
-                size: meta.len(),
-                date,
-                uploaded: date,
-                uploader: "textfiles.com".into(),
-                downloads: 0,
-                points: (meta.len() / (kb_pt * 1024)) as u32,
-                valid: true,
-                description: description(&f.desc),
-            });
+            recs.push(record(&key, &f.name, &meta, kb_pt, &f.desc));
         }
         files.add_all(&mut recs)?;
         new_files += recs.len();
+    }
+    if !put.is_empty() {
+        println!("{folded} file(s) folded into the board's own areas, {taken} left out (a file of that name there already)");
     }
     crate::write_atomic(&fareas_path, &fareas.to_toml())?;
     println!(
@@ -789,6 +830,24 @@ pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, downloa
         fareas_path.display()
     );
     Ok(())
+}
+
+/// A record for a file on disk: dated by the file, the site's description.
+fn record(area: &str, name: &str, meta: &std::fs::Metadata, kb_pt: u64, desc: &[String]) -> FileRec {
+    let date = meta.modified().ok().map(|t| chrono::DateTime::<chrono::Local>::from(t).date_naive());
+    FileRec {
+        area: area.to_string(),
+        num: 0,
+        name: name.to_string(),
+        size: meta.len(),
+        date,
+        uploaded: date,
+        uploader: "textfiles.com".into(),
+        downloads: 0,
+        points: (meta.len() / (kb_pt * 1024)) as u32,
+        valid: true,
+        description: description(desc),
+    }
 }
 
 /// Where a new area goes: after the last area under its parent (or the
@@ -1060,14 +1119,26 @@ Stories and novels.
         // Again: nothing doubled.
         import(&tmp.join("iniquity.toml"), None, None, None, None, None, &[]).unwrap();
         assert_eq!(FileAreas::load(&tmp.join("fileareas.toml")).unwrap().areas.len(), 3);
-        // A section put under an area of the board's own.
+        // A section folded into an area of the board's own: its files
+        // join that area, its directories go under it, and the records
+        // of the area it had before go.
         std::fs::remove_file(tmp.join("fileareas.toml")).unwrap();
-        fb.delete_area("TF_ANARCHY").unwrap();
+        std::fs::create_dir_all(tmp.join("files/newarea")).unwrap();
+        std::fs::write(tmp.join("files/newarea/lost.txt"), "the board's own").unwrap();
+        let mut own = FileRec { area: "NEWAREA".into(), num: 0, name: "lost.txt".into(), size: 15, date: None, uploader: "phrac".into(), uploaded: None, downloads: 0, points: 0, valid: true, description: vec![] };
+        fb.add(&mut own).unwrap();
         import(&tmp.join("iniquity.toml"), None, None, None, None, None, &[("Anarchy".into(), "newarea".into())]).unwrap();
         let fa = FileAreas::load(&tmp.join("fileareas.toml")).unwrap();
         let parents: Vec<(&str, &str)> = fa.areas.iter().map(|a| (a.file.as_str(), a.parent.as_str())).collect();
-        assert_eq!(parents, [("NEWAREA", ""), ("TF_ANARCHY", "NEWAREA"), ("TF_ANARCHY_CARDING", "TF_ANARCHY")]);
-        assert_eq!(fb.count("TF_ANARCHY").unwrap(), 1);
+        assert_eq!(parents, [("NEWAREA", ""), ("TF_ANARCHY_CARDING", "NEWAREA")]);
+        assert_eq!(fb.count("TF_ANARCHY").unwrap(), 0);
+        let got: Vec<(String, String)> = fb.list("NEWAREA").unwrap().into_iter().map(|f| (f.name, f.uploader)).collect();
+        assert_eq!(got, [("lost.txt".to_string(), "phrac".to_string()), ("001.txt".to_string(), "textfiles.com".to_string())]);
+        assert_eq!(std::fs::read_to_string(tmp.join("files/newarea/001.txt")).unwrap(), "dry ice bomb");
+        // Again: nothing doubled, the board's own file untouched.
+        import(&tmp.join("iniquity.toml"), None, None, None, None, None, &[("anarchy".into(), "NEWAREA".into())]).unwrap();
+        assert_eq!(fb.count("NEWAREA").unwrap(), 2);
+        assert_eq!(std::fs::read_to_string(tmp.join("files/newarea/lost.txt")).unwrap(), "the board's own");
         std::fs::remove_dir_all(&tmp).unwrap();
     }
 }
