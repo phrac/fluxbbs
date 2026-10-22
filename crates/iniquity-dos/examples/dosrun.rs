@@ -88,6 +88,11 @@ fn main() -> Result<(), String> {
     m.sys.trace = std::env::var_os("DOS_TRACE").is_some();
     let ring: usize = std::env::var("TRACE_RING").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
     m.cpu.keep_trace(&mut m.mem, ring);
+    // `PROFILE_AT=secs`: that many seconds in, print where the CPU has
+    // been (the ring's commonest addresses, with their bytes), for a
+    // program that seems stuck.
+    let profile_at: Option<f32> = std::env::var("PROFILE_AT").ok().and_then(|v| v.parse().ok());
+    let mut profiled = false;
     let mut batch = Batch::new(&mut m, cmd)?;
     let started = Instant::now();
     let mut shown = Instant::now();
@@ -110,6 +115,24 @@ fn main() -> Result<(), String> {
             }
             let st = m.run(TICK_INSTRUCTIONS / 8);
             send(&mut m);
+            if let Some(at) = profile_at
+                && !profiled
+                && started.elapsed().as_secs_f32() >= at
+                && let Some((ring, _)) = &m.cpu.ring
+            {
+                profiled = true;
+                let mut counts: std::collections::HashMap<(u16, u16), usize> = std::collections::HashMap::new();
+                for t in ring.iter().filter(|t| !t.native) {
+                    *counts.entry((t.sregs[1], t.ip)).or_default() += 1;
+                }
+                let mut top: Vec<_> = counts.into_iter().collect();
+                top.sort_by(|a, b| b.1.cmp(&a.1));
+                eprintln!("profile at {at}s: {} instructions in the ring, status {st:?}, halted {}", ring.len(), m.cpu.halted);
+                for ((cs, ip), n) in top.iter().take(12) {
+                    let bytes: Vec<String> = (0..8).map(|i| format!("{:02x}", m.mem.read8(((*cs as u32) << 4) + *ip as u32 + i))).collect();
+                    eprintln!("  {cs:04X}:{ip:04X} x{n}  {}", bytes.join(" "));
+                }
+            }
             if m.sys.hangup {
                 eprintln!("door hung up");
                 return Ok(());

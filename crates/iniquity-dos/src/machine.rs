@@ -75,8 +75,13 @@ pub struct System {
     pub keys: VecDeque<u16>,
     /// A partial escape sequence from the caller, in console mode.
     esc: Vec<u8>,
-    pit_latch: u16,
-    pit_count: u16,
+    /// The 8253: emulated time in its 1.193 MHz cycles (kept by the
+    /// machine), a count latched by a command byte, and which byte of
+    /// the count the next read gives.
+    pit_time: u64,
+    pit_latched: Option<u16>,
+    pit_msb: bool,
+    crtc_index: u8,
     /// Port 3DAh's retrace bit alternates so wait loops finish.
     retrace: bool,
     /// Log lines for the host (DOS errors, unknown calls).
@@ -105,8 +110,10 @@ impl System {
             fault: None,
             keys: VecDeque::new(),
             esc: Vec::new(),
-            pit_latch: 0,
-            pit_count: 0,
+            pit_time: 0,
+            pit_latched: None,
+            pit_msb: false,
+            crtc_index: 0,
             retrace: false,
             log: Vec::new(),
             trace: false,
@@ -226,14 +233,22 @@ impl System {
         }
     }
 
-    fn pit_read(&mut self, instructions: u64) -> u8 {
-        // A free-running 16-bit countdown at 1.19 MHz, from the
-        // instruction count: about 2.5 instructions per PIT cycle at our
-        // speed.
-        let count = (0u64.wrapping_sub(instructions * 1_193_182 / (TICK_INSTRUCTIONS * 182 / 10))) as u16;
-        let v = if self.pit_latch == 0 { count } else { self.pit_latch };
-        self.pit_count = self.pit_count.wrapping_add(1);
-        if self.pit_count & 1 == 1 { v as u8 } else { (v >> 8) as u8 }
+    /// Channel 0's count: the BIOS leaves it in mode 3 with a reload of
+    /// 65536, so it falls by two each cycle and starts over twice a tick.
+    fn pit_count(&self) -> u16 {
+        (0x1_0000u32.wrapping_sub(2 * (self.pit_time % 32768) as u32)) as u16
+    }
+
+    /// A read of port 40h: low byte then high, of the latched count if a
+    /// latch command came first, else of the running count.
+    fn pit_read(&mut self) -> u8 {
+        let v = self.pit_latched.unwrap_or_else(|| self.pit_count());
+        let b = if self.pit_msb { (v >> 8) as u8 } else { v as u8 };
+        if self.pit_msb {
+            self.pit_latched = None;
+        }
+        self.pit_msb = !self.pit_msb;
+        b
     }
 }
 
@@ -334,6 +349,9 @@ impl Machine {
             if self.cpu.halted {
                 return Status::Idle;
             }
+            // The PIT's idea of now: whole ticks, plus this tick's share.
+            let into_tick = self.cpu.instructions.saturating_sub(self.next_tick - TICK_INSTRUCTIONS).min(TICK_INSTRUCTIONS);
+            self.sys.pit_time = self.ticks * 65536 + into_tick * 65536 / TICK_INSTRUCTIONS;
             if let Err(e) = self.cpu.step(&mut self.mem, &mut self.sys) {
                 let msg = format!("{e:?}");
                 self.sys.fault = Some(msg.clone());
@@ -380,9 +398,13 @@ impl Bus for System {
         let v: u32 = match port {
             0x20 => 0,
             0x21 => self.pic_mask as u32,
-            0x40..=0x42 => {
+            0x40 => {
                 self.polled();
-                self.pit_read(0) as u32
+                self.pit_read() as u32
+            }
+            0x41 | 0x42 => {
+                self.polled();
+                0
             }
             0x60 => self.keys.front().map_or(0, |k| (k >> 8) as u32),
             0x61 => 0x30,
@@ -415,13 +437,19 @@ impl Bus for System {
             0x20 => {}
             0x21 => self.pic_mask = v,
             0x43 => {
-                if v & 0x30 == 0 {
-                    self.pit_latch = 1;
-                } else {
-                    self.pit_latch = 0;
+                // Channel 0 only; its rate stays the BIOS's whatever a
+                // program writes.
+                if v & 0xC0 == 0 {
+                    if v & 0x30 == 0 {
+                        if self.pit_latched.is_none() {
+                            self.pit_latched = Some(self.pit_count());
+                        }
+                    } else {
+                        self.pit_msb = false;
+                    }
                 }
             }
-            0x3D4 => self.pit_count = (self.pit_count & 0xFF00) | v as u16,
+            0x3D4 => self.crtc_index = v,
             p if (COM1_BASE..COM1_BASE + 8).contains(&p) => {
                 self.go_remote();
                 self.active();
