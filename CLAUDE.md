@@ -204,8 +204,11 @@ Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
 directories from the meulie.net mirror's pages plus the 2007 tarballs
 on archives.textfiles.com. A full fetch takes about an hour; the mirror
 answers missing paths with a redirect to a 404 site (HTTP 200), which
-the fetcher treats as not found. Not yet run on the live board: fetch
-in the container beside the running board, stop it for the import.
+the fetcher treats as not found. On the live board since 22 Oct (948
+areas, 67,395 files; `fileareas.toml.bak-2026-10-22-textfiles` and
+`data/iniquity.db.bak-2026-10-22-textfiles` are from just before). To
+take the mirror's additions later: fetch in the container beside the
+running board, stop it for the import.
 
 ## Next
 
