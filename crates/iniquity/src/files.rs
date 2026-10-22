@@ -9,7 +9,7 @@ use iniquity_term::codes::{resize, squish};
 use iniquity_term::{Color, Slot, lit};
 
 use crate::editor::EditCtx;
-use crate::fileareas::FileArea;
+use crate::fileareas::{FileArea, children_of, subtree_of};
 use crate::filebase::{FileRec, wildcard};
 use crate::input::{DIGITS, Key, ReadOpts};
 use crate::session::{BarPick, BarRow, BarSpec, Session, Waves, waves};
@@ -275,8 +275,7 @@ impl Session {
 
     /// Visible sub-areas directly under `of` (top-level areas for `None`).
     pub(crate) fn farea_children(&self, of: Option<u32>) -> Vec<u32> {
-        let visible = self.visible_fareas();
-        self.state.fareas().children(of).into_iter().filter(|n| visible.iter().any(|&(m, _)| m == *n)).collect()
+        children_of(&self.visible_fareas(), of)
     }
 
     /// (number shown, area number) for each file area the caller can use.
@@ -298,9 +297,11 @@ impl Session {
         loop {
             let fareas = self.state.fareas();
             let labels = self.file_area_labels();
+            // Worked out once: with an archive's hundreds of areas, asking
+            // per row would take seconds.
             let visible = self.visible_fareas();
             let shown: Vec<(u32, usize)> = if change {
-                self.farea_children(level).into_iter().map(|n| (n, 0)).collect()
+                children_of(&visible, level).into_iter().map(|n| (n, 0)).collect()
             } else {
                 visible.clone()
             };
@@ -308,16 +309,16 @@ impl Session {
             let mut rows = Vec::new();
             for (n, depth) in shown {
                 let label = labels.iter().find(|&&(_, m)| m == n).map_or(n, |l| l.0);
-                let subs = self.farea_children(Some(n));
+                let subs = children_of(&visible, Some(n));
                 // One level at a time, a group counts everything under it;
                 // in the full list each area counts its own.
-                let counted = if change { fareas.subtree(n).into_iter().filter(|m| visible.iter().any(|&(v, _)| v == *m)).collect() } else { vec![n] };
+                let counted = if change { subtree_of(&visible, n) } else { vec![n] };
                 let mut count = 0;
                 let mut newest: Option<chrono::NaiveDate> = None;
                 for m in counted {
                     if let Some(a) = fareas.get(m) {
-                        count += self.state.files.count(&a.file).map_err(io_err)?;
-                        let latest = self.state.files.list(&a.file).map_err(io_err)?.into_iter().filter(|f| f.valid).filter_map(|f| f.uploaded).max();
+                        let (c, latest) = self.state.files.count_and_newest(&a.file).map_err(io_err)?;
+                        count += c;
                         newest = newest.max(latest);
                     }
                 }
@@ -329,9 +330,8 @@ impl Session {
                 rows.push(FaRow { label, n, name, count: count.to_string(), sponsor: fareas.areas[n as usize - 1].sponsor.clone(), newest });
             }
             if change {
-                let fareas_now = self.state.fareas();
                 let here = self.user.cur_file_area;
-                let start = rows.iter().position(|r| fareas_now.subtree(r.n).contains(&here)).unwrap_or(0);
+                let start = rows.iter().position(|r| subtree_of(&visible, r.n).contains(&here)).unwrap_or(0);
                 let bar: Vec<BarRow> = rows.iter().map(|r| BarRow { n: r.n, waves: r.waves(), plain: r.plain() }).collect();
                 let help = match level.and_then(|g| self.farea(g)) {
                     Some(g) => self.strings().fmt("FaBarInGroup", &[&g.area.name]),
@@ -355,7 +355,7 @@ impl Session {
                 if !self.change_farea(pick).await? {
                     return Ok(());
                 }
-                if self.farea_children(Some(pick)).is_empty() {
+                if children_of(&visible, Some(pick)).is_empty() {
                     return self.announce_farea().await;
                 }
                 level = Some(pick);
@@ -1282,12 +1282,20 @@ impl Session {
         }
         let since = self.user.file_scan;
         let total = self.farea_count();
-        let areas: Vec<u32> = if all { (1..=total).collect() } else { vec![if num == 0 { self.user.cur_file_area } else { num }.clamp(1, total.max(1))] };
+        let areas: Vec<u32> = if all { self.visible_fareas().into_iter().map(|(n, _)| n).collect() } else { vec![if num == 0 { self.user.cur_file_area } else { num }.clamp(1, total.max(1))] };
         let skip_ok = areas.len() > 1;
         let off = if all { self.scan_off('F') } else { Default::default() };
+        // Scanning them all, areas with nothing new are passed over
+        // without a word (the original named each; an archive has
+        // hundreds), found in one query rather than by reading each.
+        let news = if all { Some(self.state.files.new_counts(since).map_err(io_err)?) } else { None };
+        let mut scanned = false;
         for n in areas {
             let Some(a) = self.farea(n) else { continue };
             if !self.acs(&a.area.acs) || off.contains(&a.area.file) {
+                continue;
+            }
+            if news.as_ref().is_some_and(|c| !c.contains_key(&a.area.file.to_lowercase())) {
                 continue;
             }
             let files: Vec<FileRec> = self
@@ -1298,6 +1306,7 @@ impl Session {
                 .into_iter()
                 .filter(|f| since.is_none_or(|d| f.uploaded.is_some_and(|u| u >= d)))
                 .collect();
+            scanned = true;
             let count = self.state.files.count(&a.area.file).map_err(io_err)?;
             let s = self.strings().fmt("FaNewScanning", &[&a.area.name, &count.to_string()]);
             self.show(&s).await?;
@@ -1305,6 +1314,9 @@ impl Session {
             if !files.is_empty() && !self.file_lister(&a, &files, skip_ok).await? {
                 break;
             }
+        }
+        if all && !scanned {
+            self.say_line("FaNewScanNothing").await?;
         }
         Ok(())
     }
@@ -1333,30 +1345,31 @@ impl Session {
         }
         self.say("FaSearchAskAll").await?;
         let all = self.yes_no(true).await?;
-        let areas: Vec<u32> = if all { (1..=self.farea_count()).collect() } else { vec![self.user.cur_file_area] };
-        let needle = what.to_lowercase();
+        let areas: Vec<u32> = if all { self.visible_fareas().into_iter().map(|(n, _)| n).collect() } else { vec![self.user.cur_file_area] };
+        let areas: Vec<FAreaRef> = areas
+            .into_iter()
+            .filter_map(|n| self.farea(n))
+            .filter(|a| self.acs(&a.area.acs) && (a.area.password.is_empty() || a.num == self.user.cur_file_area))
+            .collect();
+        // One query over every area (the original read each area's list,
+        // naming it as it went; with an archive's hundreds that's a
+        // screenful of names for nothing): only areas with a match are
+        // named.
+        let keys: Vec<String> = areas.iter().map(|a| a.area.file.clone()).collect();
+        let found = self.state.files.search(&keys, by_name.then_some(what.as_str()), (!by_name).then_some(what.as_str())).map_err(io_err)?;
+        let mut by_area: std::collections::HashMap<String, Vec<FileRec>> = std::collections::HashMap::new();
+        for f in found {
+            by_area.entry(f.area.to_lowercase()).or_default().push(f);
+        }
         let mut any = false;
-        for n in areas {
-            let Some(a) = self.farea(n) else { continue };
-            if !self.acs(&a.area.acs) || (!a.area.password.is_empty() && n != self.user.cur_file_area) {
-                continue;
-            }
+        for a in areas {
+            let Some(files) = by_area.remove(&a.area.file.to_lowercase()) else { continue };
             let s = self.strings().fmt("FaSearchArea", &[&a.area.name]);
             self.show(&s).await?;
             self.newline();
-            let files: Vec<FileRec> = self
-                .state
-                .files
-                .list(&a.area.file)
-                .map_err(io_err)?
-                .into_iter()
-                .filter(|f| if by_name { wildcard(&what, &f.name) } else { f.description.iter().any(|l| l.to_lowercase().contains(&needle)) })
-                .collect();
-            if !files.is_empty() {
-                any = true;
-                if !self.file_lister(&a, &files, true).await? {
-                    break;
-                }
+            any = true;
+            if !self.file_lister(&a, &files, true).await? {
+                break;
             }
         }
         if !any {
@@ -1393,6 +1406,12 @@ impl Session {
             crate::upscan::Kind::Text => self.view_text_file(&path, &f.name).await,
             k @ (crate::upscan::Kind::Zip | crate::upscan::Kind::TarGz | crate::upscan::Kind::Tar | crate::upscan::Kind::Gzip) => {
                 self.browse_archive(&path, &f.name, k).await
+            }
+            // Not an archive we know: text if it reads as text, whatever
+            // it's called (a textfile archive has `.ana`, `.hum`, no
+            // extension at all).
+            _ if self.state.archivers().for_file(&path).is_none() && std::fs::read(&path).is_ok_and(|d| crate::upscan::looks_like_text(&d)) => {
+                self.view_text_file(&path, &f.name).await
             }
             _ => self.view_with_archiver(&path, &f.name).await,
         }

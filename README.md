@@ -58,6 +58,8 @@ escalating bans, password rules and sign-up limits.
 - AI chat that can search the web and knows its way around the board
 - A JSON feed for the board's website
 - A MeshCore radio bridge: mesh channels as message areas
+- The textfiles.com archive as file areas, the site's tree and
+  descriptions kept (`iniquity textfiles`)
 - From 2.0/2.20: the voting booth, newscan selections, message search,
   invisible logons, chat commands, door names in the status, web file
   lists ([details](docs/FEATURES.md#from-20-and-220))

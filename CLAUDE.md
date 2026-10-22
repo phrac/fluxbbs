@@ -197,6 +197,16 @@ Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
   stalled" after 10 s; `RUST_LOG=info,russh=debug docker compose ... up
   -d` shows the packets. Ask the SyncTERM version; try telnet.
 
+## textfiles.com, 22 Oct 2026
+
+`iniquity textfiles fetch DIR` / `import CONFIG` (`textfiles.rs`, docs in
+`docs/FILES.md`) put the whole archive on a board: 57,909 files in 649
+directories from the meulie.net mirror's pages plus the 2007 tarballs
+on archives.textfiles.com. A full fetch takes about an hour; the mirror
+answers missing paths with a redirect to a 404 site (HTTP 200), which
+the fetcher treats as not found. Not yet run on the live board: fetch
+in the container beside the running board, stop it for the import.
+
 ## Next
 
 Feature parity with the manual is done bar callers' outgoing netmail

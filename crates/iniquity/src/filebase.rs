@@ -1,6 +1,7 @@
 //! File records (SQLite), replacing the per-area .DIR files and
 //! FILEDESC.DAT. The files themselves live in each area's directory.
 
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -79,6 +80,28 @@ pub fn wildcard(pattern: &str, name: &str) -> bool {
     m(&p, &n) || (!pattern.contains('.') && m(&format!("{pattern}.*").chars().collect::<Vec<_>>(), &n))
 }
 
+/// `text` as a LIKE pattern matching it literally.
+fn escape_like(text: &str) -> String {
+    text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
+}
+
+/// A DOS wildcard as a LIKE pattern (`*` any run, `?` any one).
+fn wildcard_like(spec: &str) -> String {
+    let mut out = String::with_capacity(spec.len());
+    for c in spec.chars() {
+        match c {
+            '*' => out.push('%'),
+            '?' => out.push('_'),
+            '%' | '_' | '\\' => {
+                out.push('\\');
+                out.push(c);
+            }
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 pub struct FileBase {
     db: Mutex<Connection>,
 }
@@ -105,6 +128,59 @@ impl FileBase {
     pub fn summary(&self, area: &str) -> anyhow::Result<(u32, Option<NaiveDate>)> {
         let db = self.db.lock().unwrap();
         Ok(db.query_row("SELECT COUNT(*), MAX(uploaded) FROM files WHERE area = ?1 AND valid", [area], |r| Ok((r.get(0)?, r.get(1)?)))?)
+    }
+
+    /// How many files an area has (checked or not), and its newest
+    /// checked upload: what the area list shows, without reading the
+    /// records.
+    pub fn count_and_newest(&self, area: &str) -> anyhow::Result<(u32, Option<NaiveDate>)> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT COUNT(*), MAX(CASE WHEN valid THEN uploaded END) FROM files WHERE area = ?1", [area], |r| Ok((r.get(0)?, r.get(1)?)))?)
+    }
+
+    /// New: how many files each area has had since `since` (every file,
+    /// for None), by storage key in lower case; areas with none aren't
+    /// in it. The newscan asks this once rather than reading every area.
+    pub fn new_counts(&self, since: Option<NaiveDate>) -> anyhow::Result<HashMap<String, u32>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT area, COUNT(*) FROM files WHERE ?1 IS NULL OR uploaded >= ?1 GROUP BY area")?;
+        let rows = stmt.query_map([since], |r| Ok((r.get::<_, String>(0)?.to_lowercase(), r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    /// `faSearchFile` over `areas` at once: the files whose name matches
+    /// the DOS wildcard `spec`, or whose description has `text` in it
+    /// (case doesn't matter), in area then number order. One query, so
+    /// hundreds of areas cost no more than one.
+    pub fn search(&self, areas: &[String], spec: Option<&str>, text: Option<&str>) -> anyhow::Result<Vec<FileRec>> {
+        if areas.is_empty() {
+            return Ok(Vec::new());
+        }
+        let mut params: Vec<Box<dyn rusqlite::ToSql>> = areas.iter().map(|a| Box::new(a.clone()) as Box<dyn rusqlite::ToSql>).collect();
+        let cond = match (spec, text) {
+            (Some(s), _) => {
+                let like = wildcard_like(s);
+                params.push(Box::new(like.clone()));
+                if s.contains('.') {
+                    "name LIKE ? ESCAPE '\\'"
+                } else {
+                    params.push(Box::new(format!("{like}.%")));
+                    "(name LIKE ? ESCAPE '\\' OR name LIKE ? ESCAPE '\\')"
+                }
+            }
+            (None, Some(t)) => {
+                params.push(Box::new(format!("%{}%", escape_like(t))));
+                "description LIKE ? ESCAPE '\\'"
+            }
+            (None, None) => "1",
+        };
+        let sql = format!("SELECT * FROM files WHERE area IN ({}) AND {cond} ORDER BY area, num", vec!["?"; areas.len()].join(","));
+        let db = self.db.lock().unwrap();
+        let mut rows: Vec<FileRec> = db.prepare(&sql)?.query_map(rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())), from_row)?.collect::<Result<_, _>>()?;
+        if let Some(s) = spec {
+            rows.retain(|f| wildcard(s, &f.name));
+        }
+        Ok(rows)
     }
 
     /// Every file in an area, in order.
@@ -448,6 +524,41 @@ mod tests {
         assert_eq!(s.random.len(), 3);
         assert!(s.random.iter().all(|f| f.area == "UTILS"));
         assert_eq!(fb.stats(&[], None).unwrap().files, 0);
+    }
+
+    #[test]
+    fn search_counts_and_newest() {
+        let fb = FileBase::open_memory().unwrap();
+        for (area, name, desc, when) in [
+            ("UTILS", "PKZ204G.EXE", "PKZip 2.04g", (2026, 1, 1)),
+            ("UTILS", "IQ26.ZIP", "Iniquity 1.00a26 (the BBS)", (2026, 10, 17)),
+            ("TEXT", "warfare", "How to Make a Landmine", (2001, 5, 5)),
+            ("TEXT", "100%_true.txt", "Odd name", (2001, 5, 6)),
+        ] {
+            let mut f = rec(area, name);
+            f.description = vec![desc.into()];
+            f.uploaded = NaiveDate::from_ymd_opt(when.0, when.1, when.2);
+            fb.add(&mut f).unwrap();
+        }
+        let both = ["utils".to_string(), "TEXT".to_string()];
+        let names = |v: Vec<FileRec>| v.into_iter().map(|f| f.name).collect::<Vec<_>>();
+        assert_eq!(names(fb.search(&both, Some("*.zip"), None).unwrap()), ["IQ26.ZIP"]);
+        assert_eq!(names(fb.search(&both, Some("WAR*"), None).unwrap()), ["warfare"]);
+        assert_eq!(names(fb.search(&both, Some("IQ26"), None).unwrap()), ["IQ26.ZIP"]);
+        assert_eq!(names(fb.search(&both, Some("100%_*"), None).unwrap()), ["100%_true.txt"]);
+        // As the lister's wildcard has it, a bare name is a whole name.
+        assert!(fb.search(&both, Some("PKZ"), None).unwrap().is_empty());
+        assert_eq!(names(fb.search(&both, Some("PKZ204G"), None).unwrap()), ["PKZ204G.EXE"]);
+        assert_eq!(names(fb.search(&both, None, Some("the bbs")).unwrap()), ["IQ26.ZIP"]);
+        assert_eq!(names(fb.search(&both, None, Some("100%")).unwrap()), Vec::<String>::new());
+        assert_eq!(names(fb.search(&both[..1], None, Some("landmine")).unwrap()), Vec::<String>::new());
+        assert_eq!(names(fb.search(&both[1..], None, Some("landmine")).unwrap()), ["warfare"]);
+        assert!(fb.search(&[], Some("*"), None).unwrap().is_empty());
+        let since = fb.new_counts(NaiveDate::from_ymd_opt(2026, 1, 1)).unwrap();
+        assert_eq!((since.get("utils"), since.get("text")), (Some(&2), None));
+        assert_eq!(fb.new_counts(None).unwrap().get("text"), Some(&2));
+        assert_eq!(fb.count_and_newest("TEXT").unwrap(), (2, NaiveDate::from_ymd_opt(2001, 5, 6)));
+        assert_eq!(fb.count_and_newest("NONE").unwrap(), (0, None));
     }
 
     #[test]

@@ -35,6 +35,63 @@ ACS hides a whole branch. A parent is still an area of its own, with a
 directory and room for files. Everything else (newscan, search,
 uploads, conferences) treats sub-areas like any other area.
 
+## The textfiles.com archive
+
+New: `iniquity textfiles` puts Jason Scott's textfiles.com collection
+(some 58,000 files, 1.3 GB, in 43 sections and several hundred
+directories under them) on the board as file areas, sorted as the site
+sorts it.
+
+    iniquity textfiles fetch ~/board/files/textfiles
+    iniquity textfiles import ~/board/iniquity.toml
+
+`fetch` reads the mirror's index pages (the catalogue: each directory's
+heading, each file's size and the site's one-line description, or its
+longer notes in the Top 100), takes each section's tarball from
+archives.textfiles.com for the bulk of the files, and fetches one by one
+from the mirror whatever the tarball lacks or has an older copy of
+(the tarballs are from 2007; the mirror is newer). It takes an hour or
+so and can be stopped and run again: pages, tarballs and the catalogue
+(`catalog.json`) stay under `.textfiles/` in the directory, and only
+what's missing is fetched. `--sections anarchy,bbs` does only those,
+`--refresh` reads the pages again, `--mirror URL` and `--archives URL`
+point it elsewhere (the defaults are `https://textfiles.meulie.net` and
+`http://archives.textfiles.com`).
+
+`import` needs the board stopped (it keeps `fileareas.toml` in memory):
+it adds a `textfiles.com` area (storage key `TEXTFILES`) with a
+sub-area per directory of the site (`TF_ANARCHY`,
+`TF_ANARCHY_CARDING`...), named as the site names them (a section by
+the directory page's name for it, a directory below by its heading),
+and a record for every catalogued file that's on disk, in the site's
+order, with the site's description, the file's own date, uploader
+`textfiles.com` and no downloads. Access, download access and the
+sponsor are copied from the board's first area (`--acs`,
+`--download-acs` and `--sponsor` override them); uploads are the
+SysOp's alone. Running it again adds only what's new: areas and files
+already there are left as they are, so a later `fetch` and `import`
+bring the mirror's additions. The whole tree is `[[area]]` entries in
+`fileareas.toml` and rows in the database like any other: `*F` edits
+them, and deleting the `textfiles.com` area in `*F` takes the branch
+with it.
+
+In the container (the board at `/srv/board`), `fetch` runs beside the
+live board and `import` in its place:
+
+    docker compose -f deploy/docker-compose.yml exec iniquity \
+        iniquity textfiles fetch files/textfiles
+    docker compose -f deploy/docker-compose.yml stop
+    docker compose -f deploy/docker-compose.yml run --rm iniquity \
+        iniquity textfiles import iniquity.toml
+    docker compose -f deploy/docker-compose.yml up -d
+
+The files section is sized for it: the area lists read counts rather
+than records, searching every area (`FF`, `FT`) is one query that names
+only the areas with a match, a newscan of all areas (`FN`) passes over
+areas with nothing new without a word, and the viewer shows any file
+that reads as text, whatever its extension (`.ana`, `.hum`, none at
+all).
+
 ## File transfers
 
 Zmodem is built in, so SyncTERM and other BBS terminals can upload and

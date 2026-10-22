@@ -1,6 +1,7 @@
 //! `fileareas.toml`: file conferences and areas (FILECONF.DAT and
 //! FILEAREA.DAT).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use anyhow::Context;
@@ -157,9 +158,20 @@ impl FileAreas {
     /// Every area as (number, depth) in tree order: each area followed by
     /// its sub-areas, siblings in file order. An area whose parent is
     /// missing, or that is caught in a loop of parents, is top-level.
+    /// Linear in the number of areas (a board with an archive in it has
+    /// hundreds), so callers can ask freely.
     pub fn tree(&self) -> Vec<(u32, usize)> {
-        let total = self.areas.len() as u32;
-        let parents: Vec<Option<u32>> = (1..=total).map(|n| self.parent_of(n)).collect();
+        let total = self.areas.len();
+        let mut index: HashMap<String, u32> = HashMap::with_capacity(total);
+        for (i, a) in self.areas.iter().enumerate() {
+            index.entry(a.file.to_ascii_lowercase()).or_insert(i as u32 + 1);
+        }
+        let parents: Vec<Option<u32>> = self
+            .areas
+            .iter()
+            .enumerate()
+            .map(|(i, a)| if a.parent.is_empty() { None } else { index.get(&a.parent.to_ascii_lowercase()).copied().filter(|&p| p != i as u32 + 1) })
+            .collect();
         // An area whose parents lead back to itself becomes a root, which
         // breaks the loop for anything hanging below it.
         let roots_at = |n: u32| {
@@ -174,33 +186,27 @@ impl FileAreas {
             }
             false
         };
-        let parent: Vec<Option<u32>> = (1..=total).map(|n| if roots_at(n) { None } else { parents[n as usize - 1] }).collect();
-        let mut out = Vec::with_capacity(self.areas.len());
-        fn walk(parent: &[Option<u32>], of: Option<u32>, depth: usize, out: &mut Vec<(u32, usize)>) {
-            for (i, p) in parent.iter().enumerate() {
-                if *p == of {
-                    let n = i as u32 + 1;
-                    out.push((n, depth));
-                    walk(parent, Some(n), depth + 1, out);
-                }
+        let mut kids: Vec<Vec<u32>> = vec![Vec::new(); total + 1];
+        for (i, p) in parents.iter().enumerate() {
+            let n = i as u32 + 1;
+            let of = if roots_at(n) { None } else { *p };
+            kids[of.map_or(0, |p| p as usize)].push(n);
+        }
+        let mut out = Vec::with_capacity(total);
+        fn walk(kids: &[Vec<u32>], of: usize, depth: usize, out: &mut Vec<(u32, usize)>) {
+            for &n in &kids[of] {
+                out.push((n, depth));
+                walk(kids, n as usize, depth + 1, out);
             }
         }
-        walk(&parent, None, 0, &mut out);
+        walk(&kids, 0, 0, &mut out);
         out
     }
 
     /// The sub-areas directly under `n` (or the top-level areas for
     /// `None`), in tree order.
     pub fn children(&self, of: Option<u32>) -> Vec<u32> {
-        let tree = self.tree();
-        match of {
-            None => tree.iter().filter(|(_, d)| *d == 0).map(|(n, _)| *n).collect(),
-            Some(p) => {
-                let Some(i) = tree.iter().position(|(n, _)| *n == p) else { return Vec::new() };
-                let depth = tree[i].1;
-                tree[i + 1..].iter().take_while(|(_, d)| *d > depth).filter(|(_, d)| *d == depth + 1).map(|(n, _)| *n).collect()
-            }
-        }
+        children_of(&self.tree(), of)
     }
 
     /// `n` and the areas above it, nearest first, as `tree` sees them.
@@ -221,11 +227,29 @@ impl FileAreas {
 
     /// `n` and everything under it.
     pub fn subtree(&self, n: u32) -> Vec<u32> {
-        let tree = self.tree();
-        let Some(i) = tree.iter().position(|(m, _)| *m == n) else { return Vec::new() };
-        let depth = tree[i].1;
-        std::iter::once(n).chain(tree[i + 1..].iter().take_while(|(_, d)| *d > depth).map(|(m, _)| *m)).collect()
+        subtree_of(&self.tree(), n)
     }
+}
+
+/// The areas directly under `of` (the top level for `None`) in `tree`:
+/// what [`FileAreas::tree`] gives, or a part of it in the same order
+/// with whole branches left out (the areas a caller can see, say).
+pub fn children_of(tree: &[(u32, usize)], of: Option<u32>) -> Vec<u32> {
+    match of {
+        None => tree.iter().filter(|(_, d)| *d == 0).map(|(n, _)| *n).collect(),
+        Some(p) => {
+            let Some(i) = tree.iter().position(|(n, _)| *n == p) else { return Vec::new() };
+            let depth = tree[i].1;
+            tree[i + 1..].iter().take_while(|(_, d)| *d > depth).filter(|(_, d)| *d == depth + 1).map(|(n, _)| *n).collect()
+        }
+    }
+}
+
+/// `n` and everything under it in `tree` (see [`children_of`]).
+pub fn subtree_of(tree: &[(u32, usize)], n: u32) -> Vec<u32> {
+    let Some(i) = tree.iter().position(|(m, _)| *m == n) else { return Vec::new() };
+    let depth = tree[i].1;
+    std::iter::once(n).chain(tree[i + 1..].iter().take_while(|(_, d)| *d > depth).map(|(m, _)| *m)).collect()
 }
 
 #[cfg(test)]
@@ -250,6 +274,28 @@ mod tests {
         assert_eq!(fa.lineage(5), vec![5, 4, 3]);
         assert_eq!(fa.subtree(3), vec![3, 2, 4, 5]);
         assert_eq!(fa.parent_of(2), Some(3));
+    }
+
+    #[test]
+    fn a_big_tree_is_quick() {
+        // 2,000 areas, 40 under each of 50: tree order, and well under a
+        // second (it used to look every parent up by scanning the list).
+        let mut spec: Vec<(String, String)> = Vec::new();
+        for g in 0..50 {
+            spec.push((format!("G{g}"), String::new()));
+            for a in 0..40 {
+                spec.push((format!("G{g}A{a}"), format!("g{g}")));
+            }
+        }
+        let fa = areas(&spec.iter().map(|(a, b)| (a.as_str(), b.as_str())).collect::<Vec<_>>());
+        let t0 = std::time::Instant::now();
+        for _ in 0..20 {
+            let tree = fa.tree();
+            assert_eq!(tree.len(), 2050);
+            assert_eq!(children_of(&tree, None).len(), 50);
+            assert_eq!(subtree_of(&tree, 1).len(), 41);
+        }
+        assert!(t0.elapsed().as_secs() < 5, "{:?}", t0.elapsed());
     }
 
     #[test]

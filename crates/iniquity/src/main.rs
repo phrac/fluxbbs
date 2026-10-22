@@ -62,6 +62,7 @@ mod ssh;
 mod sshkeys;
 mod sysop;
 mod telnet;
+mod textfiles;
 mod themes;
 mod timebank;
 mod strings;
@@ -243,7 +244,7 @@ impl BbsState {
 }
 
 /// Write a file through a temporary, so a crash can't leave half of it.
-fn write_atomic(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
+pub(crate) fn write_atomic(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
     let tmp = path.with_extension("toml.new");
     std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
     std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
@@ -458,6 +459,9 @@ async fn main() -> anyhow::Result<()> {
     }
     if args.first().is_some_and(|a| a == "ftn") {
         return ftn_command(&args[1..]).await;
+    }
+    if args.first().is_some_and(|a| a == "textfiles") {
+        return textfiles::from_args(&args[1..]).await;
     }
 
     let path = args.first().map(PathBuf::from).unwrap_or_else(|| "iniquity.toml".into());

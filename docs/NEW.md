@@ -29,7 +29,7 @@ have, add it here (and the details in the doc it belongs to).
   menus, screens, stats, history, callers, BBS list, infoforms, votes,
   text libraries as themes. ([SYSOP](SYSOP.md))
 - Shell commands: `iniquity import`, `unban`, `add-files`, `pack-files`,
-  `--wfc`. A Docker image and compose file.
+  `textfiles`, `--wfc`. A Docker image and compose file.
 - A board's own `menus/` overrides the stock ones file by file.
 
 ## Keeping bots out
@@ -82,6 +82,16 @@ have, add it here (and the details in the doc it belongs to).
   through bsdtar or 7-Zip.
 - Log off after a download, with a countdown.
 - Web file lists (`/files.txt`, `/files.html`) are from 2.0, below.
+- The textfiles.com archive as file areas: `iniquity textfiles fetch`
+  catalogues the mirror and brings the files down, `import` adds a
+  `textfiles.com` area with the site's directories as sub-areas and
+  its descriptions on every file. ([FILES](FILES.md#the-textfilescom-archive))
+- Built for a board with hundreds of areas and tens of thousands of
+  files: the area list reads counts, not records; `FF`/`FT` search is
+  one query and names only the areas with a match (the original named
+  each as it read it); `FN` over all areas passes silently over areas
+  with nothing new; the viewer (`V` in the lister, `FV`) shows any file
+  that reads as text, whatever it's called.
 
 ## Messages
 

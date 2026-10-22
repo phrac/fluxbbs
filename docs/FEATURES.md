@@ -139,7 +139,9 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   area from the shell, for a mirror, say: a ZIP without a FILE_ID.DIZ
   is described by what's in it), `*K` pack file areas (forget files
   missing from their directories; also `iniquity pack-files` from the
-  shell, as FILEPACK.EXE was).
+  shell, as FILEPACK.EXE was). `iniquity textfiles` (new) puts the
+  textfiles.com archive on the board as a tree of areas
+  ([FILES](FILES.md#the-textfilescom-archive)).
 - `*A` message areas, `*P` pack them, `*@`/`*!` conferences, `*R` all
   email.
 - `*X` protocols, `*Z` archivers, `*B` BBS list, `*H` statistics, `*I`
