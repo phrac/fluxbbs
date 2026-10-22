@@ -215,8 +215,9 @@ top-level, their directories as sub-areas; no group): 57,909 files in
 on archives.textfiles.com. A full fetch takes about an hour; the mirror
 answers missing paths with a redirect to a 404 site (HTTP 200), which
 the fetcher treats as not found. On the live board since 22 Oct (947
-areas, 67,395 files, the artwork under `artscene` with `--put
-art=ARTSCENE`; `fileareas.toml.bak-2026-10-22-textfiles` and
+areas, 67,395 files, imported with `--put
+art=ARTSCENE,hacking=HACK,phreak=PHREAK,bbs=BBS,magazines=ZINES` so
+those sections sit under the board's own areas; `fileareas.toml.bak-2026-10-22-textfiles` and
 `data/iniquity.db.bak-2026-10-22-textfiles` are from just before). To
 take the mirror's additions later: fetch in the container beside the
 running board, stop it for the import.
