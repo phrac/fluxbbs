@@ -51,8 +51,17 @@ git: copy `data/` and `files/` across if the board should move with you.
   To try a door outside the BBS, `cargo build --release -p iniquity-dos
   --examples` gives `target/release/examples/dosrun C_ROOT D_ROOT CMD`:
   stdin is the caller, stdout what they'd see, the machine's log on
-  stderr, and `SCREEN=file` keeps the local text screen. LORD 4.07
-  (gameport.com) plays through this way and as a door.
+  stderr, and `SCREEN=file` keeps the local text screen; `DOS_TRACE=1`
+  logs every DOS/BIOS call, `TRACE_RING=N` records the last N
+  instructions for `crates/iniquity-dos/tools/replay_trace.py`, which
+  replays each one on QEMU's CPU (pip `unicorn`) and reports any
+  disagreement (`trace_chunks.py` splits a long trace for parallel
+  runs); `DOS_DATE` and `MEM_FILL` fake the date and dirty memory. When
+  a door misbehaves, that replay plus a run of the same files under
+  DOSBox (BNU as the FOSSIL, its modem emulation for carrier; DOSBox
+  0.74-3 needs an INT 21h shim for LORD 4.07's open mode 44h) tells
+  ours from the door's own bugs. LORD 4.06 plays through this way and
+  as a door; see docs/DOORS.md on 4.07.
 - `Dockerfile` and `deploy/docker-compose.yml` run a board in a
   container: the image holds the server and the stock `text/`, `themes/`,
   `menus/`, `scripts/` at `/srv/inq/iniquity`, and the board directory is

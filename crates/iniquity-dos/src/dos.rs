@@ -1308,12 +1308,16 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
             if !host.is_file() && ah == 0x3D {
                 return fail(sys, cpu, mem, if host.is_dir() { ERR_ACCESS_DENIED } else { ERR_FILE_NOT_FOUND });
             }
-            // Any access code but read-only (0) may write: LORDCFG opens
-            // LORD.EXE with code 4 (AL 44h) and writes the registration in.
+            // Access codes: 0 read, 1 write, 2 read/write, 4 read without
+            // touching the file's dates (LORD 4.07 opens with 44h, as DOSBox
+            // notes too); the rest are invalid (error 0Ch).
             let mode = if ah == 0x3D { cpu.al() } else { cpu.bx() as u8 } & 7;
+            if !matches!(mode, 0 | 1 | 2 | 4) {
+                return fail(sys, cpu, mem, 0x0C);
+            }
             let mut o = File::options();
             o.read(true);
-            if mode != 0 {
+            if mode == 1 || mode == 2 {
                 o.write(true);
             }
             if ah == 0x6C {

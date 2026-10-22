@@ -24,6 +24,9 @@ pub struct Memory {
     /// The A20 line: off, addresses wrap at 1 MB as on an 8088; on, the
     /// 64 KB above it (the HMA) can be reached.
     pub a20: bool,
+    /// For `Cpu::ring`: every byte written since the last instruction
+    /// began, as (address, old value, new value).
+    pub writes: Option<Vec<(u32, u8, u8)>>,
 }
 
 pub const MEMORY_SIZE: usize = 0x110000;
@@ -38,7 +41,7 @@ impl Default for Memory {
 
 impl Memory {
     pub fn new() -> Self {
-        Self { bytes: vec![0; MEMORY_SIZE], video_dirty: false, a20: false }
+        Self { bytes: vec![0; MEMORY_SIZE], video_dirty: false, a20: false, writes: None }
     }
 
     #[inline]
@@ -64,6 +67,9 @@ impl Memory {
     #[inline]
     pub fn write8(&mut self, addr: u32, v: u8) {
         let i = self.at(addr);
+        if let Some(w) = &mut self.writes {
+            w.push((i as u32, self.bytes[i], v));
+        }
         self.bytes[i] = v;
         if (VIDEO_BASE..VIDEO_END).contains(&(i as u32)) {
             self.video_dirty = true;

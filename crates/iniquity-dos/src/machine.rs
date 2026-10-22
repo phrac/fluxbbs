@@ -435,6 +435,18 @@ impl Bus for System {
     }
 
     fn native_interrupt(&mut self, n: u8, cpu: &mut Cpu, mem: &mut Memory) -> After {
+        if self.trace && n != 0x21 && !(n == 0x14 && cpu.ah() == 3) && n != 0x2F && n != 0x28 && n != 0x08 && n != 0x1C {
+            let before = format!("int {n:02X} ax={:04X} bx={:04X} cx={:04X} dx={:04X}", cpu.ax(), cpu.r16(cpu::BX), cpu.cx(), cpu.dx());
+            let after = self.native_interrupt_inner(n, cpu, mem);
+            self.log.push(format!("{before} -> ax={:04X} bx={:04X} cx={:04X} dx={:04X} es={:04X} cf={}", cpu.ax(), cpu.r16(cpu::BX), cpu.cx(), cpu.dx(), cpu.es(), mem.read16(linear(cpu.ss(), cpu.r16(cpu::SP) as u32 + 4)) & 1));
+            return after;
+        }
+        self.native_interrupt_inner(n, cpu, mem)
+    }
+}
+
+impl System {
+    fn native_interrupt_inner(&mut self, n: u8, cpu: &mut Cpu, mem: &mut Memory) -> After {
         match n {
             0x08 => {
                 // Timer: count the tick, then chain to INT 1Ch.

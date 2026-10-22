@@ -3,7 +3,10 @@
 //! the caller (raw bytes), standard output what the caller would see,
 //! and the machine's log goes to standard error. `SCREEN=file` keeps the
 //! local text screen written there, once a second; `DOS_TRACE=1` logs
-//! every DOS call.
+//! every DOS call. `TRACE_RING=N` keeps the last N instructions' states
+//! and writes and, if the program ends with an error, saves them to
+//! trace.bin with the memory at the end in trace.mem, for `tools/`'s
+//! replay against another emulator.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -26,6 +29,35 @@ fn screen_text(mem: &Memory) -> String {
     s
 }
 
+/// trace.bin: a count, then per record: native (1 byte), 8 registers,
+/// 6 segment registers, IP, flags, a count of writes and the writes
+/// (address, old, new); all little-endian.
+fn save_trace(ring: &std::collections::VecDeque<iniquity_dos::cpu::Trace>, mem: &Memory) {
+    use std::io::Write;
+    let Ok(f) = std::fs::File::create("trace.bin") else { return };
+    let mut out = std::io::BufWriter::with_capacity(1 << 20, f);
+    let _ = out.write_all(&(ring.len() as u64).to_le_bytes());
+    for t in ring {
+        let _ = out.write_all(&[t.native as u8]);
+        for r in t.regs {
+            let _ = out.write_all(&r.to_le_bytes());
+        }
+        for s in t.sregs {
+            let _ = out.write_all(&s.to_le_bytes());
+        }
+        let _ = out.write_all(&t.ip.to_le_bytes());
+        let _ = out.write_all(&t.flags.to_le_bytes());
+        let _ = out.write_all(&(t.writes.len() as u32).to_le_bytes());
+        for (a, old, new) in &t.writes {
+            let _ = out.write_all(&a.to_le_bytes());
+            let _ = out.write_all(&[*old, *new]);
+        }
+    }
+    let _ = out.flush();
+    let _ = std::fs::write("trace.mem", (0..iniquity_dos::MEMORY_SIZE as u32).map(|a| mem.read8(a)).collect::<Vec<u8>>());
+    eprintln!("{} instructions to trace.bin, memory to trace.mem", ring.len());
+}
+
 fn main() -> Result<(), String> {
     let args: Vec<String> = std::env::args().collect();
     let [_, c, d, cmd] = &args[..] else { return Err("usage: dosrun C_ROOT D_ROOT COMMAND".into()) };
@@ -41,8 +73,21 @@ fn main() -> Result<(), String> {
         }
     });
     let mut m = Machine::new(&PathBuf::from(c), Some(&PathBuf::from(d)));
+    // `MEM_FILL=1`: free memory starts as a pseudo-random pattern, as on a
+    // PC that has run other things, instead of zeros.
+    if std::env::var_os("MEM_FILL").is_some() {
+        let mut x: u32 = 0x1234_5678;
+        for a in 0x1010..0xA0000u32 {
+            x ^= x << 13;
+            x ^= x >> 17;
+            x ^= x << 5;
+            m.mem.write8(a, x as u8);
+        }
+    }
     m.sys.dos.set_drive(3);
     m.sys.trace = std::env::var_os("DOS_TRACE").is_some();
+    let ring: usize = std::env::var("TRACE_RING").ok().and_then(|v| v.parse().ok()).unwrap_or(0);
+    m.cpu.keep_trace(&mut m.mem, ring);
     let mut batch = Batch::new(&mut m, cmd)?;
     let started = Instant::now();
     let mut shown = Instant::now();
@@ -94,6 +139,9 @@ fn main() -> Result<(), String> {
                 },
                 Status::Exited(c) => {
                     eprintln!("[{:.1}s] {prog} exited {c}", started.elapsed().as_secs_f32());
+                    if c != 0 && let Some((ring, _)) = &m.cpu.ring {
+                        save_trace(ring, &m.mem);
+                    }
                     break;
                 }
                 Status::Fault(e) => {

@@ -153,6 +153,22 @@ pub struct Cpu {
     /// The last instruction waited for input (an `IN` or `HLT`), so the
     /// machine may idle instead of spinning.
     pub idle_hint: bool,
+    /// For validating the emulator against another: the state before each
+    /// of the last N instructions and the bytes each wrote (`Trace`),
+    /// kept when `ring` is `Some((ring, N))`.
+    pub ring: Option<(std::collections::VecDeque<Trace>, usize)>,
+}
+
+/// One instruction's record in `Cpu::ring`.
+#[derive(Clone, Debug)]
+pub struct Trace {
+    pub regs: [u32; 8],
+    pub sregs: [u16; 6],
+    pub ip: u16,
+    pub flags: u32,
+    /// A native interrupt handler ran, not a CPU instruction.
+    pub native: bool,
+    pub writes: Vec<(u32, u8, u8)>,
 }
 
 impl Default for Cpu {
@@ -184,6 +200,18 @@ impl Cpu {
             ip_wrapped: false,
             fetched: 0,
             idle_hint: false,
+            ring: None,
+        }
+    }
+
+    /// Start (or stop) keeping the last `n` instructions' `Trace`s.
+    pub fn keep_trace(&mut self, mem: &mut Memory, n: usize) {
+        if n == 0 {
+            self.ring = None;
+            mem.writes = None;
+        } else {
+            self.ring = Some((std::collections::VecDeque::with_capacity(n + 1), n));
+            mem.writes = Some(Vec::new());
         }
     }
 
@@ -470,8 +498,11 @@ impl Cpu {
 
     fn load_flags(&mut self, v: u32, size: Size) {
         let keep = if size == Size::W { 0xFFFF } else { 0x0003_FFFF };
-        self.flags = ((self.flags & !(FLAGS_WRITABLE & keep)) | (v & FLAGS_WRITABLE & keep) | FLAGS_FIXED) & 0x0003_FFFF;
-        self.flags &= !(1 << 14 | 1 << 17); // no NT, no VM in real mode
+        // A 386 in real mode lets IOPL and NT be set (CPU detection code
+        // tells a 386 from a 286 by that); a 286 keeps bits 12-15 clear.
+        let writable = if self.model_8086 || self.model_286 { FLAGS_WRITABLE } else { FLAGS_WRITABLE | 0x7000 };
+        self.flags = ((self.flags & !(writable & keep)) | (v & writable & keep) | FLAGS_FIXED) & 0x0003_FFFF;
+        self.flags &= !(1 << 17); // no VM in real mode
         if self.model_8086 {
             // The 8086's top four flag bits always read as 1.
             self.flags |= 0xF000;
@@ -764,6 +795,22 @@ impl Cpu {
     /// Run one instruction.
     pub fn step(&mut self, mem: &mut Memory, bus: &mut dyn Bus) -> Result<(), CpuError> {
         self.idle_hint = false;
+        if let Some((ring, cap)) = &mut self.ring
+            && (!self.halted || self.sregs[CS] == CALLBACK_SEG)
+        {
+            // Writes since the last record (its own, and anything the
+            // machine did between instructions) belong to it.
+            if let Some(w) = &mut mem.writes {
+                match ring.back_mut() {
+                    Some(last) => last.writes.append(w),
+                    None => w.clear(),
+                }
+            }
+            ring.push_back(Trace { regs: self.regs, sregs: self.sregs, ip: self.ip, flags: self.flags, native: self.sregs[CS] == CALLBACK_SEG, writes: Vec::new() });
+            if ring.len() > *cap {
+                ring.pop_front();
+            }
+        }
         // Native interrupt handlers: the vector pointed into the callback ROM.
         if self.sregs[CS] == CALLBACK_SEG {
             if self.ip < 0x1000 && self.ip.is_multiple_of(CALLBACK_STRIDE) {

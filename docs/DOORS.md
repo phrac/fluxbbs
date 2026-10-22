@@ -38,12 +38,18 @@ carrier, and a door that doesn't notice within a few seconds is
 stopped. In DOS commands `%PN` is `D:\`, and values lose the characters
 DOS would act on (`<>|"%`).
 
-LORD 4.07, for instance: unzip it (and the LORD.ZIP inside) into
+LORD, for instance: unzip it (and the LORD.ZIP inside) into
 `doors/dos/LORD`, run LORDCFG once (as a door, or with `dosrun`) to
-make LORD.DAT, and give each node a `NODEn.DAT` (copy NODE0.DAT) with
-`BBSTYPE DOORSYS`, `COMPORT 1`, `FOSSIL` and `BBSDROP D:\`. Then
-`doors/dos/LORD.BAT` is `@ECHO OFF`, `C:`, `CD \LORD`, `CALL START.BAT
-%1`, and the menu's `DZ` parameter `LORD.BAT %ND`.
+make LORD.DAT (leave through "Exit the program" and save), and give
+each node a `NODEn.DAT` (4.07 ships NODE0.DAT to copy; 4.06 doesn't,
+but takes the same file) with `BBSTYPE DOORSYS`, `COMPORT 1`, `FOSSIL`
+and `BBSDROP D:\`. Then `doors/dos/LORD.BAT` is `@ECHO OFF`, `C:`,
+`CD \LORD`, `CALL START.BAT %1`, and the menu's `DZ` parameter
+`LORD.BAT %ND`. Use **4.06**: in 4.07, examining the etchings in the
+Dark Cloak Tavern ends the game with "Range check error" at
+2A1D:0A9A. That's 4.07's own bug (it does the same under DOSBox's DOS
+and CPU with the BNU FOSSIL, and 4.06 shows the ranking fine); the
+player is back at the menu with their character intact, nothing more.
 
 Not in the machine: protected mode (DPMI doors), EMS/XMS, the FPU,
 sound. For a door that needs one, `[dos] emulator` names a DOSBox
