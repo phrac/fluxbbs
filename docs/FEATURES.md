@@ -163,8 +163,9 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   lift a ban.
 - `*V` events: jobs run once a day at a set time, by one scheduler in
   the server (no per-node events or modem off-hook any more). A command
-  goes to the shell, or is one of the built-in jobs `pack-messages` and
-  `pack-files`; `force` disconnects callers first (with the stock
+  goes to the shell, or is one of the built-in jobs `pack-messages`,
+  `pack-files` and `dos COMMAND` (a DOS program or batch file in the
+  built-in machine, for a door's maintenance); `force` disconnects callers first (with the stock
   "event initiating NOW" string), `run_missed` catches up after
   downtime the same day. "Run it now" in the editor starts one by hand.
 - `*O` logon sequence (new): the steps after logging in (mail,

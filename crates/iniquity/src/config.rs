@@ -529,6 +529,9 @@ pub struct Dos {
     pub setup: Vec<String>,
     /// Extra lines for the emulator's config (`[cpu]`, `cycles=max`).
     pub config: Vec<String>,
+    /// Doors only one caller may be in at a time, by program or batch
+    /// file (`TW2002.BAT`): the machine has no file locks to share them.
+    pub one_at_a_time: Vec<String>,
 }
 
 impl Default for Dos {
@@ -538,6 +541,7 @@ impl Default for Dos {
             drive: "doors/dos".into(),
             setup: Vec::new(),
             config: Vec::new(),
+            one_at_a_time: Vec::new(),
         }
     }
 }

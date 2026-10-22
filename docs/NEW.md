@@ -122,8 +122,11 @@ have, add it here (and the details in the doc it belongs to).
   and the board's own menus, areas and files as the caller may see them.
   ([FEATURES](FEATURES.md#ai-chat))
 - Lua scripting in place of IPL, with a `bbs` API. ([SCRIPTING](SCRIPTING.md))
-- Doors in a built-in DOS machine (real-mode x86, BIOS, FOSSIL, DOS,
-  batch files); DOOR32.SYS (`D4`) and no drop file (`D0`). ([DOORS](DOORS.md))
+- Doors in a built-in DOS machine (real-mode x86 with a 387, BIOS,
+  FOSSIL, DOS, batch files); DOOR32.SYS (`D4`) and no drop file (`D0`).
+  Doors one caller at a time (`[dos] one_at_a_time`), and events that
+  run a DOS program (`dos COMMAND`, a door's nightly maintenance).
+  ([DOORS](DOORS.md))
 - Screen themes picked by callers (`UT`).
 - Time zones: the board keeps time in its own zone (`[bbs] time_zone`,
   not the host's clock, which in a container is UTC; doors see it too),

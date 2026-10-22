@@ -7,7 +7,8 @@
 //! is run through the shell, except the built-in jobs `pack-messages`
 //! and `pack-files`, which run inside the server: a second program
 //! packing the same database while the board runs would fight it for
-//! locks. `force` still disconnects everyone first, for jobs that want
+//! locks; and `dos COMMAND`, which runs a DOS program in the built-in
+//! machine (a door's nightly maintenance). `force` still disconnects everyone first, for jobs that want
 //! the board to themselves.
 
 use std::io;
@@ -41,7 +42,7 @@ pub struct Event {
     /// If the BBS was down at the time, run it when it's back (that day).
     #[serde(default)]
     pub run_missed: bool,
-    /// A shell command, or `pack-messages` / `pack-files`.
+    /// A shell command, `pack-messages` / `pack-files`, or `dos COMMAND`.
     pub command: String,
 }
 
@@ -61,8 +62,9 @@ impl Events {
         format!(
             "# Events: jobs run once a day at `time` (HH:MM). `command` goes to the\n\
              # shell (in the BBS directory), except the built-in jobs pack-messages\n\
-             # and pack-files. `force` disconnects callers first; `run_missed` runs\n\
-             # an event the BBS was down for, when it's back up the same day.\n\n{}",
+             # and pack-files, and `dos COMMAND` (a DOS program or batch file in the\n\
+             # built-in machine). `force` disconnects callers first; `run_missed`\n\
+             # runs an event the BBS was down for, when it's back up the same day.\n\n{}",
             toml::to_string_pretty(self).expect("events serialize")
         )
     }
@@ -164,6 +166,7 @@ async fn run_command(state: &BbsState, cmd: &str) -> anyhow::Result<()> {
             tracing::info!("event: packed file areas, {total} records removed");
             Ok(())
         }
+        dos if dos.starts_with("dos ") => crate::doors::run_dos_event(state, dos[4..].trim()).await,
         shell => {
             let dir = state.config().resolve(Path::new("."));
             let out = tokio::process::Command::new("sh")
@@ -250,7 +253,7 @@ impl Session {
             f.item('C', "Time", 5, &e.time, "When to run it each day [format: HH:MM, 24-hour].");
             f.item('D', "Force callers off", 3, yes_no(e.force), "Disconnect everyone before it runs?");
             f.item('E', "Run if missed", 3, yes_no(e.run_missed), "If the BBS was down at the time, run it when it's back that day?");
-            f.item('F', "Command", 53, &e.command, "Shell command, run in the BBS directory; or pack-messages / pack-files.");
+            f.item('F', "Command", 53, &e.command, "Shell command, run in the BBS directory; pack-messages / pack-files; or dos COMMAND.");
             f.item('!', "Run it now", 0, "", "");
             f.item('[', "Previous event", 0, "", "");
             f.item(']', "Next event", 0, "", "");
@@ -346,5 +349,22 @@ mod tests {
         assert!(run_command(&state, "true").await.is_ok());
         assert!(run_command(&state, "exit 3").await.unwrap_err().to_string().contains("exited"));
         assert!(run_command(&state, "pack-messages").await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn dos_commands_run_in_the_machine() {
+        let root = std::env::temp_dir().join(format!("inq-dos-event-{}", std::process::id()));
+        std::fs::create_dir_all(root.join("doors/dos")).unwrap();
+        let hello = Path::new(env!("CARGO_MANIFEST_DIR")).join("../iniquity-dos/tests/dos/hello.com");
+        std::fs::copy(hello, root.join("doors/dos/HELLO.COM")).unwrap();
+        let state = crate::tests::state();
+        let mut cfg = (*state.config()).clone();
+        cfg.root = root.clone();
+        *state.config.write().unwrap() = Arc::new(cfg);
+        // HELLO.COM prints and exits with 7.
+        let err = run_command(&state, "dos HELLO.COM").await.unwrap_err().to_string();
+        assert!(err.contains("exited with 7"), "{err}");
+        assert!(run_command(&state, "dos NOTHERE.EXE").await.unwrap_err().to_string().contains("no NOTHERE.EXE"));
+        std::fs::remove_dir_all(root).unwrap();
     }
 }

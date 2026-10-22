@@ -1,10 +1,13 @@
 //! The processor: an interpreter for real-mode x86, the 8086 base set
 //! through the 186 additions and what 386 code uses in real mode
-//! (32-bit registers and operands, the 0F instructions). Protected
-//! mode, paging and the FPU aren't here; FPU instructions are skipped,
-//! which suits Turbo Pascal doors (software reals) but not everything.
+//! (32-bit registers and operands, the 0F instructions), and a 387
+//! when `fpu` is set (without one, coprocessor instructions are
+//! skipped). Protected mode and paging aren't here.
 
 use crate::{After, Bus, Memory, linear};
+
+mod fpu;
+pub use fpu::Fpu;
 
 /// Operand size.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -138,6 +141,8 @@ pub struct Cpu {
     /// Behave as a 286 where the 386 differs (for the conformance tests):
     /// no FS, GS or operand/address-size prefixes.
     pub model_286: bool,
+    /// The coprocessor, if the machine has one.
+    pub fpu: Option<Fpu>,
     /// An exception raised during the instruction (6 invalid opcode, 12
     /// stack or 13 general segment limit): writes stop, and `step` puts
     /// the registers back and takes it, pointing at the instruction.
@@ -195,6 +200,7 @@ impl Cpu {
             shift_mask: true,
             model_8086: false,
             model_286: false,
+            fpu: None,
             fault: std::cell::Cell::new(None),
             fault_state: None,
             ip_wrapped: false,
@@ -1327,7 +1333,8 @@ impl Cpu {
                 let v = self.rd(mem, seg, self.r16(BX).wrapping_add(self.al() as u16) as u32, Size::B);
                 self.set_al(v as u8);
             }
-            // ---- FPU: skipped
+            // ---- FPU
+            0xD8..=0xDF if self.fpu.is_some() => self.esc(op, p, mem),
             0xD8..=0xDF => {
                 // The CPU still reads the operand for the coprocessor (and
                 // faults on it at the segment's end).
@@ -2124,6 +2131,43 @@ mod tests {
         assert_eq!(cpu.ax(), 42);
         assert!(cpu.flag(IF), "IRET restored IF");
         assert_eq!(cpu.sp(), 0xFFFE);
+    }
+
+    #[test]
+    fn coprocessor() {
+        let code = [
+            0xDB, 0xE3, // fninit
+            0xD9, 0x3E, 0x00, 0x02, // fnstcw [0x200]
+            0xD9, 0xE8, // fld1
+            0xD8, 0xC0, // fadd st0,st0
+            0xDF, 0x06, 0x10, 0x02, // fild word [0x210]
+            0xDE, 0xC9, // fmulp st1,st0
+            0xD9, 0xFA, // fsqrt (of 6)
+            0xD9, 0xC0, // fld st0
+            0xDE, 0xC9, // fmulp: 6 again, near enough
+            0xDF, 0x1E, 0x12, 0x02, // fistp word [0x212]
+            0xDD, 0x06, 0x20, 0x02, // fld qword [0x220]
+            0xDB, 0x3E, 0x30, 0x02, // fstp tword [0x230]
+            0xD9, 0xEE, // fldz
+            0xD9, 0xE8, // fld1
+            0xDE, 0xD9, // fcompp: 1 against 0
+            0xDF, 0xE0, // fnstsw ax
+            0xF4,
+        ];
+        let (cpu, mem) = run(&code, |cpu, mem| {
+            cpu.fpu = Some(Fpu::new());
+            mem.write16(0x10210, 3);
+            mem.write(0x10220, &(-2.5f64).to_le_bytes());
+        });
+        assert_eq!(mem.read16(0x10200), 0x037F, "the control word after FNINIT");
+        assert_eq!(mem.read16(0x10212), 6);
+        assert_eq!(mem.read(0x10230, 10), [0, 0, 0, 0, 0, 0, 0, 0xA0, 0x00, 0xC0], "-2.5 as an extended real");
+        let sw = cpu.ax();
+        assert_eq!(sw & 0x4500, 0, "1 > 0: C3 C2 C0 clear");
+        assert_eq!((sw >> 11) & 7, 0, "the stack is empty again");
+        // Without a coprocessor the same code is skipped.
+        let (_, mem) = run(&code, |_, mem| mem.write16(0x10210, 3));
+        assert_eq!(mem.read16(0x10212), 0);
     }
 
     #[test]

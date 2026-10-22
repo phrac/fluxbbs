@@ -624,6 +624,70 @@ fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, from_caller: sync_mpsc
     Ok(MachineEnd::Exited(code))
 }
 
+/// An event's `dos COMMAND`: run a DOS program or batch file in the
+/// built-in machine with no caller (C: the DOS drive, D: `event` under
+/// the doors directory), for a door's maintenance (TW2002's EXTERN). What
+/// it prints goes to the log; after an hour it's stopped.
+pub async fn run_dos_event(state: &crate::BbsState, cmd: &str) -> anyhow::Result<()> {
+    let cfg = state.config();
+    let drive = cfg.resolve(&cfg.dos.drive);
+    let dir = cfg.resolve(&cfg.paths.doors).join("event");
+    std::fs::create_dir_all(&dir)?;
+    let dir = dir.canonicalize()?;
+    anyhow::ensure!(dos_program_found(&drive, cmd), "no {cmd} in {}", drive.display());
+    let (line, from_caller) = sync_mpsc::channel::<Vec<u8>>();
+    let (to_caller, mut out) = tokio::sync::mpsc::channel(64);
+    let cmd = cmd.to_string();
+    let task = tokio::task::spawn_blocking(move || run_machine(drive, dir, cmd, from_caller, to_caller));
+    let mut text = Vec::new();
+    let read = async {
+        while let Some(b) = out.recv().await {
+            text.extend(b);
+        }
+    };
+    let timed_out = tokio::time::timeout(Duration::from_secs(3600), read).await.is_err();
+    // No caller: dropping the line drops carrier, which ends a program
+    // that ran too long.
+    drop(line);
+    let end = task.await?;
+    for l in plain_text(&text).lines().map(str::trim_end).filter(|l| !l.is_empty()) {
+        tracing::info!("event: | {l}");
+    }
+    anyhow::ensure!(!timed_out, "DOS command still running after an hour; stopped");
+    match end {
+        Ok(MachineEnd::Exited(0)) => Ok(()),
+        Ok(MachineEnd::Exited(c)) => anyhow::bail!("exited with {c}"),
+        Ok(MachineEnd::Hangup) => anyhow::bail!("hung up"),
+        Err(e) => anyhow::bail!(e),
+    }
+}
+
+/// A DOS program's output as lines of text: escape sequences go, and a
+/// cursor move starts a new line.
+fn plain_text(b: &[u8]) -> String {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == 0x1B && b.get(i + 1) == Some(&b'[') {
+            let mut j = i + 2;
+            while j < b.len() && !b[j].is_ascii_alphabetic() {
+                j += 1;
+            }
+            if matches!(b.get(j), Some(b'H' | b'f')) {
+                out.push(b'\n');
+            }
+            i = j + 1;
+        } else {
+            if b[i] != b'\r' {
+                out.push(b[i]);
+            }
+            i += 1;
+        }
+    }
+    // Line by line: CP437 has glyphs for the control characters.
+    out.split(|&c| c == b'\n').map(iniquity_term::cp437::decode).collect::<Vec<_>>().join("\n")
+}
+
 /// Start a DOS door in the built-in machine.
 fn spawn_builtin(cmd: &str, dir: &Path, drive: &Path) -> (Line, Proc) {
     let (to_door, from_caller) = sync_mpsc::channel();
@@ -706,6 +770,17 @@ impl Session {
             self.newline();
             return self.say_line("DoorFailed").await;
         }
+        let _claim = if cfg.dos.one_at_a_time.iter().any(|d| door_name(d).eq_ignore_ascii_case(&door_name(cmd))) {
+            match DoorClaim::take(&self.state, door_name(cmd).to_ascii_uppercase()) {
+                Some(c) => Some(c),
+                None => {
+                    self.newline();
+                    return self.say_line("DoorInUse").await;
+                }
+            }
+        } else {
+            None
+        };
         let dir = cfg.resolve(&cfg.paths.doors).join(format!("node{}", self.node.number()));
         let prepared = (|| {
             std::fs::create_dir_all(&dir)?;
@@ -1005,6 +1080,26 @@ fn readback(text: &str) -> Readback {
     let lines: Vec<&str> = text.lines().collect();
     let num = |i: usize| lines.get(i).and_then(|l| l.trim().parse::<u32>().ok());
     Readback { minutes_left: num(18), uploads: num(27), downloads: num(28), today_dl_kb: num(29) }
+}
+
+/// A caller's place in a `[dos] one_at_a_time` door, given up when the
+/// door ends.
+struct DoorClaim {
+    state: std::sync::Arc<crate::BbsState>,
+    name: String,
+}
+
+impl DoorClaim {
+    fn take(state: &std::sync::Arc<crate::BbsState>, name: String) -> Option<Self> {
+        let mut used = state.doors_in_use.lock().unwrap_or_else(|e| e.into_inner());
+        used.insert(name.clone()).then(|| Self { state: state.clone(), name })
+    }
+}
+
+impl Drop for DoorClaim {
+    fn drop(&mut self) {
+        self.state.doors_in_use.lock().unwrap_or_else(|e| e.into_inner()).remove(&self.name);
+    }
 }
 
 /// A door's program name, for the node status: `LORD.BAT 1` -> `LORD`.

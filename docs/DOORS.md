@@ -51,8 +51,44 @@ Dark Cloak Tavern ends the game with "Range check error" at
 and CPU with the BNU FOSSIL, and 4.06 shows the ranking fine); the
 player is back at the menu with their character intact, nothing more.
 
-Not in the machine: protected mode (DPMI doors), EMS/XMS, the FPU,
-sound. For a door that needs one, `[dos] emulator` names a DOSBox
+BRE (Barren Realms Elite 0.988, `brev988.exe`, an ARJ self-extractor
+that runs in the machine): extract it into `doors/dos/BRE`, run
+`BREDATA -Y` there (what UNPACK.BAT does), and skip INSTALL.EXE: write
+SETUP.SR for its SRDOOR by hand, `D:\DOOR.SYS` then the DOOR.SYS line
+numbers INSTALL would have put (name 10, last name 0, IBM characters
+and ANSI 20, page length 21, baud 2, COM port 1, time left 19, real
+name 0), and RESOURCE.DAT as `Fossil Y`. Then `BRE RESET` once with
+`dosrun` (Esc saves the settings), and `doors/dos/BRE.BAT` is `@ECHO
+OFF`, `C:`, `CD \BRE`, `SRDOOR`, `BRE`, run by `DZ`. Reset it in the
+board's time zone (`TZ=America/Chicago dosrun ...` when `[bbs]
+time_zone` is set): BRE refuses to start ("Computer Clock has been
+tampered with") if the clock is earlier than the last time it saw. One
+player at a time; others are told the game is in use (INUSE.FLG, which
+BRE removes itself when the caller hangs up).
+
+TradeWars 2002 (3.09, `2002V309.ZIP`; its TW2002, TEDIT, BIGBANG and
+EXTERN need the coprocessor): unzip it into `doors/dos/TW2002` and do
+what its INSTALL.BAT would, with the TWSUPP.EXE and TWGOLD.EXE inside
+(both self-extracting zips) unpacked into `ANSI` and `GOLD` and
+TWPGM.EXE's programs into the game directory. Run BIGBANG (an
+unregistered copy builds the default 1,000-sector universe; `Z` and
+Enter starts it), then TEDIT's `O` for node 1: drop file path `D:\`,
+type `7` (DOOR.SYS), I/O type FOSSIL. Unregistered, it runs one node
+only, so every caller is node 1: `doors/dos/TW2002.BAT` is `@ECHO OFF`,
+`C:`, `CD \TW2002`, `TW2002 TWNODE=1 SHARE`, run by `DZ`, and
+`TW2002.BAT` goes in `[dos] one_at_a_time` (with no file locks in the
+machine, two callers in one node's game would trample each other's
+files; the next caller is told to try later). Its nightly maintenance
+is an event: `command = "dos TWMAINT.BAT"`, a batch file running
+`EXTERN SHARE` in `\TW2002`. Run BIGBANG and TEDIT in the board's time
+zone, as with BRE. Prompts that look like hot keys mostly want Enter.
+
+`[dos] one_at_a_time` lists doors (by program or batch file, as in the
+menu) that only one caller may be in at once.
+
+Not in the machine: protected mode (DPMI doors), EMS/XMS, sound. The
+coprocessor is a 387 whose registers are 64-bit doubles rather than
+80-bit extended reals: plenty for doors, not bit-exact. For a door that needs one, `[dos] emulator` names a DOSBox
 command (`dosbox-staging -noprimaryconf -nolocalconf -conf %C`), with
 `setup` for DOS commands run before each door (a FOSSIL driver such as
 BNU or X00, kept on the DOS drive) and `config` for extra dosbox.conf

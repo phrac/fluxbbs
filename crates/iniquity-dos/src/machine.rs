@@ -267,6 +267,7 @@ impl Machine {
     pub fn new(c_root: &Path, d_root: Option<&Path>) -> Self {
         let mut mem = Memory::new();
         let mut cpu = Cpu::new();
+        cpu.fpu = Some(crate::cpu::Fpu::new());
         // Every vector points at a native handler.
         for n in 0..=255u32 {
             mem.write16(n * 4, callback_offset(n as u8));
@@ -275,7 +276,7 @@ impl Machine {
         // Where the FOSSIL signature and ID string live.
         crate::fossil::install(&mut mem);
         Screen::init(&mut mem);
-        mem.write16(BDA + 0x10, 0x0021); // equipment: 80x25 colour, 1 serial port
+        mem.write16(BDA + 0x10, 0x0023); // equipment: 80x25 colour, 1 serial port, a coprocessor
         mem.write16(BDA + 0x13, 640);
         mem.write16(BDA, COM1_BASE);
         mem.write16(BDA_KBD_HEAD, 0x1E);
