@@ -11,7 +11,7 @@ use iniquity_term::codes::{resize, squish};
 use crate::cfgedit::{Field, Form, yes_no};
 use crate::config::Protocol;
 use crate::extprog::{Archiver, Archivers, Protocols};
-use crate::fileareas::{FileArea, FileAreas, SortBy};
+use crate::fileareas::{FileArea, FileAreas, SortBy, children_of};
 use crate::msgareas::{Conf, MsgArea, MsgAreas};
 use crate::filebase::{FileRec, wildcard};
 use crate::files::{FAreaRef, commas, is_zip};
@@ -94,6 +94,19 @@ fn move_file(from: &Path, to: &Path) -> io::Result<()> {
     }
     std::fs::copy(from, to)?;
     std::fs::remove_file(from)
+}
+
+/// Put the areas numbered in `group` (siblings, 1-based) in name order
+/// over the positions they hold, leaving every other area where it is.
+/// Sub-areas follow their parent by key, so only these entries move.
+fn sort_siblings(areas: &mut [FileArea], group: &[u32]) {
+    let mut slots: Vec<usize> = group.iter().map(|&n| n as usize - 1).collect();
+    slots.sort_unstable();
+    let mut members: Vec<FileArea> = slots.iter().map(|&i| areas[i].clone()).collect();
+    members.sort_by_cached_key(|a| crate::editor::strip_codes(&a.name).to_lowercase());
+    for (slot, a) in slots.into_iter().zip(members) {
+        areas[slot] = a;
+    }
 }
 
 /// `cfgMoveFileArea`: move item `from` to before `before` (both from 0;
@@ -597,16 +610,17 @@ impl Session {
                 rows: &rows,
                 labels: &labels,
                 start,
-                help: "|U1 Arrows move, |U3enter|U1 edits, |U3/|U1 searches, |U3i|U1nsert, |U3d|U1elete, |U3m|U1ove, |U3esc|U1 quits.",
+                help: "|U1 Arrows move, |U3enter|U1 edits, |U3/|U1 searches, |U3i|U1nsert, |U3d|U1elete, |U3m|U1ove, |U3s|U1ort a level, |U3esc|U1 quits.",
                 ask: "",
                 can_go_up: false,
-                keys: "IDM",
+                keys: "IDMS",
             };
             match self.area_bar(&spec).await? {
                 BarPick::Area(n) => at = self.fa_edit(n).await?,
                 BarPick::Key('I', n) => at = self.fa_insert(n).await?,
                 BarPick::Key('D', n) => self.fa_delete(n).await?,
                 BarPick::Key('M', n) => at = self.fa_move(n).await?,
+                BarPick::Key('S', n) => at = self.fa_sort(n).await?,
                 _ => return Ok(()),
             }
         }
@@ -737,6 +751,41 @@ impl Session {
         move_before(&mut areas.areas, from as usize - 1, before as usize - 1);
         self.save_fareas(areas)?;
         Ok(if before > from { before - 1 } else { before })
+    }
+
+    /// New: `S` sorts a level of the tree by name: the sub-areas of the
+    /// area under the bar, or, if it has none, the areas beside it.
+    /// Returns where the area under the bar ended up.
+    async fn fa_sort(&mut self, n: u32) -> io::Result<u32> {
+        let mut areas = (*self.state.fareas()).clone();
+        let tree = areas.tree();
+        let kids = children_of(&tree, Some(n));
+        let name = crate::editor::strip_codes(&areas.areas[n as usize - 1].name);
+        let (group, what) = if kids.is_empty() {
+            let of = areas.parent_of(n);
+            (children_of(&tree, of), match of {
+                Some(p) => format!("the {} areas under {}", children_of(&tree, of).len(), crate::editor::strip_codes(&areas.areas[p as usize - 1].name)),
+                None => format!("the {} top-level areas", children_of(&tree, of).len()),
+            })
+        } else {
+            (kids, format!("the {} sub-areas of {name}", children_of(&tree, Some(n)).len()))
+        };
+        if group.len() < 2 {
+            self.show_line("|U0Nothing to sort there.").await?;
+            self.prompt_key().await?;
+            return Ok(n);
+        }
+        self.newline();
+        self.show(&format!("|U1Sort {what} by name? ")).await?;
+        if !self.yes_no(false).await? {
+            return Ok(n);
+        }
+        let key = areas.areas[n as usize - 1].file.clone();
+        sort_siblings(&mut areas.areas, &group);
+        let at = areas.areas.iter().position(|a| a.file == key).map_or(n, |i| i as u32 + 1);
+        self.save_fareas(areas)?;
+        tracing::info!("{}: sorted {what} by name", self.user.handle);
+        Ok(at)
     }
 
     /// `cfgEditFileArea`, starting at area `num`; returns the area it was
@@ -1529,6 +1578,21 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sorting_a_level_leaves_the_rest_in_place() {
+        let mk = |name: &str, file: &str, parent: &str| FileArea { name: name.into(), file: file.into(), parent: parent.into(), ..new_file_area(&FileAreas::default()) };
+        let mut areas = vec![mk("zines", "ZINES", ""), mk("|07Phrack", "PHRACK", "ZINES"), mk("40Hex", "HEX", "ZINES"), mk("hack", "HACK", ""), mk("cDc", "CDC", "ZINES"), mk("issue 1", "P1", "PHRACK")];
+        let fa = FileAreas { confs: vec![], areas: areas.clone() };
+        let under = children_of(&fa.tree(), Some(1));
+        assert_eq!(under, [2, 3, 5]);
+        sort_siblings(&mut areas, &under);
+        let order: Vec<&str> = areas.iter().map(|a| a.file.as_str()).collect();
+        assert_eq!(order, ["ZINES", "HEX", "CDC", "HACK", "PHRACK", "P1"]);
+        let fa = FileAreas { confs: vec![], areas };
+        assert_eq!(fa.children(Some(1)), [2, 3, 5]);
+        assert_eq!(fa.children(Some(5)), [6]);
+    }
 
     #[test]
     fn moving_areas() {

@@ -65,7 +65,8 @@ have, add it here (and the details in the doc it belongs to).
 ## Files
 
 - Sub-areas, to any depth, with `*F` as a bar list in tree order (`/`
-  searches, insert, delete, move). ([FILES](FILES.md#sub-areas))
+  searches, insert, delete, move, `S` sorts a level by name).
+  ([FILES](FILES.md#sub-areas))
 - The file browser (`FW`, L on the file menu): areas as folders, ZIP,
   tar and tar.gz opened in place, text and ANSI in a viewer, pictures as
   ANSI (half-blocks, 24-bit), animated GIFs played; `FW newest`, `hot`,
@@ -91,7 +92,9 @@ have, add it here (and the details in the doc it belongs to).
   one query and names only the areas with a match (the original named
   each as it read it); `FN` over all areas passes silently over areas
   with nothing new; the viewer (`V` in the lister, `FV`) shows any file
-  that reads as text, whatever it's called.
+  that reads as text, whatever it's called. `%FE` counts the file areas;
+  before logon the file figures are a new caller's. The top uploader
+  (`%FK`) is always a caller, never an archive's name.
 
 ## Messages
 

@@ -28,7 +28,9 @@ numbers still work (`FaBarKeys`, `FaBarInGroup` are the help lines).
 `/` and some text searches: the bar goes to the next area with it in its
 row, `/` again to the one after, Enter picks it and Esc ends the search
 (every list like this has it, the message areas' too).
-`#` to an area with sub-areas opens it too. `FA` lists every area
+`#` to an area with sub-areas opens it too. In `*F`, `S` sorts a level
+by name (the sub-areas of the area under the bar, or the areas beside
+it if it has none); `M` still moves one area at a time. `FA` lists every area
 with sub-areas indented, and `[`/`]`, numbering and `*F` follow the
 tree. A sub-area needs the access of every area above it, so a parent's
 ACS hides a whole branch. A parent is still an area of its own, with a

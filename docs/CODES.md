@@ -83,7 +83,7 @@ Replaced by a value. An unknown `%XX` is shown as it is in prompts, and dropped 
 
 | The file base (new; over the areas the caller can see, worked out once a minute) | |
 |---|---|
-| `%FT` `%FZ` `%FY` | files / their total size / new since the caller's scan date |
+| `%FT` `%FE` `%FZ` `%FY` | files / file areas / their total size / new since the caller's scan date (before logon, what a new caller would see) |
 | `%FN` `%FU` `%FW` `%FG` | the newest upload / who uploaded it / its area / how long ago ("today", "3d ago") |
 | `%FM` `%FX` | the most downloaded file / its downloads |
 | `%FB` `%FL` | the biggest file / its size |

@@ -133,7 +133,9 @@ Everything the port does, in detail. The [README](../README.md) has the short li
 - `*U` users (with colours, preferences, auto-signature, infoforms).
 - `*F` file areas (new: a bar list in tree order with `/` to search it;
   Enter edits the area under the bar, `I` adds one before it, under the
-  same parent, and edits it, `D` deletes it and `M` moves it), `*Y` files (validate, move, extract/apply DIZ), `*S`
+  same parent, and edits it, `D` deletes it, `M` moves it and `S` sorts
+  a level by name: the sub-areas of the area under the bar, or the
+  areas beside it if it has none), `*Y` files (validate, move, extract/apply DIZ), `*S`
   sort areas, `*>` download any file, `*%` local upload (add files
   copied into the area's directory; `iniquity add-files` does every
   area from the shell, for a mirror, say: a ZIP without a FILE_ID.DIZ

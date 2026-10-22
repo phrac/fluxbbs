@@ -25,7 +25,7 @@ fn initials(name: &str) -> String {
 }
 
 /// The second letters of the file menu's stats codes (new).
-const FILE_STATS: &[u8] = b"BGKLMNQRTUVWXYZ";
+const FILE_STATS: &[u8] = b"BEGKLMNQRTUVWXYZ";
 
 /// The second letters of the message menu's codes (new).
 const MSG_STATS: &[u8] = b"BCDFGHJKLQRVXY";
@@ -75,7 +75,13 @@ impl Session {
         let cached = self.file_stats.borrow().as_ref().filter(|(at, _)| shown || at.elapsed().as_secs() < 60).map(|(_, s)| s.clone());
         cached.unwrap_or_else(|| {
             let fa = self.state.fareas();
-            let areas: Vec<String> = self.visible_fareas().into_iter().filter_map(|(n, _)| fa.get(n).map(|a| a.file.clone())).collect();
+            // Before anyone has logged on (PRELOGON, the matrix), the
+            // figures are what a new caller would get.
+            let areas: Vec<String> = if self.logged_in {
+                self.visible_fareas().into_iter().filter_map(|(n, _)| fa.get(n).map(|a| a.file.clone())).collect()
+            } else {
+                crate::web::public_fareas(&self.state)
+            };
             let s = std::sync::Arc::new(self.state.files.stats(&areas, self.user.file_scan).unwrap_or_default());
             *self.file_stats.borrow_mut() = Some((std::time::Instant::now(), s.clone()));
             s
@@ -83,7 +89,7 @@ impl Session {
     }
 
     /// New: stats over the file areas the caller can see, for the file
-    /// menu. `T` files, `Z` their size, `Y` new since the caller's scan
+    /// menu. `T` files, `E` areas, `Z` their size, `Y` new since the caller's scan
     /// date; the newest upload's name `N`, uploader `U`, area `W` and age
     /// `G`; the most downloaded `M` and its downloads `X`; the biggest `B`
     /// and its size `L`; the top uploader `K` and their files `Q`; and a
@@ -95,6 +101,7 @@ impl Session {
         let commas = |n: u32| crate::files::commas(n as u64);
         match c {
             b'T' => commas(s.files),
+            b'E' => commas(s.areas),
             b'Z' => crate::upscan::human_size(s.bytes),
             b'Y' => commas(s.since),
             b'N' => name(&s.newest),

@@ -135,6 +135,25 @@ pub(crate) fn blurb(desc: &[String]) -> String {
 }
 
 /// Can a brand-new caller (access level A) get at this ACS?
+/// The storage keys of the file areas a new caller could open: their
+/// ACS and every parent's passed at the new-user level, no password.
+/// (Also what the file figures show before anyone has logged on.)
+pub(crate) fn public_fareas(state: &BbsState) -> Vec<String> {
+    let fa = state.fareas();
+    let mut ok_at: Vec<bool> = Vec::new();
+    let mut out = Vec::new();
+    for (n, depth) in fa.tree() {
+        let a = &fa.areas[n as usize - 1];
+        ok_at.truncate(depth);
+        let ok = ok_at.last().copied().unwrap_or(true) && public(state, &a.acs) && a.password.is_empty();
+        ok_at.push(ok);
+        if ok {
+            out.push(a.file.clone());
+        }
+    }
+    out
+}
+
 fn public(state: &BbsState, expr: &str) -> bool {
     let mut u = User::default();
     if let Some(level) = state.level('A') {
@@ -178,16 +197,12 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
 
     // Files only from areas (and parents) a new caller could open.
     let fa = state.fareas();
-    let mut ok_at: Vec<bool> = Vec::new();
+    let open = public_fareas(state);
     let mut files = Vec::new();
     let mut file_count = 0;
-    for (n, depth) in fa.tree() {
-        let a = &fa.areas[n as usize - 1];
-        ok_at.truncate(depth);
-        let ok = ok_at.last().copied().unwrap_or(true) && public(state, &a.acs) && a.password.is_empty();
-        ok_at.push(ok);
+    for a in &fa.areas {
         file_count += state.files.count(&a.file)?;
-        if ok {
+        if open.iter().any(|k| k == &a.file) {
             files.extend(state.files.list(&a.file)?.into_iter().filter(|f| f.valid).map(|f| (a.name.clone(), f)));
         }
     }

@@ -360,7 +360,7 @@ impl FileBase {
     /// New: what the validated files in `areas` add up to, for the file
     /// menu's `%F?` codes. `since` counts the uploads on or after it.
     pub fn stats(&self, areas: &[String], since: Option<NaiveDate>) -> anyhow::Result<FileStats> {
-        let mut s = FileStats::default();
+        let mut s = FileStats { areas: areas.len() as u32, ..Default::default() };
         if areas.is_empty() {
             return Ok(s);
         }
@@ -377,8 +377,16 @@ impl FileBase {
             .prepare(&format!("SELECT * FROM files WHERE {w} ORDER BY TRIM(description) <> '' DESC, RANDOM() LIMIT 20"))?
             .query_map(p.clone(), from_row)?
             .collect::<Result<_, _>>()?;
+        // The top uploader is a caller: an archive's files (uploader
+        // "textfiles.com", say) don't make it the kingpin. The users
+        // table shares the database; a bare file base has none.
+        let callers = if db.query_row("SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'users'", [], |r| r.get::<_, u32>(0))? > 0 {
+            " AND uploader COLLATE NOCASE IN (SELECT handle FROM users)"
+        } else {
+            ""
+        };
         s.top_uploader = db
-            .query_row(&format!("SELECT uploader, COUNT(*) FROM files WHERE {w} AND uploader <> '' GROUP BY uploader COLLATE NOCASE ORDER BY 2 DESC LIMIT 1"), p.clone(), |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row(&format!("SELECT uploader, COUNT(*) FROM files WHERE {w} AND uploader <> ''{callers} GROUP BY uploader COLLATE NOCASE ORDER BY 2 DESC LIMIT 1"), p.clone(), |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()?;
         if let Some((who, _)) = &s.top_uploader {
             s.kingpin_latest = db
@@ -401,6 +409,8 @@ impl FileBase {
 /// See [`FileBase::stats`].
 #[derive(Clone, Debug, Default)]
 pub struct FileStats {
+    /// How many areas were counted.
+    pub areas: u32,
     pub files: u32,
     pub bytes: u64,
     /// Uploads since the date asked about.
@@ -521,6 +531,12 @@ mod tests {
         assert_eq!(s.biggest.unwrap().name, "NEW.ZIP");
         assert_eq!(s.top_uploader, Some(("phrac".into(), 2)));
         assert_eq!(s.kingpin_latest.unwrap().name, "NEWER.ZIP");
+        // Only callers can be the kingpin: with a users table, an
+        // uploader who isn't one doesn't count.
+        fb.db.lock().unwrap().execute_batch("CREATE TABLE users (handle TEXT); INSERT INTO users VALUES ('sysop')").unwrap();
+        let s = fb.stats(&["utils".into()], None).unwrap();
+        assert_eq!(s.top_uploader, Some(("SysOp".into(), 1)));
+        assert_eq!(s.kingpin_latest.unwrap().name, "OLD.ZIP");
         assert_eq!(s.random.len(), 3);
         assert!(s.random.iter().all(|f| f.area == "UTILS"));
         assert_eq!(fb.stats(&[], None).unwrap().files, 0);
