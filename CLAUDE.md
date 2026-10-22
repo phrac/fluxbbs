@@ -200,8 +200,9 @@ Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
 ## textfiles.com, 22 Oct 2026
 
 `iniquity textfiles fetch DIR` / `import CONFIG` (`textfiles.rs`, docs in
-`docs/FILES.md`) put the whole archive on a board: 57,909 files in 649
-directories from the meulie.net mirror's pages plus the 2007 tarballs
+`docs/FILES.md`) put the whole archive on a board as areas of its own (the sections
+top-level, their directories as sub-areas; no group): 57,909 files in
+649 directories from the meulie.net mirror's pages plus the 2007 tarballs
 on archives.textfiles.com. A full fetch takes about an hour; the mirror
 answers missing paths with a redirect to a 404 site (HTTP 200), which
 the fetcher treats as not found. On the live board since 22 Oct (948

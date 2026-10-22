@@ -83,8 +83,8 @@ have, add it here (and the details in the doc it belongs to).
 - Log off after a download, with a countdown.
 - Web file lists (`/files.txt`, `/files.html`) are from 2.0, below.
 - The textfiles.com archive as file areas: `iniquity textfiles fetch`
-  catalogues the mirror and brings the files down, `import` adds a
-  `textfiles.com` area with the site's directories as sub-areas and
+  catalogues the mirror and brings the files down, `import` adds the
+  site's sections as file areas with its directories as sub-areas and
   its descriptions on every file. ([FILES](FILES.md#the-textfilescom-archive))
 - Built for a board with hundreds of areas and tens of thousands of
   files: the area list reads counts, not records; `FF`/`FT` search is

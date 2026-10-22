@@ -4,6 +4,7 @@
 //!                              [--sections a,b,...] [--refresh]
 //!     iniquity textfiles import [CONFIG] [DIR] [--acs ACS]
 //!                               [--download-acs ACS] [--sponsor WHO]
+//!                               [--under KEY] [--put SECTION=KEY,...]
 //!
 //! `fetch` reads the mirror's index pages (the catalogue: every directory
 //! with its heading, every file with its size and description), takes
@@ -11,9 +12,10 @@
 //! the files, and fetches from the mirror whatever the tarball lacks or
 //! has an older copy of. Pages, tarballs and the catalogue are kept
 //! under `DIR/.textfiles`, so a run that was stopped carries on where it
-//! was. `import` adds a `textfiles.com` area with a sub-area per
-//! directory (the site's own tree) and a record per catalogued file
-//! that's on disk, leaving alone what's already there; it needs the
+//! was. `import` adds the site's sections as file areas of the board's
+//! own (Anarchy, Hack, Phreak..., as a board of the day had them) with
+//! the directories under each as sub-areas, and a record per catalogued
+//! file that's on disk, leaving alone what's already there; it needs the
 //! board stopped, as the running board keeps `fileareas.toml` in memory.
 
 use std::collections::{HashMap, HashSet};
@@ -36,7 +38,8 @@ const EXTRA_SECTIONS: &[&str] = &["history"];
 /// Where pages, tarballs and the catalogue are kept, under the files.
 const CACHE: &str = ".textfiles";
 const USER_AGENT: &str = "IniquityBBS-textfiles/0.1";
-/// The storage key of the top area; sub-areas are `TF_<PATH>`.
+/// The storage key of the catalogue's root, were it an area (it isn't:
+/// the sections are the areas); theirs are `TF_<PATH>`.
 pub const ROOT_KEY: &str = "TEXTFILES";
 /// The lister's description column is 52 wide with the stock layout.
 const DESC_WIDTH: usize = 50;
@@ -675,10 +678,13 @@ fn unpack(arc: &Path, section: &str, wanted: &HashMap<String, Option<u64>>, dest
 
 // ---- importing ----------------------------------------------------------
 
-/// The areas and records for a fetched archive. `acs`, `download_acs`
-/// and `sponsor` default to the board's first area's (uploads are the
-/// SysOp's alone: the archive is read, not added to).
-pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, download_acs: Option<&str>, sponsor: Option<&str>) -> anyhow::Result<()> {
+/// The areas and records for a fetched archive. The sections are
+/// top-level areas (or sub-areas of `under`, an existing area's key;
+/// `put` names a parent for particular sections, say the artwork under
+/// the board's art area so the gallery shows it); `acs`,
+/// `download_acs` and `sponsor` default to the board's first area's
+/// (uploads are the SysOp's alone: the archive is read, not added to).
+pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, download_acs: Option<&str>, sponsor: Option<&str>, under: Option<&str>, put: &[(String, String)]) -> anyhow::Result<()> {
     let config = Config::load(config_path)?;
     let dir = dir.map(Path::to_path_buf).unwrap_or_else(|| config.resolve(Path::new("files/textfiles")));
     let cat = dir.join(CACHE).join("catalog.json");
@@ -701,12 +707,26 @@ pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, downloa
         Err(_) => abs.clone(),
     };
 
+    let under = under.unwrap_or("").to_string();
+    for key in std::iter::once(&under).chain(put.iter().map(|(_, k)| k)).filter(|k| !k.is_empty()) {
+        if !fareas.areas.iter().any(|a| a.file.eq_ignore_ascii_case(key)) {
+            bail!("no area with the storage key {key} to put sections under");
+        }
+    }
+    for (section, _) in put {
+        if !root.dirs.iter().any(|d| d.path.eq_ignore_ascii_case(section)) {
+            bail!("no section {section} in the catalogue");
+        }
+    }
     let (mut new_areas, mut new_files, mut missing, mut known) = (0, 0, 0, 0);
     let mut parent_key = HashMap::new();
-    for d in root.walk() {
+    for d in root.walk().into_iter().filter(|d| !d.path.is_empty()) {
         let key = d.key();
-        let path = if d.path.is_empty() { rel.clone() } else { rel.join(&d.path) };
-        let parent = if d.path.is_empty() { String::new() } else { parent_key.get(d.path.rsplit_once('/').map_or("", |(p, _)| p)).cloned().unwrap_or_else(|| ROOT_KEY.into()) };
+        let path = rel.join(&d.path);
+        let parent = match d.path.rsplit_once('/') {
+            Some((above, _)) => parent_key.get(above).cloned().unwrap_or_else(|| under.clone()),
+            None => put.iter().find(|(s, _)| s.eq_ignore_ascii_case(&d.path)).map_or_else(|| under.clone(), |(_, k)| k.to_uppercase()),
+        };
         parent_key.insert(d.path.clone(), key.clone());
         match fareas.areas.iter().find(|a| a.file.eq_ignore_ascii_case(&key)) {
             Some(a) if a.path != path => bail!("area {key} exists already, at {} (this one is {})", a.path.display(), path.display()),
@@ -800,7 +820,7 @@ pub fn description(desc: &[String]) -> Vec<String> {
 // ---- the command --------------------------------------------------------
 
 pub async fn from_args(args: &[String]) -> anyhow::Result<()> {
-    let usage = "usage: iniquity textfiles fetch [DIR] [--mirror URL] [--archives URL] [--sections a,b] [--refresh]\n       iniquity textfiles import [CONFIG] [DIR] [--acs ACS] [--download-acs ACS] [--sponsor WHO]";
+    let usage = "usage: iniquity textfiles fetch [DIR] [--mirror URL] [--archives URL] [--sections a,b] [--refresh]\n       iniquity textfiles import [CONFIG] [DIR] [--acs ACS] [--download-acs ACS] [--sponsor WHO] [--under KEY] [--put SECTION=KEY,...]";
     let mut flags: HashMap<String, String> = HashMap::new();
     let mut positional = Vec::new();
     let mut it = args.iter().skip(1);
@@ -826,7 +846,12 @@ pub async fn from_args(args: &[String]) -> anyhow::Result<()> {
                 [one] => (PathBuf::from("iniquity.toml"), Some(PathBuf::from(one))),
                 [c, d, ..] => (PathBuf::from(c), Some(PathBuf::from(d))),
             };
-            import(&config, dir.as_deref(), flags.get("acs").map(String::as_str), flags.get("download-acs").map(String::as_str), flags.get("sponsor").map(String::as_str))
+            let put: Vec<(String, String)> = flags
+                .get("put")
+                .map(|v| v.split(',').filter(|p| !p.trim().is_empty()).map(|p| p.split_once('=').map(|(s, k)| (s.trim().to_string(), k.trim().to_string())).with_context(|| format!("--put wants SECTION=KEY, not {p}"))).collect::<Result<_, _>>())
+                .transpose()?
+                .unwrap_or_default();
+            import(&config, dir.as_deref(), flags.get("acs").map(String::as_str), flags.get("download-acs").map(String::as_str), flags.get("sponsor").map(String::as_str), flags.get("under").map(String::as_str), &put)
         }
         _ => bail!("{usage}"),
     }
@@ -1015,13 +1040,17 @@ Stories and novels.
             ..Default::default()
         };
         std::fs::write(tmp.join("files/textfiles/.textfiles/catalog.json"), serde_json::to_vec(&root).unwrap()).unwrap();
-        import(&tmp.join("iniquity.toml"), None, Some("s10"), None, None).unwrap();
+        assert!(import(&tmp.join("iniquity.toml"), None, None, None, None, Some("NOSUCH"), &[]).is_err());
+        assert!(import(&tmp.join("iniquity.toml"), None, None, None, None, None, &[("anarchy".into(), "NOSUCH".into())]).is_err());
+        assert!(import(&tmp.join("iniquity.toml"), None, None, None, None, None, &[("nosuch".into(), "NEWAREA".into())]).is_err());
+        import(&tmp.join("iniquity.toml"), None, Some("s10"), None, None, None, &[]).unwrap();
         let fa = FileAreas::load(&tmp.join("fileareas.toml")).unwrap();
         let keys: Vec<(&str, &str, &str)> = fa.areas.iter().map(|a| (a.file.as_str(), a.name.as_str(), a.parent.as_str())).collect();
-        assert_eq!(keys[1..], [("TEXTFILES", "textfiles.com", ""), ("TF_ANARCHY", "Anarchy", "TEXTFILES"), ("TF_ANARCHY_CARDING", "Credit Card Fraud", "TF_ANARCHY")]);
-        assert_eq!(fa.areas[2].path, Path::new("files/textfiles/anarchy"));
-        assert_eq!(fa.areas[2].acs, "s10");
-        assert_eq!(fa.areas[2].upload_acs, "s255");
+        // The sections are areas of the board's own, in the site's order.
+        assert_eq!(keys[1..], [("TF_ANARCHY", "Anarchy", ""), ("TF_ANARCHY_CARDING", "Credit Card Fraud", "TF_ANARCHY")]);
+        assert_eq!(fa.areas[1].path, Path::new("files/textfiles/anarchy"));
+        assert_eq!(fa.areas[1].acs, "s10");
+        assert_eq!(fa.areas[1].upload_acs, "s255");
         let fb = FileBase::open(&tmp.join("data/iniquity.db")).unwrap();
         let got = fb.list("TF_ANARCHY").unwrap();
         assert_eq!(got.len(), 1);
@@ -1029,8 +1058,15 @@ Stories and novels.
         assert_eq!(got[0].description, ["Dry ice"]);
         assert_eq!(fb.count("TF_ANARCHY_CARDING").unwrap(), 1);
         // Again: nothing doubled.
-        import(&tmp.join("iniquity.toml"), None, None, None, None).unwrap();
-        assert_eq!(FileAreas::load(&tmp.join("fileareas.toml")).unwrap().areas.len(), 4);
+        import(&tmp.join("iniquity.toml"), None, None, None, None, None, &[]).unwrap();
+        assert_eq!(FileAreas::load(&tmp.join("fileareas.toml")).unwrap().areas.len(), 3);
+        // A section put under an area of the board's own.
+        std::fs::remove_file(tmp.join("fileareas.toml")).unwrap();
+        fb.delete_area("TF_ANARCHY").unwrap();
+        import(&tmp.join("iniquity.toml"), None, None, None, None, None, &[("Anarchy".into(), "newarea".into())]).unwrap();
+        let fa = FileAreas::load(&tmp.join("fileareas.toml")).unwrap();
+        let parents: Vec<(&str, &str)> = fa.areas.iter().map(|a| (a.file.as_str(), a.parent.as_str())).collect();
+        assert_eq!(parents, [("NEWAREA", ""), ("TF_ANARCHY", "NEWAREA"), ("TF_ANARCHY_CARDING", "TF_ANARCHY")]);
         assert_eq!(fb.count("TF_ANARCHY").unwrap(), 1);
         std::fs::remove_dir_all(&tmp).unwrap();
     }

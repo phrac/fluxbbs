@@ -59,21 +59,26 @@ point it elsewhere (the defaults are `https://textfiles.meulie.net` and
 `http://archives.textfiles.com`).
 
 `import` needs the board stopped (it keeps `fileareas.toml` in memory):
-it adds a `textfiles.com` area (storage key `TEXTFILES`) with a
-sub-area per directory of the site (`TF_ANARCHY`,
-`TF_ANARCHY_CARDING`...), named as the site names them (a section by
-the directory page's name for it, a directory below by its heading),
-and a record for every catalogued file that's on disk, in the site's
-order, with the site's description, the file's own date, uploader
-`textfiles.com` and no downloads. Access, download access and the
-sponsor are copied from the board's first area (`--acs`,
-`--download-acs` and `--sponsor` override them); uploads are the
-SysOp's alone. Running it again adds only what's new: areas and files
-already there are left as they are, so a later `fetch` and `import`
-bring the mirror's additions. The whole tree is `[[area]]` entries in
-`fileareas.toml` and rows in the database like any other: `*F` edits
-them, and deleting the `textfiles.com` area in `*F` takes the branch
-with it.
+it adds the site's sections as file areas of the board's own, after
+the areas it has (Anarchy, Hack, Phreak, Magazines..., as a board of
+the day sorted its files), with the directories under each as
+sub-areas (`TF_ANARCHY`, `TF_ANARCHY_CARDING`...), named as the site
+names them (a section by the directory page's name for it, a directory
+below by its heading), and a record for every catalogued file that's
+on disk, in the site's order, with the site's description, the file's
+own date, uploader `textfiles.com` and no downloads. `--under KEY`
+puts the sections under an existing area instead, and `--put
+SECTION=KEY,...` particular ones: `--put art=ARTSCENE` puts the site's
+Artwork under the board's art area, where the gallery shows it (its
+`.art`, `.pic`, `.pix` and `.vt` files count as art there). Access, download
+access and the sponsor are copied from the board's first area
+(`--acs`, `--download-acs` and `--sponsor` override them); uploads are
+the SysOp's alone. Running it again adds only what's new: areas and
+files already there are left as they are, so a later `fetch` and
+`import` bring the mirror's additions. The areas are `[[area]]`
+entries in `fileareas.toml` and rows in the database like any other:
+`*F` edits, moves and deletes them (a section takes its sub-areas with
+it).
 
 In the container (the board at `/srv/board`), `fetch` runs beside the
 live board and `import` in its place:

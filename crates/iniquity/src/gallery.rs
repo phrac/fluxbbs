@@ -19,7 +19,9 @@ use crate::session::{Session, waves};
 use crate::upscan::Kind;
 
 /// Art the gallery shows; anything else in a pack is skipped.
-const ART: [&str; 7] = ["ans", "ice", "asc", "txt", "nfo", "diz", "cia"];
+/// (`art`, `pic`, `pix` and `vt` are what textfiles.com's artwork is
+/// called.)
+const ART: [&str; 11] = ["ans", "ice", "asc", "txt", "nfo", "diz", "cia", "art", "pic", "pix", "vt"];
 /// The largest piece read into memory.
 const MAX_PIECE: u64 = 8 << 20;
 /// Play speeds to cycle through (bits per second; 0 = all at once).
