@@ -10,7 +10,6 @@
 
 use std::io;
 
-use chrono::Local;
 use iniquity_term::lit;
 use iniquity_term::codes::{resize, squish};
 
@@ -50,7 +49,7 @@ impl Session {
 
     /// Show `u`'s profile.
     pub async fn finger_user(&mut self, u: &User) -> io::Result<()> {
-        let today = Local::now().date_naive();
+        let today = crate::clock::now().date_naive();
         let sysop = self.is_sysop();
         let online = self.state.nodes.online().into_iter().find(|(_, i)| i.user.eq_ignore_ascii_case(&u.handle) && (!i.invisible || sysop));
         let seen = match online {

@@ -60,6 +60,9 @@ pub struct Bbs {
     pub max_nodes: u16,
     /// Disconnect after this many idle seconds (0 = never).
     pub inactivity_seconds: u64,
+    /// New: the zone the board keeps time in (an IANA name such as
+    /// `America/Chicago`); blank for the host's clock.
+    pub time_zone: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -926,6 +929,7 @@ impl Default for Bbs {
             sysop_name: String::new(),
             max_nodes: 16,
             inactivity_seconds: 300,
+            time_zone: String::new(),
         }
     }
 }
@@ -1117,6 +1121,8 @@ impl Config {
             cfg.levels = default_levels();
         }
         cfg.root = path.parent().map(Path::to_path_buf).unwrap_or_default();
+        // Every command keeps board time from here on.
+        crate::clock::set_board(&cfg.bbs.time_zone);
         Ok(cfg)
     }
 

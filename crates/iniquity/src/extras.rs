@@ -4,7 +4,6 @@
 
 use std::io;
 
-use chrono::Local;
 use iniquity_term::{Charset, Slot, lit};
 use iniquity_term::codes::{resize, squish};
 
@@ -64,7 +63,7 @@ fn ssh_short(b: &Bbs) -> String {
 impl Session {
     /// Count something toward today's history and the totals.
     pub fn bump(&self, stat: Stat) {
-        if let Err(e) = self.state.sys.bump(Local::now().date_naive(), stat) {
+        if let Err(e) = self.state.sys.bump(crate::clock::now().date_naive(), stat) {
             tracing::error!("recording stats: {e}");
         }
     }
@@ -76,7 +75,7 @@ impl Session {
             user_id: self.user.id,
             handle: self.user.handle.clone(),
             location: self.user.location.clone(),
-            at: Local::now().naive_local(),
+            at: crate::clock::now().naive_local(),
             new_user: self.new_user,
             area_code: self.user.area_code().to_string(),
             transport: self.caller.transport.to_string(),
@@ -174,7 +173,7 @@ impl Session {
     pub async fn last_callers(&mut self, param: &str) -> io::Result<()> {
         let all = param.trim().to_ascii_uppercase().starts_with('A');
         let calls = if all {
-            self.state.sys.calls(None, Some(Local::now().date_naive()))
+            self.state.sys.calls(None, Some(crate::clock::now().date_naive()))
         } else {
             self.state.sys.calls(Some(self.state.config().logon.last_callers), None)
         }
@@ -189,7 +188,8 @@ impl Session {
         }
         let mut lines = 4;
         for c in &calls {
-            let time = c.at.format("%-I:%M%P").to_string();
+            let at = self.local(c.at);
+            let time = at.format("%-I:%M%P").to_string();
             let new = if c.new_user { "Yes" } else { "No" };
             let more = match rep.as_mut() {
                 Some(r) => {
@@ -199,7 +199,7 @@ impl Session {
                         ("NM", c.user_id.to_string()),
                         ("LO", c.location.clone()),
                         ("BR", c.transport.clone()),
-                        ("DT", c.at.format("%m/%d/%y").to_string()),
+                        ("DT", at.format("%m/%d/%y").to_string()),
                         ("TI", time),
                         ("NU", new.into()),
                         ("AC", c.area_code.clone()),
@@ -308,7 +308,7 @@ impl Session {
             subject: title.clone(),
             from: self.user.handle.clone(),
             to: "All".into(),
-            date: Local::now().naive_local(),
+            date: crate::clock::now().naive_local(),
             anonymous,
             can_anonymous: false,
             can_autosig: false,
@@ -326,7 +326,7 @@ impl Session {
             author: self.user.handle.clone(),
             anonymous,
             title: done.subject,
-            posted: Local::now().naive_local(),
+            posted: crate::clock::now().naive_local(),
             lines: done.lines.into_iter().take(AUTOMSG_LINES).collect(),
         };
         self.state.sys.set_automsg(&m).map_err(io_err)?;
@@ -392,7 +392,7 @@ impl Session {
             subject: "AutoSignature".into(),
             from: handle.to_string(),
             to: handle.to_string(),
-            date: Local::now().naive_local(),
+            date: crate::clock::now().naive_local(),
             anonymous: false,
             can_anonymous: false,
             can_autosig: false,
@@ -739,6 +739,8 @@ impl Session {
                 1 => "1 key".into(),
                 n => format!("{n} keys"),
             },
+            // New: the time zone they see times in.
+            'R' => crate::clock::Zone::parse(&u.time_zone).map_or_else(|| "board's".into(), |z| z.short()),
             _ => String::new(),
         }
     }
@@ -760,6 +762,7 @@ impl Session {
             }
             'P' => self.ssh_keys_edit().await?,
             'Q' => self.plan_edit().await?,
+            'R' => self.time_zone_edit().await?,
             'H' => self.user.yes_no_bars = !self.user.yes_no_bars,
             'I' => self.user.expert = !self.user.expert,
             'J' => self.user.hot_keys = !self.user.hot_keys,
@@ -788,6 +791,44 @@ impl Session {
         Ok(())
     }
 
+    /// New: the caller's time zone, picked from a list or typed (a name,
+    /// an abbreviation or an offset); blank for the board's.
+    async fn time_zone_edit(&mut self) -> io::Result<()> {
+        use crate::clock::{CHOICES, Zone};
+        self.newline();
+        let board = crate::clock::board();
+        let head = self.strings().fmt("TimeZoneHead", &[&board.short(), &board.now().format("%-I:%M%P").to_string()]);
+        self.show_line(&head).await?;
+        // Two columns: number, place, and the time there now.
+        let rows = CHOICES.len().div_ceil(2);
+        for r in 0..rows {
+            let mut line = String::new();
+            for k in [r, r + rows] {
+                if let Some((label, name)) = CHOICES.get(k) {
+                    let now = Zone::parse(name).map(|z| z.now().format("%-I:%M%P").to_string()).unwrap_or_default();
+                    line += &format!(" |U3{:>2}|U2) |U1{} |U6{} ", k + 1, resize(label, 22), resize(&now, 7));
+                }
+            }
+            self.show_line(&line).await?;
+        }
+        self.say("TimeZoneAsk").await?;
+        let typed = self.read_string(ReadOpts::new(32).case(Case::Mixed)).await?;
+        let typed = typed.trim();
+        if typed.is_empty() {
+            self.user.time_zone.clear();
+            return Ok(());
+        }
+        let picked = typed.parse::<usize>().ok().and_then(|n| CHOICES.get(n.checked_sub(1)?)).map(|(_, name)| name.to_string());
+        match picked.or_else(|| Zone::parse(typed).map(|z| z.name())) {
+            Some(name) => self.user.time_zone = name,
+            None => {
+                self.say_line("TimeZoneBad").await?;
+                self.prompt_key().await?;
+            }
+        }
+        Ok(())
+    }
+
     /// User configuration without USERCFG.ANS.
     async fn user_config_plain(&mut self) -> io::Result<()> {
         let items = [
@@ -803,6 +844,7 @@ impl Session {
             ('L', 'Q', "Message autoquote"),
             ('M', 'E', "Emulation"),
             ('N', 'T', "Theme"),
+            ('R', 'Z', "Time zone"),
         ];
         loop {
             self.newline();
@@ -819,7 +861,7 @@ impl Session {
             self.newline();
             let Some(c) = key.upper().filter(|_| !matches!(key, Key::Enter | Key::Esc)) else { return Ok(()) };
             if let Some(&(f, _, name)) = items.iter().find(|(_, k, _)| *k == c) {
-                if !"AHIJKLMN".contains(f) {
+                if !"AHIJKLMNR".contains(f) {
                     self.show(&format!("|U1{name}|U2: |U3")).await?;
                 }
                 self.edit_user_field(f).await?;

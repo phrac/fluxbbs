@@ -4,7 +4,6 @@
 use std::io;
 use std::time::Instant;
 
-use chrono::Local;
 
 use crate::input::{Case, DIGITS, Key, ReadOpts};
 use crate::menu::Menu;
@@ -28,7 +27,7 @@ pub(crate) fn record_failure(state: &crate::BbsState, addr: std::net::SocketAddr
             let minutes = len.as_secs() / 60;
             tracing::warn!("{ip}: banned for {minutes} minutes");
             log(&format!("banned for {minutes} minutes"));
-            let until = Local::now().naive_local() + chrono::Duration::from_std(len).unwrap_or_default();
+            let until = crate::clock::now().naive_local() + chrono::Duration::from_std(len).unwrap_or_default();
             if let Err(e) = state.sys.set_ban(&ip, until, state.guard.strikes(addr.ip())) {
                 tracing::error!("recording ban: {e}");
             }
@@ -372,7 +371,7 @@ impl Session {
 
     /// `userLogonInit`: count the call and reset daily limits.
     fn user_logon_init(&mut self) {
-        let today = Local::now().date_naive();
+        let today = crate::clock::now().date_naive();
         let u = &mut self.user;
         let new_day = u.last_call != Some(today);
         if new_day || self.state.config().logon.time_per_call {
@@ -495,7 +494,7 @@ impl Session {
             u.real_name = u.handle.clone();
         }
 
-        let today = Local::now().date_naive();
+        let today = crate::clock::now().date_naive();
         if nu.ask_birth_date {
             loop {
                 self.say("NuBirthDate").await?;
@@ -644,7 +643,7 @@ impl Session {
             return Ok(None);
         }
         let ip_str = ip.map(|ip| ip.to_string()).unwrap_or_default();
-        let since = Local::now().naive_local() - chrono::Duration::days(1);
+        let since = crate::clock::now().naive_local() - chrono::Duration::days(1);
         let (here, all) = self.state.sys.signups_since(&ip_str, since).map_err(io::Error::other)?;
         let refused = if nu.per_address_per_day > 0 && ip.is_some() && here >= nu.per_address_per_day {
             Some(("NuLimitAddress", "sign-up refused: daily limit for this address"))

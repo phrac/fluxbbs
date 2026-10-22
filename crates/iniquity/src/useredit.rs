@@ -553,11 +553,19 @@ impl Session {
         for (key, label, info, get) in prefs {
             f.item(key, label, 3, yes_no(*get(u)), info);
         }
+        // New: the zone they see times in.
+        f.item('6', "Time zone", 32, u.time_zone.clone(), "Zone times are shown to this user in (America/Chicago, EST, UTC-6); blank for the board's.");
         self.cfg_draw(&f);
         while let Some(key) = self.cfg_command(&mut f).await? {
             if let Some((_, _, _, get)) = prefs.iter().find(|p| p.0 == key) {
                 let cur = *get(u);
                 *get(u) = self.cfg_bool(&mut f, key, cur).await?;
+            } else if key == '6'
+                && let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(32)).await?
+            {
+                // Keep what was typed in its proper form; nonsense is cleared.
+                u.time_zone = crate::clock::Zone::parse(&v).map(|z| z.name()).unwrap_or_default();
+                self.cfg_set(&mut f, key, u.time_zone.clone());
             }
         }
         Ok(())

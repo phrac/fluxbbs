@@ -16,7 +16,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::Context;
-use chrono::{Local, NaiveDate, NaiveDateTime, NaiveTime};
+use chrono::{NaiveDate, NaiveDateTime, NaiveTime};
 use iniquity_term::Slot;
 use iniquity_term::codes::{resize, squish};
 use serde::{Deserialize, Serialize};
@@ -91,7 +91,7 @@ pub async fn scheduler(state: Arc<BbsState>) {
     let mut tick = tokio::time::interval(TICK);
     loop {
         tick.tick().await;
-        let now = Local::now().naive_local();
+        let now = crate::clock::now().naive_local();
         for e in state.events().list.iter() {
             let last = match state.sys.event_last(&e.desc) {
                 Ok(l) => l,
@@ -115,7 +115,7 @@ pub async fn scheduler(state: Arc<BbsState>) {
 
 /// `eventRun`.
 pub async fn run(state: Arc<BbsState>, e: Event) {
-    tracing::info!("event: {} @ {}", e.desc, Local::now().format("%H:%M"));
+    tracing::info!("event: {} @ {}", e.desc, crate::clock::now().format("%H:%M"));
     if e.force {
         let text = state.strings().get("s299").to_string();
         let kicked = state.nodes.send_all(0, NodeEvent::Kick { text });

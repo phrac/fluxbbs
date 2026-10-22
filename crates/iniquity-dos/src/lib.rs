@@ -9,6 +9,30 @@
 
 pub mod batch;
 pub mod bios;
+
+/// The clock DOS and the BIOS answer with: a function giving a UTC time
+/// as the local time programs should see. The host's zone unless the
+/// embedding board sets its own with [`set_clock`].
+static CLOCK: std::sync::RwLock<fn(chrono::NaiveDateTime) -> chrono::NaiveDateTime> = std::sync::RwLock::new(host_local);
+
+fn host_local(utc: chrono::NaiveDateTime) -> chrono::NaiveDateTime {
+    chrono::TimeZone::from_utc_datetime(&chrono::Local, &utc).naive_local()
+}
+
+/// Keep time with `f` from now on (a UTC time to the local time to show).
+pub fn set_clock(f: fn(chrono::NaiveDateTime) -> chrono::NaiveDateTime) {
+    *CLOCK.write().unwrap_or_else(|e| e.into_inner()) = f;
+}
+
+/// A UTC time as the machine's local time.
+pub fn local(utc: chrono::NaiveDateTime) -> chrono::NaiveDateTime {
+    (CLOCK.read().unwrap_or_else(|e| e.into_inner()))(utc)
+}
+
+/// Now, as the machine's local time.
+pub fn now() -> chrono::NaiveDateTime {
+    local(chrono::Utc::now().naive_utc())
+}
 pub mod cpu;
 pub mod dos;
 pub mod fossil;

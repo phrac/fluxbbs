@@ -294,7 +294,7 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
     // Infoforms (INFOFORM.DAT), everyone's answers (INFOFORM.001...) and
     // new user votes (NUV.DAT). User numbers are kept, so they line up.
     let forms = FormStore::open(&db_path)?;
-    let now = chrono::Local::now().naive_local();
+    let now = crate::clock::now().naive_local();
     let legacy_forms = read("INFOFORM.DAT")?.map(|b| LegacyInfoform::parse_file(&b)).unwrap_or_default();
     let mut nanswers = 0;
     let mut list = Vec::new();
@@ -721,6 +721,7 @@ fn convert_user(l: &LegacyUser) -> User {
         ssh_keys: Vec::new(),
         ssh_user: String::new(),
         plan: Vec::new(),
+        time_zone: String::new(),
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.
     u.set_password(&l.password.to_uppercase());

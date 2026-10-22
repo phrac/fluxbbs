@@ -125,6 +125,10 @@ have, add it here (and the details in the doc it belongs to).
 - Doors in a built-in DOS machine (real-mode x86, BIOS, FOSSIL, DOS,
   batch files); DOOR32.SYS (`D4`) and no drop file (`D0`). ([DOORS](DOORS.md))
 - Screen themes picked by callers (`UT`).
+- Time zones: the board keeps time in its own zone (`[bbs] time_zone`,
+  not the host's clock, which in a container is UTC; doors see it too),
+  and callers pick a zone of their own in user config, so posted times,
+  last callers and the `%TI` clock are shown in their time.
 - Profiles: finger (`UF`, `f` in the reader, after the user list) with
   a plan written in user config. ([FEATURES](FEATURES.md#in-detail))
 - `*O` logon sequence: the steps after logging in, ordered and switched
@@ -180,7 +184,7 @@ New screens ([ARTWORK](ARTWORK.md)):
 New markers in older screens: `~RT` in MSGHEAD (what a message
 answers), `~NA` `~NF` `~SZ` in LISTFILE and GALLERY (files, folders,
 size), `~TN` `~SS` `~SH` in the BBS list screens (telnet, SSH, SSH
-short), `~P?` (SSH keys) and `~Q?` (plan) in USERCFG.
+short), `~P?` (SSH keys), `~Q?` (plan) and `~R?` (time zone) in USERCFG.
 
 New settings sections in `iniquity.toml`: `[ssh]`, `[telnet]`, `[web]`,
 `[gallery]`, `[security]`, `[passwords]`, `[dos]`, `[ai]`,

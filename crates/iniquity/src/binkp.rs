@@ -235,7 +235,7 @@ impl Link {
             format!("ZYZ {}", cfg.bbs.sysop_alias),
             format!("LOC {}", cfg.bbs.location),
             "NDL 115200,TCP,BINKP".to_string(),
-            format!("TIME {}", chrono::Local::now().to_rfc2822()),
+            format!("TIME {}", crate::clock::now().to_rfc2822()),
             format!("VER Iniquity/{} binkp/1.0", env!("CARGO_PKG_VERSION")),
         ]
         .into_iter()

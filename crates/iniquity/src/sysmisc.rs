@@ -434,7 +434,7 @@ impl Session {
             self.show_line("|U1 (nothing)").await?;
         }
         for (at, ip, what) in &events {
-            let line = format!("|U1 {} {} |U3{}", resize(&at.format("%m/%d/%y %H:%M").to_string(), 15), resize(ip, 28), what);
+            let line = format!("|U1 {} {} |U3{}", resize(&self.local(*at).format("%m/%d/%y %H:%M").to_string(), 15), resize(ip, 28), what);
             self.show_line(&line).await?;
         }
         self.rule().await?;

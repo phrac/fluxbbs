@@ -10,7 +10,7 @@
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, anyhow};
-use chrono::{Local, NaiveDateTime, TimeZone};
+use chrono::NaiveDateTime;
 
 use crate::BbsState;
 use crate::config::Ftn;
@@ -221,10 +221,10 @@ fn toss_packet(state: &BbsState, data: &[u8], me: Addr, hub: Addr, cfg: &Ftn, t:
 /// writer's local time, and TZUTC says how far that is from UTC (fsxNet
 /// is mostly New Zealand, half a day ahead).
 fn posted(m: &PackedMsg, parts: &Parts) -> NaiveDateTime {
-    let Some(t) = ftn::parse_fts_date(&m.datetime) else { return Local::now().naive_local() };
+    let Some(t) = ftn::parse_fts_date(&m.datetime) else { return crate::clock::now().naive_local() };
     let Some(offset) = parts.kludge("TZUTC").and_then(tzutc_minutes) else { return t };
     let utc = t - chrono::Duration::minutes(offset);
-    chrono::Utc.from_utc_datetime(&utc).with_timezone(&Local).naive_local()
+    crate::clock::from_utc(utc)
 }
 
 /// `-0500`, `0100`, `+1300` as minutes east of UTC.
@@ -389,7 +389,7 @@ fn toss_netmail(state: &BbsState, m: &PackedMsg, parts: &Parts, me: Addr, pkt_or
 
 /// A new MSGID serial: never the same twice, kept with the messages.
 fn next_serial(state: &BbsState) -> anyhow::Result<u32> {
-    let now = Local::now().timestamp();
+    let now = crate::clock::now().timestamp();
     let last = state.msgs.ftn_get("serial")?.unwrap_or(0);
     let next = (last + 1).max(now);
     state.msgs.ftn_set("serial", next)?;
@@ -398,8 +398,7 @@ fn next_serial(state: &BbsState) -> anyhow::Result<u32> {
 
 /// The local time zone at `at`, as TZUTC writes it (`-0500`, `0100`).
 fn tzutc(at: NaiveDateTime) -> String {
-    use chrono::Offset;
-    let secs = Local.offset_from_local_datetime(&at).earliest().map_or_else(|| Local::now().offset().fix(), |o| o.fix()).local_minus_utc();
+    let secs = crate::clock::board().offset_local(at).local_minus_utc();
     let (sign, secs) = if secs < 0 { ("-", -secs) } else { ("", secs) };
     format!("{sign}{:02}{:02}", secs / 3600, secs % 3600 / 60)
 }
@@ -422,7 +421,7 @@ pub fn scan(state: &BbsState) -> anyhow::Result<usize> {
     let cfg = state.config().ftn.clone();
     let (me, hub) = addresses(&cfg)?;
     let _lock = lock(state, "toss", true)?;
-    let now = Local::now().naive_local();
+    let now = crate::clock::now().naive_local();
     let mut msgs = Vec::new();
     // Recorded once the packet is written: lost mail is worse than a
     // resend.
@@ -518,12 +517,12 @@ pub fn netmail(state: &BbsState, from: &str, to: &str, to_addr: Addr, subject: &
     }
     kludges.push(("MSGID".into(), msgid));
     kludges.push(("PID".into(), format!("Iniquity/Rust {}", env!("CARGO_PKG_VERSION"))));
-    kludges.push(("TZUTC".into(), tzutc(Local::now().naive_local())));
+    kludges.push(("TZUTC".into(), tzutc(crate::clock::now().naive_local())));
     let mut lines = body.to_vec();
     lines.push(String::new());
     lines.push(tear_line());
     let parts = Parts { area: None, kludges, body: lines, seen_by: Vec::new(), path: Vec::new() };
-    let now = Local::now().naive_local();
+    let now = crate::clock::now().naive_local();
     let m = PackedMsg {
         orig_node: me.node,
         dest_node: to_addr.node,
@@ -547,7 +546,7 @@ pub fn netmail(state: &BbsState, from: &str, to: &str, to_addr: Addr, subject: &
 fn write_packet(state: &BbsState, pkt: &Packet) -> anyhow::Result<PathBuf> {
     let (_, outbound, _) = dirs(state);
     std::fs::create_dir_all(&outbound)?;
-    let mut serial = Local::now().timestamp_millis() as u32;
+    let mut serial = crate::clock::now().timestamp_millis() as u32;
     let path = loop {
         let p = outbound.join(format!("{serial:08x}.pkt"));
         if !p.exists() {
@@ -617,7 +616,7 @@ mod tests {
         let (state, dir) = board();
         let (inbound, _, bad) = dirs(&state);
         std::fs::create_dir_all(&inbound).unwrap();
-        let pkt = |msgs: Vec<PackedMsg>| Packet { orig: Addr::parse("21:1/100").unwrap(), dest: Addr::parse("21:1/999").unwrap(), password: "PKTPW".into(), created: Local::now().naive_local(), msgs }.to_bytes();
+        let pkt = |msgs: Vec<PackedMsg>| Packet { orig: Addr::parse("21:1/100").unwrap(), dest: Addr::parse("21:1/999").unwrap(), password: "PKTPW".into(), created: crate::clock::now().naive_local(), msgs }.to_bytes();
         // A bundle: an unmapped echo's packet first, then a good one with a
         // reply that comes before its parent.
         let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
@@ -660,7 +659,7 @@ mod tests {
                 from: party("phrac"),
                 to: party("All"),
                 subject: subject.into(),
-                posted: Local::now().naive_local(),
+                posted: crate::clock::now().naive_local(),
                 deleted: false,
                 private: false,
                 anonymous: false,
@@ -697,7 +696,7 @@ mod tests {
             orig: Addr::parse("21:1/100").unwrap(),
             dest: Addr::parse("21:1/999").unwrap(),
             password: "PKTPW".into(),
-            created: Local::now().naive_local(),
+            created: crate::clock::now().naive_local(),
             msgs: vec![
                 echo("Alice", "hello", "21:1/5 00000001", None, "first post", "FSX_GEN"),
                 echo("Bob", "Re: hello", "21:1/5 00000002", Some("21:1/5 00000001"), "a reply that goes on and on ".repeat(5).trim(), "FSX_GEN"),
@@ -730,7 +729,7 @@ mod tests {
             from: party("phrac"),
             to: party("Bob"),
             subject: "Re: hello".into(),
-            posted: Local::now().naive_local(),
+            posted: crate::clock::now().naive_local(),
             deleted: false,
             private: false,
             anonymous: false,

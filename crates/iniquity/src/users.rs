@@ -78,7 +78,8 @@ CREATE TABLE IF NOT EXISTS users (
     bank_kb_out   INTEGER NOT NULL DEFAULT 0,
     ssh_keys      TEXT NOT NULL DEFAULT '',
     plan          TEXT NOT NULL DEFAULT '',
-    ssh_user      TEXT NOT NULL DEFAULT ''
+    ssh_user      TEXT NOT NULL DEFAULT '',
+    time_zone     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS users_real_name ON users(real_name);
 ";
@@ -93,7 +94,7 @@ const COLUMNS: &[&str] = &[
     "limit_dl", "limit_dl_kb", "today_dl", "today_dl_kb", "uldl_ratio", "kb_ratio",
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
     "file_scan", "theme", "last_rep", "bank_time", "bank_kb", "bank_time_in", "bank_time_out",
-    "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user",
+    "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user", "time_zone",
 ];
 
 /// Add columns newer than the database (`ALTER TABLE`, since SQLite
@@ -112,7 +113,7 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     if !have.iter().any(|c| c == "last_rep") {
         db.execute("ALTER TABLE users ADD COLUMN last_rep TEXT NOT NULL DEFAULT ''", [])?;
     }
-    for col in ["ssh_keys", "plan", "ssh_user"] {
+    for col in ["ssh_keys", "plan", "ssh_user", "time_zone"] {
         if !have.iter().any(|c| c == col) {
             db.execute(&format!("ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"), [])?;
         }
@@ -210,6 +211,7 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         ssh_keys: r.get::<_, String>("ssh_keys")?.lines().map(String::from).collect(),
         plan: r.get::<_, String>("plan")?.lines().map(String::from).collect(),
         ssh_user: r.get("ssh_user")?,
+        time_zone: r.get("time_zone")?,
     })
 }
 
@@ -241,6 +243,7 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.ssh_keys.join("\n")),
         Box::new(u.plan.join("\n")),
         Box::new(u.ssh_user.clone()),
+        Box::new(u.time_zone.clone()),
     ]
 }
 

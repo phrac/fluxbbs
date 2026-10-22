@@ -4,7 +4,6 @@
 use std::collections::HashSet;
 use std::io;
 
-use chrono::Local;
 use iniquity_term::Slot;
 use iniquity_term::codes::{resize, squish};
 
@@ -396,8 +395,9 @@ impl Session {
     pub(crate) async fn msg_header(&mut self, a: &AreaRef, m: &Message, pos: u32, total: u32) -> io::Result<u16> {
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
-        let date = m.posted.format("%m/%d/%y").to_string();
-        let time = m.posted.format("%-I:%M%P").to_string();
+        let posted = self.local(m.posted);
+        let date = posted.format("%m/%d/%y").to_string();
+        let time = posted.format("%-I:%M%P").to_string();
         let note = if m.anonymous { "Unknown".to_string() } else { m.from.note.clone() };
         let reply_to = self.reply_to_text(m)?;
         let w = waves([
@@ -653,7 +653,7 @@ impl Session {
                 // Re-date it to now (in the original, that made it new to
                 // every newscan; here it sorts as the latest post).
                 'Z' if self.is_cosysop() => {
-                    m.posted = chrono::Local::now().naive_local();
+                    m.posted = crate::clock::now().naive_local();
                     self.state.msgs.set_posted(m.id, m.posted).map_err(io_err)?;
                     show = true;
                 }
@@ -780,8 +780,8 @@ impl Session {
                         ("MN", m.num.to_string()),
                         ("SN", m.from.name.clone()),
                         ("RN", m.to.name.clone()),
-                        ("TI", m.posted.format("%-I:%M%P").to_string()),
-                        ("DT", m.posted.format("%m/%d/%y").to_string()),
+                        ("TI", self.local(m.posted).format("%-I:%M%P").to_string()),
+                        ("DT", self.local(m.posted).format("%m/%d/%y").to_string()),
                         ("MT", m.subject.clone()),
                     ]);
                     self.repeat_row(r, &w, mine).await?;
@@ -915,7 +915,7 @@ impl Session {
                     text = lines;
                 }
         }
-        let now = Local::now().naive_local();
+        let now = crate::clock::now().naive_local();
         let ctx = EditCtx {
             subject,
             from: if anonymous { self.strings().get("Anonymous").to_string() } else { from.name.clone() },
@@ -1334,8 +1334,9 @@ impl Session {
         }
         let mut lines = 4;
         for (i, m) in mail.iter().enumerate() {
-            let date = m.posted.format("%m/%d/%y").to_string();
-            let time = m.posted.format("%-I:%M%P").to_string();
+            let posted = self.local(m.posted);
+            let date = posted.format("%m/%d/%y").to_string();
+            let time = posted.format("%-I:%M%P").to_string();
             let more = match rep.as_mut() {
                 Some(r) => {
                     let w = waves([

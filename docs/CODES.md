@@ -69,7 +69,7 @@ Replaced by a value. An unknown `%XX` is shown as it is in prompts, and dropped 
 | `%DC` calls today | `%DP` posts today | `%DD` downloads today | `%DU` uploads today | `%TZ` post/call ratio |
 | `%DN` new users today (2.20) | | | | |
 | `%ND` this node | `%IN` "Iniquity" | `%IV` version | `%VL` "Iniquity x (Rust)" | |
-| `%DT` date (10/18/26) | `%DF` long date | `%TI` time (10:30pm) | `%TM` time (22:30) | |
+| `%DT` date (10/18/26) | `%DF` long date | `%TI` time (10:30pm) | `%TM` time (22:30) | (all in the caller's time zone) |
 
 | Where the caller is | |
 |---|---|

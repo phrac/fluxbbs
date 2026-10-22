@@ -10,7 +10,6 @@
 use std::io;
 use std::path::PathBuf;
 
-use chrono::Local;
 use iniquity_term::Slot;
 
 use crate::BbsState;
@@ -103,7 +102,7 @@ impl Session {
         self.say("AtchAskDesc").await?;
         let desc = self.read_string(ReadOpts::new(70)).await?;
         self.newline();
-        let a = Attachment { name: name.clone(), desc, size, uploaded: Local::now().date_naive() };
+        let a = Attachment { name: name.clone(), desc, size, uploaded: crate::clock::now().date_naive() };
         self.state.msgs.set_attachment(m.id, &a).map_err(io_err)?;
         tracing::info!("{}: attached {name} ({size} bytes) to message {} in {}", self.user.handle, m.num, m.area);
         let s = self.strings().fmt("AtchFileAttached", &[&name]);

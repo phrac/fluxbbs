@@ -74,6 +74,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('E', "SysOp name", 36, "The SysOp's real name.", Text(|c| &mut c.bbs.sysop_name, TEXT)),
             set('F', "Max nodes", 3, "Callers online at once (takes effect on restart).", Num(|c| c.bbs.max_nodes as u64, |c, v| c.bbs.max_nodes = v as u16, 1, 250)),
             set('G', "Idle timeout", 6, "Disconnect after this many idle seconds (0 = never).", Num(|c| c.bbs.inactivity_seconds, |c, v| c.bbs.inactivity_seconds = v, 0, 86_400)),
+            set('H', "Time zone", 32, "Zone the board keeps time in (America/Chicago, EST, UTC-6); blank for the host's clock.", Text(|c| &mut c.bbs.time_zone, TEXT)),
         ]),
         ("SSH, Telnet and Terminal", true, vec![
             set('A', "Listen on", 40, "Address and port for SSH, e.g. 0.0.0.0:2222 (restart).", Text(|c| &mut c.ssh.listen, TEXT)),

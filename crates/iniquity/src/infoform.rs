@@ -14,7 +14,7 @@ use std::io;
 use std::path::Path;
 use std::sync::Mutex;
 
-use chrono::{Local, NaiveDateTime};
+use chrono::{NaiveDateTime};
 use iniquity_term::codes::resize;
 use iniquity_term::{Slot, Source, Token, tokenize};
 use rusqlite::{Connection, OptionalExtension, params};
@@ -323,7 +323,7 @@ impl Session {
     async fn fill_form(&mut self, f: &Infoform) -> io::Result<bool> {
         let Some(answers) = self.run_form(&f.file, None).await? else { return Ok(false) };
         self.newline();
-        self.state.forms.set_answers(&f.file, self.user.id, &answers, Local::now().naive_local()).map_err(io_err)?;
+        self.state.forms.set_answers(&f.file, self.user.id, &answers, crate::clock::now().naive_local()).map_err(io_err)?;
         tracing::info!("{}: filled in infoform {}", self.user.handle, f.desc);
         Ok(true)
     }
@@ -532,7 +532,7 @@ impl Session {
                 }
             }
             let ini = initials(&self.user.handle);
-            self.state.forms.add_vote(me, u.id, &ini, &comment, Local::now().naive_local()).map_err(io_err)?;
+            self.state.forms.add_vote(me, u.id, &ini, &comment, crate::clock::now().naive_local()).map_err(io_err)?;
         }
         if !any {
             self.newline();
@@ -690,7 +690,7 @@ mod tests {
     #[test]
     fn answers_and_votes_store() {
         let s = FormStore::open_memory().unwrap();
-        let now = Local::now().naive_local();
+        let now = crate::clock::now().naive_local();
         assert_eq!(s.answers("NEW.INF", 3).unwrap(), None);
         s.set_answers("NEW.INF", 3, &["Bob".into(), String::new(), "x".into()], now).unwrap();
         assert_eq!(s.answers("new.inf", 3).unwrap().unwrap(), ["Bob", "", "x"]);

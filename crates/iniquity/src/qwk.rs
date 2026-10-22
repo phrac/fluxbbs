@@ -19,7 +19,7 @@
 use std::io::{self, Read, Write};
 use std::path::Path;
 
-use chrono::{Local, NaiveDateTime};
+use chrono::{NaiveDateTime};
 use iniquity_term::codes::resize;
 use iniquity_term::cp437;
 
@@ -489,7 +489,7 @@ impl Session {
         }
         self.qwk_done(screen, b"LE", true);
         let total = seq;
-        let when = Local::now().naive_local();
+        let when = crate::clock::now().naive_local();
         let control = Control {
             bbs_name: &crate::editor::strip_codes(&cfg.bbs.name),
             location: &cfg.bbs.location,
@@ -755,7 +755,7 @@ impl Session {
             from,
             to,
             subject: if r.subject.is_empty() { "(no subject)".into() } else { r.subject },
-            posted: Local::now().naive_local(),
+            posted: crate::clock::now().naive_local(),
             deleted: false,
             private,
             anonymous: false,

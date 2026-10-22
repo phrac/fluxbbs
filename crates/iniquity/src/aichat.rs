@@ -558,7 +558,7 @@ impl Session {
             board = bbs.name,
             sysop = bbs.sysop_alias,
             user = self.user.handle,
-            today = chrono::Local::now().format("%A, %B %-d, %Y"),
+            today = crate::clock::now().format("%A, %B %-d, %Y"),
             extra = if cfg.system_prompt.is_empty() { String::new() } else { format!(" {}", cfg.system_prompt) },
         )
     }
@@ -593,7 +593,7 @@ impl Session {
         let left = if cfg.daily_limit == 0 || self.is_sysop() {
             self.strings().get("AiUnlimited").to_string()
         } else {
-            let used = self.state.ai_usage.lock().unwrap().get(&(self.user.id, chrono::Local::now().date_naive())).copied().unwrap_or(0);
+            let used = self.state.ai_usage.lock().unwrap().get(&(self.user.id, crate::clock::now().date_naive())).copied().unwrap_or(0);
             self.strings().fmt("AiLeft", &[&cfg.daily_limit.saturating_sub(used).to_string()])
         };
         self.screen.goto(1, self.screen.rows());
@@ -612,7 +612,7 @@ impl Session {
         if limit == 0 || self.is_sysop() {
             return true;
         }
-        let key = (self.user.id, chrono::Local::now().date_naive());
+        let key = (self.user.id, crate::clock::now().date_naive());
         let mut used = self.state.ai_usage.lock().unwrap();
         used.retain(|(_, day), _| *day == key.1);
         let n = used.entry(key).or_insert(0);

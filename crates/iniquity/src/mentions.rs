@@ -2,7 +2,7 @@
 //! once with a node message if they're on, and at their next logon (`MW`)
 //! or with `M@`. Quoted lines don't count, nor naming yourself.
 
-use chrono::{Datelike, Local, Timelike};
+use chrono::{Datelike, Timelike};
 
 use crate::BbsState;
 use crate::acs::{self, AcsEnv};
@@ -17,7 +17,7 @@ pub fn may_read(state: &BbsState, u: &User, area: &MsgArea) -> bool {
     if !area.password.is_empty() {
         return false;
     }
-    let now = Local::now();
+    let now = crate::clock::now();
     let level_req = state.level(u.level).map_or(0, |l| l.post_call as u32);
     let env = AcsEnv {
         age: u.age(now.date_naive()),

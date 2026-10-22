@@ -90,8 +90,8 @@ menu with a different line on it each time.
 - [x] `AUTOMSG`: automessage menu
 - [ ] `USERSTAT`: your stats
 - [ ] `USERCFG`: user configuration screen (new fields: `~P?` how many
-      SSH keys are on file, `~Q?` the plan's lines; the stock screen has
-      `~PK` and `~QP`)
+      SSH keys are on file, `~Q?` the plan's lines, `~R?` the time zone;
+      the stock screen has `~PK`, `~QP` and `~RZ`)
 - [ ] `FINGER`: a caller's profile (`~UN` handle, `~LO` location, `~UO`
       note, `~FC` first call, `~LS` last seen, `~CA` calls, `~PO` posts,
       `~UL`/`~DL` uploads/downloads, `~LP` latest post, `~LU` latest

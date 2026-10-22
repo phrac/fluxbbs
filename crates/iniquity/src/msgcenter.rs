@@ -177,7 +177,7 @@ impl Session {
         cached.unwrap_or_else(|| {
             let areas = self.readable_areas();
             let keys: Vec<String> = areas.iter().filter(|(_, a)| !a.is_email()).map(|(_, a)| a.key().to_string()).collect();
-            let since = chrono::Local::now().naive_local() - chrono::Duration::days(30);
+            let since = crate::clock::now().naive_local() - chrono::Duration::days(30);
             let base = self.state.msgs.stats(&keys, since).unwrap_or_default();
             let unread = self.scanned_areas().iter().filter_map(|(_, a)| self.area_view(a).ok()).map(|v| v.new_count()).sum();
             let names = areas.iter().map(|(_, a)| (a.key().to_ascii_uppercase(), a.area.name.clone())).collect();
@@ -242,7 +242,7 @@ impl Session {
                 let v = self.area_view(&a)?;
                 let new = v.new_count();
                 total_new += new;
-                let (who, when) = v.msgs.last().map(|m| (m.from.name.clone(), m.posted.format("%m/%d/%y").to_string())).unwrap_or_default();
+                let (who, when) = v.msgs.last().map(|m| (m.from.name.clone(), self.local(m.posted).format("%m/%d/%y").to_string())).unwrap_or_default();
                 let new_s = if new == 0 { "-".to_string() } else { new.to_string() };
                 let w = waves([
                     ("AN", label.to_string()),
@@ -333,8 +333,8 @@ impl Session {
                     ("SN", root.from.name.clone()),
                     ("RP", replies.clone()),
                     ("NW", new_s.clone()),
-                    ("DT", t.last.format("%m/%d/%y").to_string()),
-                    ("TI", t.last.format("%-I:%M%P").to_string()),
+                    ("DT", self.local(t.last).format("%m/%d/%y").to_string()),
+                    ("TI", self.local(t.last).format("%-I:%M%P").to_string()),
                 ]);
                 let plain = format!(
                     " {} {} {} {} {} {}",
@@ -343,7 +343,7 @@ impl Session {
                     resize(&root.from.name, 15),
                     resize(&replies, 3),
                     resize(&new_s, 7),
-                    t.last.format("%m/%d/%y")
+                    self.local(t.last).format("%m/%d/%y")
                 );
                 rows.push(BarRow { n: i as u32, waves: w, plain });
                 labels.push((root.num, i as u32));

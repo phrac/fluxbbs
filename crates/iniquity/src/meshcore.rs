@@ -13,7 +13,6 @@ use std::io;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use chrono::Local;
 use tokio::io::{AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::sync::mpsc;
 
@@ -220,7 +219,7 @@ impl<S: AsyncRead + AsyncWrite + Unpin> Radio<S> {
 }
 
 fn now() -> u32 {
-    Local::now().timestamp() as u32
+    crate::clock::now().timestamp() as u32
 }
 
 /// A whole `>` frame off the front of `buf`, skipping anything before it.
@@ -402,7 +401,7 @@ fn import(state: &BbsState, map: &[(u8, MeshChannel)], h: Heard) {
         from,
         to,
         subject,
-        posted: Local::now().naive_local(),
+        posted: crate::clock::now().naive_local(),
         deleted: false,
         private: false,
         anonymous: false,

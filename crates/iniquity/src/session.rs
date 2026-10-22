@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Instant;
 
-use chrono::{Datelike, Local, Timelike};
+use chrono::{Datelike, Timelike};
 use iniquity_term::codes::{resize, squish};
 use iniquity_term::{Charset, Color, Control, Screen, Slot, Source, Token, cp437, tokenize, tokenize_str, tokenize_user};
 use rand::RngExt;
@@ -366,9 +366,24 @@ impl Session {
         self.acs_for(&self.user, expr)
     }
 
+    /// New: the zone this caller sees times in (theirs, or the board's).
+    pub fn zone(&self) -> crate::clock::Zone {
+        crate::clock::Zone::parse(&self.user.time_zone).unwrap_or_else(crate::clock::board)
+    }
+
+    /// A board time as this caller sees it.
+    pub fn local(&self, at: chrono::NaiveDateTime) -> chrono::NaiveDateTime {
+        crate::clock::convert(at, &self.zone())
+    }
+
+    /// Now, as this caller sees it.
+    pub fn now(&self) -> chrono::DateTime<chrono::FixedOffset> {
+        self.zone().now()
+    }
+
     /// `mUserAcs`: does another user pass an ACS expression?
     pub fn acs_for(&self, u: &User, expr: &str) -> bool {
-        let now = Local::now();
+        let now = crate::clock::now();
         let level_req = self.state.level(u.level).map_or(0, |l| l.post_call as u32);
         let ratio = (u.posts * 100).checked_div(u.total_calls).unwrap_or(0);
         let env = AcsEnv {

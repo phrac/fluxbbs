@@ -512,3 +512,6 @@ PdfPageBar = " |U6%S1 |U5- |U4page %S2 of %S3  |U5[|U6arrows|U5]|U4turn |U5[|U6t
 PdfCantRead = "|U6%S1|U5: |U4Can't be shown here (%S2)|U5. |U4It can still be downloaded|U5."
 MsgCantEdit = "|U1Too long or too wide for the editor|U2: |U1left as it is|U2."
 FaNewScanNothing = "|U4No new files in any area|U5."
+TimeZoneHead = "|U1Time zone|U2: |U1the board's is |U3%S1|U1 (|U3%S2|U1 now). Pick one, type a name |U2(|U1America/Denver, EST, UTC-7|U2)|U1, or leave it blank for the board's|U2."
+TimeZoneAsk = "|U1Time zone|U2: |U3"
+TimeZoneBad = "|U4Not a time zone I know|U5: |U4try a name like America/Denver, EST or UTC-7|U5."

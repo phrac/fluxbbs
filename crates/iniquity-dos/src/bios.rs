@@ -1,7 +1,7 @@
 //! BIOS services other than video: keyboard (INT 16h), time (INT 1Ah),
 //! system services (INT 15h), the multiplex interrupt (INT 2Fh).
 
-use chrono::{Datelike, Local, Timelike};
+use chrono::{Datelike, Timelike};
 
 use crate::cpu::{self, Cpu};
 use crate::machine::{BDA_MIDNIGHT, BDA_TICKS, System};
@@ -54,7 +54,7 @@ pub fn int16(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) -> After {
 
 /// `INT 1Ah`: ticks and the real-time clock.
 pub fn int1a(cpu: &mut Cpu, mem: &mut Memory) {
-    let now = Local::now();
+    let now = crate::now();
     match cpu.ah() {
         0x00 => {
             let t = mem.read32(BDA_TICKS);

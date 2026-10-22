@@ -89,6 +89,9 @@ pub struct User {
     pub ssh_user: String,
     /// New: a few lines about themselves, shown by finger (`UF`).
     pub plan: Vec<String>,
+    /// New: the time zone times are shown to them in (an IANA name or
+    /// an offset, as `clock::Zone::parse` reads it); blank for the board's.
+    pub time_zone: String,
 }
 
 impl Default for User {
@@ -159,6 +162,7 @@ impl Default for User {
             ssh_keys: Vec::new(),
             ssh_user: String::new(),
             plan: Vec::new(),
+            time_zone: String::new(),
         }
     }
 }

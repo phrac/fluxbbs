@@ -1,6 +1,6 @@
 //! `%XX` MCI values (`mciProcessMCICode`).
 
-use chrono::{Datelike, Local};
+use chrono::{Datelike};
 
 use crate::session::Session;
 use crate::user::fmt_date;
@@ -110,7 +110,7 @@ impl Session {
                 let fa = self.state.fareas();
                 s.newest.as_ref().and_then(|f| fa.areas.iter().find(|a| a.file.eq_ignore_ascii_case(&f.area))).map(|a| a.name.clone()).unwrap_or_default()
             }
-            b'G' => ago(s.newest.as_ref().and_then(|f| f.uploaded), Local::now().date_naive()),
+            b'G' => ago(s.newest.as_ref().and_then(|f| f.uploaded), crate::clock::now().date_naive()),
             b'M' => s.popular.as_ref().map_or_else(|| "nothing yet".into(), |f| f.name.clone()),
             b'X' => s.popular.as_ref().map_or(0, |f| f.downloads).to_string(),
             b'B' => name(&s.biggest),
@@ -144,7 +144,7 @@ impl Session {
             b'Y' => commas(f.unread as u32),
             b'B' => s.newest.as_ref().map(|m| m.subject.clone()).unwrap_or_default(),
             b'F' => s.newest.as_ref().map(author).unwrap_or_default(),
-            b'D' => ago(s.newest.as_ref().map(|m| m.posted.date()), Local::now().date_naive()),
+            b'D' => ago(s.newest.as_ref().map(|m| m.posted.date()), crate::clock::now().date_naive()),
             b'K' => s.newest.as_ref().map(|m| f.area_name(&m.area)).unwrap_or_default(),
             b'H' => s.hot.as_ref().map_or_else(|| "nothing yet".into(), |m| m.subject.clone()),
             b'R' => s.hot.as_ref().map_or(0, |m| m.replies).to_string(),
@@ -164,7 +164,8 @@ impl Session {
         let code = code.map(|c| c.to_ascii_uppercase());
         let cfg = &self.state.config().bbs;
         let u = &self.user;
-        let now = Local::now();
+        // The clock codes show the caller's own time; the day's figures are the board's day.
+        let now = self.now();
         Some(match &code {
             [b'A', n @ b'1'..=b'6'] => u.autosig.get((n - b'1') as usize).cloned().unwrap_or_default(),
             b"AC" => u.area_code().into(),
@@ -239,7 +240,7 @@ impl Session {
             }
             // DN (2.20): new users today.
             b"DC" | b"DD" | b"DN" | b"DP" | b"DU" => {
-                let d = self.state.sys.day(now.date_naive()).unwrap_or_default();
+                let d = self.state.sys.day(crate::clock::now().date_naive()).unwrap_or_default();
                 let v = match &code {
                     b"DC" => d.calls,
                     b"DD" => d.downloads,
@@ -273,7 +274,7 @@ impl Session {
 
 /// Weekday number, Sunday = 0 (Turbo Pascal `GetDate`).
 pub fn day_of_week() -> u32 {
-    Local::now().weekday().num_days_from_sunday()
+    crate::clock::now().weekday().num_days_from_sunday()
 }
 
 #[cfg(test)]

@@ -9,6 +9,9 @@ sysop_alias = "SysOp"
 sysop_name = "System Operator"
 max_nodes = 16
 inactivity_seconds = 180
+# The zone the board keeps time in (an IANA name: "America/Chicago"); blank
+# for the host's clock. Callers can pick their own in user configuration.
+time_zone = ""
 
 [ssh]
 listen = "0.0.0.0:2222"

@@ -4,7 +4,6 @@
 use std::io;
 use std::path::{Path, PathBuf};
 
-use chrono::Local;
 use iniquity_term::codes::{resize, squish};
 use iniquity_term::{Color, Slot, lit};
 
@@ -1226,7 +1225,7 @@ impl Session {
             subject: format!("Desc [{}]", f.name),
             from: self.user.handle.clone(),
             to: "n/a".into(),
-            date: Local::now().naive_local(),
+            date: crate::clock::now().naive_local(),
             anonymous: false,
             can_anonymous: false,
             can_autosig: false,
@@ -1673,7 +1672,7 @@ impl Session {
         let temp = self.state.config().resolve(&self.state.config().paths.temp).join(format!("node{}", self.node.number()));
         let _ = std::fs::remove_dir_all(&temp);
         let got = self.receive_files(&proto, &temp).await?;
-        let today = Local::now().date_naive();
+        let today = crate::clock::now().date_naive();
         let fc = &self.state.config().files;
         let (auto_valid, kb_pt, pct, use_points, import, desc_files, max_lines) = (
             fc.auto_validate,
@@ -1771,7 +1770,7 @@ impl Session {
                 num: 0,
                 name: name.clone(),
                 size: meta.len(),
-                date: meta.modified().ok().map(|t| chrono::DateTime::<Local>::from(t).date_naive()),
+                date: meta.modified().ok().map(|t| crate::clock::from_utc(chrono::DateTime::<chrono::Utc>::from(t).naive_utc()).date()),
                 uploader: self.user.handle.clone(),
                 uploaded: Some(today),
                 downloads: 0,
@@ -1877,9 +1876,9 @@ pub fn local_record(area: &str, path: &Path, uploader: &str, desc_files: &[Strin
         num: 0,
         name,
         size: meta.len(),
-        date: meta.modified().ok().map(|t| chrono::DateTime::<Local>::from(t).date_naive()),
+        date: meta.modified().ok().map(|t| crate::clock::from_utc(chrono::DateTime::<chrono::Utc>::from(t).naive_utc()).date()),
         uploader: uploader.to_string(),
-        uploaded: Some(Local::now().date_naive()),
+        uploaded: Some(crate::clock::now().date_naive()),
         downloads: 0,
         points: (meta.len() / (kb_per_point.max(1) * 1024)) as u32,
         valid: true,

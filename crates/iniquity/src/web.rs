@@ -9,7 +9,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use chrono::{Datelike, Local, Timelike};
+use chrono::{Datelike, Timelike};
 use serde::Serialize;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 
@@ -159,7 +159,7 @@ fn public(state: &BbsState, expr: &str) -> bool {
     if let Some(level) = state.level('A') {
         u.apply_level('A', &level);
     }
-    let now = Local::now();
+    let now = crate::clock::now();
     let env = AcsEnv {
         sl: u.sl,
         dsl: u.dsl,
@@ -245,7 +245,7 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
         })
         .collect();
     let totals = state.sys.totals()?;
-    let today = state.sys.day(Local::now().date_naive())?;
+    let today = state.sys.day(crate::clock::now().date_naive())?;
     Ok(Status {
         bbs: Board { name: cfg.bbs.name.clone(), sysop: cfg.bbs.sysop_alias.clone(), nodes: cfg.bbs.max_nodes, up_since: started.to_string() },
         online,
@@ -261,7 +261,7 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
             downloads: totals.downloads,
         },
         today: Today { calls: today.calls, new_users: today.new_users, uploads: today.uploads, downloads: today.downloads },
-        updated: Local::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
+        updated: crate::clock::now().format("%Y-%m-%dT%H:%M:%S").to_string(),
     })
 }
 
@@ -331,7 +331,7 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     let listen = state.config().web.listen.clone();
     let listener = tokio::net::TcpListener::bind(&listen).await?;
     tracing::info!("status feed on http://{listen}/status.json");
-    let started = Local::now().format("%Y-%m-%dT%H:%M:%S").to_string();
+    let started = crate::clock::now().format("%Y-%m-%dT%H:%M:%S").to_string();
     let cache = Arc::new(Mutex::new(Cache { at: None, body: String::new() }));
     let lists = Arc::new([Mutex::new(Cache { at: None, body: String::new() }), Mutex::new(Cache { at: None, body: String::new() })]);
     // One rebuild at a time: requests that come meanwhile get its result.

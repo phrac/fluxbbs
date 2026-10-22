@@ -591,8 +591,9 @@ impl Session {
             info: 4,
             has_header: header,
         };
-        let date = ctx.date.format("%m/%d/%y").to_string();
-        let time = ctx.date.format("%-I:%M%P").to_string();
+        let posted = self.local(ctx.date);
+        let date = posted.format("%m/%d/%y").to_string();
+        let time = posted.format("%-I:%M%P").to_string();
         if header {
             for (code, val) in [(*b"MT", &ctx.subject), (*b"SN", &ctx.from), (*b"RN", &ctx.to), (*b"DT", &date), (*b"TI", &time)] {
                 if self.goto_pos(code) {

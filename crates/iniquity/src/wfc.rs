@@ -123,7 +123,7 @@ impl LogTail {
     }
 
     fn push(&self, text: &str) {
-        let now = chrono::Local::now();
+        let now = crate::clock::now();
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
             if let Some(f) = self.0.file.lock().unwrap().as_mut() {
                 let _ = writeln!(f, "{} {line}", now.format("%Y-%m-%d %H:%M:%S"));
@@ -502,7 +502,7 @@ impl Wfc {
                 pair(&mut self.out, sx + 23, 3, "Download kb", t.download_kb.to_string());
             }
             4 => {
-                let d = state.sys.day(chrono::Local::now().date_naive()).unwrap_or_default();
+                let d = state.sys.day(crate::clock::now().date_naive()).unwrap_or_default();
                 let cols = [
                     ("calls", d.calls),
                     ("posts", d.posts),
@@ -559,7 +559,7 @@ impl Wfc {
         if self.blanked {
             return;
         }
-        let now = chrono::Local::now();
+        let now = crate::clock::now();
         let online = self.state.nodes.online().len();
         let fields = [
             format!("{online} of {}", self.state.config().bbs.max_nodes),
@@ -823,7 +823,7 @@ impl Session {
             subject: name.clone(),
             from: self.user.handle.clone(),
             to: String::new(),
-            date: chrono::Local::now().naive_local(),
+            date: crate::clock::now().naive_local(),
             anonymous: false,
             can_anonymous: false,
             can_autosig: false,

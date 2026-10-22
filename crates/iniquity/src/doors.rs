@@ -23,7 +23,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self as sync_mpsc, RecvTimeoutError, TryRecvError};
 use std::time::{Duration, Instant};
 
-use chrono::{Local, NaiveDate, Timelike};
+use chrono::{NaiveDate, Timelike};
 use iniquity_dos::batch::Batch;
 use iniquity_dos::machine::{Machine, Status, TICK_INSTRUCTIONS};
 use iniquity_term::{Charset, cp437};
@@ -798,7 +798,7 @@ impl Session {
     fn drop_info(&self, dir: String) -> DropInfo {
         let cfg = self.state.config();
         let u = &self.user;
-        let now = Local::now();
+        let now = crate::clock::now();
         let used = self.time_on.elapsed().as_secs() as u32;
         let start = now - chrono::Duration::seconds(used as i64);
         let sysop_name = if cfg.bbs.sysop_name.is_empty() { &cfg.bbs.sysop_alias } else { &cfg.bbs.sysop_name };

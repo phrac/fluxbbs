@@ -464,7 +464,7 @@ impl SysData {
     /// Note a failed bot check or password, or a ban.
     pub fn log_security(&self, ip: &str, what: &str) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
-        db.execute("INSERT INTO security_log (at, ip, what) VALUES (?1, ?2, ?3)", params![chrono::Local::now().naive_local(), ip, what])?;
+        db.execute("INSERT INTO security_log (at, ip, what) VALUES (?1, ?2, ?3)", params![crate::clock::now().naive_local(), ip, what])?;
         // Keep the log to a few thousand lines.
         db.execute("DELETE FROM security_log WHERE id < (SELECT MAX(id) FROM security_log) - 5000", [])?;
         Ok(())
@@ -473,7 +473,7 @@ impl SysData {
     /// A new account was made from `ip` (empty if unknown).
     pub fn record_signup(&self, ip: &str) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
-        let now = chrono::Local::now().naive_local();
+        let now = crate::clock::now().naive_local();
         db.execute("INSERT INTO signups (at, ip) VALUES (?1, ?2)", params![now, ip])?;
         db.execute("DELETE FROM signups WHERE at < ?1", [now - chrono::Duration::days(30)])?;
         Ok(())
@@ -594,7 +594,7 @@ impl SysData {
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute(
             "INSERT INTO vote_questions (text, author, user_add, created) VALUES (?1, ?2, ?3, ?4)",
-            params![text, author, user_add, chrono::Local::now().naive_local()],
+            params![text, author, user_add, crate::clock::now().naive_local()],
         )?;
         let id = tx.last_insert_rowid();
         for a in answers {
@@ -740,7 +740,7 @@ mod tests {
     fn bans_and_security_log() {
         let sys = SysData::open_memory().unwrap();
         let t = chrono::NaiveDate::from_ymd_opt(2026, 10, 17).unwrap().and_hms_opt(12, 0, 0).unwrap();
-        let past = chrono::Local::now().naive_local() - chrono::Duration::hours(1);
+        let past = crate::clock::now().naive_local() - chrono::Duration::hours(1);
         sys.record_signup("10.0.0.5").unwrap();
         sys.record_signup("10.0.0.6").unwrap();
         assert_eq!(sys.signups_since("10.0.0.5", past).unwrap(), (1, 2));

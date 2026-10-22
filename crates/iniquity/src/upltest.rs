@@ -10,7 +10,7 @@ use std::io::{self, Write};
 use std::path::Path;
 use std::time::Duration;
 
-use chrono::{Datelike, Local, NaiveDate};
+use chrono::{Datelike, NaiveDate};
 
 use crate::extprog::shell_quote;
 use crate::filebase::wildcard;
@@ -215,7 +215,7 @@ impl Session {
         if zip && f.age_limit_years > 0 {
             self.light(screen, b"L3").await?;
             let dates: Vec<NaiveDate> = entries.iter().filter_map(|(_, d)| *d).collect();
-            let (ok, judged) = age_test(&dates, f.age_limit_years as u32, f.strict_age, Local::now().date_naive());
+            let (ok, judged) = age_test(&dates, f.age_limit_years as u32, f.strict_age, crate::clock::now().date_naive());
             let shown = judged.map(|d| d.format("%m/%d/%y").to_string()).unwrap_or_default();
             self.light_done(screen, b"L3", ok);
             let s = self.strings().fmt(if ok { "FaTestAgeOk" } else { "FaTestAgeFail" }, &[name, &shown]);

@@ -15,7 +15,7 @@
 use std::io;
 use std::time::{Duration, Instant};
 
-use chrono::{Local, NaiveTime};
+use chrono::{NaiveTime};
 use iniquity_term::{Color, Screen, Slot, cp437};
 
 use crate::input::{Key, ReadOpts};
@@ -168,7 +168,7 @@ impl Session {
             self.say_line("PageSysOpNotAvail").await?;
             return self.page_mail(matrix, &alias).await;
         };
-        if !in_hours(&ch.start, &ch.end, Local::now().time()) {
+        if !in_hours(&ch.start, &ch.end, crate::clock::now().time()) {
             if matrix || !self.acs(&ch.override_acs) {
                 self.say_line("PageSysOpNotAvail").await?;
                 return self.page_mail(matrix, &sysop_name).await;

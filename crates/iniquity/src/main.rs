@@ -6,6 +6,7 @@
 //!     iniquity add-files [iniquity.toml]        add files put in areas by hand
 
 mod acs;
+mod clock;
 mod aiboard;
 mod aichat;
 mod archview;
@@ -144,6 +145,7 @@ impl BbsState {
 
     /// Start using a new configuration (already saved by the caller).
     pub fn set_config(&self, new: Config) {
+        clock::set_board(&new.bbs.time_zone);
         *self.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
     }
 
@@ -259,7 +261,7 @@ fn purge_unvalidated(state: &BbsState) -> anyhow::Result<()> {
     if days == 0 {
         return Ok(());
     }
-    let cutoff = chrono::Local::now().date_naive() - chrono::Duration::days(days as i64);
+    let cutoff = crate::clock::now().date_naive() - chrono::Duration::days(days as i64);
     for mut u in state.users.list()? {
         let stale = u.first_call.is_some_and(|d| d <= cutoff);
         if !u.deleted && u.level == 'A' && u.total_calls <= 1 && stale && !state.nodes.online().iter().any(|(_, n)| n.user.eq_ignore_ascii_case(&u.handle)) {
@@ -469,7 +471,7 @@ async fn main() -> anyhow::Result<()> {
     // Bans survive restarts.
     match state.sys.bans() {
         Ok(bans) => {
-            let now = chrono::Local::now().naive_local();
+            let now = crate::clock::now().naive_local();
             state.guard.load(bans.into_iter().filter_map(|(ip, until, strikes)| {
                 let left = (until - now).to_std().ok();
                 Some((ip.parse().ok()?, left, strikes))

@@ -834,7 +834,7 @@ pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, downloa
 
 /// A record for a file on disk: dated by the file, the site's description.
 fn record(area: &str, name: &str, meta: &std::fs::Metadata, kb_pt: u64, desc: &[String]) -> FileRec {
-    let date = meta.modified().ok().map(|t| chrono::DateTime::<chrono::Local>::from(t).date_naive());
+    let date = meta.modified().ok().map(|t| crate::clock::from_utc(chrono::DateTime::<chrono::Utc>::from(t).naive_utc()).date());
     FileRec {
         area: area.to_string(),
         num: 0,

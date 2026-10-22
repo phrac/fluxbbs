@@ -10,7 +10,7 @@ use std::fs::File;
 use std::io::{Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
-use chrono::{Datelike, Local, NaiveDateTime, Timelike};
+use chrono::{Datelike, NaiveDateTime, Timelike};
 
 use crate::bios::{clear_cf, set_cf};
 use crate::cpu::{self, Cpu};
@@ -92,8 +92,8 @@ fn dos_time(t: NaiveDateTime) -> (u16, u16) {
 fn host_time(path: &Path) -> NaiveDateTime {
     std::fs::metadata(path)
         .and_then(|m| m.modified())
-        .map(|t| chrono::DateTime::<Local>::from(t).naive_local())
-        .unwrap_or_else(|_| Local::now().naive_local())
+        .map(|t| crate::local(chrono::DateTime::<chrono::Utc>::from(t).naive_utc()))
+        .unwrap_or_else(|_| crate::now())
 }
 
 /// Does a host file name fit DOS (8.3, upper-case, legal characters)?
@@ -796,7 +796,7 @@ pub fn int21(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) -> After {
             mem.write16(n * 4 + 2, cpu.ds());
         }
         0x2A => {
-            let now = Local::now();
+            let now = crate::now();
             cpu.set_r16(cpu::CX, now.year() as u16);
             cpu.set_r8(6, now.month() as u8);
             cpu.set_r8(2, now.day() as u8);
@@ -804,7 +804,7 @@ pub fn int21(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) -> After {
         }
         0x2B | 0x2D => cpu.set_al(0),
         0x2C => {
-            let now = Local::now();
+            let now = crate::now();
             cpu.set_r8(5, now.hour() as u8);
             cpu.set_r8(1, now.minute() as u8);
             cpu.set_r8(6, now.second() as u8);

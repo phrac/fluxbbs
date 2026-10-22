@@ -284,7 +284,7 @@ impl Machine {
         mem.write16(BDA_KBD_END, 0x3E);
         // The BIOS counts ticks from midnight, and programs read the time
         // of day from it (LORD's "arrived at").
-        let secs = chrono::Timelike::num_seconds_from_midnight(&chrono::Local::now().time()) as u64;
+        let secs = chrono::Timelike::num_seconds_from_midnight(&crate::now().time()) as u64;
         mem.write32(BDA_TICKS, (secs * 1_193_182 / 65_536) as u32);
         let dos = Dos::new(&mut mem, c_root, d_root);
         cpu.flags |= cpu::IF;
