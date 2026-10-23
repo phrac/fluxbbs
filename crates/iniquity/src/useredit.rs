@@ -245,8 +245,9 @@ impl Session {
         let mut n = 0;
         for mut u in self.state.users.list().map_err(io_err)? {
             if u.level == key {
+                let original = u.clone();
                 u.apply_level(key, level);
-                self.state.users.save(&u).map_err(io_err)?;
+                self.save_other_user(&original, &u).map_err(io_err)?;
                 if u.id == self.user.id {
                     self.user = u;
                 }
@@ -282,7 +283,7 @@ impl Session {
             let original = u.clone();
             let online = self.state.nodes.online().into_iter().find(|(n, info)| *n != self.node.number() && info.user.eq_ignore_ascii_case(&u.handle));
             if let Some((n, _)) = online {
-                note = format!("{} is online on node {n}; their session may overwrite changes.", u.handle);
+                note = format!("{} is online on node {n}; what you change here stays.", u.handle);
             }
             loop {
                 let mut f = Form::new(&format!("{} User Editor", self.state.config().bbs.name));
@@ -313,9 +314,20 @@ impl Session {
                     self.cfg_info(&mut f, &n);
                 }
                 loop {
-                    let Some(key) = self.cfg_command(&mut f).await? else {
+                    let key = match self.cfg_command(&mut f).await {
+                        Ok(k) => k,
+                        // New: a hangup or the idle timeout keeps what was
+                        // changed, rather than dropping it unsaved.
+                        Err(e) => {
+                            if u != original {
+                                self.store_user(&original, &u)?;
+                            }
+                            return Err(e);
+                        }
+                    };
+                    let Some(key) = key else {
                         if u != original && self.cfg_ask(&mut f, "Save user?", true).await? {
-                            self.store_user(&u)?;
+                            self.store_user(&original, &u)?;
                         }
                         self.screen.goto(1, self.screen.rows());
                         self.newline();
@@ -340,7 +352,7 @@ impl Session {
                             };
                             let Some(target) = target else { continue };
                             if u != original {
-                                self.store_user(&u)?;
+                                self.store_user(&original, &u)?;
                             }
                             id = target;
                             continue 'users;
@@ -504,8 +516,15 @@ impl Session {
 
     /// Save an edited user. Our own record also lives in the session, so
     /// keep that in step.
-    fn store_user(&mut self, u: &User) -> io::Result<()> {
-        self.state.users.save(u).map_err(io_err)?;
+    fn store_user(&mut self, original: &User, u: &User) -> io::Result<()> {
+        // New: more daily time is more time today too (unless today's was
+        // set as well).
+        let mut u = u.clone();
+        if u.time_per_day > original.time_per_day && u.time_today == original.time_today {
+            u.time_today += u.time_per_day - original.time_per_day;
+        }
+        let u = &u;
+        self.save_other_user(original, u).map_err(io_err)?;
         if u.id == self.user.id {
             self.user = u.clone();
         }

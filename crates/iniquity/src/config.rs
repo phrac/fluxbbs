@@ -40,6 +40,9 @@ pub struct Config {
     pub protocols: Vec<Protocol>,
     /// Default colour scheme for new users and before logon.
     pub colors: Palette,
+    /// New: what each user flag (A-Z) is for, shown in the flag editor.
+    #[serde(skip_serializing_if = "BTreeMap::is_empty")]
+    pub flags: BTreeMap<String, String>,
     /// Access levels 'A'..'Z'. Only used until levels.toml exists (the
     /// level editor writes it).
     #[serde(skip_serializing_if = "BTreeMap::is_empty")]

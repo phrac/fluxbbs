@@ -117,6 +117,7 @@ impl Session {
         let Some(user) = self.state.users.get(id).map_err(io::Error::other)?.filter(|u| !u.deleted) else { return Ok(false) };
         self.logon_init().await?;
         let prelogon = std::mem::replace(&mut self.user, user);
+        *self.user_base.borrow_mut() = Some(self.user.clone());
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
         if !self.system_password_ok().await? {
@@ -288,6 +289,7 @@ impl Session {
                         }
                     }
                     let prelogon = std::mem::replace(&mut self.user, user);
+                    *self.user_base.borrow_mut() = Some(self.user.clone());
                     if ok {
                         ok = self.verify_identity().await?;
                     }
@@ -310,7 +312,7 @@ impl Session {
                             self.say_weak(&weak).await?;
                             let new = self.ask_new_password(&self.user.handle.clone(), "PwNewPassword", "PwValidate", "PwNoMatch").await?;
                             self.user.set_password(&new);
-                            self.state.users.save(&self.user).map_err(io::Error::other)?;
+                            self.save_own_user().map_err(io::Error::other)?;
                             self.say_line("PwChanged").await?;
                         }
                     } else {
@@ -409,7 +411,7 @@ impl Session {
         }
         self.log_call();
         self.time_on = Instant::now();
-        if let Err(e) = self.state.users.save(&self.user) {
+        if let Err(e) = self.save_own_user() {
             tracing::error!("saving {}: {e}", self.user.handle);
         }
     }
@@ -556,6 +558,7 @@ impl Session {
             tracing::error!("recording sign-up: {e}");
         }
         self.user = u;
+        *self.user_base.borrow_mut() = Some(self.user.clone());
         // `newConfig`: let them check what they entered.
         if nu.config {
             self.user_config_screen("NEWCFG").await?;
@@ -707,7 +710,7 @@ impl Session {
         }
         let pw = self.ask_new_password(&self.user.handle.clone(), "PwNewPassword", "PwValidate", "PwNoMatch").await?;
         self.user.set_password(&pw);
-        self.state.users.save(&self.user).map_err(io::Error::other)?;
+        self.save_own_user().map_err(io::Error::other)?;
         self.say_line("PwChanged").await
     }
 

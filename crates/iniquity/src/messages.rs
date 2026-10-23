@@ -1018,7 +1018,7 @@ impl Session {
             self.user.posts += 1;
             self.bump(crate::sysdata::Stat::Post);
         }
-        if let Err(e) = self.state.users.save(&self.user) {
+        if let Err(e) = self.save_own_user() {
             tracing::error!("saving {}: {e}", self.user.handle);
         }
         if a.is_email() {

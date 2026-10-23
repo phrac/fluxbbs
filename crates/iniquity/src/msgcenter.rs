@@ -476,7 +476,7 @@ impl Session {
                 }
                 BarPick::Key('S', _) => {
                     self.user.area_sort = if self.user.area_sort == "popular" { String::new() } else { "popular".into() };
-                    self.state.users.save(&self.user).map_err(io_err)?;
+                    self.save_own_user().map_err(io_err)?;
                 }
                 BarPick::Key('F', _) => self.msg_search("").await?,
                 // New: add the board under the bar to "my boards", or take
@@ -492,7 +492,7 @@ impl Session {
                             keys.push(key);
                         }
                         self.user.fav_boards = keys.join(" ");
-                        self.state.users.save(&self.user).map_err(io_err)?;
+                        self.save_own_user().map_err(io_err)?;
                         came_from = Some(n);
                         self.reader_prompt_area();
                         let s = self.strings().fmt(if added { "FavAdded" } else { "FavRemoved" }, &[&iniquity_term::lit(&a.area.name)]);
@@ -713,7 +713,7 @@ impl Session {
                         _ => "",
                     }
                     .into();
-                    self.state.users.save(&self.user).map_err(io_err)?;
+                    self.save_own_user().map_err(io_err)?;
                 }
                 BarPick::Quit => return Ok(true),
                 _ => return Ok(false),

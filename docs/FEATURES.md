@@ -131,6 +131,9 @@ Everything the port does, in detail. The [README](../README.md) has the short li
 - `*C` system configuration, written back to `iniquity.toml` keeping its
   comments; `*E` prompt strings; `*#` menus; `*L` access levels.
 - `*U` users (with colors, preferences, auto-signature, infoforms).
+  New: in the flags field (`=`), the info line says what the flag under
+  the cursor is for and which menus, areas and settings test it; `?`
+  describes it (kept in `[flags]` in `iniquity.toml`).
 - `*F` file areas (new: a bar list in tree order with `/` to search it;
   Enter edits the area under the bar, `I` adds one before it, under the
   same parent, and edits it, `D` deletes it, `M` moves it and `S` sorts

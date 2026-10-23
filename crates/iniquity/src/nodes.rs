@@ -28,6 +28,9 @@ pub enum NodeEvent {
     PageAnswer { from: usize, accept: bool },
     ChatKey { from: usize, key: u8 },
     ChatEnd { from: usize, hangup: bool },
+    /// New: someone else (the SysOp, a vote) changed this node's caller's
+    /// record, from `original` to `edited`; the session reads it again.
+    AccountChanged { original: Box<crate::user::User>, edited: Box<crate::user::User> },
 }
 
 impl NodeEvent {

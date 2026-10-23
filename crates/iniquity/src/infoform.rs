@@ -488,6 +488,7 @@ impl Session {
                     'Y' => {
                         self.write("Yes");
                         self.newline();
+                        let original = u.clone();
                         u.vote_yes += 1;
                         let done = u.vote_yes >= nuv.votes_yes as u32;
                         if done {
@@ -498,12 +499,13 @@ impl Session {
                             }
                             tracing::info!("{} voted in by NUV", u.handle);
                         }
-                        self.state.users.save(&u).map_err(io_err)?;
+                        self.save_other_user(&original, &u).map_err(io_err)?;
                         break ('Y', done);
                     }
                     'N' => {
                         self.write("No");
                         self.newline();
+                        let original = u.clone();
                         u.vote_no += 1;
                         let done = u.vote_no >= nuv.votes_no as u32;
                         if done {
@@ -512,7 +514,7 @@ impl Session {
                             u.deleted = true;
                             tracing::info!("{} voted out by NUV", u.handle);
                         }
-                        self.state.users.save(&u).map_err(io_err)?;
+                        self.save_other_user(&original, &u).map_err(io_err)?;
                         break ('N', done);
                     }
                     _ => {

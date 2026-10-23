@@ -147,8 +147,35 @@ impl Parser<'_> {
     }
 }
 
+/// New: the flags an expression tests (`fA`), for the flag editor.
+pub fn flags_in(expr: &str) -> BTreeSet<char> {
+    let s: Vec<char> = expr.chars().collect();
+    let mut out = BTreeSet::new();
+    let mut i = 0;
+    while i < s.len() {
+        match s[i].to_ascii_uppercase() {
+            // Both take a letter, which isn't a code of its own.
+            'F' | 'G' if i + 1 < s.len() => {
+                if s[i].eq_ignore_ascii_case(&'f') && s[i + 1].is_ascii_alphabetic() {
+                    out.insert(s[i + 1].to_ascii_uppercase());
+                }
+                i += 2;
+            }
+            _ => i += 1,
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
+    #[test]
+    fn flags_an_expression_tests() {
+        assert_eq!(flags_in("(s100|fA)&!fb"), BTreeSet::from(['A', 'B']));
+        // gF is "female", not flag F.
+        assert_eq!(flags_in("gFs20"), BTreeSet::new());
+    }
+
     use super::*;
 
     fn env() -> AcsEnv {

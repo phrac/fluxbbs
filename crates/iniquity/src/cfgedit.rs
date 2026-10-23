@@ -492,14 +492,20 @@ impl Session {
     }
 
     /// `cfgReadFlags`: toggle flags A-Z with their letters, or move with
-    /// left/right and toggle with space.
+    /// left/right and toggle with space. New: the info line says what the
+    /// flag under the cursor is for (and where it's used), and `?` sets
+    /// that.
     pub async fn cfg_flags(&mut self, f: &mut Form, key: char, flags: &mut BTreeSet<char>) -> io::Result<()> {
         let Some(i) = f.find(key) else { return Ok(()) };
-        let info = format!("[left/right: select; space/a-z: toggle; enter: done] {}", f.items[i].info);
-        self.cfg_info(f, &info);
         let (x, y) = (f.items[i].vx, f.items[i].y);
         let mut cur = 0u8;
+        let mut shown = None;
         loop {
+            if shown != Some(cur) {
+                let about = self.flag_about((b'A' + cur) as char);
+                self.cfg_info(f, &about);
+                shown = Some(cur);
+            }
             self.screen.goto(x, y);
             self.set_slot(Slot::TextHi);
             self.write(&flags_text(flags));
@@ -514,6 +520,12 @@ impl Session {
                     toggle(flags, c);
                 }
                 (_, Some(' ')) => toggle(flags, (b'A' + cur) as char),
+                (_, Some('?')) => {
+                    let c = (b'A' + cur) as char;
+                    let what = self.cfg_read_info(f, &format!("What flag {c} is for: "), 60).await?;
+                    self.set_flag_about(c, what.trim()).map_err(io::Error::other)?;
+                    shown = None;
+                }
                 _ => {}
             }
         }
@@ -556,6 +568,109 @@ impl Session {
         let s = self.read_string(crate::input::ReadOpts::new(max.to_string().len()).allowed(crate::input::DIGITS)).await?;
         self.newline();
         Ok(s.parse::<u32>().ok().filter(|n| (min..=max).contains(n)))
+    }
+}
+
+impl Session {
+    /// New: the flag editor's line about flag `c`: what it's for (set
+    /// with `?`), and where access strings test it.
+    fn flag_about(&self, c: char) -> String {
+        let cfg = self.state.config();
+        let what = cfg.flags.get(&c.to_string()).cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| "no description (? sets one)".into());
+        let uses = self.flag_uses(c);
+        let used = if uses.is_empty() { "used nowhere".to_string() } else { format!("used by {}", uses.join(", ")) };
+        let s = format!("{c}: {what} | {used}");
+        // The info line's width.
+        if s.chars().count() > 72 { s.chars().take(70).collect::<String>() + ".." } else { s }
+    }
+
+    fn set_flag_about(&mut self, c: char, what: &str) -> anyhow::Result<()> {
+        let old = (*self.state.config()).clone();
+        let mut cfg = old.clone();
+        if what.is_empty() {
+            cfg.flags.remove(&c.to_string());
+        } else {
+            cfg.flags.insert(c.to_string(), what.to_string());
+        }
+        crate::sysconfig::save_changes(&self.config_path(), &old, &cfg)?;
+        self.state.set_config(cfg);
+        Ok(())
+    }
+
+    /// Where flag `c` is tested: menu commands, message and file areas,
+    /// and system settings.
+    fn flag_uses(&self, c: char) -> Vec<String> {
+        let has = |v: &str| crate::acs::flags_in(v).contains(&c);
+        let mut out = Vec::new();
+        // Menus: the board's own first, then stock ones it doesn't replace.
+        let mut seen = BTreeSet::new();
+        for dir in self.state.config().menu_dirs() {
+            let Ok(rd) = std::fs::read_dir(&dir) else { continue };
+            let mut files: Vec<_> = rd.flatten().map(|e| e.path()).filter(|p| p.extension().is_some_and(|e| e == "toml")).collect();
+            files.sort();
+            for p in files {
+                let name = p.file_stem().map(|s| s.to_string_lossy().to_uppercase()).unwrap_or_default();
+                if !seen.insert(name.clone()) {
+                    continue;
+                }
+                let Ok(v) = std::fs::read_to_string(&p).unwrap_or_default().parse::<toml::Table>() else { continue };
+                if v.get("acs").and_then(|a| a.as_str()).is_some_and(has) {
+                    out.push(format!("{name} menu"));
+                }
+                for cmd in v.get("command").and_then(|c| c.as_array()).into_iter().flatten() {
+                    if cmd.get("acs").and_then(|a| a.as_str()).is_some_and(has) {
+                        let keys = cmd.get("keys").and_then(|k| k.as_str()).unwrap_or("");
+                        out.push(format!("{name} {keys}"));
+                    }
+                }
+            }
+        }
+        let mut acs_fields = |label: &str, v: toml::Value| {
+            let mut found = Vec::new();
+            walk_acs(&v, "", &mut |path, s| {
+                if has(s) {
+                    found.push(path.to_string());
+                }
+            });
+            if !found.is_empty() {
+                out.push(if label.is_empty() { found.join(", ") } else { format!("{label} ({})", found.join(", ")) });
+            }
+        };
+        for a in &self.state.areas().areas {
+            if let Ok(v) = toml::Value::try_from(a) {
+                acs_fields(&format!("msg area {}", a.name), v);
+            }
+        }
+        for a in &self.state.fareas().areas {
+            if let Ok(v) = toml::Value::try_from(a) {
+                acs_fields(&format!("file area {}", a.name), v);
+            }
+        }
+        if let Ok(v) = toml::Value::try_from(&*self.state.config()) {
+            acs_fields("", v);
+        }
+        out
+    }
+}
+
+/// Every string under a key with "acs" in its name, with its dotted path.
+fn walk_acs(v: &toml::Value, path: &str, f: &mut impl FnMut(&str, &str)) {
+    match v {
+        toml::Value::Table(t) => {
+            for (k, x) in t {
+                let p = if path.is_empty() { k.clone() } else { format!("{path}.{k}") };
+                match x {
+                    toml::Value::String(s) if k.contains("acs") => f(&p, s),
+                    _ => walk_acs(x, &p, f),
+                }
+            }
+        }
+        toml::Value::Array(a) => {
+            for (i, x) in a.iter().enumerate() {
+                walk_acs(x, &format!("{path}[{i}]"), f);
+            }
+        }
+        _ => {}
     }
 }
 

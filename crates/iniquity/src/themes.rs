@@ -229,8 +229,9 @@ impl Session {
                             // Users who picked it follow it.
                             for mut u in self.state.users.list().map_err(io_err)? {
                                 if u.theme.eq_ignore_ascii_case(&t.dir) {
+                                    let original = u.clone();
                                     u.theme = v.clone();
-                                    self.state.users.save(&u).map_err(io_err)?;
+                                    self.save_other_user(&original, &u).map_err(io_err)?;
                                 }
                             }
                             if self.user.theme.eq_ignore_ascii_case(&t.dir) {

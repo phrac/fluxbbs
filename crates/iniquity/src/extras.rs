@@ -867,7 +867,7 @@ impl Session {
                 }
                 self.edit_user_field(f).await?;
                 self.newline();
-                self.state.users.save(&self.user).map_err(io_err)?;
+                self.save_own_user().map_err(io_err)?;
             }
         }
     }

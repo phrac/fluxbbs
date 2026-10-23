@@ -590,7 +590,7 @@ impl Session {
         f.downloads += 1;
         self.bump(crate::sysdata::Stat::Download { kb: kb as u64 });
         self.state.files.update(f).map_err(io_err)?;
-        self.state.users.save(&self.user).map_err(io_err)?;
+        self.save_own_user().map_err(io_err)?;
         Ok(())
     }
 
@@ -1332,7 +1332,7 @@ impl Session {
         self.newline();
         if let Some(d) = parse_date(&s) {
             self.user.file_scan = Some(d);
-            self.state.users.save(&self.user).map_err(io_err)?;
+            self.save_own_user().map_err(io_err)?;
         }
         Ok(())
     }
@@ -1801,7 +1801,7 @@ impl Session {
             self.upload_note(&s).await?;
         }
         let _ = std::fs::remove_dir_all(&temp);
-        self.state.users.save(&self.user).map_err(io_err)?;
+        self.save_own_user().map_err(io_err)?;
         let summary = if added.0 > 0 {
             self.strings().fmt("s271", &[&added.0.to_string(), &commas(added.1)])
         } else {

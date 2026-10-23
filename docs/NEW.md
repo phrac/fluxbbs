@@ -117,6 +117,10 @@ have, add it here (and the details in the doc it belongs to).
   ([FEATURES](FEATURES.md#message-center))
 - Pinned threads, post tags with a filter, and "my boards" (favorites)
   in the message center, after PTT. ([FEATURES](FEATURES.md#message-center))
+- A caller's session saves only what it changed in their record, so a
+  SysOp's edits (level, flags, daily time) stay while they're online;
+  the session reads the edit at once and tells them what changed, and
+  more daily time is more time today too.
 - @mentions: `@handle` in a public post tells that caller, by node
   message if they're on and at their next logon; `M@` reads them.
   ([FEATURES](FEATURES.md#message-center))

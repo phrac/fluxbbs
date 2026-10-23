@@ -78,7 +78,7 @@ impl Session {
                         Some(k) if matches(&self.user.ssh_keys, &k) => "SshKeysDup",
                         Some(_) => {
                             self.user.ssh_keys.push(line.trim().to_string());
-                            self.state.users.save(&self.user).map_err(io_err)?;
+                            self.save_own_user().map_err(io_err)?;
                             tracing::info!("{}: added an SSH key", self.user.handle);
                             "SshKeysAdded"
                         }
@@ -95,7 +95,7 @@ impl Session {
                         self.prompt_key().await?;
                     } else {
                         self.user.ssh_user = name;
-                        self.state.users.save(&self.user).map_err(io_err)?;
+                        self.save_own_user().map_err(io_err)?;
                     }
                 }
                 Some('D') if !self.user.ssh_keys.is_empty() => {
@@ -105,7 +105,7 @@ impl Session {
                     self.newline();
                     if let Some(i) = n.parse::<usize>().ok().filter(|i| (1..=self.user.ssh_keys.len()).contains(i)) {
                         self.user.ssh_keys.remove(i - 1);
-                        self.state.users.save(&self.user).map_err(io_err)?;
+                        self.save_own_user().map_err(io_err)?;
                         tracing::info!("{}: deleted an SSH key", self.user.handle);
                     }
                 }

@@ -191,7 +191,98 @@ pub fn gender_name(c: char) -> &'static str {
     GENDERS.iter().find(|g| g.0 == c.to_ascii_uppercase()).map_or("Not given", |g| g.1)
 }
 
+/// New: take the fields an editor changed (`original` to `edited`), and
+/// only those, so an online caller's own counters survive a SysOp's edit.
+macro_rules! merge_fields {
+    ($me:expr, $original:expr, $edited:expr, $($f:ident),* $(,)?) => {{
+        // Every field, so a new one can't be forgotten here.
+        let User { $($f),* } = $edited;
+        $(
+            if *$f != $original.$f {
+                $me.$f = $f.clone();
+            }
+        )*
+    }};
+}
+
 impl User {
+    pub fn merge_edit(&mut self, original: &User, edited: &User) {
+        merge_fields!(
+            self,
+            original,
+            edited,
+            id,
+            handle,
+            real_name,
+            password_hash,
+            phone,
+            birth_date,
+            location,
+            address,
+            zip_code,
+            note,
+            sysop_note,
+            sex,
+            sl,
+            dsl,
+            level,
+            flags,
+            hot_keys,
+            expert,
+            pause,
+            quote,
+            yes_no_bars,
+            deleted,
+            palette,
+            page_length,
+            start_menu,
+            total_calls,
+            calls_today,
+            first_call,
+            last_call,
+            time_today,
+            time_per_day,
+            posts,
+            email,
+            uploads,
+            downloads,
+            upload_kb,
+            download_kb,
+            file_points,
+            post_call,
+            limit_dl,
+            limit_dl_kb,
+            today_dl,
+            today_dl_kb,
+            uldl_ratio,
+            kb_ratio,
+            cur_msg_area,
+            cur_file_area,
+            conf_msg,
+            conf_file,
+            autosig,
+            vote_yes,
+            vote_no,
+            file_scan,
+            theme,
+            last_rep,
+            bank_time,
+            bank_kb,
+            bank_time_in,
+            bank_time_out,
+            bank_kb_in,
+            bank_kb_out,
+            ssh_keys,
+            ssh_user,
+            plan,
+            time_zone,
+            thread_sort,
+            area_sort,
+            fav_boards,
+            last_call_at
+        );
+    }
+
     /// Passwords are case-sensitive (new: Iniquity upper-cased them).
     pub fn set_password(&mut self, pw: &str) {
         self.password_hash = Argon2::default().hash_password(pw.as_bytes()).expect("argon2 hashing").to_string();
@@ -260,6 +351,18 @@ pub fn parse_date(s: &str) -> Option<NaiveDate> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_edit_keeps_the_callers_own_changes() {
+        let original = User { time_per_day: 60, posts: 3, ..User::default() };
+        let mut edited = original.clone();
+        edited.time_per_day = 120;
+        // Meanwhile, online, they posted.
+        let mut live = original.clone();
+        live.posts = 4;
+        live.merge_edit(&original, &edited);
+        assert_eq!((live.time_per_day, live.posts), (120, 4));
+    }
 
     #[test]
     fn passwords_are_case_sensitive() {

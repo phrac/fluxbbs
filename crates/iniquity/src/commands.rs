@@ -401,9 +401,86 @@ impl Session {
 
     pub(crate) fn save_user(&self) {
         if self.user.id != 0
-            && let Err(e) = self.state.users.save(&self.user) {
+            && let Err(e) = self.save_own_user() {
                 tracing::error!("saving {}: {e}", self.user.handle);
             }
+    }
+
+    /// New: save the caller's record, writing only what this session
+    /// changed since it last loaded or saved it, onto the record as it is
+    /// now; so a SysOp's edit meanwhile (their daily time, say) stays.
+    pub(crate) fn save_own_user(&self) -> anyhow::Result<()> {
+        let base = self.user_base.borrow().clone().filter(|b| b.id == self.user.id);
+        let u = match (base, self.state.users.get(self.user.id)?) {
+            (Some(base), Some(mut now)) => {
+                now.merge_edit(&base, &self.user);
+                now
+            }
+            _ => self.user.clone(),
+        };
+        self.state.users.save(&u)?;
+        *self.user_base.borrow_mut() = Some(self.user.clone());
+        Ok(())
+    }
+
+    /// New: save someone else's record, changed from `original` (the
+    /// SysOp's editors, votes), and if they're online tell their session.
+    pub(crate) fn save_other_user(&self, original: &crate::user::User, u: &crate::user::User) -> anyhow::Result<()> {
+        self.state.users.save(u)?;
+        if u.id != self.user.id
+            && let Some(n) = self.state.nodes.find_user(&original.handle)
+        {
+            let ev = crate::nodes::NodeEvent::AccountChanged { original: Box::new(original.clone()), edited: Box::new(u.clone()) };
+            self.state.nodes.send(n, ev);
+        }
+        Ok(())
+    }
+
+    /// New: read our record again after someone else changed it (keeping
+    /// what this session changed and hasn't saved). Returns what changed,
+    /// in words, for each change a caller would notice.
+    pub(crate) fn absorb_account_changes(&mut self) -> Vec<String> {
+        use crate::nodes::NodeEvent;
+        let mut told = Vec::new();
+        while let Some(NodeEvent::AccountChanged { original, edited }) = self.node.take_if(|e| matches!(e, NodeEvent::AccountChanged { .. })) {
+            if edited.id != self.user.id {
+                continue;
+            }
+            let db = match self.state.users.get(self.user.id) {
+                Ok(Some(db)) => db,
+                _ => continue,
+            };
+            let base = self.user_base.borrow().clone().filter(|b| b.id == self.user.id).unwrap_or_else(|| (*original).clone());
+            let mine = self.user.clone();
+            let mut now = db.clone();
+            now.merge_edit(&base, &mine);
+            // Time given (or taken) adds to ours, rather than losing to it.
+            if mine.time_today != base.time_today {
+                now.time_today = (mine.time_today as i64 + edited.time_today as i64 - original.time_today as i64).max(0) as u32;
+            }
+            self.user = now;
+            *self.user_base.borrow_mut() = Some(db);
+            tracing::info!("{}: account changed elsewhere, read again", self.user.handle);
+            let what = account_changes(&original, &edited, &self.strings());
+            if !what.is_empty() {
+                told.push(what);
+            }
+        }
+        told
+    }
+
+    /// [`Self::absorb_account_changes`], telling the caller.
+    pub(crate) async fn take_account_changes(&mut self) -> io::Result<()> {
+        for what in self.absorb_account_changes() {
+            let s = self.strings().fmt("AccountChanged", &[&what]);
+            if self.screen.where_x() != 1 {
+                self.newline();
+            }
+            self.newline();
+            self.show_line(&s).await?;
+            self.flush().await?;
+        }
+        Ok(())
     }
 
     /// `userShowList` (`UL`), text version.
@@ -468,3 +545,33 @@ impl Session {
     }
 }
 
+/// New: what a caller would want to know changed in their account, in
+/// words ("daily time 60 to 120 min, level C to D"); empty if nothing
+/// they'd notice.
+fn account_changes(a: &crate::user::User, b: &crate::user::User, strings: &crate::strings::Strings) -> String {
+    let mut out: Vec<String> = Vec::new();
+    let mut num = |what: &str, x: u64, y: u64, unit: &str| {
+        if x != y {
+            out.push(format!("{what} {x} to {y}{unit}"));
+        }
+    };
+    num("daily time", a.time_per_day as u64, b.time_per_day as u64, " min");
+    num("security level", a.sl as u64, b.sl as u64, "");
+    num("download level", a.dsl as u64, b.dsl as u64, "");
+    num("file points", a.file_points as u64, b.file_points as u64, "");
+    num("upload/download ratio", a.uldl_ratio as u64, b.uldl_ratio as u64, "");
+    num("kb ratio", a.kb_ratio as u64, b.kb_ratio as u64, "");
+    num("downloads a day", a.limit_dl as u64, b.limit_dl as u64, "");
+    num("download kb a day", a.limit_dl_kb as u64, b.limit_dl_kb as u64, "");
+    num("posts per call", a.post_call as u64, b.post_call as u64, "");
+    if a.level != b.level {
+        out.push(format!("level {} to {}", a.level, b.level));
+    }
+    if a.flags != b.flags {
+        out.push("flags".into());
+    }
+    if b.time_today > a.time_today {
+        out.push(strings.fmt("AccountTimeToday", &[&(b.time_today - a.time_today).to_string()]));
+    }
+    out.join(", ")
+}

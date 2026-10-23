@@ -149,7 +149,7 @@ impl Session {
             plan.push(crate::editor::strip_colours(&line).trim_end().to_string());
         }
         self.user.plan = plan;
-        self.state.users.save(&self.user).map_err(io_err)?;
+        self.save_own_user().map_err(io_err)?;
         Ok(())
     }
 }

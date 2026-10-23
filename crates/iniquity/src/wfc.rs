@@ -744,6 +744,7 @@ impl Session {
             return self.pause().await;
         };
         self.user = u;
+        *self.user_base.borrow_mut() = Some(self.user.clone());
         self.logged_in = true;
         self.time_on = Instant::now();
         self.user.time_today = self.user.time_today.max(self.user.time_per_day);
@@ -795,7 +796,7 @@ impl Session {
                 tracing::info!("checked {}'s mailbox", other.handle);
                 let sysop = std::mem::replace(&mut self.user, other);
                 let r = self.read_email(false, false).await;
-                if let Err(e) = self.state.users.save(&self.user) {
+                if let Err(e) = self.save_own_user() {
                     tracing::error!("saving {}: {e}", self.user.handle);
                 }
                 self.user = sysop;

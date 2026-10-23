@@ -111,6 +111,9 @@ pub struct Session {
     /// Keep node messages queued (full-screen editor, chat).
     pub hold_node_msgs: bool,
     pub user: User,
+    /// The caller's record as this session last loaded or saved it, to
+    /// tell its own changes from others' (`save_own_user`).
+    pub(crate) user_base: std::cell::RefCell<Option<User>>,
     pub(crate) io: Box<dyn Stream>,
     pub(crate) screen: Screen,
     pub(crate) input: VecDeque<u8>,
@@ -304,6 +307,7 @@ impl Session {
             node,
             hold_node_msgs: false,
             user,
+            user_base: Default::default(),
             io,
             screen,
             input: VecDeque::new(),
@@ -423,8 +427,10 @@ impl Session {
         if !self.logged_in || self.user.id == 0 {
             return;
         }
+        // An edit that hasn't reached us yet (no key since) still counts.
+        let _ = self.absorb_account_changes();
         self.user.time_today = self.minutes_left();
-        if let Err(e) = self.state.users.save(&self.user) {
+        if let Err(e) = self.save_own_user() {
             tracing::error!("saving user {}: {e}", self.user.handle);
         }
     }

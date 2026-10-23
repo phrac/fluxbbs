@@ -1187,6 +1187,7 @@ impl Session {
                 };
                 // The caller's own record is live in the session.
                 let me = u.id == self.user.id;
+                let original = u.clone();
                 let target = if me { &mut self.user } else { &mut u };
                 if fr.valid {
                     target.uploads = target.uploads.saturating_sub(1);
@@ -1200,7 +1201,7 @@ impl Session {
                 if me {
                     self.save_user();
                 } else {
-                    self.state.users.save(&u).map_err(io_err)?;
+                    self.save_other_user(&original, &u).map_err(io_err)?;
                 }
             }
         }
