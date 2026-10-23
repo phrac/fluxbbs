@@ -2,8 +2,9 @@
 //! who passes `[messages] board_create_acs` makes one with `c` in the
 //! message center (`boards_per_caller` each) and is its moderator: its
 //! sponsor, so they may delete and edit posts and take votes off, and with
-//! `o` in its thread list they change its about line, ban callers from
-//! posting and voting there, or delete it. The boards go in
+//! `o` in its thread list they change its about line and tags, pin the
+//! thread under the bar, ban callers from posting and voting there, or
+//! delete it. The boards go in
 //! `msgareas.toml` like any area, under `board_folder` if that's set, and
 //! `pack-messages` removes one that's had no posts `board_empty_days`
 //! after it was made.
@@ -14,6 +15,7 @@ use crate::BbsState;
 use crate::input::{Key, ReadOpts};
 use crate::messages::{AreaRef, io_err};
 use crate::msgareas::MsgArea;
+use crate::msgbase::Message;
 use crate::session::Session;
 
 /// Characters in a board's name and about line.
@@ -95,8 +97,9 @@ impl Session {
     }
 
     /// `o` in a board's thread list, for its moderator (or a co-SysOp):
-    /// its about line, bans, or deleting it. True if it was deleted.
-    pub(crate) async fn moderate_board(&mut self, a: &AreaRef) -> io::Result<bool> {
+    /// its about line, tags, bans, pinning `thread` (the one under the
+    /// bar), or deleting it. True if it was deleted.
+    pub(crate) async fn moderate_board(&mut self, a: &AreaRef, thread: Option<Message>) -> io::Result<bool> {
         let key = a.key().to_string();
         loop {
             let Some((i, area)) = self.state.areas().areas.iter().enumerate().find(|(_, x)| x.file.eq_ignore_ascii_case(&key)).map(|(i, x)| (i, x.clone())) else {
@@ -112,9 +115,21 @@ impl Session {
             let banned = if area.banned.is_empty() { none } else { area.banned.join(", ") };
             let s = self.strings().fmt("BoardModAbout", &[&iniquity_term::lit(&about)]);
             self.show_line(&s).await?;
+            let tags = if area.tags.is_empty() { "-".to_string() } else { area.tags.join(", ") };
+            let s = self.strings().fmt("BoardModTags", &[&iniquity_term::lit(&tags)]);
+            self.show_line(&s).await?;
             let s = self.strings().fmt("BoardModBanned", &[&iniquity_term::lit(&banned)]);
             self.show_line(&s).await?;
             self.newline();
+            let pinned = match &thread {
+                Some(m) => Some(self.state.msgs.pinned(&area.file).map_err(io_err)?.contains(&m.id)),
+                None => None,
+            };
+            if let (Some(m), Some(on)) = (&thread, pinned) {
+                let verb = self.strings().get(if on { "BoardUnpin" } else { "BoardPin" }).to_string();
+                let s = self.strings().fmt("BoardModPin", &[&iniquity_term::lit(&iniquity_term::codes::squish(&m.subject, 50)), &verb]);
+                self.show_line(&s).await?;
+            }
             // Only callers' boards are theirs to delete.
             let can_delete = !area.created.is_empty();
             self.say(if can_delete { "BoardModAskDelete" } else { "BoardModAsk" }).await?;
@@ -128,6 +143,19 @@ impl Session {
                     let v = self.read_string(ReadOpts::new(ABOUT_WIDTH).prefill(area.about.clone())).await?;
                     areas.areas[i].about = crate::editor::strip_colours(&v).trim().to_string();
                     true
+                }
+                Some('T') => {
+                    self.say("BoardAskTags").await?;
+                    let v = self.read_string(ReadOpts::new(60).prefill(area.tags.join(", "))).await?;
+                    areas.areas[i].tags = crate::msgcenter::parse_tags(&crate::editor::strip_colours(&v));
+                    true
+                }
+                Some('P') if thread.is_some() => {
+                    if let (Some(m), Some(on)) = (&thread, pinned) {
+                        self.state.msgs.set_pinned(m.id, !on).map_err(io_err)?;
+                        tracing::info!("{}: {} \"{}\" in {}", self.user.handle, if on { "unpinned" } else { "pinned" }, m.subject, area.name);
+                    }
+                    false
                 }
                 Some(c @ ('B' | 'U')) => {
                     self.say(if c == 'B' { "BoardBanWho" } else { "BoardUnbanWho" }).await?;

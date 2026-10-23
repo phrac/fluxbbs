@@ -163,6 +163,9 @@ CREATE TABLE IF NOT EXISTS pushes (
 );
 CREATE INDEX IF NOT EXISTS pushes_msg ON pushes(msg_id);
 CREATE INDEX IF NOT EXISTS pushes_at ON pushes(at);
+CREATE TABLE IF NOT EXISTS pins (
+    msg_id INTEGER PRIMARY KEY
+);
 ";
 
 /// Whether a reply (private: `?2`) counts on the parent row it updates:
@@ -531,7 +534,7 @@ impl MsgBase {
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        for t in ["seen", "mentions", "pushes"] {
+        for t in ["seen", "mentions", "pushes", "pins"] {
             tx.execute(&format!("DELETE FROM {t} WHERE msg_id IN (SELECT id FROM messages WHERE area = ?1)"), [area])?;
         }
         let n = tx.execute("DELETE FROM messages WHERE area = ?1", [area])?;
@@ -827,6 +830,24 @@ impl MsgBase {
         let mut stmt = db.prepare("SELECT p.msg_id, SUM(p.kind) FROM pushes p JOIN messages m ON m.id = p.msg_id WHERE m.area = ?1 GROUP BY p.msg_id")?;
         let rows = stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
+    }
+
+    /// New: the messages a moderator has pinned in an area.
+    pub fn pinned(&self, area: &str) -> anyhow::Result<std::collections::HashSet<i64>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT p.msg_id FROM pins p JOIN messages m ON m.id = p.msg_id WHERE m.area = ?1")?;
+        let rows = stmt.query_map([area], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn set_pinned(&self, msg_id: i64, pinned: bool) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        if pinned {
+            db.execute("INSERT OR IGNORE INTO pins (msg_id) VALUES (?1)", [msg_id])?;
+        } else {
+            db.execute("DELETE FROM pins WHERE msg_id = ?1", [msg_id])?;
+        }
+        Ok(())
     }
 
     /// Pushes since `since` on messages still there: (message, kind, when).

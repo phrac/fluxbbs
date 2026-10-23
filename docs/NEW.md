@@ -115,6 +115,8 @@ have, add it here (and the details in the doc it belongs to).
   boards callers make and moderate (ban from posting, about line,
   delete), removed when left empty.
   ([FEATURES](FEATURES.md#message-center))
+- Pinned threads, post tags with a filter, and "my boards" (favorites)
+  in the message center, after PTT. ([FEATURES](FEATURES.md#message-center))
 - @mentions: `@handle` in a public post tells that caller, by node
   message if they're on and at their next logon; `M@` reads them.
   ([FEATURES](FEATURES.md#message-center))

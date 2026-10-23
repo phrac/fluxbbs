@@ -396,6 +396,7 @@ impl Session {
             f.item('B', "Storage key", 8, &a.file, "Name the area's messages are kept under (letters and digits).");
             f.item('C', "About", 40, &a.about, "New: what the area is for, one line in the message center's list.");
             f.item('D', "Sub-area of", 8, &a.parent, "New: storage key of the area this sits under (blank: top level); a parent shows as a folder.");
+            f.item('E', "Post tags", 40, a.tags.join(", "), "New: tags a new thread here can carry, e.g. question, news, sale (commas between).");
             f.item('G', "Area sponsor", 36, &a.sponsor, "Creator or manager of this message area (usually the SysOp).");
             f.item('H', "Access ACS", 20, &a.acs, "ACS required to access or read messages in this area.");
             f.item('I', "Post ACS", 20, &a.post_acs, "ACS required to post messages in this area.");
@@ -473,6 +474,12 @@ impl Session {
                             None => self.cfg_info(&mut f, "No area has that storage key."),
                         }
                         self.cfg_set(&mut f, key, &a.parent);
+                    }
+                    'E' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(80)).await? {
+                            a.tags = crate::msgcenter::parse_tags(&v);
+                            self.cfg_set(&mut f, key, a.tags.join(", "));
+                        }
                     }
                     'G' => {
                         if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {

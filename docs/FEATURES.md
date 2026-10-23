@@ -289,6 +289,12 @@ straight at `MH` (disflux does), leaving the message menu behind `m`.
   score, `~NW` new, `~DS`/`~DT` latest day and date). Screens: `MHUB`
   with `~AN` `~AT` `~DE` (about) `~RD` (reading now) `~NW` `~NM` `~LP`
   `~LD` `~SP`.
+- My boards (new, PTT's favorites): `a` in the board list adds the
+  board (or folder) under the bar to the caller's "my boards", or takes
+  it off; "my boards/" stays second in the top-level list, a folder of
+  them with their figures added up (`MyBoardsName`, `MyBoardsAbout`).
+  They're kept with the caller (`fav_boards`); a board they can no
+  longer read drops out of it.
 - Sub-boards (new, as file areas have, and PTT's board classes): a
   message area can sit under another (`parent`, the other's storage
   key; "Sub-area of" in `*A`), to any depth. In the board list a parent
@@ -305,7 +311,8 @@ straight at `MH` (disflux does), leaving the message menu behind `m`.
   moderator (its sponsor): they can delete and edit posts there and take
   votes off, and `o` in its thread list changes its about line, bans
   callers from posting and voting there (they can still read), lifts
-  bans, or deletes the board with its posts. `pack-messages` removes a
+  bans, sets its tags, pins or unpins the thread under the bar, or
+  deletes the board with its posts. `pack-messages` removes a
   caller's board that still has no posts `board_empty_days` after it
   was made. The board is an area in `msgareas.toml` like any other
   (`created` and `banned` say whose it is), so the SysOp edits it with
@@ -318,6 +325,14 @@ straight at `MH` (disflux does), leaving the message menu behind `m`.
   message, `n` reads what's new in the board, `p` starts a thread, `h`
   help. Screens: `MTHRD` with `~MN` `~MK` `~MT` `~SN` `~RP` `~SC` `~NW`
   `~DS` `~DT` `~TI`.
+- Pinned threads (new, PTT's marked posts): the moderator pins a thread
+  from `o`; pinned threads stay at the top of the list whatever the
+  sort, with `pin` (`PinLabel`) where the number goes (`~MN` too).
+- Tags (new, PTT's categories): a board's `tags` (in `*A`, "Post tags",
+  or its moderator's `o`) are offered when a thread is started there,
+  and the one picked heads the title, `[question] How do I...`. `t` in
+  the thread list shows only threads with one of the tags (Esc shows
+  them all again).
 - The reader keeps the header (MSGHEAD) at the top and scrolls the text
   under it, with the keys on the bottom line: left and right for the
   previous and next message, up and down to scroll, `r` reply, `p` post,

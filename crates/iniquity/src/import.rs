@@ -568,6 +568,7 @@ fn convert_area(a: &LegacyMsgArea) -> MsgArea {
         parent: String::new(),
         created: String::new(),
         banned: Vec::new(),
+        tags: Vec::new(),
         sponsor: a.sponsor.clone(),
         acs: a.acs.clone(),
         post_acs: a.post_acs.clone(),
@@ -728,6 +729,7 @@ fn convert_user(l: &LegacyUser) -> User {
         time_zone: String::new(),
         thread_sort: String::new(),
         area_sort: String::new(),
+        fav_boards: String::new(),
         last_call_at: None,
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.

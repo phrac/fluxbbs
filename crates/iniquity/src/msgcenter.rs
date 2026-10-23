@@ -103,6 +103,8 @@ impl MsgFigures {
 
 /// The message center's row for the Hot list.
 const HOT_ROW: u32 = u32::MAX;
+/// And for "my boards", the caller's favorites.
+const FAV_ROW: u32 = u32::MAX - 1;
 
 /// A board's figures in the message center's list; a folder's add up
 /// everything under it.
@@ -306,9 +308,17 @@ impl Session {
             {
                 shown.push((f, false));
             }
-            for c in crate::fileareas::children_of(&tree, level) {
-                let folder = crate::fileareas::subtree_of(&tree, c).len() > 1;
-                shown.push((c, folder));
+            let has_kids = |n: u32| crate::fileareas::subtree_of(&tree, n).len() > 1;
+            // New: the caller's favorites, the boards they can still read.
+            let favs: Vec<u32> = self
+                .user
+                .fav_boards
+                .split_whitespace()
+                .filter_map(|k| readable.iter().find(|(_, a)| a.key().eq_ignore_ascii_case(k)).map(|(_, a)| a.num))
+                .collect();
+            let level_kids = if level == Some(FAV_ROW) { favs.clone() } else { crate::fileareas::children_of(&tree, level) };
+            for c in level_kids {
+                shown.push((c, has_kids(c)));
             }
             // (readers now, posts this week) for the busiest order.
             let mut pop: HashMap<u32, (usize, usize)> = HashMap::new();
@@ -362,6 +372,25 @@ impl Session {
             if self.user.area_sort == "popular" {
                 rows.sort_by_key(|r| std::cmp::Reverse(pop.get(&r.n).copied().unwrap_or_default()));
             }
+            // New: "my boards" at the top, a folder of the favorites.
+            if level.is_none() {
+                let mut b = Board::default();
+                for f in &favs {
+                    for m in crate::fileareas::subtree_of(&tree, *f) {
+                        if let Some(x) = stats.get(&m) {
+                            b.add(x);
+                        }
+                    }
+                }
+                let name = format!("{}{suffix}", self.strings().get("MyBoardsName"));
+                let about = self.strings().get("MyBoardsAbout").to_string();
+                let now_s = if b.now == 0 { String::new() } else { b.now.to_string() };
+                let new_s = if b.new == 0 { "-".to_string() } else { b.new.to_string() };
+                let when = b.latest.map(|t| self.local(t).format("%m/%d/%y").to_string()).unwrap_or_default();
+                let w = waves([("AN", String::new()), ("AT", name.clone()), ("DE", about.clone()), ("RD", now_s.clone()), ("NW", new_s.clone()), ("NM", b.msgs.to_string()), ("LP", b.by.clone()), ("LD", when.clone()), ("SP", String::new())]);
+                let plain = format!(" {} {} {} {} {} {} {}", resize("", 4), resize(&name, 16), resize(&about, 24), resize(&now_s, 3), resize(&new_s, 4), resize("", 12), when);
+                rows.insert(0, BarRow { n: FAV_ROW, waves: w, plain });
+            }
             // New: the Hot list first, while anything's being voted on.
             let since = crate::clock::now().naive_local() - chrono::Duration::hours(HOT_HOURS);
             if level.is_none() && !self.state.msgs.recent_pushes(since).map_err(io_err)?.is_empty() {
@@ -378,8 +407,9 @@ impl Session {
                 .unwrap_or(0);
             let order = self.strings().get(if self.user.area_sort == "popular" { "AreaSortPopular" } else { "AreaSortNumber" }).to_string();
             let mut help = self.strings().fmt("MsgHubKeys", &[&total_new.to_string(), &order]);
-            if let Some(a) = level.and_then(|f| self.msg_area(f)) {
-                help = self.strings().fmt("MsgHubIn", &[&iniquity_term::codes::squish(&a.area.name, 14)]) + &help;
+            let in_name = if level == Some(FAV_ROW) { Some(self.strings().get("MyBoardsName").to_string()) } else { level.and_then(|f| self.msg_area(f)).map(|a| a.area.name) };
+            if let Some(name) = in_name {
+                help = self.strings().fmt("MsgHubIn", &[&iniquity_term::codes::squish(&name, 14)]) + &help;
             }
             let create = self.may_create_board();
             if create {
@@ -394,12 +424,18 @@ impl Session {
                 help: &help,
                 ask: "",
                 can_go_up: level.is_some(),
-                keys: if create { "NPSFHMC" } else { "NPSFHM" },
+                keys: if create { "NPSFHMCA" } else { "NPSFHMA" },
             };
             self.node.update(|n| n.activity = "Reading messages".into());
-            let is_folder = |n: u32| Some(n) != level && crate::fileareas::subtree_of(&tree, n).len() > 1;
+            let is_folder = |n: u32| n == FAV_ROW || (Some(n) != level && has_kids(n));
             match self.area_bar(&spec).await? {
                 BarPick::Area(HOT_ROW) => self.hot_list().await?,
+                BarPick::Area(FAV_ROW) if favs.is_empty() => {
+                    self.reader_prompt_area();
+                    self.say_line("MyBoardsEmpty").await?;
+                    self.prompt_key().await?;
+                    came_from = Some(FAV_ROW);
+                }
                 BarPick::Area(n) if is_folder(n) => path.push(n),
                 BarPick::Area(n) => {
                     if self.change_area(n).await?
@@ -423,6 +459,27 @@ impl Session {
                     self.state.users.save(&self.user).map_err(io_err)?;
                 }
                 BarPick::Key('F', _) => self.msg_search("").await?,
+                // New: add the board under the bar to "my boards", or take
+                // it off.
+                BarPick::Key('A', n) if n != HOT_ROW && n != FAV_ROW => {
+                    if let Some(a) = self.msg_area(n) {
+                        let key = a.key().to_string();
+                        let mut keys: Vec<String> = self.user.fav_boards.split_whitespace().map(String::from).collect();
+                        let had = keys.len();
+                        keys.retain(|k| !k.eq_ignore_ascii_case(&key));
+                        let added = keys.len() == had;
+                        if added {
+                            keys.push(key);
+                        }
+                        self.user.fav_boards = keys.join(" ");
+                        self.state.users.save(&self.user).map_err(io_err)?;
+                        came_from = Some(n);
+                        self.reader_prompt_area();
+                        let s = self.strings().fmt(if added { "FavAdded" } else { "FavRemoved" }, &[&iniquity_term::lit(&a.area.name)]);
+                        self.show_line(&s).await?;
+                        self.prompt_key().await?;
+                    }
+                }
                 BarPick::Key('H', _) => self.msg_help().await?,
                 // New: a board of their own, opened once it's made.
                 BarPick::Key('C', _) => {
@@ -466,8 +523,10 @@ impl Session {
     }
 
     /// An area's threads, the latest activity first (or, new, the hottest
-    /// or best pushed: `s`), a line each in PTT's order. MTHRDTOP, MTHRDMID,
-    /// MTHRDHIL and MTHRDBOT dress it (`~MN` the first message's number,
+    /// or best pushed: `s`), a line each in PTT's order; new, threads its
+    /// moderator pinned come first, and `t` shows only those with one of
+    /// its tags. MTHRDTOP, MTHRDMID, MTHRDHIL and MTHRDBOT dress it (`~MN`
+    /// the first message's number, `PinLabel` if pinned,
     /// `~MK` `*` if any are new, `~MT` subject, `~SN` who started it, `~RP`
     /// replies, `~SC` its score, `~NW` new, `~DS` the latest post's day
     /// (mm/dd), `~DT` and `~TI` its date and time).
@@ -488,7 +547,14 @@ impl Session {
 
     async fn thread_list_in(&mut self, a: &AreaRef) -> io::Result<()> {
         let mut on_root: Option<i64> = None;
+        let mut a = a.clone();
+        let mut tag: Option<String> = None;
         loop {
+            // The moderator may have changed its tags or about line.
+            if let Some(x) = self.msg_area(a.num).filter(|x| x.key() == a.key()) {
+                a = x;
+            }
+            let a = &a;
             let v = self.area_view(a)?;
             let by_id = v.by_id();
             let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
@@ -503,6 +569,12 @@ impl Session {
                 "top" => ts.sort_by_key(|t| std::cmp::Reverse(scores.get(&t.msgs[0].0).copied().unwrap_or(0))),
                 _ => {}
             }
+            let pinned = self.state.msgs.pinned(a.key()).map_err(io_err)?;
+            ts.sort_by_key(|t| !pinned.contains(&t.msgs[0].0));
+            if let Some(want) = &tag {
+                ts.retain(|t| tag_of(&by_id[&t.msgs[0].0].subject).is_some_and(|x| x.eq_ignore_ascii_case(want)));
+            }
+            let pin_label = self.strings().get("PinLabel").to_string();
             let mut rows = Vec::new();
             let mut labels = Vec::new();
             let mut first_new = None;
@@ -517,8 +589,9 @@ impl Session {
                 let score = score_label(scores.get(&root.id).copied());
                 let mark = if new > 0 { "*" } else { " " };
                 let day = self.local(t.last).format("%m/%d").to_string();
+                let num = if pinned.contains(&root.id) { pin_label.clone() } else { root.num.to_string() };
                 let w = waves([
-                    ("MN", root.num.to_string()),
+                    ("MN", num.clone()),
                     ("MK", mark.into()),
                     ("MT", root.subject.clone()),
                     ("SN", root.from.name.clone()),
@@ -529,7 +602,7 @@ impl Session {
                     ("DT", self.local(t.last).format("%m/%d/%y").to_string()),
                     ("TI", self.local(t.last).format("%H:%M").to_string()),
                 ]);
-                let plain = post_line(mark, &root.num.to_string(), &score, &day, &root.from.name, &replies, &root.subject);
+                let plain = post_line(mark, &num, &score, &day, &root.from.name, &replies, &root.subject);
                 rows.push(BarRow { n: i as u32, waves: w, plain });
                 labels.push((root.num, i as u32));
             }
@@ -539,8 +612,18 @@ impl Session {
                 "top" => "ThreadSortTop",
                 _ => "ThreadSortLatest",
             }).to_string();
-            let mut help = self.strings().fmt("MsgThreadKeys", &[&iniquity_term::codes::squish(&a.area.name, 16), &v.new_count().to_string(), &sort]);
             let moderator = self.is_sponsor(a) || self.is_cosysop();
+            let tagged = !a.area.tags.is_empty();
+            // Room for the board's name (and the tag shown) on one line.
+            let room = 16 - if moderator && tagged { 6 } else { 0 };
+            let mut name = iniquity_term::codes::squish(&a.area.name, room);
+            if let Some(t) = &tag {
+                name = iniquity_term::codes::squish(&format!("[{t}]"), room);
+            }
+            let mut help = self.strings().fmt("MsgThreadKeys", &[&iniquity_term::lit(&name), &v.new_count().to_string(), &sort]);
+            if tagged {
+                help += self.strings().get("ThreadTagKey");
+            }
             if moderator {
                 help += self.strings().get("MsgThreadModerate");
             }
@@ -554,7 +637,12 @@ impl Session {
                 help: &help,
                 ask: "",
                 can_go_up: true,
-                keys: if moderator { "NPSHO" } else { "NPSH" },
+                keys: match (moderator, tagged) {
+                    (true, true) => "NPSHOT",
+                    (true, false) => "NPSHO",
+                    (false, true) => "NPSHT",
+                    (false, false) => "NPSH",
+                },
             };
             match self.area_bar(&spec).await? {
                 BarPick::Area(i) => {
@@ -577,11 +665,20 @@ impl Session {
                     self.post(a, "All", "", None).await?;
                 }
                 BarPick::Key('H', _) => self.msg_help().await?,
-                BarPick::Key('O', _) => {
-                    if self.moderate_board(a).await? {
+                BarPick::Key('O', n) => {
+                    let root = ts.get(n as usize).map(|t| t.msgs[0].0);
+                    on_root = root;
+                    if self.moderate_board(a, root.and_then(|r| by_id.get(&r).map(|m| (*m).clone()))).await? {
                         return Ok(());
                     }
                 }
+                BarPick::Key('T', n) => {
+                    on_root = ts.get(n as usize).map(|t| t.msgs[0].0);
+                    self.reader_prompt_area();
+                    tag = self.pick_tag(&a.area.tags, "TagPickShow", "TagAll").await?;
+                }
+                // Esc clears the tag before it leaves.
+                BarPick::Stay | BarPick::Up if tag.is_some() => tag = None,
                 BarPick::Key('S', n) => {
                     on_root = ts.get(n as usize).map(|t| t.msgs[0].0);
                     self.user.thread_sort = match self.user.thread_sort.as_str() {
@@ -1091,6 +1188,23 @@ impl Session {
         }
     }
 
+    /// New: pick one of an area's tags from a numbered list; None for
+    /// Enter (`none` names what that means: "all" or "none").
+    pub(crate) async fn pick_tag(&mut self, tags: &[String], head: &str, none: &str) -> io::Result<Option<String>> {
+        self.newline();
+        self.say_line(head).await?;
+        for (i, tag) in tags.iter().enumerate() {
+            let s = self.strings().fmt("TagItem", &[&(i + 1).to_string(), &iniquity_term::lit(tag)]);
+            self.show_line(&s).await?;
+        }
+        let none = self.strings().get(none).to_string();
+        let s = self.strings().fmt("TagPickAsk", &[&none]);
+        self.show(&s).await?;
+        let n = self.read_string(ReadOpts::new(2).allowed(DIGITS)).await?;
+        self.newline();
+        Ok(n.parse::<usize>().ok().and_then(|n| tags.get(n.wrapping_sub(1))).cloned())
+    }
+
     /// Before a prompt from the reader: a clear screen to write on.
     fn reader_prompt_area(&mut self) {
         self.screen.set_color(iniquity_term::Color::DEFAULT);
@@ -1181,6 +1295,25 @@ fn hot_line(mark: &str, board: &str, score: &str, day: &str, author: &str, title
     format!("  {} {} {} {} {mark}{}", resize(board, 13), resize(score, 4), resize(day, 5), resize(author, 12), resize(title, 38))
 }
 
+/// New: an area's tags as typed, commas between, without blanks or
+/// repeats.
+pub fn parse_tags(s: &str) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    for t in s.split(',').map(|t| t.trim().trim_matches(|c| c == '[' || c == ']').trim()) {
+        if !t.is_empty() && !out.iter().any(|o| o.eq_ignore_ascii_case(t)) {
+            out.push(t.to_string());
+        }
+    }
+    out
+}
+
+/// The tag a title starts with (`[question] ...`), if any.
+pub fn tag_of(subject: &str) -> Option<&str> {
+    let rest = subject.trim_start().strip_prefix('[')?;
+    let end = rest.find(']')?;
+    Some(rest[..end].trim()).filter(|t| !t.is_empty())
+}
+
 /// Whether message (row id) `n` is new to the caller.
 fn self_new(v: &AreaView, by_id: &HashMap<i64, &Message>, n: i64) -> bool {
     by_id.get(&n).is_some_and(|m| v.is_new(m))
@@ -1230,6 +1363,32 @@ mod tests {
         let t = threads(&msgs);
         assert_eq!(t.len(), 1);
         assert_eq!(t[0].msgs, vec![(10, 0), (11, 1)]);
+    }
+
+    #[test]
+    fn tags_are_read_from_titles_and_settings() {
+        assert_eq!(tag_of("[question] how do I"), Some("question"));
+        assert_eq!(tag_of(" [ news ]x"), Some("news"));
+        assert_eq!(tag_of("Re: [question] how"), None);
+        assert_eq!(tag_of("[] empty"), None);
+        assert_eq!(tag_of("no tag"), None);
+        assert_eq!(parse_tags(" question, [news],, Question ,for sale"), ["question", "news", "for sale"]);
+    }
+
+    #[test]
+    fn pins_belong_to_their_area() {
+        let mb = crate::msgbase::MsgBase::open_memory().unwrap();
+        let mut a = msg(0, 0, 0, 1);
+        mb.add(&mut a).unwrap();
+        let mut b = Message { area: "OTHER".into(), ..msg(0, 0, 0, 2) };
+        mb.add(&mut b).unwrap();
+        mb.set_pinned(a.id, true).unwrap();
+        mb.set_pinned(b.id, true).unwrap();
+        assert_eq!(mb.pinned("GEN").unwrap(), HashSet::from([a.id]));
+        mb.set_pinned(a.id, false).unwrap();
+        assert!(mb.pinned("GEN").unwrap().is_empty());
+        mb.delete_area("OTHER").unwrap();
+        assert!(mb.pinned("OTHER").unwrap().is_empty());
     }
 
     #[test]

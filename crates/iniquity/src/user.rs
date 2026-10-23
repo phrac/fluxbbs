@@ -98,6 +98,9 @@ pub struct User {
     /// New: how the message center orders areas (`popular`; blank for by
     /// number).
     pub area_sort: String,
+    /// New: the caller's favorite message areas ("my boards"), storage
+    /// keys separated by spaces.
+    pub fav_boards: String,
     /// New: when the last call began (board time); `last_call` is its day.
     pub last_call_at: Option<NaiveDateTime>,
 }
@@ -173,6 +176,7 @@ impl Default for User {
             time_zone: String::new(),
             thread_sort: String::new(),
             area_sort: String::new(),
+            fav_boards: String::new(),
             last_call_at: None,
         }
     }

@@ -909,6 +909,13 @@ impl Session {
         if subject.is_empty() {
             return Ok(None);
         }
+        // New: a new thread in an area with tags picks one (PTT's categories).
+        let mut subject = subject;
+        if reply.is_none() && !a.is_email() && !a.area.tags.is_empty() && crate::msgcenter::tag_of(&subject).is_none()
+            && let Some(tag) = self.pick_tag(&a.area.tags, "TagPickPost", "TagNone").await?
+        {
+            subject = format!("[{tag}] {subject}");
+        }
         let u = &self.user;
         let mut from = Party {
             user_id: u.id,
