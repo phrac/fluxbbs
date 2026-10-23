@@ -723,6 +723,7 @@ fn convert_user(l: &LegacyUser) -> User {
         plan: Vec::new(),
         time_zone: String::new(),
         thread_sort: String::new(),
+        last_call_at: None,
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.
     u.set_password(&l.password.to_uppercase());

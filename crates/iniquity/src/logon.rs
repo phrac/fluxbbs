@@ -68,12 +68,14 @@ impl Session {
         }
 
         self.say("InitBBS").await?;
-        let previous_call = self.user.last_call;
+        // When they were last on: the time, or (from before it was kept)
+        // the start of that day.
+        let previous_call = self.user.last_call_at.or_else(|| self.user.last_call.and_then(|d| d.and_hms_opt(0, 0, 0)));
         self.user_logon_init();
         tracing::info!("{} ({}) logged in", self.user.handle, self.user.real_name);
         // SysOps hear about failed logins and bans since they were last on.
         if self.is_sysop() {
-            let since = previous_call.and_then(|d| d.and_hms_opt(0, 0, 0)).unwrap_or_default();
+            let since = previous_call.unwrap_or_default();
             if let Ok((n, bans)) = self.state.sys.security_since(since)
                 && n > 0 {
                     self.newline();
@@ -395,6 +397,7 @@ impl Session {
         }
         u.first_call.get_or_insert(today);
         u.last_call = Some(today);
+        u.last_call_at = Some(crate::clock::now().naive_local());
         // confLoad / maFindAreaWithAccess
         let confs = self.state.areas().confs.len().max(1) as u32;
         u.conf_msg = u.conf_msg.clamp(1, confs);

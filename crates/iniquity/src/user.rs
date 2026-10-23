@@ -4,7 +4,7 @@ use std::collections::BTreeSet;
 
 use argon2::Argon2;
 use argon2::password_hash::{PasswordHasher, PasswordVerifier, phc::PasswordHash};
-use chrono::NaiveDate;
+use chrono::{NaiveDate, NaiveDateTime};
 use iniquity_term::Palette;
 
 use crate::config::Level;
@@ -95,6 +95,8 @@ pub struct User {
     /// New: how the message centre orders threads (`hot`, `top`; blank
     /// for latest first).
     pub thread_sort: String,
+    /// New: when the last call began (board time); `last_call` is its day.
+    pub last_call_at: Option<NaiveDateTime>,
 }
 
 impl Default for User {
@@ -167,6 +169,7 @@ impl Default for User {
             plan: Vec::new(),
             time_zone: String::new(),
             thread_sort: String::new(),
+            last_call_at: None,
         }
     }
 }

@@ -80,7 +80,8 @@ CREATE TABLE IF NOT EXISTS users (
     plan          TEXT NOT NULL DEFAULT '',
     ssh_user      TEXT NOT NULL DEFAULT '',
     time_zone     TEXT NOT NULL DEFAULT '',
-    thread_sort   TEXT NOT NULL DEFAULT ''
+    thread_sort   TEXT NOT NULL DEFAULT '',
+    last_call_at  TEXT
 );
 CREATE INDEX IF NOT EXISTS users_real_name ON users(real_name);
 ";
@@ -95,7 +96,7 @@ const COLUMNS: &[&str] = &[
     "limit_dl", "limit_dl_kb", "today_dl", "today_dl_kb", "uldl_ratio", "kb_ratio",
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
     "file_scan", "theme", "last_rep", "bank_time", "bank_kb", "bank_time_in", "bank_time_out",
-    "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort",
+    "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "last_call_at",
 ];
 
 /// Add columns newer than the database (`ALTER TABLE`, since SQLite
@@ -110,6 +111,9 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     }
     if !have.iter().any(|c| c == "theme") {
         db.execute("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT ''", [])?;
+    }
+    if !have.iter().any(|c| c == "last_call_at") {
+        db.execute("ALTER TABLE users ADD COLUMN last_call_at TEXT", [])?;
     }
     if !have.iter().any(|c| c == "last_rep") {
         db.execute("ALTER TABLE users ADD COLUMN last_rep TEXT NOT NULL DEFAULT ''", [])?;
@@ -214,6 +218,7 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         ssh_user: r.get("ssh_user")?,
         time_zone: r.get("time_zone")?,
         thread_sort: r.get("thread_sort")?,
+        last_call_at: r.get("last_call_at")?,
     })
 }
 
@@ -247,6 +252,7 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.ssh_user.clone()),
         Box::new(u.time_zone.clone()),
         Box::new(u.thread_sort.clone()),
+        Box::new(u.last_call_at),
     ]
 }
 
@@ -376,11 +382,15 @@ mod tests {
         assert!(got.flags.contains(&'A'));
         assert_eq!(got.palette.0[3], Color::new(14, 1));
 
+        assert_eq!(got.last_call_at, None);
+        let at = chrono::NaiveDate::from_ymd_opt(2026, 10, 22).unwrap().and_hms_opt(20, 41, 5).unwrap();
+        got.last_call_at = Some(at);
         got.deleted = true;
         got.total_calls = 7;
         store.save(&got).unwrap();
         assert!(store.find("fiend", false).unwrap().is_none());
-        assert_eq!(store.find("fiend", true).unwrap().unwrap().total_calls, 7);
+        let back = store.find("fiend", true).unwrap().unwrap();
+        assert_eq!((back.total_calls, back.last_call_at), (7, Some(at)));
         assert_eq!(store.count().unwrap(), 0);
     }
 
