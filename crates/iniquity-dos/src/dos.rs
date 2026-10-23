@@ -3,7 +3,7 @@
 //! directory, `D:\` the node's drop directory); names are matched
 //! without regard to case, and what the host holds under other names
 //! stays out of sight. Enough of DOS 5 for door programs: no FCBs, no
-//! network redirector, no share locks beyond saying yes.
+//! network redirector; SHARE's sharing modes and locks are [`share`]'s.
 
 use std::collections::HashMap;
 use std::fs::File;
@@ -15,6 +15,7 @@ use chrono::{Datelike, NaiveDateTime, Timelike};
 use crate::bios::{clear_cf, set_cf};
 use crate::cpu::{self, Cpu};
 use crate::machine::System;
+use crate::share::{self, Shared};
 use crate::video::Screen;
 use crate::{After, Memory, linear};
 
@@ -38,7 +39,9 @@ const ERR_BAD_DRIVE: u16 = 15;
 const ERR_NO_MORE_FILES: u16 = 18;
 
 enum Handle {
-    File { f: File, path: PathBuf, owner: u16 },
+    /// `share` is the open's place in SHARE's table, which duplicates
+    /// share.
+    File { f: File, path: PathBuf, owner: u16, share: std::sync::Arc<Shared> },
     Stdin,
     Stdout,
     Aux,
@@ -67,6 +70,8 @@ struct SavedProcess {
 }
 
 pub struct Dos {
+    /// This machine, to SHARE: its processes are (machine, PSP).
+    machine: u64,
     roots: Vec<Option<PathBuf>>,
     cwd: Vec<String>,
     cur_drive: usize,
@@ -152,6 +157,12 @@ fn read_asciiz(mem: &Memory, seg: u16, off: u16) -> String {
     String::from_utf8_lossy(&s).into_owned()
 }
 
+impl Drop for Dos {
+    fn drop(&mut self) {
+        share::release_machine(self.machine);
+    }
+}
+
 impl Dos {
     pub fn new(mem: &mut Memory, c_root: &Path, d_root: Option<&Path>) -> Self {
         let mut roots = vec![None; 26];
@@ -169,6 +180,7 @@ impl Dos {
         files[3] = Some(Handle::Aux);
         files[4] = Some(Handle::Nul);
         Self {
+            machine: share::machine_id(),
             roots,
             cwd: vec![String::new(); 26],
             cur_drive: 2,
@@ -404,6 +416,11 @@ impl Dos {
         self.files.get_mut(h as usize).and_then(Option::as_mut).ok_or(ERR_BAD_HANDLE)
     }
 
+    /// Where SHARE files this process's locks.
+    fn lock_owner(&self) -> (u64, u16) {
+        (self.machine, self.psp)
+    }
+
     fn close_owned(&mut self, owner: u16) {
         for slot in self.files.iter_mut().skip(5) {
             if matches!(slot, Some(Handle::File { owner: o, .. }) if *o == owner) {
@@ -581,6 +598,7 @@ impl Dos {
     pub fn terminate(&mut self, code: u8, cpu: &mut Cpu, mem: &mut Memory) -> Option<u8> {
         let psp = self.psp;
         self.close_owned(psp);
+        share::release((self.machine, psp));
         self.free_owned(mem, psp);
         self.child_code = code;
         match self.procs.pop() {
@@ -905,7 +923,7 @@ pub fn int21(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) -> After {
         0x45 => match sys.dos.files.get(cpu.bx() as usize) {
             Some(Some(h)) => {
                 let dup = match h {
-                    Handle::File { f, path, owner } => f.try_clone().ok().map(|f| Handle::File { f, path: path.clone(), owner: *owner }),
+                    Handle::File { f, path, owner, share } => f.try_clone().ok().map(|f| Handle::File { f, path: path.clone(), owner: *owner, share: share.clone() }),
                     Handle::Stdin => Some(Handle::Stdin),
                     Handle::Stdout => Some(Handle::Stdout),
                     Handle::Aux => Some(Handle::Aux),
@@ -1022,28 +1040,55 @@ pub fn int21(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) -> After {
             cpu.set_r8(5, 1); // CH locus
         }
         0x5A => {
-            // Temporary file in the directory at DS:DX (with a trailing \).
+            // Temporary file in the directory at DS:DX (with a trailing \):
+            // the first free name, since other nodes make them too.
             let dir = read_asciiz(mem, cpu.ds(), cpu.dx());
-            let name = format!("{dir}TMP{:05}.$$$", std::process::id() % 100_000);
-            match sys.dos.resolve(&name, true) {
-                Ok(Resolved::Path { host, .. }) => match File::options().read(true).write(true).create_new(true).open(&host) {
+            let seed = (sys.dos.machine as u32).wrapping_mul(7919) % 100_000;
+            let mut made = None;
+            for i in 0..1000u32 {
+                let name = format!("{dir}TMP{:05}.$$$", (seed + i) % 100_000);
+                let Ok(Resolved::Path { host, .. }) = sys.dos.resolve(&name, true) else { break };
+                match File::options().read(true).write(true).create_new(true).open(&host) {
                     Ok(f) => {
-                        let full = name.as_bytes();
-                        let a = linear(cpu.ds(), cpu.dx() as u32);
-                        mem.write(a, full);
-                        mem.write8(a + full.len() as u32, 0);
-                        let owner = sys.dos.psp;
-                        match sys.dos.open_handle(Handle::File { f, path: host, owner }) {
-                            Ok(h) => cpu.set_ax(h),
-                            Err(e) => fail(sys, cpu, mem, e),
-                        }
+                        made = Some((name, host, f));
+                        break;
                     }
-                    Err(_) => fail(sys, cpu, mem, ERR_ACCESS_DENIED),
-                },
-                _ => fail(sys, cpu, mem, ERR_PATH_NOT_FOUND),
+                    Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                    Err(_) => break,
+                }
+            }
+            match made.map(|(name, host, f)| (Shared::open(&host, 2, 0), name, host, f)) {
+                None => fail(sys, cpu, mem, ERR_PATH_NOT_FOUND),
+                Some((Ok(share), name, host, f)) => {
+                    let full = name.as_bytes();
+                    let a = linear(cpu.ds(), cpu.dx() as u32);
+                    mem.write(a, full);
+                    mem.write8(a + full.len() as u32, 0);
+                    let owner = sys.dos.psp;
+                    match sys.dos.open_handle(Handle::File { f, path: host, owner, share }) {
+                        Ok(h) => cpu.set_ax(h),
+                        Err(e) => fail(sys, cpu, mem, e),
+                    }
+                }
+                Some((Err(e), ..)) => fail(sys, cpu, mem, e),
             }
         }
-        0x5C => {}
+        // Lock or unlock a range (SHARE's): CX:DX from, SI:DI long.
+        0x5C => {
+            let start = (cpu.cx() as u64) << 16 | cpu.dx() as u64;
+            let len = (cpu.si() as u64) << 16 | cpu.r16(cpu::DI) as u64;
+            let owner = sys.dos.lock_owner();
+            let r = match (sys.dos.file_mut(cpu.bx()), cpu.al()) {
+                (Ok(Handle::File { share, .. }), 0) => share.lock(owner, start, len),
+                (Ok(Handle::File { share, .. }), 1) => share.unlock(owner, start, len),
+                (Ok(_), 0 | 1) => Ok(()),
+                (Ok(_), _) => Err(1),
+                (Err(e), _) => Err(e),
+            };
+            if let Err(e) = r {
+                fail(sys, cpu, mem, e);
+            }
+        }
         0x5D => {
             if cpu.al() == 0x0A {
                 // Set extended error: ignore.
@@ -1099,8 +1144,12 @@ fn read(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) {
     let n = cpu.cx() as usize;
     let a = linear(cpu.ds(), cpu.dx() as u32);
     let h = cpu.bx();
+    let owner = sys.dos.lock_owner();
     match sys.dos.files.get_mut(h as usize) {
-        Some(Some(Handle::File { f, .. })) => {
+        Some(Some(Handle::File { f, share, .. })) => {
+            if let Err(e) = f.stream_position().map_or(Ok(()), |pos| share.check(owner, pos, n as u64)) {
+                return fail(sys, cpu, mem, e);
+            }
             // DOS returns fewer bytes only at the end of the file.
             let mut buf = vec![0u8; n];
             let mut got = 0;
@@ -1185,8 +1234,12 @@ fn write(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) {
     let a = linear(cpu.ds(), cpu.dx() as u32);
     let h = cpu.bx();
     let data: Vec<u8> = (0..n as u32).map(|i| mem.read8(a + i)).collect();
+    let owner = sys.dos.lock_owner();
     match sys.dos.files.get_mut(h as usize) {
-        Some(Some(Handle::File { f, .. })) => {
+        Some(Some(Handle::File { f, share, .. })) => {
+            if let Err(e) = f.stream_position().map_or(Ok(()), |pos| share.check(owner, pos, n as u64)) {
+                return fail(sys, cpu, mem, e);
+            }
             if n == 0 {
                 // Truncate at the current position.
                 if let Ok(pos) = f.stream_position() {
@@ -1239,6 +1292,8 @@ fn ioctl(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) {
         0x07 => cpu.set_al(0xFF),
         0x08 => cpu.set_ax(1), // not removable
         0x09 => cpu.set_r16(cpu::DX, 0), // local drive
+        0x0A => cpu.set_r16(cpu::DX, 0), // local handle
+        0x0B => {}                       // SHARE's retry count: refused at once
         0x0E | 0x0F => cpu.set_al(0),
         _ => fail(sys, cpu, mem, 1),
     }
@@ -1268,8 +1323,10 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
         Resolved::Path { host, drive, dos } => (host, drive, dos),
     };
     let owner = sys.dos.psp;
-    let open = |sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, f: std::io::Result<File>, host: PathBuf| match f {
-        Ok(f) => match sys.dos.open_handle(Handle::File { f, path: host, owner }) {
+    // Opened with SHARE's leave (`share`, taken before the file is
+    // touched, so a refused create doesn't truncate it).
+    let open = |sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, f: std::io::Result<File>, host: PathBuf, share: std::sync::Arc<Shared>| match f {
+        Ok(f) => match sys.dos.open_handle(Handle::File { f, path: host, owner, share }) {
             Ok(h) => cpu.set_ax(h),
             Err(e) => fail(sys, cpu, mem, e),
         },
@@ -1294,14 +1351,21 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
             }
         }
         0x3C => {
+            let share = match Shared::open(&host, 2, 0) {
+                Ok(s) => s,
+                Err(e) => return fail(sys, cpu, mem, e),
+            };
             let f = File::options().read(true).write(true).create(true).truncate(true).open(&host);
-            open(sys, cpu, mem, f, host);
+            open(sys, cpu, mem, f, host, share);
         }
         0x5B => {
             let f = File::options().read(true).write(true).create_new(true).open(&host);
             match f {
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => fail(sys, cpu, mem, 80),
-                f => open(sys, cpu, mem, f, host),
+                f => match Shared::open(&host, 2, 0) {
+                    Ok(share) => open(sys, cpu, mem, f, host, share),
+                    Err(e) => fail(sys, cpu, mem, e),
+                },
             }
         }
         0x3D | 0x6C => {
@@ -1311,10 +1375,15 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
             // Access codes: 0 read, 1 write, 2 read/write, 4 read without
             // touching the file's dates (LORD 4.07 opens with 44h, as DOSBox
             // notes too); the rest are invalid (error 0Ch).
-            let mode = if ah == 0x3D { cpu.al() } else { cpu.bx() as u8 } & 7;
+            let full = if ah == 0x3D { cpu.al() } else { cpu.bx() as u8 };
+            let mode = full & 7;
             if !matches!(mode, 0 | 1 | 2 | 4) {
                 return fail(sys, cpu, mem, 0x0C);
             }
+            let share = match Shared::open(&host, mode, (full >> 4) & 7) {
+                Ok(s) => s,
+                Err(e) => return fail(sys, cpu, mem, e),
+            };
             let mut o = File::options();
             o.read(true);
             if mode == 1 || mode == 2 {
@@ -1336,7 +1405,7 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
                 }
             }
             let f = o.open(&host).or_else(|_| File::open(&host));
-            open(sys, cpu, mem, f, host);
+            open(sys, cpu, mem, f, host, share);
         }
         0x41 => {
             if std::fs::remove_file(&host).is_err() {

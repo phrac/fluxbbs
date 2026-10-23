@@ -38,6 +38,7 @@ pub mod dos;
 pub mod fossil;
 pub mod machine;
 pub mod serial;
+pub mod share;
 pub mod video;
 
 /// Linear address space: 1 MB plus the 64 KB the A20 line reaches.

@@ -530,7 +530,8 @@ pub struct Dos {
     /// Extra lines for the emulator's config (`[cpu]`, `cycles=max`).
     pub config: Vec<String>,
     /// Doors only one caller may be in at a time, by program or batch
-    /// file (`TW2002.BAT`): the machine has no file locks to share them.
+    /// file (`TW2002.BAT`): single-player games, and unregistered copies
+    /// that run on one node.
     pub one_at_a_time: Vec<String>,
 }
 

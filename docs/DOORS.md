@@ -76,9 +76,9 @@ Enter starts it), then TEDIT's `O` for node 1: drop file path `D:\`,
 type `7` (DOOR.SYS), I/O type FOSSIL. Unregistered, it runs one node
 only, so every caller is node 1: `doors/dos/TW2002.BAT` is `@ECHO OFF`,
 `C:`, `CD \TW2002`, `TW2002 TWNODE=1 SHARE`, run by `DZ`, and
-`TW2002.BAT` goes in `[dos] one_at_a_time` (with no file locks in the
-machine, two callers in one node's game would trample each other's
-files; the next caller is told to try later). Its nightly maintenance
+`TW2002.BAT` goes in `[dos] one_at_a_time` (two callers on one node's
+game would trample each other's files; the next caller is told to try
+later). Its nightly maintenance
 is an event: `command = "dos TWMAINT.BAT"`, a batch file running
 `EXTERN SHARE` in `\TW2002`. Run BIGBANG and TEDIT in the board's time
 zone, as with BRE. Prompts that look like hot keys mostly want Enter.
@@ -91,8 +91,10 @@ text file: BBS type `GAP` (DOOR.SYS), path to BBS data `D:\`, comm
 support `FOSSIL`. Leave OOSETUP with Esc, `Y` to exit and `Y` to save:
 that's when it makes the game's data files. `doors/dos/OOII.BAT` is
 `@ECHO OFF`, `C:`, `CD \OOII`, `OOINFO 2 D:\`, `MAINTOO`, `OOII`, run by
-`DZ` and listed in `[dos] one_at_a_time` (multi-node off, and no file
-locks). Unregistered, it takes 10 players; registration was free, but
+`DZ` and listed in `[dos] one_at_a_time`: it plays one at a time
+whatever its "Multi-Node?" says (that only has a second player told to
+come back later), and OOINFO writes each caller to the one BBSINFO.OO,
+which two starting together would share. Unregistered, it takes 10 players; registration was free, but
 its site is gone. A character whose caller hangs up before its creation
 is finished is dead until midnight; a hangup in play just camps.
 
@@ -104,14 +106,31 @@ manuals go in it), and write `USURP.CTL` (DDplus's control file) with
 names. Run EDITOR (from `\USURPER`) and choose Reset Game, then
 `USURPER /L` once, which makes the rest of its files and stops at
 "[Press a key]". `doors/dos/USURPER.BAT` is `@ECHO OFF`, `C:`, `CD
-\USURPER`, `USURPER /PD:\`, run by `DZ`, and in `[dos] one_at_a_time`.
+\USURPER`, `USURPER /PD:\`, run by `DZ`. Several callers can play at
+once, each on their own node (DOOR.SYS says which): they see each other
+online and share the game's files through SHARE (below).
 Before DDplus reads its control file it polls "port 0" (I/O ports 5 and
 6, the DMA controller) for CTS and carrier, so its first messages go
 nowhere: the machine's DMA ports read 0, as a real one's unused
 channels do.
 
+Multi-node doors work as they did on a network or under a multitasker
+with SHARE loaded: every node's machine runs in the board's process, and
+they share one table of open files and locks. Opening with a deny mode
+(`3Dh` with bits 4-6 set) fails with a sharing violation (20h) against
+the opens it conflicts with; `5Ch` locks and unlocks byte ranges, and a
+read or write into another process's locked range fails with a lock
+violation (21h, at once: the retry count of `440Bh` is taken and
+ignored). Closing a file, a program ending or a caller hanging up lets
+go of what they held. `INT 2Fh` 1000h says SHARE is installed.
+Compatibility-mode opens (no deny bits) deny nothing, as under DOSBox,
+since single-node doors open that way and still expect to share files
+with their own maintenance programs. Temporary files (`5Ah`) get the
+first free name.
+
 `[dos] one_at_a_time` lists doors (by program or batch file, as in the
-menu) that only one caller may be in at once.
+menu) that only one caller may be in at once: single-player games, and
+unregistered copies that run on one node.
 
 Not in the machine: protected mode (DPMI doors), EMS/XMS, sound. The
 coprocessor is a 387 whose registers are 64-bit doubles rather than

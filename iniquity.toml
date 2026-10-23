@@ -189,8 +189,8 @@ emulator = ""
 drive = "doors/dos"
 setup = []
 config = []
-# Doors only one caller may be in at a time (a door that can't share its
-# files without locks, or an unregistered one that runs on one node).
+# Doors only one caller may be in at a time (a single-player game, or an
+# unregistered one that runs on one node).
 one_at_a_time = []
 
 [[colors]]

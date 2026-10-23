@@ -139,3 +139,49 @@ fn exe_loads_with_relocations() {
     assert!(text(&out).contains("EXE ok"), "{:?}", text(&out));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+/// Open DATA.DAT with `mode`, lock bytes 0-9, then (if `wait`) wait for a
+/// key; exit 0, or with the DOS error. Assembled by hand:
+/// `mov ax,3Dxx; mov dx,name; int 21h; jc fail; mov bx,ax; mov ax,5C00h;
+/// xor cx,cx; xor dx,dx; xor si,si; mov di,10; int 21h; jc fail; mov ah,8;
+/// int 21h; mov ax,4C00h; int 21h; fail: mov ah,4Ch; int 21h`.
+fn locker(mode: u8, wait: bool) -> Vec<u8> {
+    let mut c = vec![0xB8, mode, 0x3D, 0xBA, 0x29, 0x01, 0xCD, 0x21, 0x72, 0x1B, 0x89, 0xC3];
+    c.extend([0xB8, 0x00, 0x5C, 0x31, 0xC9, 0x31, 0xD2, 0x31, 0xF6, 0xBF, 0x0A, 0x00, 0xCD, 0x21, 0x72, 0x09]);
+    c.extend(if wait { [0xB4, 0x08, 0xCD, 0x21] } else { [0x90; 4] });
+    c.extend([0xB8, 0x00, 0x4C, 0xCD, 0x21, 0xB4, 0x4C, 0xCD, 0x21]);
+    c.extend(b"DATA.DAT\0");
+    c
+}
+
+#[test]
+fn nodes_share_files_with_modes_and_locks() {
+    let dir = std::env::temp_dir().join(format!("iqdos-share{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(dir.join("DATA.DAT"), [0u8; 32]).unwrap();
+    // Read/write, deny none: A locks and waits; B can't lock the same bytes.
+    std::fs::write(dir.join("A.COM"), locker(0x42, true)).unwrap();
+    std::fs::write(dir.join("B.COM"), locker(0x42, false)).unwrap();
+    // Read/write, deny all: refused while A has the file open.
+    std::fs::write(dir.join("C.COM"), locker(0x12, false)).unwrap();
+    let mut out = Vec::new();
+    let mut a = Machine::new(&dir, None);
+    a.start("A.COM", "").unwrap();
+    assert_eq!(run(&mut a, &mut out), Status::Idle, "A holds its lock: {:?}", a.sys.log);
+    let mut b = Machine::new(&dir, None);
+    b.start("B.COM", "").unwrap();
+    assert_eq!(run(&mut b, &mut out), Status::Exited(0x21), "lock violation");
+    let mut c = Machine::new(&dir, None);
+    c.start("C.COM", "").unwrap();
+    assert_eq!(run(&mut c, &mut out), Status::Exited(0x20), "sharing violation");
+    // A goes, and its lock and open with it.
+    a.feed(b"x");
+    assert_eq!(run(&mut a, &mut out), Status::Exited(0));
+    let mut b = Machine::new(&dir, None);
+    b.start("B.COM", "").unwrap();
+    assert_eq!(run(&mut b, &mut out), Status::Exited(0));
+    let mut c = Machine::new(&dir, None);
+    c.start("C.COM", "").unwrap();
+    assert_eq!(run(&mut c, &mut out), Status::Exited(0));
+    std::fs::remove_dir_all(&dir).unwrap();
+}

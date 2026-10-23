@@ -145,9 +145,11 @@ pub fn int15(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) {
     }
 }
 
-/// `INT 2Fh`: say nothing is installed, except the DOS idle call.
+/// `INT 2Fh`: say nothing is installed, except the DOS idle call and
+/// SHARE ([`crate::share`]), which multi-node doors look for.
 pub fn int2f(cpu: &mut Cpu) {
     match cpu.ax() {
+        0x1000 => cpu.set_al(0xFF), // SHARE: installed
         0x1680 => cpu.set_al(0), // idle: supported
         0x1600 => cpu.set_al(0), // no Windows
         0x4300 => {}             // no XMS
