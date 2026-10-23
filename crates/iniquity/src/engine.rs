@@ -14,6 +14,8 @@ use crate::session::{Session, pos_code};
 const MAX_STACK: usize = 8;
 /// Lightbar help line marker (`maxPos-1`) and exit position (`maxPos`).
 const LIGHTBAR_HELP: [u8; 2] = *b"HP";
+/// New: where the cursor waits on a lightbar menu (a prompt bar's slot).
+const LIGHTBAR_CURSOR: [u8; 2] = *b"PC";
 const LIGHTBAR_EXIT: u8 = 30;
 /// Options on a lightbar, short of the exit position (the original took 24).
 const MAX_BAR: usize = 29;
@@ -525,6 +527,9 @@ impl Session {
             let (x, y) = (self.screen.where_x(), self.screen.where_y());
             self.show(&help).await?;
             *help_len = if self.screen.where_y() == y { self.screen.where_x().saturating_sub(x) as usize } else { self.visible_len(&iniquity_term::cp437::encode(&help)) };
+        }
+        if hi {
+            self.goto_pos(LIGHTBAR_CURSOR);
         }
         Ok(())
     }

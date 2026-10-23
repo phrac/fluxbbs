@@ -104,6 +104,11 @@ Replaced by a value. An unknown `%XX` is shown as it is in prompts, and dropped 
 Put before a `%XX` code. `{20%UN` cuts the handle to 20 characters;
 `}20%UN` pads or cuts it to exactly 20, so columns line up.
 
+## Right-aligning in screens: `%>`
+
+New: in a screen, `%>` puts the rest of its line against the right
+edge (ending at column 79), values and all: a prompt bar's stats, say.
+
 ## Strings only
 
 A prompt string (not a screen) can start with:

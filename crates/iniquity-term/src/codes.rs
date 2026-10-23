@@ -104,6 +104,8 @@ pub enum Token {
     Ext([u8; 2]),
     /// `^NN` (file mode only).
     Ext2(u8),
+    /// New, `%>` in a file: the rest of the line ends at the right edge.
+    AlignRight,
 }
 
 /// Whether the text is a prompt string or a display file; files also get
@@ -175,6 +177,7 @@ pub fn tokenize(src: &[u8], source: Source) -> Vec<Token> {
                     }
                 }
                 b'%' if a.is_ascii_alphanumeric() || a == b'@' => emit!(Token::Mci([a, b]), 3),
+                b'%' if file && a == b'>' => emit!(Token::AlignRight, 2),
                 b'@' | b'&' | b'{' | b'}' => {
                     if let Some(n) = two_digits(a, b) {
                         let tok = match c {
@@ -354,6 +357,21 @@ pub fn squish(s: &str, len: usize) -> String {
     out
 }
 
+/// How many characters CP437 text takes on screen: ANSI escape sequences
+/// take none.
+pub fn visible_bytes(b: &[u8]) -> usize {
+    let (mut n, mut i) = (0, 0);
+    while i < b.len() {
+        if b[i] == 0x1B && b.get(i + 1) == Some(&b'[') {
+            i += 2 + b[i + 2..].iter().position(|c| (0x40..=0x7E).contains(c)).map_or(b.len(), |p| p + 1);
+            continue;
+        }
+        n += 1;
+        i += 1;
+    }
+    n
+}
+
 /// The length of a `|XX` colour code at `c[i]`, or 0.
 fn colour_at(c: &[char], i: usize) -> usize {
     match (c.get(i), c.get(i + 1), c.get(i + 2)) {
@@ -507,6 +525,9 @@ mod tests {
         let t = tokenize(b"~LN^03ok\x1aSAUCE00", Source::File);
         assert_eq!(t, vec![Ext(*b"LN"), Ext2(3), Text(b"ok".to_vec())]);
         assert_eq!(tokenize(b"~LN", Source::String), vec![Text(b"~LN".to_vec())]);
+        assert_eq!(tokenize(b"a%>b", Source::File), vec![Text(b"a".to_vec()), AlignRight, Text(b"b".to_vec())]);
+        assert_eq!(tokenize(b"50%>", Source::String), vec![Text(b"50%>".to_vec())]);
+        assert_eq!(visible_bytes(b"\x1b[1;35mab\x1b[0mc"), 3);
     }
 
     #[test]

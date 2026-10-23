@@ -549,11 +549,44 @@ impl Session {
             self.positions2.clear();
         }
         let mut st = DisplayState::default();
-        for tok in tokenize(src, source) {
-            self.display_token(tok, source, waves, &mut st).await?;
+        let toks = tokenize(src, source);
+        for (i, tok) in toks.iter().enumerate() {
+            if *tok == Token::AlignRight {
+                let w = self.rest_of_line_len(&toks[i + 1..], waves);
+                self.screen.pos_x(80u16.saturating_sub(w as u16).max(1));
+                continue;
+            }
+            self.display_token(tok.clone(), source, waves, &mut st).await?;
         }
         self.display_end(st);
         Ok(())
+    }
+
+    /// How wide what's left of a line of a screen will be on screen.
+    fn rest_of_line_len(&self, toks: &[Token], waves: Option<&Waves>) -> usize {
+        let (mut n, mut limit) = (0, None);
+        let fit = |v: String, limit: &mut Option<(usize, bool)>| match limit.take() {
+            Some((w, true)) => w,
+            Some((w, false)) => v.chars().count().min(w),
+            None => v.chars().count(),
+        };
+        for t in toks {
+            match t {
+                Token::Text(b) => {
+                    let line = b.split(|&c| c == b'\r' || c == b'\n').next().unwrap_or_default();
+                    n += iniquity_term::codes::visible_bytes(line);
+                    if line.len() < b.len() {
+                        break;
+                    }
+                }
+                Token::Mci(c) => n += fit(self.mci_value(*c).unwrap_or_default(), &mut limit),
+                Token::Ext(c) => n += waves.and_then(|w| w.get(c)).map_or(0, |v| fit(v.clone(), &mut limit)),
+                Token::Limit(w) => limit = Some((*w as usize, false)),
+                Token::Pad(w) => limit = Some((*w as usize, true)),
+                _ => {}
+            }
+        }
+        n
     }
 
     /// One token of [`Session::display`].
@@ -607,6 +640,8 @@ impl Session {
                 let here = self.here();
                 self.positions2.insert(n, here);
             }
+            // Only a whole screen (`display`) can measure the line.
+            Token::AlignRight => {}
         }
         Ok(())
     }
