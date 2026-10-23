@@ -10,7 +10,9 @@ Lightbar menus (MATRIX, GOODBYE) draw their options themselves: mark each
 option's place with `~01^01`, `~02^02`... in command order (`~NN` is where
 it's drawn highlighted, `^NN` where it's drawn plain), and optionally
 `~HP` for the help line and `~PC` for where the cursor waits (new; a
-prompt bar's slot, say). The arrows move by where the options are on
+prompt bar's slot, say); a list's `BOT` screen (`MHUBBOT`...) can have
+both too, and is then the screen's last rows: the list's keys go at
+`~HP` and what's typed in the `~PC` slot. The arrows move by where the options are on
 screen (left and right along a row, up and down to the next row), and a
 command's key still runs it. The options' own colors (`on` / `off`) and
 help text are in the menu (`menus/MATRIX.toml`); to restyle them, put a

@@ -72,6 +72,9 @@ pub struct BarSpec<'a> {
 }
 
 /// A TOP/MID/HIL/BOT repeat screen in progress (Appendix C).
+/// How much of what's typed shows in a prompt bar's slot.
+const BAR_SLOT: usize = 6;
+
 pub struct Repeat {
     prefix: String,
     mid: Vec<u8>,
@@ -79,6 +82,9 @@ pub struct Repeat {
     lines: u16,
     /// Lines the BOT screen takes.
     pub bot_lines: u16,
+    /// New: BOT is a prompt bar, with `~HP` for the help line and `~PC`
+    /// for the cursor, and is the screen's last row.
+    pub bar: bool,
 }
 
 pub trait Stream: AsyncRead + AsyncWrite + Unpin + Send {}
@@ -847,7 +853,8 @@ impl Session {
         // `oUpPause(ansiRows)` did.
         let clears = top.windows(4).any(|w| w == b"\x1b[2J");
         let lines = if clears { self.screen.where_y() } else { top.iter().filter(|&&b| b == b'\n').count() as u16 + 1 };
-        Ok(Some(Repeat { prefix: prefix.into(), mid, hil, lines, bot_lines }))
+        let bar = bot.windows(3).any(|w| w == b"~PC");
+        Ok(Some(Repeat { prefix: prefix.into(), mid, hil, lines, bot_lines, bar }))
     }
 
     /// Show one row. Returns false if the caller quit at a pause.
@@ -904,7 +911,10 @@ impl Session {
                 self.screen.set_color(iniquity_term::Color::DEFAULT);
                 self.clear_screen();
                 rep = self.repeat_begin(prefix, true).await?;
+                // A prompt bar BOT holds the help and prompt itself.
+                let bar = rep.as_ref().is_some_and(|r| r.bar);
                 let bot_lines = match &rep {
+                    Some(r) if r.bar => r.bot_lines - 1,
                     Some(r) => r.bot_lines,
                     None => {
                         self.newline();
@@ -930,20 +940,35 @@ impl Session {
                     }
                     None => self.rule().await?,
                 }
-                if self.screen.where_x() != 1 {
-                    self.newline();
-                }
-                self.show_line(help).await?;
-                if !ask.is_empty() {
-                    self.say(ask).await?;
+                if bar {
+                    self.goto_pos(*b"HP");
+                    // Kept to its row: the bar is under it.
+                    let room = 80usize.saturating_sub(self.screen.where_x() as usize);
+                    self.show(&iniquity_term::codes::squish(help, room)).await?;
+                    self.goto_pos(*b"PC");
+                } else {
+                    if self.screen.where_x() != 1 {
+                        self.newline();
+                    }
+                    self.show_line(help).await?;
+                    if !ask.is_empty() {
+                        self.say(ask).await?;
+                    }
                 }
                 prompt = (self.screen.where_x(), self.screen.where_y());
                 redraw = false;
             }
             self.screen.goto(prompt.0, prompt.1);
-            self.screen.set_color(iniquity_term::Color::DEFAULT);
-            self.write(&typed);
-            self.screen.clear_eol();
+            if rep.as_ref().is_some_and(|r| r.bar) {
+                // The bar's slot: the end of what's typed, in its place.
+                let shown: String = typed.chars().rev().take(BAR_SLOT).collect::<Vec<_>>().into_iter().rev().collect();
+                self.write(&format!("{shown:<BAR_SLOT$}"));
+                self.screen.goto(prompt.0 + shown.chars().count() as u16, prompt.1);
+            } else {
+                self.screen.set_color(iniquity_term::Color::DEFAULT);
+                self.write(&typed);
+                self.screen.clear_eol();
+            }
             let key = self.read_key().await?;
             let prev = cur;
             let last = rows.len().saturating_sub(1);
