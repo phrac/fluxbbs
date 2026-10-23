@@ -583,7 +583,7 @@ impl Fetcher {
         std::fs::create_dir_all(self.cache())?;
         let Some(root) = self.crawl("", "", "", only).await? else { bail!("{}/directory.html: not found", self.mirror) };
         let (files, dirs) = (root.all_files().len(), root.walk().len() - 1);
-        println!("catalogued {files} files in {dirs} directories");
+        println!("cataloged {files} files in {dirs} directories");
         let cat = self.cache().join("catalog.json");
         std::fs::write(&cat, serde_json::to_vec_pretty(&root)?).with_context(|| cat.display().to_string())?;
         let mut totals = (0, 0, 0);
@@ -591,7 +591,7 @@ impl Fetcher {
             let (a, b, c) = self.fetch_section(sec).await?;
             totals = (totals.0 + a, totals.1 + b, totals.2 + c);
         }
-        println!("done: {} file(s) unpacked, {} fetched, {} missing; catalogue in {}", totals.0, totals.1, totals.2, cat.display());
+        println!("done: {} file(s) unpacked, {} fetched, {} missing; catalog in {}", totals.0, totals.1, totals.2, cat.display());
         Ok(())
     }
 }
@@ -717,7 +717,7 @@ pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, downloa
     }
     for (section, _) in put {
         if !root.dirs.iter().any(|d| d.path.eq_ignore_ascii_case(section)) {
-            bail!("no section {section} in the catalogue");
+            bail!("no section {section} in the catalog");
         }
     }
     let (mut new_areas, mut new_files, mut missing, mut known) = (0, 0, 0, 0);

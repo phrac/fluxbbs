@@ -17,8 +17,8 @@ have, add it here (and the details in the doc it belongs to).
   logs the caller straight in (no bot check or login prompts), under the
   handle or another SSH user name they choose.
   ([SYSOP](SYSOP.md#ssh-keys-and-stored-logins))
-- CP437 or UTF-8 terminals; aixterm bright colours, iCE backgrounds, and
-  256 and 24-bit colour art passed through.
+- CP437 or UTF-8 terminals; aixterm bright colors, iCE backgrounds, and
+  256 and 24-bit color art passed through.
 - Output paced to the terminal for fast streams (animated GIFs), and a
   log line when a link stalls.
 - TOML files and SQLite in place of the `.DAT` files. Settings, strings,
@@ -35,8 +35,8 @@ have, add it here (and the details in the doc it belongs to).
 ## Keeping bots out
 
 - The picture bot check: three big characters drawn with background
-  colour in noise of the same symbols inside and out, so a script
-  reading the text sees nothing; colours change, characters shift and
+  color in noise of the same symbols inside and out, so a script
+  reading the text sees nothing; colors change, characters shift and
   are speckled, the field is drawn in shuffled pieces, a decoy comes
   first, too-quick answers fail. A BOTCHECK screen frames it. The
   key-press check is the other option. ([SYSOP](SYSOP.md))
@@ -84,7 +84,7 @@ have, add it here (and the details in the doc it belongs to).
 - Log off after a download, with a countdown.
 - Web file lists (`/files.txt`, `/files.html`) are from 2.0, below.
 - The textfiles.com archive as file areas: `iniquity textfiles fetch`
-  catalogues the mirror and brings the files down, `import` adds the
+  catalogs the mirror and brings the files down, `import` adds the
   site's sections as file areas with its directories as sub-areas and
   its descriptions on every file. ([FILES](FILES.md#the-textfilescom-archive))
 - Built for a board with hundreds of areas and tens of thousands of
@@ -98,20 +98,20 @@ have, add it here (and the details in the doc it belongs to).
 
 ## Messages
 
-- The message centre (`MH`): areas with what's new and the latest post,
+- The message center (`MH`): areas with what's new and the latest post,
   threads (kept across packing, and through QWK), a reader with the
   header fixed and the text scrolling, and read tracking beyond the
   last-read pointer. `MW` says how many posts are new at logon and
-  offers to read them. ([FEATURES](FEATURES.md#message-centre))
+  offers to read them. ([FEATURES](FEATURES.md#message-center))
 - `MX newest`, `hot`, `dig`, `mouth`, `loud`, `unread`: straight to a
   message, an area or what's new, for the menu's stats.
 - Pushes, after PTT: `x` in the reader leaves a one-line push up, down
   or comment under a message; scores in the thread list, which sorts by
   latest, hot or top; a Hot list across the board; karma on profiles.
-  ([FEATURES](FEATURES.md#message-centre))
+  ([FEATURES](FEATURES.md#message-center))
 - @mentions: `@handle` in a public post tells that caller, by node
   message if they're on and at their next logon; `M@` reads them.
-  ([FEATURES](FEATURES.md#message-centre))
+  ([FEATURES](FEATURES.md#message-center))
 - FTN echomail (fsxNet and the like) built in: a binkp mailer that
   polls and answers (CRAM-MD5), a tosser and scanner with threading and
   dupe checking, netmail to email, and AreaFix. ([FEATURES](FEATURES.md#ftn-echomail))
@@ -156,7 +156,7 @@ New commands (2.0's are in FEATURES):
 | `AG` | art gallery |
 | `AI` | AI chat |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |
-| `MH` | message centre |
+| `MH` | message center |
 | `MW` (+ `Read`) | new posts at logon |
 | `MX` (+ `newest` `hot` `dig` `mouth` `loud` `unread`) | jump to a message from the stats |
 | `M@` (+ `All`) | posts that mention you |
@@ -183,7 +183,7 @@ New screens ([ARTWORK](ARTWORK.md)):
 | `STOCK` | the header `\|SA` draws |
 | `GALLERY` | the art gallery (else `LISTFILE`) |
 | `AICHAT` | AI chat |
-| `MHUB` TOP/MID/HIL/BOT | the message centre's areas |
+| `MHUB` TOP/MID/HIL/BOT | the message center's areas |
 | `MTHRD` TOP/MID/HIL/BOT | an area's threads (`~SC` score) |
 | `MHOT` TOP/MID/HIL/BOT | the Hot list |
 | `MSGRHELP` | the reader's help |
@@ -200,15 +200,15 @@ New settings sections in `iniquity.toml`: `[ssh]`, `[telnet]`, `[web]`,
 `[meshcore]`, `[ftn]`; and new keys elsewhere, chiefly upload screening in
 `[files]` and sign-up limits in `[newuser]`. New prompt strings are at
 the end of `assets/strings.toml` (about 140: bot check, passwords,
-upload checks, gallery, viewer, AI, the message centre, themes...).
+upload checks, gallery, viewer, AI, the message center, themes...).
 
 ## Changed on purpose
 
-Where the original's behaviour was a hazard or no longer fits:
+Where the original's behavior was a hazard or no longer fits:
 
 - Passwords are hashed, never shown (`%PW` is blank), case-sensitive,
   and held to rules.
-- What callers type keeps its colour codes and nothing else, so text
+- What callers type keeps its color codes and nothing else, so text
   can't run codes where it ends up.
 - The stock NEWUSER menu no longer validates everyone outside area code
   902; lowering a level no longer wraps to the top one.
@@ -230,10 +230,10 @@ Where the original's behaviour was a hazard or no longer fits:
   reply marked private in an area without private mail is refused, not
   posted in public; a reply goes to the writer of the message it
   answers, whatever its 25-character To says. Messages already read in the
-  message centre are left out of packets and of `MN`/`MM` scans.
+  message center are left out of packets and of `MN`/`MM` scans.
 - Characters that a CP437 terminal takes as control bytes (`←` is ESC)
   are left out when a message is shown, and lines with ANSI keep only
-  colours and cursor-right, so posts (from the network, the radio or an
+  colors and cursor-right, so posts (from the network, the radio or an
   uploaded file) can't drive readers' terminals. The same goes for any
   text the board shows without codes (file and archive names, SAUCE,
   values in prompts): no control characters reach the terminal, and
@@ -261,7 +261,7 @@ Where the original's behaviour was a hazard or no longer fits:
   original allowed (only ASCII did before), and a UTF-8 terminal's keys
   are decoded to them; an escape sequence the board doesn't know is
   ignored rather than taken as Esc. Fixed-width fields don't count
-  colour codes.
+  color codes.
 - "Anonymous" and "None" can't be taken as handles (mail to those
   parties would reach whoever had them); "delete all read mail" deletes
   only the letters read just now; packing all areas packs email too.
@@ -271,7 +271,7 @@ Where the original's behaviour was a hazard or no longer fits:
   editing, rather than cut short.
 - Reply counts leave out private replies to public messages (they
   gave away that someone had written privately) and deleted ones.
-- The message centre's lists (threads, new, search, mentions) follow
+- The message center's lists (threads, new, search, mentions) follow
   messages by row too, so a pack while one is open doesn't show others.
 - QWK replies go to the area each conference was when the packet was
   made, even if areas have been added or moved since.

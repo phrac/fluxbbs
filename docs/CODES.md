@@ -5,15 +5,15 @@ Codes typed as plain text into screens (`text/*.ANS`), prompt strings
 anything after a code on the same line moves left by the code's width
 (3 characters for most). Letters can be upper or lower case.
 
-## Colours: `|XX`
+## Colors: `|XX`
 
-| Code | Colour |
+| Code | Color |
 |---|---|
-| `|00`-`|15` | foreground: 00 black, 01 blue, 02 green, 03 cyan, 04 red, 05 magenta, 06 brown, 07 grey, 08 dark grey, 09 light blue, 10 light green, 11 light cyan, 12 light red, 13 light magenta, 14 yellow, 15 white |
-| `|16`-`|23` | background 0-7 (black, blue, green, cyan, red, magenta, brown, grey) |
+| `|00`-`|15` | foreground: 00 black, 01 blue, 02 green, 03 cyan, 04 red, 05 magenta, 06 brown, 07 gray, 08 dark gray, 09 light blue, 10 light green, 11 light cyan, 12 light red, 13 light magenta, 14 yellow, 15 white |
+| `|16`-`|23` | background 0-7 (black, blue, green, cyan, red, magenta, brown, gray) |
 | `|B0`-`|B7` | background, the same 0-7 |
-| `|U0`-`|U9` | the caller's colour scheme (`*U` palette): 0 error, 1 text, 2 dim text, 3 bright text, 4 info, 5 dim info, 6 bright info, 7 item, 8 selected item, 9 border. Lets a screen follow each caller's colours. |
-| `|AS` / `|AL` | save / restore the current colour |
+| `|U0`-`|U9` | the caller's color scheme (`*U` palette): 0 error, 1 text, 2 dim text, 3 bright text, 4 info, 5 dim info, 6 bright info, 7 item, 8 selected item, 9 border. Lets a screen follow each caller's colors. |
+| `|AS` / `|AL` | save / restore the current color |
 
 ## Screen and cursor: `|XX`
 
@@ -34,7 +34,7 @@ anything after a code on the same line moves left by the code's width
 | `|ZA` ... `|ZB` | everything between is shown as it is, codes and all: for ASCII art full of `|`, `%` and `@` (2.0) |
 | `|PO` `|PE` `|PD` | 2.20's pausing codes; screens don't pause here, so they do nothing (but aren't shown) |
 
-What a caller typed (oneliners, chat, handles, file descriptions, message headers and so on) keeps its colour codes but nothing else: no moves, clears, pauses, positions or `%XX` values.
+What a caller typed (oneliners, chat, handles, file descriptions, message headers and so on) keeps its color codes but nothing else: no moves, clears, pauses, positions or `%XX` values.
 
 ## Waiting: `|XX`
 
@@ -112,7 +112,7 @@ A prompt string (not a screen) can start with:
 |---|---|
 | `%%NAME` | show the screen `text/NAME` instead of text |
 | `%!script args` | run a Lua script (see `SCRIPTING.md`) |
-| `%|` / `%>` | centre / right-align the line |
+| `%|` / `%>` | center / right-align the line |
 
 ## Screen markers: `~XX` and `^NN`
 

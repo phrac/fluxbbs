@@ -11,9 +11,9 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   stored login), with no bot check or login prompts (SYSOP.md).
 - Telnet: binary, server echo, window size (NAWS) and terminal type;
   Zmodem works over it.
-- CP437 for BBS terminals, UTF-8 (with DOS wrap and clear behaviour)
-  for everything else; aixterm bright colours and iCE backgrounds; 256
-  and 24-bit colour art passes through.
+- CP437 for BBS terminals, UTF-8 (with DOS wrap and clear behavior)
+  for everything else; aixterm bright colors and iCE backgrounds; 256
+  and 24-bit color art passes through.
 - Nodes, with who's online, node messages, broadcasts and multinode chat.
 - Paging the SysOp (`CP`, `>C` from the matrix): the page goes to a node
   where a SysOp is logged in, who is asked, wherever they are, whether
@@ -26,7 +26,7 @@ Everything the port does, in detail. The [README](../README.md) has the short li
 
 **Keeping bots out**
 - Bot check before anything else, on SSH and telnet (new): three big
-  characters drawn with background colour in a field of noise, to be
+  characters drawn with background color in a field of noise, to be
   typed; a person reads them, a script reading the text sees noise
   (SYSOP.md). The key-combination check is still there as an option.
 - Per-address connection limits, bans for repeated failures (doubling,
@@ -38,7 +38,7 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   locked out of their own board.
 
 **The board**
-- Display engine: `|XX` colours and controls, `%XX` MCI codes, `@`/`&`
+- Display engine: `|XX` colors and controls, `%XX` MCI codes, `@`/`&`
   positioning, `{`/`}` limits and padding, `~XX` fields, repeat screens
   (TOP/MID/HIL/BOT), random and day-of-week screen variants.
 - Menu engine: hot keys, `/` and `//` commands, `#` (an area number
@@ -130,7 +130,7 @@ Everything the port does, in detail. The [README](../README.md) has the short li
 **SysOp tools** (the `*` commands on the SysOp menu)
 - `*C` system configuration, written back to `iniquity.toml` keeping its
   comments; `*E` prompt strings; `*#` menus; `*L` access levels.
-- `*U` users (with colours, preferences, auto-signature, infoforms).
+- `*U` users (with colors, preferences, auto-signature, infoforms).
 - `*F` file areas (new: a bar list in tree order with `/` to search it;
   Enter edits the area under the bar, `I` adds one before it, under the
   same parent, and edits it, `D` deletes it, `M` moves it and `S` sorts
@@ -264,7 +264,7 @@ pause; End, or typing, comes back.
 
 ![The AI giving the keys to download a file](screenshots/ai-howto.png)
 
-## Message centre
+## Message center
 
 New: `MH` (`r` on the message menu) and `MW Read` (`n` there, and the
 newscan prompt `SCANMSG` asks on the way in) replace the classic reader
@@ -367,7 +367,7 @@ been posted here and tosses what came (`ftntoss.rs`).
   board's), long lines wrapped, and
   the sender's address (from the origin line) as their note; the tear
   and origin lines count as the signature, so quotes leave them out.
-  Escape sequences from the network are cut down to colours and
+  Escape sequences from the network are cut down to colors and
   cursor-right (ANSI art's spacing): nothing from elsewhere can clear a
   reader's screen or talk to their terminal. @mentions of local callers
   work. ZIP bundles and plain packets are both read (a ZIP without
@@ -386,7 +386,7 @@ been posted here and tosses what came (`ftntoss.rs`).
   mapping with it.
 - What callers post in those areas goes out at the next poll with
   MSGID, REPLY (a reply to a network message threads there too), PID,
-  TZUTC and CHRS, a tear and origin line, SEEN-BY and PATH; colour codes
+  TZUTC and CHRS, a tear and origin line, SEEN-BY and PATH; color codes
   are taken out. An area starts from what's in it when it's first
   scanned, so old posts aren't sent; posts that came from the network
   (or from MeshCore) aren't sent back. A post is marked sent only once
@@ -479,7 +479,7 @@ WHATSNEW.IQ2, menus, screens and 2.20's string table and notes.
   2.0's new IPL functions have Lua equivalents (see SCRIPTING.md).
 - 2.0's bug "'|XX' would kill multinode chat" has its equivalent here,
   fixed: what callers type (chat, oneliners, handles, file
-  descriptions, message headers, BBS list entries...) keeps its colour
+  descriptions, message headers, BBS list entries...) keeps its color
   codes and nothing else. Typed into `?I` or `bbs.input`, other codes
   are wrapped in `|ZA`...`|ZB` so they show but don't act where the
   text ends up (the stock oneliners append to a screen); handles with

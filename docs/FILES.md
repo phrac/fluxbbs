@@ -47,13 +47,13 @@ sorts it.
     iniquity textfiles fetch ~/board/files/textfiles
     iniquity textfiles import ~/board/iniquity.toml
 
-`fetch` reads the mirror's index pages (the catalogue: each directory's
+`fetch` reads the mirror's index pages (the catalog: each directory's
 heading, each file's size and the site's one-line description, or its
 longer notes in the Top 100), takes each section's tarball from
 archives.textfiles.com for the bulk of the files, and fetches one by one
 from the mirror whatever the tarball lacks or has an older copy of
 (the tarballs are from 2007; the mirror is newer). It takes an hour or
-so and can be stopped and run again: pages, tarballs and the catalogue
+so and can be stopped and run again: pages, tarballs and the catalog
 (`catalog.json`) stay under `.textfiles/` in the directory, and only
 what's missing is fetched. `--sections anarchy,bbs` does only those,
 `--refresh` reads the pages again, `--mirror URL` and `--archives URL`
@@ -66,7 +66,7 @@ the areas it has (Anarchy, Hack, Phreak, Magazines..., as a board of
 the day sorted its files), with the directories under each as
 sub-areas (`TF_ANARCHY`, `TF_ANARCHY_CARDING`...), named as the site
 names them (a section by the directory page's name for it, a directory
-below by its heading), and a record for every catalogued file that's
+below by its heading), and a record for every cataloged file that's
 on disk, in the site's order, with the site's description, the file's
 own date, uploader `textfiles.com` and no downloads. `--under KEY`
 puts the sections under an existing area instead, and `--put
@@ -177,14 +177,14 @@ the speed S cycles through (instant to 115200; `[gallery] speed` is where
 it starts), which is how animated ANSIs animate; any key stops it. D
 downloads the piece (pulled out of its pack) or a whole pack, for
 `download_acs`; a file of a file area downloads the usual way instead,
-with that area's access, points, limits and ratios. Like the viewer, playback passes only colour and cursor
+with that area's access, points, limits and ratios. Like the viewer, playback passes only color and cursor
 codes through. Settings are under "Art Gallery" in `*C`.
 
 It looks like the file lister: it shows `GALLERY.ANS` if there is one,
 else the lister's own `LISTFILE.ANS`, with the same markers (`~TL`/`~BL`
 the list rows, `~FN`/`~FS`/`~FD` the name, size and description columns,
 `~PI` the info line, `~PM` the lightbar menu of open, play, speed, get
-and back, `~C1`-`~C6` its colours, the `~S`/`~E` scroll bar, and `~FA`
+and back, `~C1`-`~C6` its colors, the `~S`/`~E` scroll bar, and `~FA`
 for where you are). Without either it draws a plain screen. Browsing the
 file areas (`FW`) and archives looks the same but always uses
 `LISTFILE.ANS`, so the two can be drawn differently. New: both screens
@@ -193,7 +193,7 @@ files), `~NF` the folders and `~SZ` the files' size; the lister (`FL`)
 fills in `~NA` and `~SZ` too.
 
 Pictures (`.gif`, `.png`, `.jpg`) are listed too and shown as ANSI:
-half-blocks fitted to the screen, in 24-bit colour (SyncTERM and UTF-8
+half-blocks fitted to the screen, in 24-bit color (SyncTERM and UTF-8
 terminals) or else the nearest of xterm's 256. Animated GIFs play with
 their own timing until a key, but never faster than the terminal shows
 them: each frame asks where the cursor is (`ESC[6n`) and the next waits

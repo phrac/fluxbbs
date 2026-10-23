@@ -73,11 +73,11 @@ git: copy `data/` and `files/` across if the board should move with you.
 
 - Commit only when asked. They usually say "commit and continue"; commit,
   push (`origin` is the private `github.com/phrac/iniquity`), carry on.
-- Follow the original's behaviour and names (`cfgEditFileArea`, strings by
-  their `str*` names), but modernise where DOS-era design doesn't fit (TOML
+- Follow the original's behavior and names (`cfgEditFileArea`, strings by
+  their `str*` names), but modernize where DOS-era design doesn't fit (TOML
   and SQLite instead of `.DAT`, directories instead of packed `.TFL`, SSH
   and telnet instead of modems). Explain such choices briefly.
-- Fix real hazards in stock behaviour rather than copying them (e.g. the
+- Fix real hazards in stock behavior rather than copying them (e.g. the
   stock NEWUSER menu auto-validated everyone outside area code 902; level
   "lower" wrapped to the top level). Mention when you deviate.
 - Don't make ANSI art for them; they supply their own (see

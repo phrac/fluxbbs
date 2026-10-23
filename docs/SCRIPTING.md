@@ -34,14 +34,14 @@ caller hangs up. Scripts get 64 MB of memory.
 | Call | Does |
 |---|---|
 | `bbs.write(s)` / `bbs.writeln([s])` | Text as it is, no codes |
-| `bbs.show(s)` / `bbs.showln([s])` | Text with `\|XX` colour and `%XX` MCI codes, as prompt strings are shown |
+| `bbs.show(s)` / `bbs.showln([s])` | Text with `\|XX` color and `%XX` MCI codes, as prompt strings are shown |
 | `bbs.say(name)` / `bbs.sayln(name)` | A string from the string table (`*E`), by name |
 | `bbs.showfile(name)` → bool | Show a screen from the text directory (theme first); false if there's none |
 | `bbs.newline([n])` | `n` new lines (1) |
 | `bbs.cls()`, `bbs.clreol()`, `bbs.beep()` | Clear the screen, the rest of the line; beep |
 | `bbs.gotoxy(x, y)` | Move the cursor (1-based) |
 | `bbs.up([n])`, `bbs.down([n])`, `bbs.left([n])`, `bbs.right([n])` | Move the cursor |
-| `bbs.color(fore, [back])` | Set the colour: 0-15 on 0-7 |
+| `bbs.color(fore, [back])` | Set the color: 0-15 on 0-7 |
 | `bbs.where()` → x, y | Where the cursor is |
 | `bbs.pause()` | "Press any key" |
 

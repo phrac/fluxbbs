@@ -105,9 +105,9 @@ directory (the importer says where).
 
 - **Bot check**: every caller first types three big characters drawn
   on screen (30 seconds, 3 goes by default). They're drawn with
-  background colour in a field of noise made of the same symbols inside
+  background color in a field of noise made of the same symbols inside
   and out, so a script reading the text (even through a terminal
-  emulator) sees only noise; the colours change each time, the
+  emulator) sees only noise; the colors change each time, the
   characters shift and are speckled, the field is drawn in shuffled
   pieces, an invisible decoy in the old "press these keys" form comes
   first, and an answer in under 0.6 seconds is wrong. A `BOTCHECK`
@@ -226,5 +226,5 @@ file.
 
 Callers whose TERM is a BBS terminal (`syncterm`, `ansi-bbs`, ...) get
 raw CP437; so do telnet clients that don't report a type. Everyone else
-gets UTF-8, with DOS behaviour emulated: hard wrap at column 80 and
+gets UTF-8, with DOS behavior emulated: hard wrap at column 80 and
 `ESC[2J` homing the cursor. Override with `[terminal] charset`.

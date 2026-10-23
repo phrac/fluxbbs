@@ -34,9 +34,9 @@ on port 2222, telnet on 23, logs in `docker logs iniquity`.
 ## What's done
 
 **Connections:** SSH and telnet, CP437 and UTF-8 terminals, 24-bit
-colour, nodes, node messages, multinode chat, paging the SysOp.
+color, nodes, node messages, multinode chat, paging the SysOp.
 
-**Keeping bots out:** a picture bot check (characters drawn in colour, not text), per-address limits,
+**Keeping bots out:** a picture bot check (characters drawn in color, not text), per-address limits,
 escalating bans, password rules and sign-up limits.
 
 **The board**
@@ -102,5 +102,5 @@ converters.
 ## Credits
 
 Iniquity BBS © 1995–97 Mike Fricker and the Iniquity Development Team.
-This port reimplements its behaviour in Rust; the stock screens, menus
+This port reimplements its behavior in Rust; the stock screens, menus
 and strings are the original's.

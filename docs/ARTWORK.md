@@ -11,7 +11,7 @@ option's place with `~01^01`, `~02^02`... in command order (`~NN` is where
 it's drawn highlighted, `^NN` where it's drawn plain), and optionally
 `~HP` for the help line. The arrows move by where the options are on
 screen (left and right along a row, up and down to the next row), and a
-command's key still runs it. The options' own colours (`on` / `off`) and
+command's key still runs it. The options' own colors (`on` / `off`) and
 help text are in the menu (`menus/MATRIX.toml`); to restyle them, put a
 copy in the board's `menus/` (with `stock_menus` set, SYSOP.md) and
 change that.
@@ -71,7 +71,7 @@ menu with a different line on it each time.
 - [ ] `MCONFTOP` / `MCONFMID` / `MCONFBOT`: message conference list
 - [x] `MSGLTOP` / `MSGLMID` / `MSGLHIL` / `MSGLBOT`: message listing (a
   page is as many rows as fit under `MSGLTOP`, so a tall header is fine)
-- [x] `MHUBTOP` / `MHUBMID` / `MHUBHIL` / `MHUBBOT`: the message centre's
+- [x] `MHUBTOP` / `MHUBMID` / `MHUBHIL` / `MHUBBOT`: the message center's
   area list (`~AN` number, `~AT` area, `~NW` new, `~NM` messages, `~LP` /
   `~LD` the latest post's author and date, `~SP` sponsor)
 - [x] `MTHRDTOP` / `MTHRDMID` / `MTHRDHIL` / `MTHRDBOT`: an area's threads
@@ -108,7 +108,7 @@ menu with a different line on it each time.
 - [ ] `NODETOP` / `NODEMID` / `NODEBOT`: who's online
 - [x] `AICHAT`: the AI chat's header; it stays at the top while the
   conversation scrolls between it and the bar on the bottom row (keep it
-  to about 12 rows). Its colours are the `Ai*` strings (`*E`)
+  to about 12 rows). Its colors are the `Ai*` strings (`*E`)
 
 ## New users
 
@@ -123,7 +123,7 @@ draw their own screens and need no art.
 
 ## Notes for the artist
 
-- **Codes:** colours, pauses, clear-screen and values like the caller's
+- **Codes:** colors, pauses, clear-screen and values like the caller's
   handle can be typed into a screen as text; `CODES.md` lists them all.
 
 - **Size:** 80×25. On menu screens the prompt takes the bottom row or
@@ -139,8 +139,8 @@ draw their own screens and need no art.
   for a reply), `MAILHEAD`, `FILEINFO`,
   `USERSTAT`, `USERCFG`, `SHOWBBS`, `ADDBBS` and `FSEDITOR` contain
   positioning or data codes too, so the same rule applies.
-- **Colour:** 24-bit colour works (like MAIN) in SyncTERM and modern
-  terminals. Classic 16-colour art with iCE colours is the safest choice
+- **Color:** 24-bit color works (like MAIN) in SyncTERM and modern
+  terminals. Classic 16-color art with iCE colors is the safest choice
   for old clients.
 - **Clear screen:** stock menu screens start with a clear-screen code
   (`ESC[2J`). Keep one at the start of full-screen art, otherwise it draws

@@ -2,7 +2,7 @@
 
 ## Layout
 
-- `crates/iniquity-term`: CP437, DOS colours, the ANSI cursor/colour
+- `crates/iniquity-term`: CP437, DOS colors, the ANSI cursor/color
   model and the display-code parser. No I/O.
 - `crates/iniquity-legacy`: readers for the Turbo Pascal data files,
   checked byte-for-byte against a stock install.

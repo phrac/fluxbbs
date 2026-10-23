@@ -86,7 +86,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
                 &CHARSETS,
             )),
             set('E', "CP437 TERMs", 50, "TERM values that get CP437 when the character set is Auto.", List(|c| &mut c.terminal.cp437_terms)),
-            set('F', "24-bit TERMs", 50, "CP437 terminals sent bright backgrounds as 24-bit colour, not the iCE blink bit.", List(|c| &mut c.terminal.truecolor_terms)),
+            set('F', "24-bit TERMs", 50, "CP437 terminals sent bright backgrounds as 24-bit color, not the iCE blink bit.", List(|c| &mut c.terminal.truecolor_terms)),
             set('G', "Telnet", 3, "Also accept plain (unencrypted) telnet? (restart)", Bool(|c| &mut c.telnet.enabled)),
             set('H', "Telnet listen", 40, "Address and port for telnet, e.g. 0.0.0.0:2323 (restart).", Text(|c| &mut c.telnet.listen, TEXT)),
         ]),
@@ -149,7 +149,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('I', "Pre-login idle", 4, "Seconds a caller may sit idle before logging in.", Num(|c| c.security.prelogin_idle_seconds, |c, v| c.security.prelogin_idle_seconds = v, 10, 3600)),
             set('J', "Allow list", 50, "Never limited or checked: addresses, prefixes (10.0.) or ranges (/24).", List(|c| &mut c.security.allow)),
             set('K', "Deny list", 50, "Always refused: addresses, prefixes or ranges.", List(|c| &mut c.security.deny)),
-            set('L', "Picture check", 3, "Bot check as three big characters drawn in colour (BOTCHECK screen)? Else keys written out.", Bool(|c| &mut c.security.challenge_visual)),
+            set('L', "Picture check", 3, "Bot check as three big characters drawn in color (BOTCHECK screen)? Else keys written out.", Bool(|c| &mut c.security.challenge_visual)),
         ]),
         ("Art Gallery", false, vec![
             set('A', "Gallery folder", 40, "Folder of art (relative to the config); ZIP packs in it open as folders.", Path(|c| &mut c.gallery.path)),
