@@ -96,6 +96,20 @@ locks). Unregistered, it takes 10 players; registration was free, but
 its site is gone. A character whose caller hangs up before its creation
 is finished is dead until midnight; a hangup in play just camps.
 
+Usurper (0.19, `USURP019.ZIP` from breakintochat.com's Dangarden
+collection; it says "Registered Copy" by itself): unzip it into
+`doors/dos/USURPER`, make a `DOCS` directory there (it wants one; the
+manuals go in it), and write `USURP.CTL` (DDplus's control file) with
+`BBSTYPE DOORSYS`, `FOSSIL`, `STATUS OFF` and the SysOp's and board's
+names. Run EDITOR (from `\USURPER`) and choose Reset Game, then
+`USURPER /L` once, which makes the rest of its files and stops at
+"[Press a key]". `doors/dos/USURPER.BAT` is `@ECHO OFF`, `C:`, `CD
+\USURPER`, `USURPER /PD:\`, run by `DZ`, and in `[dos] one_at_a_time`.
+Before DDplus reads its control file it polls "port 0" (I/O ports 5 and
+6, the DMA controller) for CTS and carrier, so its first messages go
+nowhere: the machine's DMA ports read 0, as a real one's unused
+channels do.
+
 `[dos] one_at_a_time` lists doors (by program or batch file, as in the
 menu) that only one caller may be in at once.
 

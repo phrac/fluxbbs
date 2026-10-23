@@ -90,7 +90,8 @@ fn main() -> Result<(), String> {
     m.cpu.keep_trace(&mut m.mem, ring);
     // `PROFILE_AT=secs`: that many seconds in, print where the CPU has
     // been (the ring's commonest addresses, with their bytes), for a
-    // program that seems stuck.
+    // program that seems stuck, and save the ring and memory as an error
+    // would.
     let profile_at: Option<f32> = std::env::var("PROFILE_AT").ok().and_then(|v| v.parse().ok());
     let mut profiled = false;
     let mut batch = Batch::new(&mut m, cmd)?;
@@ -132,6 +133,7 @@ fn main() -> Result<(), String> {
                     let bytes: Vec<String> = (0..8).map(|i| format!("{:02x}", m.mem.read8(((*cs as u32) << 4) + *ip as u32 + i))).collect();
                     eprintln!("  {cs:04X}:{ip:04X} x{n}  {}", bytes.join(" "));
                 }
+                save_trace(ring, &m.mem);
             }
             if m.sys.hangup {
                 eprintln!("door hung up");

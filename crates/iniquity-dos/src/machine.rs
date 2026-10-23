@@ -397,6 +397,10 @@ impl Machine {
 impl Bus for System {
     fn io_read(&mut self, port: u16, size: Size) -> u32 {
         let v: u32 = match port {
+            // The 8237 DMA controller: channels nobody programmed read 0.
+            // DDplus doors poll "port 0" (base 0: these) for CTS and
+            // carrier before they've read their setup, and must find none.
+            0x00..=0x0F => 0,
             0x20 => 0,
             0x21 => self.pic_mask as u32,
             0x40 => {
