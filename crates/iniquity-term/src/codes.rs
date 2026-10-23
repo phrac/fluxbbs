@@ -268,14 +268,23 @@ pub fn unlit(s: &str) -> String {
     s.chars().filter(|&c| c != LIT_OPEN && c != LIT_CLOSE).collect()
 }
 
-/// [`tokenize`] for text a caller typed: colour codes, and everything else
-/// literal. Escape characters are dropped.
+/// [`tokenize`] for text a caller typed: colour codes (pipe codes, and
+/// ANSI's `ESC[...m`, which a SysOp's string put in another's can hold),
+/// and everything else literal. Other escape characters are dropped.
 pub fn tokenize_user(src: &[u8]) -> Vec<Token> {
     let mut out = Vec::new();
     let mut text = Vec::new();
     let mut i = 0;
     while i < src.len() {
         let c = src[i];
+        if c == 0x1B && src.get(i + 1) == Some(&b'[') {
+            let params = src[i + 2..].iter().take_while(|b| b.is_ascii_digit() || **b == b';').count();
+            if src.get(i + 2 + params) == Some(&b'm') {
+                text.extend_from_slice(&src[i..i + 3 + params]);
+                i += 3 + params;
+                continue;
+            }
+        }
         // `defuse`'s `|ZA`/`|ZB` (everything here is literal anyway).
         if c == b'|' && src.get(i + 1).is_some_and(|a| a.eq_ignore_ascii_case(&b'Z')) && src.get(i + 2).is_some_and(|b| b.eq_ignore_ascii_case(&b'A') || b.eq_ignore_ascii_case(&b'B')) {
             i += 3;
@@ -464,6 +473,11 @@ mod tests {
         assert_eq!(
             tokenize_user(b"|04hi|CS|PS @10%UN\x1b[2J"),
             vec![Ctrl(Control::Fore(4)), Text(b"hi|CS|PS @10%UN[2J".to_vec())]
+        );
+        // ANSI colour, as a SysOp's string set inside another holds it, works.
+        assert_eq!(
+            tokenize_user(b"\x1b[38;2;170;170;170mno limit\x1b[0m\x1b[H"),
+            vec![Text(b"\x1b[38;2;170;170;170mno limit\x1b[0m[H".to_vec())]
         );
         let t = tokenize_str(&format!("|U1From: {} |CS", lit("|CS|15x")), Source::String);
         assert_eq!(
