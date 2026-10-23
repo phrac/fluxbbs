@@ -83,6 +83,19 @@ is an event: `command = "dos TWMAINT.BAT"`, a batch file running
 `EXTERN SHARE` in `\TW2002`. Run BIGBANG and TEDIT in the board's time
 zone, as with BRE. Prompts that look like hot keys mostly want Enter.
 
+Operation: Overkill II (1.20, `oo120.zip` from breakintochat.com's
+Nulf collection): unzip it, and the MAPFILES.ZIP and MAPTEXT.ZIP inside,
+into `doors/dos/OOII`. Run OOSETUP once from `\OOII` (a batch file with
+`C:`, `CD \OOII`, `OOSETUP`, under `dosrun`) to write OOCONFIG.DAT, a
+text file: BBS type `GAP` (DOOR.SYS), path to BBS data `D:\`, comm
+support `FOSSIL`. Leave OOSETUP with Esc, `Y` to exit and `Y` to save:
+that's when it makes the game's data files. `doors/dos/OOII.BAT` is
+`@ECHO OFF`, `C:`, `CD \OOII`, `OOINFO 2 D:\`, `MAINTOO`, `OOII`, run by
+`DZ` and listed in `[dos] one_at_a_time` (multi-node off, and no file
+locks). Unregistered, it takes 10 players; registration was free, but
+its site is gone. A character whose caller hangs up before its creation
+is finished is dead until midnight; a hangup in play just camps.
+
 `[dos] one_at_a_time` lists doors (by program or batch file, as in the
 menu) that only one caller may be in at once.
 
