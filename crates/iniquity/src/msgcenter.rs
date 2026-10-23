@@ -12,6 +12,7 @@ use iniquity_term::codes::resize;
 use crate::input::{DIGITS, Key, ReadOpts};
 use crate::messages::{AreaRef, io_err};
 use crate::msgbase::Message;
+use crate::pushes::{HOT_HOURS, heats, score_label};
 use crate::session::{BarPick, BarRow, BarSpec, Session, waves};
 
 /// A conversation: a message and the replies under it.
@@ -99,6 +100,9 @@ impl MsgFigures {
         self.names.get(&key.to_ascii_uppercase()).cloned().unwrap_or_default()
     }
 }
+
+/// The message centre's row for the Hot list.
+const HOT_ROW: u32 = u32::MAX;
 
 /// How the reader ended.
 #[derive(PartialEq)]
@@ -265,6 +269,13 @@ impl Session {
                 rows.push(BarRow { n: a.num, waves: w, plain });
                 labels.push((label, a.num));
             }
+            // New: the Hot list first, while anything's being pushed.
+            let since = crate::clock::now().naive_local() - chrono::Duration::hours(HOT_HOURS);
+            if !self.state.msgs.recent_pushes(since).map_err(io_err)?.is_empty() {
+                let name = self.strings().get("HotName").to_string();
+                let w = waves([("AN", "*".into()), ("AT", name.clone()), ("NW", String::new()), ("NM", String::new()), ("LP", String::new()), ("LD", String::new()), ("SP", String::new())]);
+                rows.insert(0, BarRow { n: HOT_ROW, waves: w, plain: format!(" {} {}", resize("*", 4), name) });
+            }
             let start = rows.iter().position(|r| r.n == self.user.cur_msg_area).unwrap_or(0);
             let help = self.strings().fmt("MsgHubKeys", &[&total_new.to_string()]);
             let spec = BarSpec {
@@ -280,6 +291,7 @@ impl Session {
             };
             self.node.update(|n| n.activity = "Reading messages".into());
             match self.area_bar(&spec).await? {
+                BarPick::Area(HOT_ROW) => self.hot_list().await?,
                 BarPick::Area(n) => {
                     if self.change_area(n).await?
                         && let Some(a) = self.msg_area(n)
@@ -305,17 +317,28 @@ impl Session {
         }
     }
 
-    /// An area's threads, the latest activity first. MTHRDTOP, MTHRDMID,
-    /// MTHRDHIL and MTHRDBOT dress it (`~MN` the first message's number,
-    /// `~MT` subject, `~SN` who started it, `~RP` replies, `~NW` new, `~DT`
-    /// and `~TI` the latest post's date and time).
+    /// An area's threads, the latest activity first (or, new, the hottest
+    /// or best pushed: `s`). MTHRDTOP, MTHRDMID, MTHRDHIL and MTHRDBOT
+    /// dress it (`~MN` the first message's number, `~MT` subject, `~SN` who
+    /// started it, `~RP` replies, `~SC` its score, `~NW` new, `~DT` and
+    /// `~TI` the latest post's date and time).
     async fn thread_list(&mut self, a: &AreaRef) -> io::Result<()> {
         let mut on_root: Option<i64> = None;
         loop {
             let v = self.area_view(a)?;
             let by_id = v.by_id();
+            let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
             let mut ts = threads(&v.msgs);
             ts.sort_by(|x, y| y.last.cmp(&x.last));
+            match self.user.thread_sort.as_str() {
+                "hot" => {
+                    let heat = self.heat_now()?;
+                    let of = |t: &Thread| t.msgs.iter().filter_map(|(n, _)| heat.get(n)).sum::<f64>();
+                    ts.sort_by(|x, y| of(y).total_cmp(&of(x)));
+                }
+                "top" => ts.sort_by_key(|t| std::cmp::Reverse(scores.get(&t.msgs[0].0).copied().unwrap_or(0))),
+                _ => {}
+            }
             let mut rows = Vec::new();
             let mut labels = Vec::new();
             let mut first_new = None;
@@ -327,21 +350,24 @@ impl Session {
                 }
                 let new_s = if new == 0 { String::new() } else { format!("{new} new") };
                 let replies = (t.msgs.len() - 1).to_string();
+                let score = score_label(scores.get(&root.id).copied());
                 let w = waves([
                     ("MN", root.num.to_string()),
                     ("MT", root.subject.clone()),
                     ("SN", root.from.name.clone()),
                     ("RP", replies.clone()),
+                    ("SC", score.clone()),
                     ("NW", new_s.clone()),
                     ("DT", self.local(t.last).format("%m/%d/%y").to_string()),
                     ("TI", self.local(t.last).format("%-I:%M%P").to_string()),
                 ]);
                 let plain = format!(
-                    " {} {} {} {} {} {}",
+                    " {} {} {} {} {} {} {}",
                     resize(&root.num.to_string(), 5),
-                    resize(&root.subject, 32),
+                    resize(&root.subject, 28),
                     resize(&root.from.name, 15),
                     resize(&replies, 3),
+                    resize(&score, 4),
                     resize(&new_s, 7),
                     self.local(t.last).format("%m/%d/%y")
                 );
@@ -349,17 +375,22 @@ impl Session {
                 labels.push((root.num, i as u32));
             }
             let start = on_root.and_then(|r| ts.iter().position(|t| t.msgs[0].0 == r)).or(first_new).unwrap_or(0);
-            let help = self.strings().fmt("MsgThreadKeys", &[&a.area.name, &v.new_count().to_string()]);
+            let sort = self.strings().get(match self.user.thread_sort.as_str() {
+                "hot" => "ThreadSortHot",
+                "top" => "ThreadSortTop",
+                _ => "ThreadSortLatest",
+            }).to_string();
+            let help = self.strings().fmt("MsgThreadKeys", &[&a.area.name, &v.new_count().to_string(), &sort]);
             let spec = BarSpec {
                 prefix: "MTHRD",
-                header: " #     Subject                          Started by      Re  New     Latest",
+                header: " #     Subject                      Started by      Re  +/-  New     Latest",
                 rows: &rows,
                 labels: &labels,
                 start,
                 help: &help,
                 ask: "",
                 can_go_up: true,
-                keys: "NP",
+                keys: "NPS",
             };
             match self.area_bar(&spec).await? {
                 BarPick::Area(i) => {
@@ -380,6 +411,112 @@ impl Session {
                 }
                 BarPick::Key('P', _) => {
                     self.post(a, "All", "", None).await?;
+                }
+                BarPick::Key('S', n) => {
+                    on_root = ts.get(n as usize).map(|t| t.msgs[0].0);
+                    self.user.thread_sort = match self.user.thread_sort.as_str() {
+                        "" => "hot",
+                        "hot" => "top",
+                        _ => "",
+                    }
+                    .into();
+                    self.state.users.save(&self.user).map_err(io_err)?;
+                }
+                _ => return Ok(()),
+            }
+            if self.hangup {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Each message's heat from the pushes of the last `HOT_HOURS`.
+    fn heat_now(&self) -> io::Result<HashMap<i64, f64>> {
+        let now = crate::clock::now().naive_local();
+        let recent = self.state.msgs.recent_pushes(now - chrono::Duration::hours(HOT_HOURS)).map_err(io_err)?;
+        Ok(heats(&recent, now))
+    }
+
+    /// The Hot list (new): threads being pushed lately in every area the
+    /// caller reads, hottest first. MHOTTOP, MHOTMID, MHOTHIL and MHOTBOT
+    /// dress it (`~AT` area, `~MT` subject, `~SN` who started it, `~SC`
+    /// score, `~NW` new, `~DT` latest post's date).
+    async fn hot_list(&mut self) -> io::Result<()> {
+        let mut on: Option<i64> = None;
+        loop {
+            let heat = self.heat_now()?;
+            // (heat, area, thread's row ids, where to start, row)
+            let mut hot: Vec<(f64, AreaRef, Vec<i64>, usize, BarRow)> = Vec::new();
+            for (_, a) in self.readable_areas().into_iter().filter(|(_, a)| !a.is_email()) {
+                let v = self.area_view(&a)?;
+                if !v.msgs.iter().any(|m| heat.contains_key(&m.id)) {
+                    continue;
+                }
+                let by_id = v.by_id();
+                let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
+                for t in threads(&v.msgs) {
+                    let h: f64 = t.msgs.iter().filter_map(|(n, _)| heat.get(n)).sum();
+                    if h <= 0.0 {
+                        continue;
+                    }
+                    let root = by_id[&t.msgs[0].0];
+                    let new = t.msgs.iter().filter(|(n, _)| self_new(&v, &by_id, *n)).count();
+                    let new_s = if new == 0 { String::new() } else { format!("{new} new") };
+                    let score = score_label(scores.get(&root.id).copied());
+                    let date = self.local(t.last).format("%m/%d/%y").to_string();
+                    let w = waves([
+                        ("AT", a.area.name.clone()),
+                        ("MT", root.subject.clone()),
+                        ("SN", root.from.name.clone()),
+                        ("SC", score.clone()),
+                        ("NW", new_s.clone()),
+                        ("DT", date.clone()),
+                    ]);
+                    let plain = format!(
+                        " {} {} {} {} {} {}",
+                        resize(&a.area.name, 16),
+                        resize(&root.subject, 26),
+                        resize(&root.from.name, 12),
+                        resize(&score, 4),
+                        resize(&new_s, 7),
+                        date
+                    );
+                    let seq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
+                    let from = seq.iter().position(|&n| self_new(&v, &by_id, n)).unwrap_or(0);
+                    hot.push((h, a.clone(), seq, from, BarRow { n: 0, waves: w, plain }));
+                }
+            }
+            if hot.is_empty() {
+                self.newline();
+                self.say_line("HotNone").await?;
+                return self.prompt_key().await;
+            }
+            hot.sort_by(|x, y| y.0.total_cmp(&x.0));
+            let mut bar = Vec::new();
+            let mut picks = Vec::new();
+            for (i, (_, a, seq, from, mut row)) in hot.into_iter().enumerate() {
+                row.n = i as u32;
+                bar.push(row);
+                picks.push((a, seq, from));
+            }
+            let start = on.and_then(|id| picks.iter().position(|p| p.1[0] == id)).unwrap_or(0);
+            let help = self.strings().get("HotKeys").to_string();
+            let spec = BarSpec {
+                prefix: "MHOT",
+                header: " Area             Subject                    Started by   +/-  New     Latest",
+                rows: &bar,
+                labels: &[],
+                start,
+                help: &help,
+                ask: "",
+                can_go_up: true,
+                keys: "",
+            };
+            match self.area_bar(&spec).await? {
+                BarPick::Area(i) => {
+                    let Some((a, seq, from)) = picks.get(i as usize).cloned() else { continue };
+                    on = Some(seq[0]);
+                    self.read_seq(&a, &seq, from).await?;
                 }
                 _ => return Ok(()),
             }
@@ -761,6 +898,14 @@ impl Session {
                             redraw = true;
                         }
                     }
+                    // New: push it (`pushes.rs`), and see the new line.
+                    Some('X') => {
+                        if self.push_prompt(a, &m).await? {
+                            let lines = self.reader_lines(a, &m);
+                            scroll = lines.len().saturating_sub(height);
+                            cur = Some((m, lines, attached));
+                        }
+                    }
                     Some('?') => {
                         self.reader_help().await?;
                         redraw = true;
@@ -819,6 +964,7 @@ impl Session {
                 });
             }
         }
+        out.extend(self.push_lines(m));
         out
     }
 

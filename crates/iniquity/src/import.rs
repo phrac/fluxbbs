@@ -722,6 +722,7 @@ fn convert_user(l: &LegacyUser) -> User {
         ssh_user: String::new(),
         plan: Vec::new(),
         time_zone: String::new(),
+        thread_sort: String::new(),
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.
     u.set_password(&l.password.to_uppercase());

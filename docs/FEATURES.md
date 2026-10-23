@@ -102,7 +102,7 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   up to six lines they write in user config (`p`). Real name, phone,
   address and birth date stay private. A FINGER screen can dress it
   (`~UN` `~LO` `~UO` `~FC` `~LS` `~CA` `~PO` `~UL` `~DL` `~LP` `~LU`,
-  `~P1`-`~P6`).
+  `~KA` karma, `~P1`-`~P6`).
 - Oneliners, the automessage, last callers, history and statistics, the
   BBS list, user configuration, user listing. BBS list entries have a
   telnet and an SSH address (`host:port`) in place of the original's
@@ -268,15 +268,34 @@ newscan prompt `SCANMSG` asks on the way in) replace the classic reader
 and newscan (`MR`, `MN`, still there for menus that want them).
 
 - The areas, with how many messages are new in each and the latest
-  post. Enter opens one, `n` reads everything new, `p` posts.
+  post. Enter opens one, `n` reads everything new, `p` posts. While
+  anything has been pushed in the last two days, "Hot across the board"
+  heads the list: the threads being pushed in every area you read,
+  hottest first (screens `MHOT` TOP/MID/HIL/BOT: `~AT` area, `~MT`
+  subject, `~SN` started by, `~SC` score, `~NW` new, `~DT` latest).
 - An area is a list of threads, the latest activity first, with their
-  replies and what's new. Enter reads a thread from its first new
-  message, `n` reads what's new in the area, `p` starts a thread.
+  replies, score and what's new. Enter reads a thread from its first new
+  message, `n` reads what's new in the area, `p` starts a thread, `s`
+  sorts by latest, hot (pushes in the last 48 hours, newer counting
+  more) or top (score); the choice is kept for the caller.
 - The reader keeps the header (MSGHEAD) at the top and scrolls the text
   under it, with the keys on the bottom line: left and right for the
   previous and next message, up and down to scroll, `r` reply, `p` post,
-  `t` the whole thread, `u` up to the message this one answers, `l` or
-  Esc back, `q` stop, `?` help, a number to go to that message.
+  `t` the whole thread, `u` up to the message this one answers, `x`
+  push, `l` or Esc back, `q` stop, `?` help, a number to go to that
+  message.
+- Pushes (new, after Taiwan's PTT): `x` then `+` (up), `-` (down) or `>`
+  (a comment) leaves a line of up to 50 characters under the message,
+  with your handle and the time; a vote's words are optional, a
+  comment's aren't. Each caller has one vote on a message (voting again
+  replaces it, line and all) and can't vote on their own; comments may
+  repeat, one push every five seconds. The score is ups less downs:
+  `+4`, `X2` when negative, `HOT` from 25. Only where you may post, and
+  not on private mail. The area's sponsor and co-SysOps get `d` at the
+  push prompt, to take a caller's pushes off. The classic reader shows
+  pushes too. They stay on this board: FTN and QWK don't carry them,
+  and packing a message takes its pushes with it. Karma, on a caller's
+  profile, is the votes on their public posts (not anonymous ones).
 - Threads: a message keeps the row id of the one it answers
   (`reply_to`), so threads survive packing. QWK replies join their
   thread by the header's reference number, and packets carry it, so

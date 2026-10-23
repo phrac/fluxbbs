@@ -45,6 +45,20 @@ pub struct Message {
     pub lines: Vec<String>,
 }
 
+/// A push (new, after PTT's 推/噓/→): a one-line reaction under a message,
+/// up (1), down (-1) or a comment (0). A caller has one vote on a
+/// message; comments may repeat.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Push {
+    pub id: i64,
+    pub msg_id: i64,
+    pub user_id: u32,
+    pub handle: String,
+    pub kind: i8,
+    pub text: String,
+    pub at: NaiveDateTime,
+}
+
 /// A file attached to a message (`tAttachRec`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attachment {
@@ -138,6 +152,17 @@ CREATE TABLE IF NOT EXISTS mentions (
     seen    INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (user_id, msg_id)
 );
+CREATE TABLE IF NOT EXISTS pushes (
+    id      INTEGER PRIMARY KEY,
+    msg_id  INTEGER NOT NULL,
+    user_id INTEGER NOT NULL,
+    handle  TEXT NOT NULL,
+    kind    INTEGER NOT NULL,
+    text    TEXT NOT NULL,
+    at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS pushes_msg ON pushes(msg_id);
+CREATE INDEX IF NOT EXISTS pushes_at ON pushes(at);
 ";
 
 /// Whether a reply (private: `?2`) counts on the parent row it updates:
@@ -506,7 +531,7 @@ impl MsgBase {
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        for t in ["seen", "mentions"] {
+        for t in ["seen", "mentions", "pushes"] {
             tx.execute(&format!("DELETE FROM {t} WHERE msg_id IN (SELECT id FROM messages WHERE area = ?1)"), [area])?;
         }
         let n = tx.execute("DELETE FROM messages WHERE area = ?1", [area])?;
@@ -545,6 +570,7 @@ impl MsgBase {
             // used again, so nothing new takes the row).
             tx.prepare_cached("DELETE FROM seen WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM mentions WHERE msg_id = ?1")?.execute([id])?;
+            tx.prepare_cached("DELETE FROM pushes WHERE msg_id = ?1")?.execute([id])?;
         }
         tx.execute("UPDATE messages SET num = -num WHERE area = ?1", [area])?;
         for (i, (id, _)) in keep.iter().enumerate() {
@@ -750,6 +776,78 @@ impl MsgBase {
         let db = self.db.lock().unwrap();
         db.execute("UPDATE mentions SET seen = 1 WHERE user_id = ?1 AND msg_id = ?2", params![user, msg_id])?;
         Ok(())
+    }
+
+    // ---- pushes (new) ----------------------------------------------------
+
+    /// A message's pushes, oldest first.
+    pub fn pushes(&self, msg_id: i64) -> anyhow::Result<Vec<Push>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT id, msg_id, user_id, handle, kind, text, at FROM pushes WHERE msg_id = ?1 ORDER BY id")?;
+        let rows = stmt
+            .query_map([msg_id], |r| {
+                Ok(Push { id: r.get(0)?, msg_id: r.get(1)?, user_id: r.get(2)?, handle: r.get(3)?, kind: r.get(4)?, text: r.get(5)?, at: r.get(6)? })
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Add a push; a vote takes the place of the caller's last one on
+    /// that message.
+    pub fn add_push(&self, p: &Push) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if p.kind != 0 {
+            tx.execute("DELETE FROM pushes WHERE msg_id = ?1 AND user_id = ?2 AND kind <> 0", params![p.msg_id, p.user_id])?;
+        }
+        tx.execute(
+            "INSERT INTO pushes (msg_id, user_id, handle, kind, text, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![p.msg_id, p.user_id, p.handle, p.kind, p.text, p.at],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Take a caller's pushes off a message (a sponsor's clean-up);
+    /// returns how many went.
+    pub fn remove_pushes(&self, msg_id: i64, user_id: u32) -> anyhow::Result<usize> {
+        let db = self.db.lock().unwrap();
+        Ok(db.execute("DELETE FROM pushes WHERE msg_id = ?1 AND user_id = ?2", params![msg_id, user_id])?)
+    }
+
+    /// When a caller last pushed anything.
+    pub fn last_push_at(&self, user_id: u32) -> anyhow::Result<Option<NaiveDateTime>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT MAX(at) FROM pushes WHERE user_id = ?1", [user_id], |r| r.get(0))?)
+    }
+
+    /// The score (ups less downs) of each message in an area with pushes.
+    pub fn scores(&self, area: &str) -> anyhow::Result<std::collections::HashMap<i64, i32>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT p.msg_id, SUM(p.kind) FROM pushes p JOIN messages m ON m.id = p.msg_id WHERE m.area = ?1 GROUP BY p.msg_id")?;
+        let rows = stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Pushes since `since` on messages still there: (message, kind, when).
+    pub fn recent_pushes(&self, since: NaiveDateTime) -> anyhow::Result<Vec<(i64, i8, NaiveDateTime)>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT p.msg_id, p.kind, p.at FROM pushes p JOIN messages m ON m.id = p.msg_id WHERE p.at >= ?1 AND NOT m.deleted")?;
+        let rows = stmt.query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// A caller's karma: the up and down votes on their public posts
+    /// (not anonymous ones), and how many posts they're on.
+    pub fn karma(&self, user_id: u32) -> anyhow::Result<(u32, u32, u32)> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row(
+            "SELECT COALESCE(SUM(p.kind > 0), 0), COALESCE(SUM(p.kind < 0), 0), COUNT(DISTINCT p.msg_id)
+             FROM pushes p JOIN messages m ON m.id = p.msg_id
+             WHERE p.kind <> 0 AND m.from_id = ?1 AND NOT m.anonymous AND NOT m.private AND NOT m.deleted",
+            [user_id],
+            |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+        )?)
     }
 
     /// New: what the public messages (not private, not deleted) in `areas`
@@ -1063,6 +1161,40 @@ mod tests {
         mb.set_lastread(1, "GENERAL", 7).unwrap();
         assert_eq!(mb.lastread(1, "general").unwrap(), 7);
         assert_eq!(mb.lastread(2, "GENERAL").unwrap(), 0);
+    }
+
+    #[test]
+    fn pushes_vote_once_and_go_with_their_message() {
+        let mb = MsgBase::open_memory().unwrap();
+        let mut a = msg("GENERAL", "All", "first");
+        let mut b = msg("GENERAL", "All", "second");
+        b.anonymous = true;
+        mb.add(&mut a).unwrap();
+        mb.add(&mut b).unwrap();
+        let at = |h: u32| chrono::NaiveDate::from_ymd_opt(2026, 10, 23).unwrap().and_hms_opt(h, 0, 0).unwrap();
+        let push = |msg_id: i64, user_id: u32, kind: i8, h: u32| {
+            mb.add_push(&Push { id: 0, msg_id, user_id, handle: format!("u{user_id}"), kind, text: String::new(), at: at(h) }).unwrap()
+        };
+        push(a.id, 2, 1, 1);
+        push(a.id, 3, 1, 2);
+        push(a.id, 2, -1, 3);
+        push(a.id, 2, 0, 4);
+        push(a.id, 2, 0, 5);
+        push(b.id, 2, 1, 6);
+        // User 2's down took the place of their up; comments add up.
+        let p = mb.pushes(a.id).unwrap();
+        assert_eq!(p.iter().map(|p| (p.user_id, p.kind)).collect::<Vec<_>>(), vec![(3, 1), (2, -1), (2, 0), (2, 0)]);
+        assert_eq!(mb.scores("GENERAL").unwrap(), std::collections::HashMap::from([(a.id, 0), (b.id, 1)]));
+        assert_eq!(mb.last_push_at(2).unwrap(), Some(at(6)));
+        // Anonymous posts keep their karma to themselves.
+        assert_eq!(mb.karma(1).unwrap(), (1, 1, 1));
+        assert_eq!(mb.recent_pushes(at(5)).unwrap().len(), 2);
+        assert_eq!(mb.remove_pushes(a.id, 2).unwrap(), 3);
+        mb.set_deleted(b.id, true).unwrap();
+        assert!(mb.recent_pushes(at(0)).unwrap().iter().all(|p| p.0 == a.id));
+        mb.pack("GENERAL", 0).unwrap();
+        assert!(mb.pushes(b.id).unwrap().is_empty());
+        assert_eq!(mb.pushes(a.id).unwrap().len(), 1);
     }
 
     #[test]

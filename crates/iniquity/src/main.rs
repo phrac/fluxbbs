@@ -53,6 +53,7 @@ mod nodes;
 mod pager;
 mod pdf;
 mod profile;
+mod pushes;
 mod picture;
 mod password;
 mod qwk;

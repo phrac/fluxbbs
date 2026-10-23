@@ -75,8 +75,11 @@ menu with a different line on it each time.
   area list (`~AN` number, `~AT` area, `~NW` new, `~NM` messages, `~LP` /
   `~LD` the latest post's author and date, `~SP` sponsor)
 - [x] `MTHRDTOP` / `MTHRDMID` / `MTHRDHIL` / `MTHRDBOT`: an area's threads
-  (`~MN` number, `~MT` subject, `~SN` started by, `~RP` replies, `~NW`
-  new, `~DT` / `~TI` latest post)
+  (`~MN` number, `~MT` subject, `~SN` started by, `~RP` replies, `~SC`
+  score from pushes, `~NW` new, `~DT` / `~TI` latest post)
+- [ ] `MHOTTOP` / `MHOTMID` / `MHOTHIL` / `MHOTBOT`: the Hot list (`~AT`
+  area, `~MT` subject, `~SN` started by, `~SC` score, `~NW` new, `~DT`
+  latest post)
 - [ ] `MSGRHELP`: the message reader's help (otherwise `MsgReaderHelp1`..)
 - [ ] `MAILTOP` / `MAILMID` / `MAILBOT`: mailbox listing
 - [ ] `FSEDITOR`: full-screen editor frame
@@ -95,7 +98,7 @@ menu with a different line on it each time.
 - [ ] `FINGER`: a caller's profile (`~UN` handle, `~LO` location, `~UO`
       note, `~FC` first call, `~LS` last seen, `~CA` calls, `~PO` posts,
       `~UL`/`~DL` uploads/downloads, `~LP` latest post, `~LU` latest
-      uploads, `~P1`-`~P6` the plan)
+      uploads, `~KA` karma, `~P1`-`~P6` the plan)
 - [x] `AUTOSIG`: auto-signature menu
 - [x] `BBSLIST`: BBS list menu
 - [ ] `BBSTOP` / `BBSMID` / `BBSBOT`: BBS list (`~NM` `~BN` `~TN` `~SH`

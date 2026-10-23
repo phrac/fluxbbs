@@ -92,6 +92,9 @@ pub struct User {
     /// New: the time zone times are shown to them in (an IANA name or
     /// an offset, as `clock::Zone::parse` reads it); blank for the board's.
     pub time_zone: String,
+    /// New: how the message centre orders threads (`hot`, `top`; blank
+    /// for latest first).
+    pub thread_sort: String,
 }
 
 impl Default for User {
@@ -163,6 +166,7 @@ impl Default for User {
             ssh_user: String::new(),
             plan: Vec::new(),
             time_zone: String::new(),
+            thread_sort: String::new(),
         }
     }
 }

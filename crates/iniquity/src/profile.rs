@@ -6,7 +6,7 @@
 //! FINGER screen dresses it (`~UN` handle, `~LO` location, `~UO` note,
 //! `~FC` first call, `~LS` last seen, `~CA` calls, `~PO` posts, `~UL`
 //! uploads, `~DL` downloads, `~LP` latest post, `~LU` latest uploads,
-//! `~P1`-`~P6` the plan); without it, a plain one.
+//! `~KA` karma, from pushes, `~P1`-`~P6` the plan); without it, a plain one.
 
 use std::io;
 
@@ -72,6 +72,7 @@ impl Session {
         } else {
             uploads.iter().map(|f| f.name.clone()).collect::<Vec<_>>().join(", ")
         };
+        let karma = self.karma_text(u.id)?;
         let mut w = vec![
             ("UN", u.handle.clone()),
             ("LO", u.location.clone()),
@@ -84,6 +85,7 @@ impl Session {
             ("DL", u.downloads.to_string()),
             ("LP", latest_post.clone()),
             ("LU", latest_uploads.clone()),
+            ("KA", karma.clone()),
         ];
         let plan_codes = ["P1", "P2", "P3", "P4", "P5", "P6"];
         for (i, code) in plan_codes.iter().enumerate() {
@@ -108,6 +110,7 @@ impl Session {
             pair(s.get("FingerUploads"), &u.uploads.to_string(), s.get("FingerDownloads"), &u.downloads.to_string()),
             format!("|U1 {} |U3{}", resize(s.get("FingerLatest"), 11), lit(&squish(&latest_post, 66))),
             format!("|U1 {} |U3{}", resize(s.get("FingerFiles"), 11), lit(&squish(&latest_uploads, 66))),
+            format!("|U1 {} |U3{}", resize(s.get("FingerKarma"), 11), squish(&karma, 66)),
         ];
         drop(s);
         for l in lines {
