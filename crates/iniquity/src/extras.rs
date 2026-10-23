@@ -38,7 +38,8 @@ fn parse_sig_file(data: &[u8]) -> Vec<String> {
     let data = data.split(|&b| b == 0x1A).next().unwrap_or_default();
     let lines = data
         .split(|&b| b == b'\n')
-        .map(|l| iniquity_term::cp437::decode(l.strip_suffix(b"\r").unwrap_or(l)));
+        // ESC kept as itself (CP437 makes it `←`), as in QWK replies.
+        .map(|l| iniquity_term::cp437::decode(l.strip_suffix(b"\r").unwrap_or(l)).replace('\u{2190}', "\x1b"));
     let mut sig = clamp_sig(lines);
     while sig.first().is_some_and(|l| l.is_empty()) {
         sig.remove(0);
@@ -898,8 +899,7 @@ mod tests {
     #[test]
     fn sig_file_parsing() {
         let data = b"\r\n\x1b[1;36m-- \xfe me\r\nline two\n\x1aSAUCE00junk";
-        // ESC is kept in its glyph form, which encodes back to ESC on output.
-        assert_eq!(parse_sig_file(data), vec!["←[1;36m-- ■ me", "line two"]);
+        assert_eq!(parse_sig_file(data), vec!["\x1b[1;36m-- ■ me", "line two"]);
         assert!(parse_sig_file(b"\r\n\r\n").is_empty());
     }
 }
