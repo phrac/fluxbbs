@@ -78,7 +78,12 @@ only, so every caller is node 1: `doors/dos/TW2002.BAT` is `@ECHO OFF`,
 `C:`, `CD \TW2002`, `TW2002 TWNODE=1 SHARE`, run by `DZ`, and
 `TW2002.BAT` goes in `[dos] one_at_a_time` (two callers on one node's
 game would trample each other's files; the next caller is told to try
-later). Its nightly maintenance
+later). Registered (TEDIT's `G`: `Y` the name it's registered to, `Z`
+the code, `X` the SysOp; menu picks there are single keys, so don't
+follow them with Enter), it takes a caller on every node: give each of
+the board's nodes the same settings in `O`, make the batch file's line
+`TW2002 TWNODE=%1 SHARE`, the menu's parameter `TW2002.BAT %ND`, and
+take it out of `one_at_a_time`. Its nightly maintenance
 is an event: `command = "dos TWMAINT.BAT"`, a batch file running
 `EXTERN SHARE` in `\TW2002`. Run BIGBANG and TEDIT in the board's time
 zone, as with BRE. Prompts that look like hot keys mostly want Enter.
