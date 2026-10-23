@@ -218,6 +218,12 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('D', "Ask upload reply", 3, "Offer to upload a prepared message when replying?", Bool(|c| &mut c.messages.ask_upload_reply)),
             set('E', "Ask upload email", 3, "Offer to upload a prepared message for email?", Bool(|c| &mut c.messages.ask_upload_email)),
         ]),
+        ("Caller Boards", false, vec![
+            set('A', "Create ACS", 20, "Who may create a board of their own and moderate it (blank = nobody).", Text(|c| &mut c.messages.board_create_acs, ACS)),
+            set('B', "Folder", 8, "Storage key of the message area callers' boards go under (blank = top level).", Text(|c| &mut c.messages.board_folder, TEXT.max(8))),
+            set('C', "Boards per caller", 3, "Boards each caller may run.", Num(|c| c.messages.boards_per_caller as u64, |c, v| c.messages.boards_per_caller = v as u32, 1, 99)),
+            set('D', "Empty after days", 3, "Remove a caller's board with no posts this many days after it was made (0 = never).", Num(|c| c.messages.board_empty_days as u64, |c, v| c.messages.board_empty_days = v as u32, 0, 999)),
+        ]),
         ("Transfers", false, vec![
             set('A', "Max upload bytes", 12, "Largest upload accepted (0 = no limit).", Num(|c| c.files.max_upload_bytes, |c, v| c.files.max_upload_bytes = v, 0, u64::MAX / 2)),
             set('B', "Transfer cps", 9, "Bytes per second assumed when estimating transfer time.", Num(|c| c.files.transfer_cps, |c, v| c.files.transfer_cps = v, 1, 1_000_000_000)),

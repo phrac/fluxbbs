@@ -289,6 +289,27 @@ straight at `MH` (disflux does), leaving the message menu behind `m`.
   score, `~NW` new, `~DS`/`~DT` latest day and date). Screens: `MHUB`
   with `~AN` `~AT` `~DE` (about) `~RD` (reading now) `~NW` `~NM` `~LP`
   `~LD` `~SP`.
+- Sub-boards (new, as file areas have, and PTT's board classes): a
+  message area can sit under another (`parent`, the other's storage
+  key; "Sub-area of" in `*A`), to any depth. In the board list a parent
+  is a folder, its name ending `/` (`MsgGroupSuffix`), its figures those
+  of everything under it; Enter opens it, Esc or left goes back up. A
+  parent with posts of its own lists them first in its folder ("name
+  (own posts)"). A sub-board needs the access of every area above it.
+  Elsewhere (the classic lists, scans, QWK) sub-boards are areas like
+  any other.
+- Callers' boards (new, PTT's personal boards): a caller who passes
+  `[messages] board_create_acs` gets `c` in the board list to make a
+  board: a name, a line on what it's for, and it's made, under
+  `board_folder` if that's set (`boards_per_caller` each). They're its
+  moderator (its sponsor): they can delete and edit posts there and take
+  votes off, and `o` in its thread list changes its about line, bans
+  callers from posting and voting there (they can still read), lifts
+  bans, or deletes the board with its posts. `pack-messages` removes a
+  caller's board that still has no posts `board_empty_days` after it
+  was made. The board is an area in `msgareas.toml` like any other
+  (`created` and `banned` say whose it is), so the SysOp edits it with
+  `*A` as usual. Settings: `*C`, "Caller Boards".
 - A board is a list of threads, a line each in PTT's order: number,
   score, date, author, replies and title, `*` before the title if
   anything in it is new. The latest activity comes first; `s` sorts by

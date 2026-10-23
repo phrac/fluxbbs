@@ -12,6 +12,7 @@ mod aichat;
 mod archview;
 mod attach;
 mod binkp;
+mod boards;
 mod commands;
 mod cfgedit;
 mod challenge;

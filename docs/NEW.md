@@ -111,6 +111,9 @@ have, add it here (and the details in the doc it belongs to).
   the reader leaves a one-line vote up, down or comment under a message;
   threads sort by latest, hot or top, boards by number or busiest; a Hot
   list across the board; karma on profiles.
+- Sub-boards: message areas under message areas, shown as folders; and
+  boards callers make and moderate (ban from posting, about line,
+  delete), removed when left empty.
   ([FEATURES](FEATURES.md#message-center))
 - @mentions: `@handle` in a public post tells that caller, by node
   message if they're on and at their next logon; `M@` reads them.

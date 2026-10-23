@@ -151,6 +151,7 @@ async fn run_command(state: &BbsState, cmd: &str) -> anyhow::Result<()> {
             }
             crate::attach::remove_orphans(state)?;
             tracing::info!("event: packed message areas, {total} messages removed");
+            crate::boards::remove_empty_boards(state)?;
             Ok(())
         }
         "pack-files" => {

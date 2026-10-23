@@ -41,6 +41,17 @@ pub struct MsgArea {
     /// New: what the board is for, a line in the message center's list.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub about: String,
+    /// New: the storage key of the area this is a sub-area of (as file
+    /// areas have); the message center shows a parent as a folder.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub parent: String,
+    /// New: the day (YYYY-MM-DD) a caller made this board; blank for the
+    /// SysOp's areas.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub created: String,
+    /// New: handles its moderator has banned from posting and voting here.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub banned: Vec<String>,
     #[serde(default)]
     pub sponsor: String,
     #[serde(default)]
@@ -82,6 +93,9 @@ impl MsgArea {
             name: name.into(),
             file: file.into(),
             about: String::new(),
+            parent: String::new(),
+            created: String::new(),
+            banned: Vec::new(),
             sponsor: "SysOp".into(),
             acs: "s25".into(),
             post_acs: "s50".into(),
@@ -138,6 +152,28 @@ impl MsgAreas {
     pub fn conf(&self, n: u32) -> Option<&Conf> {
         self.confs.get((n as usize).checked_sub(1)?)
     }
+
+    /// Every area as (number, depth), each followed by its sub-areas, as
+    /// [`crate::fileareas::FileAreas::tree`].
+    pub fn tree(&self) -> Vec<(u32, usize)> {
+        crate::fileareas::tree_of_keys(&self.areas.iter().map(|a| (a.file.as_str(), a.parent.as_str())).collect::<Vec<_>>())
+    }
+
+    /// `n` and the areas above it, nearest first.
+    pub fn lineage(&self, n: u32) -> Vec<u32> {
+        let tree = self.tree();
+        let Some(mut i) = tree.iter().position(|(m, _)| *m == n) else { return Vec::new() };
+        let mut out = vec![n];
+        let mut depth = tree[i].1;
+        while depth > 0 {
+            i -= 1;
+            if tree[i].1 < depth {
+                depth = tree[i].1;
+                out.push(tree[i].0);
+            }
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -152,5 +188,23 @@ mod tests {
         assert_eq!(b.email.file, "EMAIL");
         assert_eq!(b.conf(1).unwrap().key, 'X');
         assert!(b.get(0).is_none() && b.get(2).is_none());
+    }
+
+    #[test]
+    fn sub_areas_nest_and_survive_saving() {
+        let a = MsgAreas {
+            areas: vec![
+                MsgArea::new("General", "GEN"),
+                MsgArea { parent: "CALLERS".into(), ..MsgArea::new("Mopar", "MOPAR") },
+                MsgArea::new("Caller boards", "CALLERS"),
+                MsgArea { parent: "NOWHERE".into(), ..MsgArea::new("Lost", "LOST") },
+            ],
+            ..MsgAreas::default()
+        };
+        assert_eq!(a.tree(), vec![(1, 0), (3, 0), (2, 1), (4, 0)]);
+        assert_eq!(a.lineage(2), vec![2, 3]);
+        let b: MsgAreas = toml::from_str(&a.to_toml()).unwrap();
+        assert_eq!(b.areas[1].parent, "CALLERS");
+        assert!(!a.to_toml().contains("parent = \"\""));
     }
 }

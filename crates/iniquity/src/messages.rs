@@ -60,8 +60,14 @@ impl Session {
 
     /// The caller may read the area now: its ACS passes and, if it has a
     /// password, that was given this call.
+    /// New: a sub-area needs the access of every area above it too.
     pub(crate) fn area_open(&self, a: &AreaRef) -> bool {
-        self.acs(&a.area.acs) && (a.area.password.is_empty() || self.opened_areas.contains(&a.key().to_ascii_uppercase()))
+        self.acs(&a.area.acs)
+            && (a.area.password.is_empty() || self.opened_areas.contains(&a.key().to_ascii_uppercase()))
+            && (a.area.parent.is_empty() || {
+                let areas = self.state.areas();
+                areas.lineage(a.num).iter().skip(1).all(|&p| areas.get(p).is_some_and(|p| self.acs(&p.acs)))
+            })
     }
 
     /// The original matched names; a party with a user number is matched
@@ -759,7 +765,7 @@ impl Session {
 
     /// After the last message: "post in this area?"
     async fn offer_post(&mut self, a: &AreaRef) -> io::Result<()> {
-        if !self.state.config().messages.ask_post_after_read || !self.acs(&a.area.post_acs) {
+        if !self.state.config().messages.ask_post_after_read || !self.acs(&a.area.post_acs) || self.banned_from(a) {
             return Ok(());
         }
         self.newline();
@@ -826,6 +832,12 @@ impl Session {
             (mcfg.ask_private, mcfg.ask_private_reply, mcfg.ask_auto_quote, mcfg.acs_anonymous.clone(), mcfg.acs_autosig.clone());
         if !a.is_email() && (!self.acs(&a.area.acs) || !self.acs(&a.area.post_acs)) {
             self.say_line("MsgNoPostAcs").await?;
+            self.newline();
+            return Ok(None);
+        }
+        // New: banned from it by its moderator.
+        if !a.is_email() && self.banned_from(a) {
+            self.say_line("BoardBanned").await?;
             self.newline();
             return Ok(None);
         }

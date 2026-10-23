@@ -115,6 +115,12 @@ acs_attach_email = "s50"
 acs_upload_message = "s25"
 ask_upload_reply = false
 ask_upload_email = true
+# Boards callers create and moderate (new): who may (blank: nobody), the
+# area they go under, how many each, and when an empty one is removed.
+board_create_acs = ""
+board_folder = ""
+boards_per_caller = 1
+board_empty_days = 30
 
 [files]
 use_file_points = false

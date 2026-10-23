@@ -101,8 +101,36 @@ impl MsgFigures {
     }
 }
 
-/// The message centre's row for the Hot list.
+/// The message center's row for the Hot list.
 const HOT_ROW: u32 = u32::MAX;
+
+/// A board's figures in the message center's list; a folder's add up
+/// everything under it.
+#[derive(Default)]
+struct Board {
+    new: usize,
+    msgs: usize,
+    /// Posts this week.
+    week: usize,
+    /// Callers reading it now.
+    now: usize,
+    latest: Option<NaiveDateTime>,
+    /// Who wrote the latest post.
+    by: String,
+}
+
+impl Board {
+    fn add(&mut self, o: &Board) {
+        self.new += o.new;
+        self.msgs += o.msgs;
+        self.week += o.week;
+        self.now += o.now;
+        if o.latest > self.latest {
+            self.latest = o.latest;
+            self.by = o.by.clone();
+        }
+    }
+}
 
 /// How the reader ended.
 #[derive(PartialEq)]
@@ -240,63 +268,123 @@ impl Session {
     /// messages, `~LP` and `~LD` the latest post's author and date, `~SP`
     /// sponsor, the SysOp's handle for "SysOp").
     pub async fn msg_center(&mut self) -> io::Result<()> {
+        // New: the folders opened on the way down (areas with sub-areas),
+        // and the one just come back up from, for the bar.
+        let mut path: Vec<u32> = Vec::new();
+        let mut came_from: Option<u32> = None;
         loop {
-            let mut rows = Vec::new();
-            let mut labels = Vec::new();
-            let mut total_new = 0;
+            let level = path.last().copied();
             let readers = self.readers_now();
             let week = crate::clock::now().naive_local() - chrono::Duration::days(7);
-            // (readers now, posts this week) for the popular order.
+            let readable = self.readable_areas();
+            let labels: Vec<(u32, u32)> = readable.iter().map(|(l, a)| (*l, a.num)).collect();
+            let tree: Vec<(u32, usize)> = self.state.areas().tree().into_iter().filter(|(n, _)| readable.iter().any(|(_, a)| a.num == *n)).collect();
+            let mut stats: HashMap<u32, Board> = HashMap::new();
+            for (_, a) in &readable {
+                let v = self.area_view(a)?;
+                let last = v.msgs.last();
+                stats.insert(
+                    a.num,
+                    Board {
+                        new: v.new_count(),
+                        msgs: v.msgs.len(),
+                        week: v.msgs.iter().filter(|m| m.posted >= week).count(),
+                        now: readers.get(&a.key().to_ascii_uppercase()).copied().unwrap_or(0),
+                        latest: last.map(|m| m.posted),
+                        by: last.map(|m| m.from.name.clone()).unwrap_or_default(),
+                    },
+                );
+            }
+            let total_new: usize = stats.values().map(|b| b.new).sum();
+            let label_of = |n: u32| labels.iter().find(|l| l.1 == n).map_or(0, |l| l.0);
+            let suffix = self.strings().get("MsgGroupSuffix").to_string();
+            let mut rows = Vec::new();
+            // A folder's own posts, if it has any, come first in it.
+            let mut shown: Vec<(u32, bool)> = Vec::new();
+            if let Some(f) = level
+                && stats.get(&f).is_some_and(|b| b.msgs > 0)
+            {
+                shown.push((f, false));
+            }
+            for c in crate::fileareas::children_of(&tree, level) {
+                let folder = crate::fileareas::subtree_of(&tree, c).len() > 1;
+                shown.push((c, folder));
+            }
+            // (readers now, posts this week) for the busiest order.
             let mut pop: HashMap<u32, (usize, usize)> = HashMap::new();
-            for (label, a) in self.readable_areas() {
-                let v = self.area_view(&a)?;
-                let new = v.new_count();
-                total_new += new;
-                let now = readers.get(&a.key().to_ascii_uppercase()).copied().unwrap_or(0);
-                pop.insert(a.num, (now, v.msgs.iter().filter(|m| m.posted >= week).count()));
-                let now_s = if now == 0 { String::new() } else { now.to_string() };
-                let (who, when) = v.msgs.last().map(|m| (m.from.name.clone(), self.local(m.posted).format("%m/%d/%y").to_string())).unwrap_or_default();
+            for (n, folder) in shown {
+                let Some(a) = self.msg_area(n) else { continue };
+                // A folder adds up everything under it.
+                let under = if folder { crate::fileareas::subtree_of(&tree, n) } else { vec![n] };
+                let mut b = Board::default();
+                for m in &under {
+                    if let Some(x) = stats.get(m) {
+                        b.add(x);
+                    }
+                }
+                pop.insert(n, (b.now, b.week));
+                let name = if folder {
+                    format!("{}{suffix}", a.area.name)
+                } else if Some(n) == level {
+                    self.strings().fmt("MsgFolderOwn", &[&a.area.name])
+                } else {
+                    a.area.name.clone()
+                };
+                let now_s = if b.now == 0 { String::new() } else { b.now.to_string() };
+                let new_s = if b.new == 0 { "-".to_string() } else { b.new.to_string() };
+                let when = b.latest.map(|t| self.local(t).format("%m/%d/%y").to_string()).unwrap_or_default();
                 let mod_ = if a.area.sponsor.eq_ignore_ascii_case("sysop") { self.state.config().bbs.sysop_alias.clone() } else { a.area.sponsor.clone() };
-                let new_s = if new == 0 { "-".to_string() } else { new.to_string() };
+                let label = label_of(n);
                 let w = waves([
                     ("AN", label.to_string()),
-                    ("AT", a.area.name.clone()),
+                    ("AT", name.clone()),
                     ("DE", a.area.about.clone()),
                     ("RD", now_s.clone()),
                     ("NW", new_s.clone()),
-                    ("NM", v.msgs.len().to_string()),
-                    ("LP", who.clone()),
+                    ("NM", b.msgs.to_string()),
+                    ("LP", b.by.clone()),
                     ("LD", when.clone()),
                     ("SP", mod_.clone()),
                 ]);
                 let plain = format!(
                     " {} {} {} {} {} {} {}",
                     resize(&label.to_string(), 4),
-                    resize(&a.area.name, 16),
+                    resize(&name, 16),
                     resize(&a.area.about, 24),
                     resize(&now_s, 3),
                     resize(&new_s, 4),
                     resize(&mod_, 12),
                     when
                 );
-                rows.push(BarRow { n: a.num, waves: w, plain });
-                labels.push((label, a.num));
+                rows.push(BarRow { n, waves: w, plain });
             }
             // New: busiest first (`s`): readers now, then posts this week.
             if self.user.area_sort == "popular" {
                 rows.sort_by_key(|r| std::cmp::Reverse(pop.get(&r.n).copied().unwrap_or_default()));
             }
-            // New: the Hot list first, while anything's being pushed.
+            // New: the Hot list first, while anything's being voted on.
             let since = crate::clock::now().naive_local() - chrono::Duration::hours(HOT_HOURS);
-            if !self.state.msgs.recent_pushes(since).map_err(io_err)?.is_empty() {
+            if level.is_none() && !self.state.msgs.recent_pushes(since).map_err(io_err)?.is_empty() {
                 let name = self.strings().get("HotName").to_string();
                 let about = self.strings().get("HotAbout").to_string();
                 let w = waves([("AN", "*".into()), ("AT", name.clone()), ("DE", about.clone()), ("RD", String::new()), ("NW", String::new()), ("NM", String::new()), ("LP", String::new()), ("LD", String::new()), ("SP", String::new())]);
                 rows.insert(0, BarRow { n: HOT_ROW, waves: w, plain: format!(" {} {} {}", resize("*", 4), resize(&name, 16), about) });
             }
-            let start = rows.iter().position(|r| r.n == self.user.cur_msg_area).unwrap_or(0);
+            let want = came_from.take().unwrap_or(self.user.cur_msg_area);
+            let start = rows
+                .iter()
+                .position(|r| r.n == want)
+                .or_else(|| rows.iter().position(|r| self.state.areas().lineage(self.user.cur_msg_area).contains(&r.n)))
+                .unwrap_or(0);
             let order = self.strings().get(if self.user.area_sort == "popular" { "AreaSortPopular" } else { "AreaSortNumber" }).to_string();
-            let help = self.strings().fmt("MsgHubKeys", &[&total_new.to_string(), &order]);
+            let mut help = self.strings().fmt("MsgHubKeys", &[&total_new.to_string(), &order]);
+            if let Some(a) = level.and_then(|f| self.msg_area(f)) {
+                help = self.strings().fmt("MsgHubIn", &[&iniquity_term::codes::squish(&a.area.name, 14)]) + &help;
+            }
+            let create = self.may_create_board();
+            if create {
+                help += self.strings().get("MsgHubCreate");
+            }
             let spec = BarSpec {
                 prefix: "MHUB",
                 header: " #    Board            About                    Now New  Mod          Latest",
@@ -305,12 +393,14 @@ impl Session {
                 start,
                 help: &help,
                 ask: "",
-                can_go_up: false,
-                keys: "NPSFHM",
+                can_go_up: level.is_some(),
+                keys: if create { "NPSFHMC" } else { "NPSFHM" },
             };
             self.node.update(|n| n.activity = "Reading messages".into());
+            let is_folder = |n: u32| Some(n) != level && crate::fileareas::subtree_of(&tree, n).len() > 1;
             match self.area_bar(&spec).await? {
                 BarPick::Area(HOT_ROW) => self.hot_list().await?,
+                BarPick::Area(n) if is_folder(n) => path.push(n),
                 BarPick::Area(n) => {
                     if self.change_area(n).await?
                         && let Some(a) = self.msg_area(n)
@@ -321,7 +411,7 @@ impl Session {
                 BarPick::Key('N', _) => {
                     self.read_all_new().await?;
                 }
-                BarPick::Key('P', n) => {
+                BarPick::Key('P', n) if n != HOT_ROW && !is_folder(n) => {
                     if self.change_area(n).await?
                         && let Some(a) = self.msg_area(n)
                     {
@@ -334,12 +424,27 @@ impl Session {
                 }
                 BarPick::Key('F', _) => self.msg_search("").await?,
                 BarPick::Key('H', _) => self.msg_help().await?,
+                // New: a board of their own, opened once it's made.
+                BarPick::Key('C', _) => {
+                    if let Some(n) = self.create_board().await?
+                        && self.change_area(n).await?
+                        && let Some(a) = self.msg_area(n)
+                    {
+                        came_from = Some(n);
+                        self.thread_list(&a).await?;
+                    }
+                }
                 // The classic message menu (newscan settings and the rest).
                 BarPick::Key('M', _) => {
                     self.menu_change('^', "MESSAGE");
                     return Ok(());
                 }
-                _ => return Ok(()),
+                BarPick::Key(..) => {}
+                // Back up out of a folder, or out of the boards.
+                _ => match path.pop() {
+                    Some(f) => came_from = Some(f),
+                    None => return Ok(()),
+                },
             }
             if self.hangup {
                 return Ok(());
@@ -434,7 +539,11 @@ impl Session {
                 "top" => "ThreadSortTop",
                 _ => "ThreadSortLatest",
             }).to_string();
-            let help = self.strings().fmt("MsgThreadKeys", &[&a.area.name, &v.new_count().to_string(), &sort]);
+            let mut help = self.strings().fmt("MsgThreadKeys", &[&iniquity_term::codes::squish(&a.area.name, 16), &v.new_count().to_string(), &sort]);
+            let moderator = self.is_sponsor(a) || self.is_cosysop();
+            if moderator {
+                help += self.strings().get("MsgThreadModerate");
+            }
             let header = post_line(" ", "#", "+/-", "Date", "Author", "Re", "Title");
             let spec = BarSpec {
                 prefix: "MTHRD",
@@ -445,7 +554,7 @@ impl Session {
                 help: &help,
                 ask: "",
                 can_go_up: true,
-                keys: "NPSH",
+                keys: if moderator { "NPSHO" } else { "NPSH" },
             };
             match self.area_bar(&spec).await? {
                 BarPick::Area(i) => {
@@ -468,6 +577,11 @@ impl Session {
                     self.post(a, "All", "", None).await?;
                 }
                 BarPick::Key('H', _) => self.msg_help().await?,
+                BarPick::Key('O', _) => {
+                    if self.moderate_board(a).await? {
+                        return Ok(());
+                    }
+                }
                 BarPick::Key('S', n) => {
                     on_root = ts.get(n as usize).map(|t| t.msgs[0].0);
                     self.user.thread_sort = match self.user.thread_sort.as_str() {

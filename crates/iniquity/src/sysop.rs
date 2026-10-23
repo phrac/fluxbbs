@@ -30,7 +30,7 @@ fn io_err(e: anyhow::Error) -> io::Error {
 }
 
 /// A storage key not in `used`: `BASE`, `BASE2`, `BASE3`...
-fn unused_key<'a>(used: impl Iterator<Item = &'a str> + Clone, base: &str) -> String {
+pub(crate) fn unused_key<'a>(used: impl Iterator<Item = &'a str> + Clone, base: &str) -> String {
     let taken = |k: &str| used.clone().any(|u| u.eq_ignore_ascii_case(k));
     (1..)
         .map(|n| if n == 1 { base.to_string() } else { format!("{base}{n}") })
@@ -395,6 +395,7 @@ impl Session {
             f.item('A', "Description", 40, &a.name, "This message area's description (shown in message area lists, etc); up to 80 characters.");
             f.item('B', "Storage key", 8, &a.file, "Name the area's messages are kept under (letters and digits).");
             f.item('C', "About", 40, &a.about, "New: what the area is for, one line in the message center's list.");
+            f.item('D', "Sub-area of", 8, &a.parent, "New: storage key of the area this sits under (blank: top level); a parent shows as a folder.");
             f.item('G', "Area sponsor", 36, &a.sponsor, "Creator or manager of this message area (usually the SysOp).");
             f.item('H', "Access ACS", 20, &a.acs, "ACS required to access or read messages in this area.");
             f.item('I', "Post ACS", 20, &a.post_acs, "ACS required to post messages in this area.");
@@ -444,6 +445,10 @@ impl Session {
                                 a.qwk_name = v.clone();
                                 self.cfg_set(&mut f, 'L', &a.qwk_name);
                             }
+                            // Its sub-areas follow it.
+                            for o in areas.areas.iter_mut().filter(|o| o.parent.eq_ignore_ascii_case(&a.file)) {
+                                o.parent = v.clone();
+                            }
                             a.file = v;
                             // Save now: the messages already moved.
                             areas.areas[idx] = a.clone();
@@ -454,6 +459,20 @@ impl Session {
                         if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(60)).await? {
                             a.about = v;
                         }
+                    }
+                    'D' => {
+                        let Some(v) = self.cfg_text(&mut f, key, Field::KEY).await? else { continue };
+                        // Not itself, nor anything under it (a loop).
+                        let found = areas.areas.iter().position(|o| o.file.eq_ignore_ascii_case(&v)).map(|i| i as u32 + 1);
+                        let below = areas.tree();
+                        let under = crate::fileareas::subtree_of(&below, num);
+                        match found {
+                            _ if v.is_empty() => a.parent.clear(),
+                            Some(p) if !under.contains(&p) => a.parent = areas.areas[p as usize - 1].file.clone(),
+                            Some(_) => self.cfg_info(&mut f, "That's this area, or one under it."),
+                            None => self.cfg_info(&mut f, "No area has that storage key."),
+                        }
+                        self.cfg_set(&mut f, key, &a.parent);
                     }
                     'G' => {
                         if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {

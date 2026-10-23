@@ -161,46 +161,7 @@ impl FileAreas {
     /// Linear in the number of areas (a board with an archive in it has
     /// hundreds), so callers can ask freely.
     pub fn tree(&self) -> Vec<(u32, usize)> {
-        let total = self.areas.len();
-        let mut index: HashMap<String, u32> = HashMap::with_capacity(total);
-        for (i, a) in self.areas.iter().enumerate() {
-            index.entry(a.file.to_ascii_lowercase()).or_insert(i as u32 + 1);
-        }
-        let parents: Vec<Option<u32>> = self
-            .areas
-            .iter()
-            .enumerate()
-            .map(|(i, a)| if a.parent.is_empty() { None } else { index.get(&a.parent.to_ascii_lowercase()).copied().filter(|&p| p != i as u32 + 1) })
-            .collect();
-        // An area whose parents lead back to itself becomes a root, which
-        // breaks the loop for anything hanging below it.
-        let roots_at = |n: u32| {
-            let mut seen = vec![n];
-            let mut cur = parents[n as usize - 1];
-            while let Some(p) = cur {
-                if seen.contains(&p) {
-                    return p == n;
-                }
-                seen.push(p);
-                cur = parents[p as usize - 1];
-            }
-            false
-        };
-        let mut kids: Vec<Vec<u32>> = vec![Vec::new(); total + 1];
-        for (i, p) in parents.iter().enumerate() {
-            let n = i as u32 + 1;
-            let of = if roots_at(n) { None } else { *p };
-            kids[of.map_or(0, |p| p as usize)].push(n);
-        }
-        let mut out = Vec::with_capacity(total);
-        fn walk(kids: &[Vec<u32>], of: usize, depth: usize, out: &mut Vec<(u32, usize)>) {
-            for &n in &kids[of] {
-                out.push((n, depth));
-                walk(kids, n as usize, depth + 1, out);
-            }
-        }
-        walk(&kids, 0, 0, &mut out);
-        out
+        tree_of_keys(&self.areas.iter().map(|a| (a.file.as_str(), a.parent.as_str())).collect::<Vec<_>>())
     }
 
     /// The sub-areas directly under `n` (or the top-level areas for
@@ -229,6 +190,51 @@ impl FileAreas {
     pub fn subtree(&self, n: u32) -> Vec<u32> {
         subtree_of(&self.tree(), n)
     }
+}
+
+/// The tree of areas given as (storage key, parent key), numbered from 1
+/// in that order: (number, depth), each area followed by its sub-areas
+/// ([`FileAreas::tree`]; message areas use it too).
+pub fn tree_of_keys(areas: &[(&str, &str)]) -> Vec<(u32, usize)> {
+    let total = areas.len();
+    let mut index: HashMap<String, u32> = HashMap::with_capacity(total);
+    for (i, (file, _)) in areas.iter().enumerate() {
+        index.entry(file.to_ascii_lowercase()).or_insert(i as u32 + 1);
+    }
+    let parents: Vec<Option<u32>> = areas
+        .iter()
+        .enumerate()
+        .map(|(i, (_, parent))| if parent.is_empty() { None } else { index.get(&parent.to_ascii_lowercase()).copied().filter(|&p| p != i as u32 + 1) })
+        .collect();
+    // An area whose parents lead back to itself becomes a root, which
+    // breaks the loop for anything hanging below it.
+    let roots_at = |n: u32| {
+        let mut seen = vec![n];
+        let mut cur = parents[n as usize - 1];
+        while let Some(p) = cur {
+            if seen.contains(&p) {
+                return p == n;
+            }
+            seen.push(p);
+            cur = parents[p as usize - 1];
+        }
+        false
+    };
+    let mut kids: Vec<Vec<u32>> = vec![Vec::new(); total + 1];
+    for (i, p) in parents.iter().enumerate() {
+        let n = i as u32 + 1;
+        let of = if roots_at(n) { None } else { *p };
+        kids[of.map_or(0, |p| p as usize)].push(n);
+    }
+    let mut out = Vec::with_capacity(total);
+    fn walk(kids: &[Vec<u32>], of: usize, depth: usize, out: &mut Vec<(u32, usize)>) {
+        for &n in &kids[of] {
+            out.push((n, depth));
+            walk(kids, n as usize, depth + 1, out);
+        }
+    }
+    walk(&kids, 0, 0, &mut out);
+    out
 }
 
 /// The areas directly under `of` (the top level for `None`) in `tree`:

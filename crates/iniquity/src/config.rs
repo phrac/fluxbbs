@@ -687,6 +687,16 @@ pub struct Messages {
     pub compress_area_numbers: bool,
     /// Shown instead of quoted lines that contain ANSI.
     pub ansi_quote: String,
+    /// New: who may create a board of their own (blank: nobody).
+    pub board_create_acs: String,
+    /// New: the storage key of the area callers' boards go under (blank:
+    /// the top level); they take its access.
+    pub board_folder: String,
+    /// New: boards each caller may run.
+    pub boards_per_caller: u32,
+    /// New: a caller's board with no posts this many days after it was
+    /// made goes when `pack-messages` runs (0: never).
+    pub board_empty_days: u32,
 }
 
 impl Default for Messages {
@@ -713,6 +723,10 @@ impl Default for Messages {
             mandatory_all_confs: true,
             compress_area_numbers: true,
             ansi_quote: "(ansi codes detected; line not displayed)".into(),
+            board_create_acs: String::new(),
+            board_folder: String::new(),
+            boards_per_caller: 1,
+            board_empty_days: 30,
         }
     }
 }

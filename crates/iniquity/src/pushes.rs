@@ -55,7 +55,7 @@ pub fn heats(recent: &[(i64, i8, NaiveDateTime)], now: NaiveDateTime) -> HashMap
 
 impl Session {
     fn may_push(&self, a: &AreaRef, m: &Message) -> bool {
-        !a.is_email() && !m.private && self.acs(&a.area.post_acs)
+        !a.is_email() && !m.private && self.acs(&a.area.post_acs) && !self.banned_from(a)
     }
 
     /// The lines under a message: a rule with its score, then its pushes.
