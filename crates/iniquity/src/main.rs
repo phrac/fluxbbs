@@ -285,7 +285,11 @@ fn unban(who: Option<&str>, path: PathBuf) -> anyhow::Result<()> {
     let config = Config::load(&path)?;
     let db = config.resolve(&config.paths.data).join("iniquity.db");
     let sys = SysData::open(&db).with_context(|| format!("database {}", db.display()))?;
+    let ips: Vec<String> = sys.bans()?.into_iter().map(|(ip, ..)| ip).filter(|ip| who == "all" || ip == who).collect();
     let n = sys.clear_ban(who)?;
+    for ip in &ips {
+        sys.log_security(ip, "ban lifted from the command line")?;
+    }
     println!("{n} ban(s) lifted; restart the server for it to notice");
     Ok(())
 }

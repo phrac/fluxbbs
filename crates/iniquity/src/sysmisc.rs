@@ -459,6 +459,7 @@ impl Session {
                 n += 1;
                 let _ = self.state.sys.clear_ban(&ip.to_string());
                 tracing::info!("{}: lifted the ban on {ip}", self.user.handle);
+                let _ = self.state.sys.log_security(&ip.to_string(), &format!("ban lifted by {}", self.user.handle));
             }
         }
         let s = if n > 0 { format!("|U1Lifted |U3{n}|U1 ban(s)|U2.") } else { "|U4No ban on that address|U5.".into() };
