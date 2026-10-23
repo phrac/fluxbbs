@@ -5,7 +5,7 @@
 #   tools/setup_host.sh            # from the repo root
 #
 # Needs: cargo, unzip. Safe to run again; it never touches an existing
-# data/iniquity.db or the *.toml configuration.
+# data/fluxbbs.db (or a pre-rename iniquity.db) or the *.toml configuration.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
@@ -23,20 +23,20 @@ fi
 echo "building"
 cargo build --release
 
-if [ ! -f data/iniquity.db ]; then
+if [ ! -f data/fluxbbs.db ] && [ ! -f data/iniquity.db ]; then
     # Import the stock install somewhere else and keep only its database
     # (users, including SysOp, statistics, the BBS list), so the committed
     # configuration stays as it is.
-    echo "creating data/iniquity.db from the stock install"
+    echo "creating data/fluxbbs.db from the stock install"
     tmp_import=$(mktemp -d)
-    ./target/release/iniquity import "$stock" "$tmp_import" > /dev/null
+    ./target/release/fluxbbs import "$stock" "$tmp_import" > /dev/null
     mkdir -p data
-    cp "$tmp_import/data/iniquity.db" data/iniquity.db
+    cp "$tmp_import/data/fluxbbs.db" data/fluxbbs.db
     rm -rf "$tmp_import"
 fi
 
 echo
 echo "ready:"
-echo "  ./target/release/iniquity                       # SSH :2222, telnet :2323"
+echo "  ./target/release/fluxbbs                       # SSH :2222, telnet :2323"
 echo "  cargo test                                      # includes the legacy readers"
 echo "  log in as SysOp / SYSOP (system password SYSTEM); change both before going public"

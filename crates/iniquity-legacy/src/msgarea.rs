@@ -181,7 +181,7 @@ impl LegacyMsgHeader {
         for _ in 0..self.size {
             let Some(&len) = dat.get(i) else { break };
             let end = (i + 1 + len as usize).min(dat.len());
-            out.push(iniquity_term::cp437::decode(&dat[i + 1..end]));
+            out.push(fluxbbs_term::cp437::decode(&dat[i + 1..end]));
             i = end;
         }
         out

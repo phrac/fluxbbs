@@ -1,0 +1,487 @@
+//! SysOp editors for system data: the BBS list (`*B`, CONFIG15), the
+//! system statistics (`*H`, CONFIG14) and the prompt strings (`*E`,
+//! CONFIG3).
+
+use std::io;
+
+use chrono::NaiveDate;
+use fluxbbs_term::Slot;
+use fluxbbs_term::codes::{resize, squish};
+
+use crate::cfgedit::{Field, Form};
+use crate::session::Session;
+use crate::strings::stock_names;
+use crate::sysdata::{Bbs, Counts};
+use crate::user::{fmt_date, parse_date};
+
+fn io_err(e: anyhow::Error) -> io::Error {
+    io::Error::other(e)
+}
+
+/// `maxStr`: strings per page in the string editor.
+const STRINGS_PER_PAGE: usize = 5;
+
+type StatField = (char, &'static str, &'static str, fn(&mut Counts) -> &mut u64);
+
+const STAT_FIELDS: [StatField; 7] = [
+    ('B', "Calls", "Total number of calls to the board.", |c| &mut c.calls),
+    ('C', "Posts", "System's total number of public posts.", |c| &mut c.posts),
+    ('D', "Email", "Total number of email sent.", |c| &mut c.email),
+    ('E', "Uploads", "Total number of uploads.", |c| &mut c.uploads),
+    ('F', "Downloads", "Total number of downloads.", |c| &mut c.downloads),
+    ('G', "Uploaded Kb", "Total number of uploaded kilobytes.", |c| &mut c.upload_kb),
+    ('H', "Downloaded Kb", "Total number of downloaded kilobytes.", |c| &mut c.download_kb),
+];
+
+/// Where the next search starts: just after the current page, wrapping.
+fn search(names: &[&str], text: impl Fn(&str) -> String, from: usize, want: &str) -> Option<usize> {
+    let want = want.to_uppercase();
+    (0..names.len()).map(|i| (from + i) % names.len()).find(|&i| {
+        let t = text(names[i]).to_uppercase();
+        t.contains(&want) || names[i].to_uppercase().contains(&want)
+    })
+}
+
+impl Session {
+    // ---- *B: the BBS list ---------------------------------------------------
+
+    /// `cfgBbsListEditor`.
+    pub async fn bbs_list_editor(&mut self) -> io::Result<()> {
+        tracing::info!("{}: BBS list edit", self.user.handle);
+        loop {
+            let list = self.state.sys.bbs_list().map_err(io_err)?;
+            self.clear_screen();
+            self.set_slot(Slot::Text);
+            self.write(" Num  Name                           SysOp            Telnet");
+            self.newline();
+            self.rule().await?;
+            let mut lines = 3;
+            for (i, b) in list.iter().enumerate() {
+                self.set_slot(Slot::Info);
+                self.write(&format!(
+                    " {} {} {} {}",
+                    resize(&(i + 1).to_string(), 4),
+                    resize(&b.name, 30),
+                    resize(&b.sysop, 16),
+                    squish(&b.telnet, 25)
+                ));
+                self.newline();
+                lines += 1;
+                if !self.more(&mut lines).await? {
+                    break;
+                }
+            }
+            if list.is_empty() {
+                self.write("There are currently no boards in the list.");
+                self.newline();
+            }
+            self.rule().await?;
+            let cmd = self.cfg_list_prompt(&[("A", "dd"), ("D", "elete"), ("E", "dit"), ("Esc", " Quit")]).await?;
+            let n = list.len() as u32;
+            self.newline();
+            match cmd {
+                Some('A') => {
+                    let b = Bbs { name: "New BBS".into(), who_added: self.user.handle.clone(), ..Bbs::default() };
+                    self.state.sys.add_bbs(&b).map_err(io_err)?;
+                    self.bbs_edit(n + 1).await?;
+                }
+                Some('D') if n > 0 => {
+                    let Some(which) = self.cfg_ask_number("Delete which BBS?", 1, n).await? else { continue };
+                    let b = &list[which as usize - 1];
+                    self.show(&format!("|U1Delete |U3{}|U1? ", b.name)).await?;
+                    if self.yes_no(false).await? {
+                        self.state.sys.delete_bbs(b.id).map_err(io_err)?;
+                    }
+                }
+                Some('E') if n > 0 => {
+                    if let Some(num) = self.cfg_ask_number("Begin edit with which BBS?", 1, n).await? {
+                        self.bbs_edit(num).await?;
+                    }
+                }
+                Some(_) => {}
+                None => return Ok(()),
+            }
+        }
+    }
+
+    /// `cfgEditBBS`.
+    async fn bbs_edit(&mut self, mut num: u32) -> io::Result<()> {
+        type BbsText = (char, &'static str, usize, &'static str, fn(&mut Bbs) -> &mut String);
+        let texts: [BbsText; 8] = [
+            ('A', "Name", 40, "The name of this bulletin board system.", |b| &mut b.name),
+            ('B', "SysOp", 36, "The SysOp's name or handle.", |b| &mut b.sysop),
+            ('C', "Telnet", 40, "Its telnet address, host:port (e.g. bbs.example.com:23).", |b| &mut b.telnet),
+            ('D', "SSH", 40, "Its SSH address, host:port (e.g. bbs.example.com:2222).", |b| &mut b.ssh),
+            ('E', "Software", 20, "Name of the bulletin board software this system is running.", |b| &mut b.software),
+            ('F', "Storage", 20, "File area storage.", |b| &mut b.storage),
+            ('G', "Other info", 58, "Any other information about this board (affiliations etc).", |b| &mut b.info),
+            ('H', "Who added", 36, "The name of the user that added this BBS to the list.", |b| &mut b.who_added),
+        ];
+        loop {
+            let list = self.state.sys.bbs_list().map_err(io_err)?;
+            let n = list.len() as u32;
+            if n == 0 {
+                return Ok(());
+            }
+            num = num.clamp(1, n);
+            let mut b = list[num as usize - 1].clone();
+            let mut f = Form::new(&format!("{} BBS List Editor", self.state.config().bbs.name));
+            f.value_col(20);
+            f.label("Current", 12, format!("{num} of {n}"));
+            for (key, label, len, info, get) in &texts {
+                f.item(*key, label, *len, get(&mut b).clone(), info);
+            }
+            f.item('[', "Previous BBS", 0, "", "");
+            f.item(']', "Next BBS", 0, "", "");
+            self.cfg_draw(&f);
+            let before = b.clone();
+            let step: i64 = loop {
+                let Some(key) = self.cfg_command(&mut f).await? else { break 0 };
+                match key {
+                    '[' => break -1,
+                    ']' => break 1,
+                    k => {
+                        let Some((_, _, len, _, get)) = texts.iter().find(|t| t.0 == k) else { continue };
+                        if let Some(v) = self.cfg_text(&mut f, k, Field::TEXT.max(*len)).await? {
+                            *get(&mut b) = v;
+                        }
+                    }
+                }
+            };
+            if b != before {
+                self.state.sys.update_bbs(&b).map_err(io_err)?;
+            }
+            if step == 0 {
+                self.screen.goto(1, self.screen.rows());
+                self.newline();
+                return Ok(());
+            }
+            num = ((num as i64 - 1 + step).rem_euclid(n as i64) + 1) as u32;
+        }
+    }
+
+    // ---- *H: system statistics ----------------------------------------------
+
+    /// `cfgStatEditor`: the all-time totals shown by the `T?` codes.
+    pub async fn stat_editor(&mut self) -> io::Result<()> {
+        tracing::info!("{}: statistics edit", self.user.handle);
+        let mut totals = self.state.sys.totals().map_err(io_err)?;
+        let mut first: Option<NaiveDate> = self.state.sys.first_day().map_err(io_err)?;
+        let (orig_totals, orig_first) = (totals.clone(), first);
+        let mut f = Form::new(&format!("{} System Statistics Editor", self.state.config().bbs.name));
+        f.value_col(25);
+        f.item('A', "First day", 8, fmt_date(first), "Date [mm/dd/yy] of the first day the BBS was online.");
+        for (key, label, info, get) in &STAT_FIELDS {
+            f.item(*key, label, 12, get(&mut totals).to_string(), info);
+        }
+        self.cfg_draw(&f);
+        while let Some(key) = self.cfg_command(&mut f).await? {
+            if key == 'A' {
+                if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(8)).await? {
+                    match parse_date(&v) {
+                        Some(d) => first = Some(d),
+                        None if v.is_empty() => first = None,
+                        None => {}
+                    }
+                }
+                self.cfg_set(&mut f, key, fmt_date(first));
+            } else if let Some((_, _, _, get)) = STAT_FIELDS.iter().find(|s| s.0 == key)
+                && let Some(v) = self.cfg_number(&mut f, key, 0, 999_999_999_999).await?
+            {
+                *get(&mut totals) = v;
+            }
+        }
+        self.screen.goto(1, self.screen.rows());
+        self.newline();
+        if totals != orig_totals || first != orig_first {
+            let got = self.state.sys.set_totals(first, &totals).map_err(io_err)?;
+            if got != totals {
+                self.show_line("|U1Some totals can't go below what the daily history already counts|U2:").await?;
+                for (_, label, _, get) in &STAT_FIELDS {
+                    let (want, have) = (*get(&mut totals), *get(&mut got.clone()));
+                    if want != have {
+                        self.show_line(&format!("|U1  {label}|U2: |U3{have}")).await?;
+                    }
+                }
+            }
+        }
+        Ok(())
+    }
+
+    // ---- *E: prompt strings -------------------------------------------------
+
+    /// `cfgStringEditor`: the strings a page at a time, with search and
+    /// jump; each shown as written and as callers see it, changed ones
+    /// marked. Saved to strings.toml as they change.
+    pub async fn string_editor(&mut self) -> io::Result<()> {
+        tracing::info!("{}: string edit", self.user.handle);
+        let names = stock_names();
+        let total = names.len();
+        let mut top = 0usize;
+        let mut last_search = String::new();
+        loop {
+            let strings = self.strings();
+            self.clear_screen();
+            for (i, name) in names.iter().enumerate().skip(top).take(STRINGS_PER_PAGE) {
+                let mark = if strings.changed(name) { " |U6(changed)" } else { "" };
+                self.write_with_controls(&format!("|U1{}|U2:|U1{:03}|U2, |U4{name}{mark}", i - top + 1, i + 1));
+                self.newline();
+                self.set_slot(Slot::Info);
+                self.write(&squish(strings.get(name), 79));
+                self.newline();
+                self.write("  ");
+                self.string_preview(strings.get(name), 76);
+                self.newline();
+                self.newline();
+            }
+            let pick = self
+                .cfg_list_prompt(&[("[", " Prev"), ("]", " Next"), ("1", "-5 Edit"), ("2", ""), ("3", ""), ("4", ""), ("5", ""), ("/", " Search"), ("=", " Jump"), ("Esc", " Quit")])
+                .await?;
+            match pick {
+                None => return Ok(()),
+                Some('[') => top = top.saturating_sub(STRINGS_PER_PAGE),
+                Some(']') => top = (top + STRINGS_PER_PAGE).min(total.saturating_sub(STRINGS_PER_PAGE)),
+                Some('=') => {
+                    if let Some(n) = self.cfg_ask_number("Jump to string number", 1, total as u32).await? {
+                        top = (n as usize - 1).min(total.saturating_sub(STRINGS_PER_PAGE));
+                    }
+                }
+                Some('/') => {
+                    self.show("|U2-- |U1Search names and text |U5[|U6enter|U5=|U4again|U5]: |U3").await?;
+                    let want = self.read_string(crate::input::ReadOpts::new(60)).await?;
+                    self.newline();
+                    if !want.is_empty() {
+                        last_search = want;
+                    }
+                    if !last_search.is_empty() {
+                        let s = self.strings();
+                        let from = (top + STRINGS_PER_PAGE) % total;
+                        if let Some(i) = search(&names, |n| s.get(n).to_string(), from, &last_search) {
+                            top = i.min(total.saturating_sub(STRINGS_PER_PAGE));
+                        }
+                    }
+                }
+                Some(c @ '1'..='5') => {
+                    let i = top + (c as usize - '1' as usize);
+                    if i < total {
+                        self.string_edit(i + 1, names[i]).await?;
+                    }
+                }
+                Some(_) => {}
+            }
+        }
+    }
+
+    /// A string as callers see it, on one line of at most `width`
+    /// characters: colours applied, %S1.. shown as «1».., MCI codes filled
+    /// in. Codes that would pause, move the cursor, show a file or run a
+    /// script are left out, so previewing one is always safe.
+    fn string_preview(&mut self, s: &str, width: usize) {
+        use fluxbbs_term::{Color, Control, Source, Token, tokenize};
+        if let Some(rest) = s.strip_prefix("%%").or_else(|| s.strip_prefix("%!")) {
+            self.set_slot(Slot::Info);
+            let what = if s.starts_with("%%") { "shows the file" } else { "runs the script" };
+            self.write(&squish(&format!("({what} {})", rest.trim()), width));
+            self.screen.set_color(Color::DEFAULT);
+            return;
+        }
+        let body = s.strip_prefix("%|").or_else(|| s.strip_prefix("%>")).unwrap_or(s);
+        let samples: Vec<String> = (1..=9).map(|n| format!("\u{ab}{n}\u{bb}")).collect();
+        let args: Vec<&str> = samples.iter().map(String::as_str).collect();
+        let text = crate::strings::substitute(body, &args);
+        let start = self.screen.color();
+        self.screen.set_color(Color::DEFAULT);
+        let mut left = width;
+        for t in tokenize(&fluxbbs_term::cp437::encode(&text), Source::String) {
+            let cur = self.screen.color();
+            match t {
+                Token::Text(bytes) => {
+                    // Escape sequences in a string aren't shown here.
+                    let plain: Vec<u8> = bytes.iter().copied().filter(|&b| b >= 0x20).collect();
+                    let n = plain.len().min(left);
+                    self.screen.write_bytes(&plain[..n]);
+                    left -= n;
+                }
+                Token::Ctrl(Control::Fore(n)) => self.screen.set_color(Color { fore: n, ..cur }),
+                Token::Ctrl(Control::Back(n)) => self.screen.set_color(Color { back: n, ..cur }),
+                Token::Ctrl(Control::Theme(n)) => {
+                    if let Some(col) = self.user.palette.index(n) {
+                        self.screen.set_color(col);
+                    }
+                }
+                Token::Mci(code) => {
+                    let v = self.mci_value(code).unwrap_or_else(|| format!("%{}{}", code[0] as char, code[1] as char));
+                    let v: String = v.chars().take(left).collect();
+                    left -= v.chars().count();
+                    self.write(&v);
+                }
+                _ => {}
+            }
+            if left == 0 {
+                break;
+            }
+        }
+        self.screen.set_color(start);
+    }
+
+    /// Edit one string on a screen of its own: the stock text above for
+    /// reference, the preview below updating as you type. Ctrl-R puts
+    /// back the stock text.
+    async fn string_edit(&mut self, number: usize, name: &str) -> io::Result<()> {
+        use crate::input::Key;
+        let strings = self.strings();
+        let stock = strings.stock(name).to_string();
+        let mut buf: Vec<char> = strings.get(name).chars().collect();
+        let mut cur = buf.len();
+        let mut scroll = 0usize;
+        const W: usize = 79;
+        const EDIT_Y: u16 = 8;
+        const PREVIEW_Y: u16 = 11;
+        self.clear_screen();
+        self.write_with_controls(&format!("|U1String |U3{number}|U2: |U4{name}"));
+        self.newline();
+        self.rule().await?;
+        self.show_line("|U1Stock|U2:").await?;
+        self.set_slot(Slot::Info);
+        self.write(&squish(&stock, W));
+        self.newline();
+        self.write("  ");
+        self.string_preview(&stock, W - 3);
+        self.newline();
+        self.rule().await?;
+        self.show_line("|U1Text|U2:").await?;
+        self.screen.goto(1, PREVIEW_Y - 1);
+        self.show("|U1Preview|U2:").await?;
+        self.screen.goto(1, PREVIEW_Y + 2);
+        self.rule().await?;
+        self.show("|U5[|U6enter|U5] |U4save  |U5[|U6esc|U5] |U4cancel  |U5[|U6ctrl-r|U5] |U4stock text  |U5[|U6arrows/home/end|U5] |U4move").await?;
+        let saved = loop {
+            // The edit line scrolls sideways to keep the cursor in view.
+            if cur < scroll {
+                scroll = cur;
+            } else if cur >= scroll + W {
+                scroll = cur + 1 - W;
+            }
+            let shown: String = buf.iter().skip(scroll).take(W).collect();
+            self.screen.goto(1, EDIT_Y);
+            self.set_slot(Slot::Edit);
+            self.write(&shown);
+            self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+            self.screen.clear_eol();
+            let text: String = buf.iter().collect();
+            self.screen.goto(3, PREVIEW_Y);
+            self.screen.clear_eol();
+            self.string_preview(&text, W - 3);
+            self.screen.goto((cur - scroll + 1) as u16, EDIT_Y);
+            self.flush().await?;
+            match self.read_key().await? {
+                Key::Enter => break Some(text),
+                Key::Esc => break None,
+                Key::Left => cur = cur.saturating_sub(1),
+                Key::Right => cur = (cur + 1).min(buf.len()),
+                Key::Home => cur = 0,
+                Key::End => cur = buf.len(),
+                Key::Backspace if cur > 0 => {
+                    cur -= 1;
+                    buf.remove(cur);
+                }
+                Key::Del if cur < buf.len() => {
+                    buf.remove(cur);
+                }
+                Key::Char(0x12) => {
+                    buf = stock.chars().collect();
+                    cur = buf.len();
+                }
+                Key::Char(c) if c >= 0x20 && buf.len() < 255 => {
+                    buf.insert(cur, fluxbbs_term::cp437::TO_UNICODE[c as usize]);
+                    cur += 1;
+                }
+                _ => {}
+            }
+        };
+        if let Some(v) = saved.filter(|v| v != strings.get(name)) {
+            let mut new = (*self.strings()).clone();
+            new.set(name, v);
+            self.state.set_strings(new).map_err(io_err)?;
+            tracing::info!("{}: changed string {name}", self.user.handle);
+        }
+        Ok(())
+    }
+}
+
+impl Session {
+    /// `*G`: who's banned and what failed lately, and lift a ban.
+    pub async fn security_view(&mut self) -> io::Result<()> {
+        let bans = self.state.guard.bans();
+        let events = self.state.sys.security_events(20).map_err(io::Error::other)?;
+        self.clear_screen();
+        self.newline();
+        self.set_slot(Slot::Info);
+        self.show_line("|U4 Banned address                             Left").await?;
+        self.rule().await?;
+        if bans.is_empty() {
+            self.show_line("|U1 (nobody)").await?;
+        }
+        for (ip, left) in &bans {
+            let line = format!("|U1 {} |U3{}m", resize(&ip.to_string(), 40), left.as_secs().div_ceil(60));
+            self.show_line(&line).await?;
+        }
+        self.newline();
+        self.set_slot(Slot::Info);
+        self.show_line("|U4 When            Address                      What").await?;
+        self.rule().await?;
+        if events.is_empty() {
+            self.show_line("|U1 (nothing)").await?;
+        }
+        for (at, ip, what) in &events {
+            let line = format!("|U1 {} {} |U3{}", resize(&self.local(*at).format("%m/%d/%y %H:%M").to_string(), 15), resize(ip, 28), what);
+            self.show_line(&line).await?;
+        }
+        self.rule().await?;
+        if bans.is_empty() {
+            return Ok(());
+        }
+        self.show("|U1Lift the ban on which address |U5[|U4enter|U5=|U4none|U5, |U4all|U5]: |U3").await?;
+        let who = self.read_string(crate::input::ReadOpts::new(45)).await?;
+        self.newline();
+        let who = who.trim().to_string();
+        if who.is_empty() {
+            return Ok(());
+        }
+        let lifted: Vec<std::net::IpAddr> = if who.eq_ignore_ascii_case("all") {
+            bans.iter().map(|(ip, _)| *ip).collect()
+        } else {
+            who.parse().into_iter().collect()
+        };
+        let mut n = 0;
+        for ip in lifted {
+            if self.state.guard.unban(ip) {
+                n += 1;
+                let _ = self.state.sys.clear_ban(&ip.to_string());
+                tracing::info!("{}: lifted the ban on {ip}", self.user.handle);
+                let _ = self.state.sys.log_security(&ip.to_string(), &format!("ban lifted by {}", self.user.handle));
+            }
+        }
+        let s = if n > 0 { format!("|U1Lifted |U3{n}|U1 ban(s)|U2.") } else { "|U4No ban on that address|U5.".into() };
+        self.show_line(&s).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn search_wraps_and_matches_names() {
+        let names = ["Pause", "HitAKey", "LoginName"];
+        let text = |n: &str| match n {
+            "Pause" => "paused - stop".to_string(),
+            "HitAKey" => "press a key".to_string(),
+            _ => "your name".to_string(),
+        };
+        assert_eq!(search(&names, text, 0, "KEY"), Some(1));
+        assert_eq!(search(&names, text, 2, "stop"), Some(0), "wraps around");
+        assert_eq!(search(&names, text, 0, "loginname"), Some(2), "names match too");
+        assert_eq!(search(&names, text, 0, "zzz"), None);
+    }
+}

@@ -2,11 +2,11 @@
 
 ## Layout
 
-- `crates/iniquity-term`: CP437, DOS colors, the ANSI cursor/color
+- `crates/fluxbbs-term`: CP437, DOS colors, the ANSI cursor/color
   model and the display-code parser. No I/O.
 - `crates/iniquity-legacy`: readers for the Turbo Pascal data files,
   checked byte-for-byte against a stock install.
-- `crates/iniquity`: the server.
+- `crates/fluxbbs`: the server.
   - Connections: `ssh.rs`, `telnet.rs`, `guard.rs` (limits and bans),
     `challenge.rs` (bot check), `nodes.rs`, `session.rs` (output and the
     display engine), `input.rs`.
@@ -20,7 +20,7 @@
     waiting-for-caller screen).
   - `import.rs`: the legacy importer.
 - `menus/`, `text/`, `themes/`, `*.toml`: the stock r5 setup, imported.
-- `crates/iniquity/assets/strings.toml`: the stock prompt strings, built
+- `crates/fluxbbs/assets/strings.toml`: the stock prompt strings, built
   in.
 - [ARTWORK.md](ARTWORK.md): checklist of screens to replace with custom art.
 - `tools/ansi2png.py`: renders an ANSI file to PNG for previews.

@@ -1,6 +1,11 @@
 # Working on this repo
 
-A Rust port of the Iniquity BBS (Turbo Pascal, 1.00a26r5). `README.md` is
+flux/bbs (`fluxbbs` where a slash can't go: the program, crates, files,
+container), a Rust BBS that began as a port of the Iniquity BBS (Turbo
+Pascal, 1.00a26r5); credit Iniquity, but it's no longer called that.
+The checkout folder is still `inq/iniquity`, and the image keeps the
+stock files at `/srv/inq/iniquity`, which boards' configs point at.
+`README.md` is
 the source of truth for what's done and **what's left to port** (the table
 under "What's left to port"); keep it current when features land.
 `docs/NEW.md` tracks what's new over the original (and what changed on
@@ -8,11 +13,11 @@ purpose): add a line there for every feature the original didn't have.
 
 ## Setting up a new host
 
-    git clone git@github.com:phrac/iniquity.git && cd iniquity
+    git clone git@github.com:phrac/fluxbbs.git && cd fluxbbs
     tools/setup_host.sh
 
 That unpacks the stock install into `original/stock/` (git-ignored), builds,
-and, if there's no `data/iniquity.db`, creates one from the stock install
+and, if there's no `data/fluxbbs.db` (or older `iniquity.db`), creates one from the stock install
 (SysOp / `SYSOP`, system password `SYSTEM`) without touching the committed
 config. SSH host keys are made in `data/` on first run. Showing PDFs
 needs Poppler (`poppler-utils`; in the Docker image, not on rzn itself,
@@ -35,12 +40,12 @@ git: copy `data/` and `files/` across if the board should move with you.
   strings, menus, records and callers; say so when doing the same.
 - Turbo Pascal files are CP437 with CRLF: read them with
   `iconv -f cp437 -t utf-8 FILE.PAS | tr -d '\r'`.
-- `crates/iniquity-dos`: the DOS machine DOS doors run in (real-mode x86
+- `crates/fluxbbs-dos`: the DOS machine DOS doors run in (real-mode x86
   core, BIOS, FOSSIL, DOS, batch files). `tests/dos/*.asm` are test
   programs built with nasm (`tests/dos/build.sh`; the `.com` files are
   committed). The CPU core is checked against the SingleStepTests 8088
   suite: unpack its `v2/*.json.gz` and `metadata.json` somewhere and run
-  `SST8088_DIR=dir cargo test -p iniquity-dos --release --test sst8088
+  `SST8088_DIR=dir cargo test -p fluxbbs-dos --release --test sst8088
   -- --ignored --nocapture`.
   The 286 and 386 real-mode suites (SingleStepTests/80286, /80386) run the
   same way through `tests/sst286.rs` and `tests/sst386.rs` (their headers
@@ -48,12 +53,12 @@ git: copy `data/` and `files/` across if the board should move with you.
   RAM on rzn). The CPU is a 386 by default; `model_286` gives the 286's
   differences for its suite. At last run: 4 of 1.48M (a 286 IDIV quirk)
   and 1,814 of 1.76M (segment-limit edge cases) fail.
-  To try a door outside the BBS, `cargo build --release -p iniquity-dos
+  To try a door outside the BBS, `cargo build --release -p fluxbbs-dos
   --examples` gives `target/release/examples/dosrun C_ROOT D_ROOT CMD`:
   stdin is the caller, stdout what they'd see, the machine's log on
   stderr, and `SCREEN=file` keeps the local text screen; `DOS_TRACE=1`
   logs every DOS/BIOS call, `TRACE_RING=N` records the last N
-  instructions for `crates/iniquity-dos/tools/replay_trace.py`, which
+  instructions for `crates/fluxbbs-dos/tools/replay_trace.py`, which
   replays each one on QEMU's CPU (pip `unicorn`) and reports any
   disagreement (`trace_chunks.py` splits a long trace for parallel
   runs); `DOS_DATE` and `MEM_FILL` fake the date and dirty memory. When
@@ -72,7 +77,7 @@ git: copy `data/` and `files/` across if the board should move with you.
 ## How the user likes to work
 
 - Commit only when asked. They usually say "commit and continue"; commit,
-  push (`origin` is the private `github.com/phrac/iniquity`), carry on.
+  push (`origin` is the private `github.com/phrac/fluxbbs`), carry on.
 - Follow the original's behavior and names (`cfgEditFileArea`, strings by
   their `str*` names), but modernize where DOS-era design doesn't fit (TOML
   and SQLite instead of `.DAT`, directories instead of packed `.TFL`, SSH
@@ -94,9 +99,10 @@ git: copy `data/` and `files/` across if the board should move with you.
   WELCOME, AICHAT;
   each says how to run it):
   change the script and rerun it rather than editing the `.ANS`.
-  Board settings go there, not in the repo's `iniquity.toml`: handles
+  Board settings go there, not in the repo's `fluxbbs.toml`: handles
   kept as typed (`alias_format = 1`), new users asked only for handle and
-  password. Run it with `iniquity ~/code/disflux_bbs/iniquity.toml`. The
+  password. Run it with `fluxbbs ~/code/disflux_bbs/iniquity.toml` (disflux
+  predates the rename and keeps `iniquity.toml` and `data/iniquity.db`). The
   repo's own `data/` is just a dev copy.
 
 ## Conventions
@@ -114,7 +120,7 @@ git: copy `data/` and `files/` across if the board should move with you.
   move).
 - `Session` isn't `Sync`: never hold `&self` across an `.await` in a method
   that a spawned future uses (take `&mut self`, or copy what you need).
-- New prompt strings go at the end of `crates/iniquity/assets/strings.toml`
+- New prompt strings go at the end of `crates/fluxbbs/assets/strings.toml`
   under a name, so SysOps can change them with `*E`.
 
 ## Testing
@@ -124,7 +130,7 @@ git: copy `data/` and `files/` across if the board should move with you.
     cargo clippy --all-targets
 
 Test features **live** as well: run the server (`cargo build`, then
-`./target/debug/iniquity` from the repo root; logs to stderr) and drive it
+`./target/debug/fluxbbs` from the repo root; logs to stderr) and drive it
 with the scripted callers in `tools/`:
 
     python3 tools/drive_ssh.py sysop syncterm 'in order=>@solve' \
@@ -160,7 +166,7 @@ Things that trip tests up:
   prompt. Lightbar menus treat `4`/`6` as arrow keys.
 - Many screens end in a "press any key" pause; add `opt:any key=>\r` steps.
 - **Back up and restore the board's data around live tests**:
-  `data/iniquity.db` and the `*.toml` files (git restores tracked ones;
+  `data/fluxbbs.db` (disflux: `iniquity.db`) and the `*.toml` files (git restores tracked ones;
   editors create `levels.toml`, `strings.toml`, `themes.toml` etc., which
   should be removed again if a test made them).
 - In zsh, an unmatched glob aborts the whole command; and `pkill -f` with a
@@ -171,7 +177,7 @@ Things that trip tests up:
 `disfluxbbs.com` runs on `rzn` in Docker (`~/code/inq/iniquity` is the
 checkout, `~/code/disflux_bbs` the board, SSH 2222, telnet 23; update with
 `git pull && docker compose -f deploy/docker-compose.yml up -d --build`,
-logs with `docker logs -f iniquity`). A deploy restarts the board and
+logs with `docker logs -f fluxbbs`). A deploy restarts the board and
 drops callers: check `curl -s 127.0.0.1:8099/status.json` first and wait
 if anyone is on. To hand-edit the board's TOML (`strings.toml`,
 `fileareas.toml`...), stop the container first (`docker compose ...
@@ -208,7 +214,7 @@ Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
 
 ## textfiles.com, 22 Oct 2026
 
-`iniquity textfiles fetch DIR` / `import CONFIG` (`textfiles.rs`, docs in
+`fluxbbs textfiles fetch DIR` / `import CONFIG` (`textfiles.rs`, docs in
 `docs/FILES.md`) put the whole archive on a board as areas of its own (the sections
 top-level, their directories as sub-areas; no group): 57,909 files in
 649 directories from the meulie.net mirror's pages plus the 2007 tarballs
@@ -231,7 +237,7 @@ built (`ftn.rs`, `ftntoss.rs`, `binkp.rs`) and tested against binkd in a
 container: a `debian:bookworm-slim` image with `binkd` installed, a
 config with `address 21:1/100@fsxnet`, `node 21:1/999@fsxnet - SESSPW`
 and `domain fsxnet /hub/outbound 21`, packets for the node dropped in its
-outbound as `000103e7.out`, and the board polled with `iniquity ftn
+outbound as `000103e7.out`, and the board polled with `fluxbbs ftn
 poll`. For the hub calling in, run binkd with `--network host` (rzn's
 firewall drops Docker-to-host connections), give its `node` line
 `127.0.0.1:<port>`, set `[ftn] listen` to that port, and drop the packet

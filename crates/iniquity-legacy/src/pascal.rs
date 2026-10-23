@@ -1,6 +1,6 @@
 //! Little-endian Turbo Pascal record fields.
 
-use iniquity_term::{Color, cp437};
+use fluxbbs_term::{Color, cp437};
 
 pub struct Reader<'a> {
     buf: &'a [u8],

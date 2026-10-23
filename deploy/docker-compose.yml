@@ -12,10 +12,10 @@
 # listening on 0.0.0.0:8099 inside the container) is published on the
 # host's loopback only, for a web server there to pass through.
 services:
-  iniquity:
+  fluxbbs:
     build: ..
-    image: iniquity
-    container_name: iniquity
+    image: fluxbbs
+    container_name: fluxbbs
     restart: unless-stopped
     user: "${BBS_UID:-1000}:${BBS_GID:-1000}"
     working_dir: /srv/board

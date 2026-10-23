@@ -21,7 +21,7 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   keystroke sent as it's typed. `/q` ends it, `/bye` from the SysOp
   hangs the caller up, `/cls` clears the windows, `/?` shows CHATHELP. Chat hours, the
   override ACS and password, pages per call and how long a page lasts
-  are `[chat]` in `iniquity.toml`; outside the hours, or with no SysOp
+  are `[chat]` in `fluxbbs.toml`; outside the hours, or with no SysOp
   online, the caller is offered email instead.
 
 **Keeping bots out**
@@ -34,7 +34,7 @@ Everything the port does, in detail. The [README](../README.md) has the short li
 - Bans and failures are kept in the database: bans survive a restart,
   SysOps are told at logon how many failures and bans there have been
   since their last call, `*G` lists them and lifts bans, and
-  `iniquity unban ADDRESS|all` does so from the shell for a SysOp
+  `fluxbbs unban ADDRESS|all` does so from the shell for a SysOp
   locked out of their own board.
 
 **The board**
@@ -122,29 +122,29 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   [SCRIPTING.md](SCRIPTING.md).
 - QWK offline mail: `QD` packs new messages (email as conference 0)
   for an offline reader, `QU` posts the replies (`[qwk]` in
-  `iniquity.toml`). See [QWK offline mail](#qwk-offline-mail).
+  `fluxbbs.toml`). See [QWK offline mail](#qwk-offline-mail).
 - Doors, native and DOS (in the built-in DOS machine): `D1` DORINFO1.DEF, `D2` DOOR.SYS,
   `D3` CHAIN.TXT, `D4` DOOR32.SYS, `DZ` DOOR.SYS and DORINFO1.DEF, `D0`
   none, `D7` DOOR.SYS read back afterwards (2.0). See [DOORS.md](DOORS.md).
 
 **SysOp tools** (the `*` commands on the SysOp menu)
-- `*C` system configuration, written back to `iniquity.toml` keeping its
+- `*C` system configuration, written back to `fluxbbs.toml` keeping its
   comments; `*E` prompt strings; `*#` menus; `*L` access levels.
 - `*U` users (with colors, preferences, auto-signature, infoforms).
   New: in the flags field (`=`), the info line says what the flag under
   the cursor is for and which menus, areas and settings test it; `?`
-  describes it (kept in `[flags]` in `iniquity.toml`).
+  describes it (kept in `[flags]` in `fluxbbs.toml`).
 - `*F` file areas (new: a bar list in tree order with `/` to search it;
   Enter edits the area under the bar, `I` adds one before it, under the
   same parent, and edits it, `D` deletes it, `M` moves it and `S` sorts
   a level by name: the sub-areas of the area under the bar, or the
   areas beside it if it has none), `*Y` files (validate, move, extract/apply DIZ), `*S`
   sort areas, `*>` download any file, `*%` local upload (add files
-  copied into the area's directory; `iniquity add-files` does every
+  copied into the area's directory; `fluxbbs add-files` does every
   area from the shell, for a mirror, say: a ZIP without a FILE_ID.DIZ
   is described by what's in it), `*K` pack file areas (forget files
-  missing from their directories; also `iniquity pack-files` from the
-  shell, as FILEPACK.EXE was). `iniquity textfiles` (new) puts the
+  missing from their directories; also `fluxbbs pack-files` from the
+  shell, as FILEPACK.EXE was). `fluxbbs textfiles` (new) puts the
   textfiles.com archive on the board as a tree of areas
   ([FILES](FILES.md#the-textfilescom-archive)).
 - `*A` message areas, `*P` pack them, `*@`/`*!` conferences, `*R` all
@@ -158,7 +158,7 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   a menu, read or view email, edit a text file, and stats pages (system,
   totals, today, last callers). The node and event fields show callers
   on and the next event; the window that echoed the modem shows the log
-  (all of it goes to `data/iniquity.log`). ESC exits unless `[wfc]
+  (all of it goes to `data/fluxbbs.log`). ESC exits unless `[wfc]
   esc_to_exit` is off; `*C` has the settings. Modem commands, modem setup
   and MicroDOS are left out. WAIT4CAL.PAS is damaged, so the stats pages
   are rebuilt from their titles and fragments.
@@ -452,7 +452,7 @@ been posted here and tosses what came (`ftntoss.rs`).
   are left out, so nothing typed can pass for a control line; coming
   in, only the SEEN-BY lines at the end of a message count.
 - Netmail for the node goes to the named caller's email (else the
-  SysOp's), from `name@address`. `iniquity ftn areafix +FSX_GEN -FSX_X`
+  SysOp's), from `name@address`. `fluxbbs ftn areafix +FSX_GEN -FSX_X`
   (or `%LIST`) asks the hub's AreaFix to link and unlink echoes.
 - The hub can call the board too, to deliver mail as it arrives
   ("crash" rather than "hold"): with `[ftn] listen` set (`0.0.0.0:24554`,
@@ -461,7 +461,7 @@ been posted here and tosses what came (`ftntoss.rs`).
   one counts as a failed login (security log, bans), and connections
   are held to the same per-address limits as callers. One session runs
   at a time, and one toss or scan, across processes too (lock files in
-  `data/ftn`, so `iniquity ftn` beside the running board is safe): a
+  `data/ftn`, so `fluxbbs ftn` beside the running board is safe): a
   call during a poll is told to try again. A hub that has part of a
   file from a broken session can ask for the rest (M_GET). A poll the
   hub answers as non-secure (it doesn't have the session password yet)
@@ -473,7 +473,7 @@ been posted here and tosses what came (`ftntoss.rs`).
 - `[ftn]` (or "FTN Echomail" in `*C`): the node's address with its
   domain (`21:1/999@fsxnet`), the hub's address and binkp host, the
   session, packet and AreaFix passwords, the origin line, how often
-  to poll, and where to answer. `iniquity ftn poll`, `toss` and `scan` run the jobs by hand.
+  to poll, and where to answer. `fluxbbs ftn poll`, `toss` and `scan` run the jobs by hand.
 
     [ftn]
     enabled = true
@@ -529,7 +529,7 @@ WHATSNEW.IQ2, menus, screens and 2.20's string table and notes.
   `%TB` (time in the bank), `|PO`/`|PE`/`|PD` (accepted; screens don't
   pause here). "Set newscan date" starts at the date the pointer is at.
 - File lists for the web: `/files.txt` and `/files.html` (2.0's
-  `iniquity fltxt`/`flhtml`), only areas a new caller could open.
+  `fluxbbs fltxt`/`flhtml`), only areas a new caller could open.
 - A cap on imported description lines (`*C`, Files: DIZ lines).
 - `bbs.inmenu(keys)` for scripts (IPL's `isincurmenu`); the rest of
   2.0's new IPL functions have Lua equivalents (see SCRIPTING.md).

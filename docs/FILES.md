@@ -39,13 +39,13 @@ uploads, conferences) treats sub-areas like any other area.
 
 ## The textfiles.com archive
 
-New: `iniquity textfiles` puts Jason Scott's textfiles.com collection
+New: `fluxbbs textfiles` puts Jason Scott's textfiles.com collection
 (some 58,000 files, 1.3 GB, in 43 sections and several hundred
 directories under them) on the board as file areas, sorted as the site
 sorts it.
 
-    iniquity textfiles fetch ~/board/files/textfiles
-    iniquity textfiles import ~/board/iniquity.toml
+    fluxbbs textfiles fetch ~/board/files/textfiles
+    fluxbbs textfiles import ~/board/fluxbbs.toml
 
 `fetch` reads the mirror's index pages (the catalog: each directory's
 heading, each file's size and the site's one-line description, or its
@@ -93,10 +93,10 @@ In the container (the board at `/srv/board`), `fetch` runs beside the
 live board and `import` in its place:
 
     docker compose -f deploy/docker-compose.yml exec iniquity \
-        iniquity textfiles fetch files/textfiles
+        fluxbbs textfiles fetch files/textfiles
     docker compose -f deploy/docker-compose.yml stop
     docker compose -f deploy/docker-compose.yml run --rm iniquity \
-        iniquity textfiles import iniquity.toml
+        fluxbbs textfiles import fluxbbs.toml
     docker compose -f deploy/docker-compose.yml up -d
 
 The files section is sized for it: the area lists read counts rather

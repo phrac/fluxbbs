@@ -1,12 +1,17 @@
 # New over the original
 
-What this port has that Iniquity 1.00a26r5 didn't, and where it behaves
+What flux/bbs has that Iniquity 1.00a26r5 didn't, and where it behaves
 differently on purpose. Features from the later 2.0 and 2.20 releases
 are listed apart, at the end; features of 1.00a26r5 whose code didn't
 survive (the time bank, multinode chat, email tags, attachments...) and
 were rebuilt from its manual and strings aren't new, so they aren't
 here. Keep this current: when a feature lands that the original didn't
 have, add it here (and the details in the doc it belongs to).
+
+It goes by its own name: flux/bbs (`fluxbbs` for the program, its
+files and container), crediting Iniquity; it says so in `%IN`/`%VL`,
+FTN tear lines and binkp's `VER`. Boards set up before the rename keep
+`iniquity.toml` and `data/iniquity.db`.
 
 ## Connections and storage
 
@@ -28,7 +33,7 @@ have, add it here (and the details in the doc it belongs to).
   messages, files and descriptions, areas, conferences, levels, strings,
   menus, screens, stats, history, callers, BBS list, infoforms, votes,
   text libraries as themes. ([SYSOP](SYSOP.md))
-- Shell commands: `iniquity import`, `unban`, `add-files`, `pack-files`,
+- Shell commands: `fluxbbs import`, `unban`, `add-files`, `pack-files`,
   `textfiles`, `--wfc`. A Docker image and compose file.
 - A board's own `menus/` overrides the stock ones file by file.
 
@@ -83,7 +88,7 @@ have, add it here (and the details in the doc it belongs to).
   through bsdtar or 7-Zip.
 - Log off after a download, with a countdown.
 - Web file lists (`/files.txt`, `/files.html`) are from 2.0, below.
-- The textfiles.com archive as file areas: `iniquity textfiles fetch`
+- The textfiles.com archive as file areas: `fluxbbs textfiles fetch`
   catalogs the mirror and brings the files down, `import` adds the
   site's sections as file areas with its directories as sub-areas and
   its descriptions on every file. ([FILES](FILES.md#the-textfilescom-archive))
@@ -209,7 +214,7 @@ answers), `~NA` `~NF` `~SZ` in LISTFILE and GALLERY (files, folders,
 size), `~TN` `~SS` `~SH` in the BBS list screens (telnet, SSH, SSH
 short), `~P?` (SSH keys), `~Q?` (plan) and `~R?` (time zone) in USERCFG.
 
-New settings sections in `iniquity.toml`: `[ssh]`, `[telnet]`, `[web]`,
+New settings sections in `fluxbbs.toml`: `[ssh]`, `[telnet]`, `[web]`,
 `[gallery]`, `[security]`, `[passwords]`, `[dos]`, `[ai]`,
 `[meshcore]`, `[ftn]`; and new keys elsewhere, chiefly upload screening in
 `[files]` and sign-up limits in `[newuser]`. New prompt strings are at

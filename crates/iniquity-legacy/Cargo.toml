@@ -6,5 +6,5 @@ license.workspace = true
 
 [dependencies]
 chrono = "0.4.45"
-iniquity-term = { version = "0.1.0", path = "../iniquity-term" }
+fluxbbs-term = { version = "0.1.0", path = "../fluxbbs-term" }
 thiserror = "2.0.21"

@@ -11,7 +11,7 @@ import os
 import re
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-SRC = os.path.join(HERE, '..', 'crates', 'iniquity', 'src', 'challenge.rs')
+SRC = os.path.join(HERE, '..', 'crates', 'fluxbbs', 'src', 'challenge.rs')
 W, H = 40, 9
 
 

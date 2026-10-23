@@ -11,14 +11,14 @@ stock SysOp account is `SysOp` / `SYSOP`, with system password `SYSTEM`
 or type `new` at the login prompt.
 
 SSH host keys (Ed25519, ECDSA and RSA) are made in `data/` on first run.
-The database is `data/iniquity.db`; uploaded files live under `files/`.
+The database is `data/fluxbbs.db`; uploaded files live under `files/`.
 Neither is in git.
 
 ## Running in a container
 
 `Dockerfile` builds an image with the server and the stock screens,
 menus, themes and scripts at `/srv/inq/iniquity`; a board directory
-(its `iniquity.toml`, `data/`, `files/`, own screens) is mounted at
+(its `fluxbbs.toml`, `data/`, `files/`, own screens) is mounted at
 `/srv/board`, so a board whose config points at `../inq/iniquity/...`
 works the same inside. `deploy/docker-compose.yml` runs one board,
 SSH on the host's 2222 and telnet on 23:
@@ -28,13 +28,13 @@ SSH on the host's 2222 and telnet on 23:
 `BOARD` is the board directory (default `~/code/disflux_bbs` for a
 checkout at `~/code/inq/iniquity`), `BBS_UID`/`BBS_GID` who the server
 runs as (default 1000, which must own the board directory). Logs go to
-`docker logs iniquity`.
+`docker logs fluxbbs`.
 
 ## Configuration
 
 | File | What | Edited with |
 |---|---|---|
-| `iniquity.toml` | system settings, `[security]`, `[nuv]`, `[telnet]`, `[chat]`, `[qwk]`, `[dos]` | `*C` |
+| `fluxbbs.toml` | system settings, `[security]`, `[nuv]`, `[telnet]`, `[chat]`, `[qwk]`, `[dos]` | `*C` |
 | `levels.toml` | access levels A–Z | `*L` |
 | `msgareas.toml` | message conferences and areas | `*A`, `*@` |
 | `fileareas.toml` | file conferences and areas | `*F`, `*!` |
@@ -55,9 +55,9 @@ restart.
 
 ### Running a board outside the repo
 
-Paths in `iniquity.toml` are relative to that file, so a board can live
+Paths in `fluxbbs.toml` are relative to that file, so a board can live
 in its own directory, apart from the code, and be started with
-`iniquity /path/to/board/iniquity.toml`. Copy `iniquity.toml`,
+`fluxbbs /path/to/board/fluxbbs.toml`. Copy `fluxbbs.toml`,
 `msgareas.toml` and `fileareas.toml` there, and point the shared parts back
 at the repo:
 
@@ -77,20 +77,20 @@ board, and the repo stays stock.
 
 ## Importing an existing Iniquity install
 
-    iniquity import /path/to/old/INIQUITY [dest-dir] [--force]
+    fluxbbs import /path/to/old/INIQUITY [dest-dir] [--force]
 
 | from | to |
 |---|---|
-| INIQUITY.DAT | iniquity.toml |
+| INIQUITY.DAT | fluxbbs.toml |
 | DATA\LEVELS.DAT | levels.toml |
 | DATA\STRINGS.DAT | strings.toml |
-| DATA\USERS.DAT | data/iniquity.db |
+| DATA\USERS.DAT | data/fluxbbs.db |
 | DATA\MSGAREA.DAT, EMAIL.DAT, MSGCONF.DAT | msgareas.toml |
-| MSGS\*.HDR, *.DAT | data/iniquity.db |
+| MSGS\*.HDR, *.DAT | data/fluxbbs.db |
 | DATA\FILEAREA.DAT, FILECONF.DAT | fileareas.toml |
-| DATA\*.DIR, FILEDESC.DAT | data/iniquity.db |
-| DATA\STATS, HISTORY, CALLERS, BBSLIST.DAT | data/iniquity.db |
-| DATA\INFOFORM.DAT, INFOFORM.nnn, NUV.DAT | infoforms.toml, data/iniquity.db |
+| DATA\*.DIR, FILEDESC.DAT | data/fluxbbs.db |
+| DATA\STATS, HISTORY, CALLERS, BBSLIST.DAT | data/fluxbbs.db |
+| DATA\INFOFORM.DAT, INFOFORM.nnn, NUV.DAT | infoforms.toml, data/fluxbbs.db |
 | DATA\TEXTLIB.DAT, *.TFL | themes.toml, themes/NAME/ |
 | MENU\*.MNU | menus/*.toml |
 | TEXT\* | text/ |
@@ -101,7 +101,7 @@ directory (the importer says where).
 
 ## Keeping bots out
 
-`[security]` in `iniquity.toml`, or the Security section of `*C`:
+`[security]` in `fluxbbs.toml`, or the Security section of `*C`:
 
 - **Bot check**: every caller first types three big characters drawn
   on screen (30 seconds, 3 goes by default). They're drawn with

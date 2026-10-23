@@ -1,7 +1,11 @@
-# Iniquity BBS, in Rust
+# flux/bbs
 
-A port of **Iniquity** (Mike Fricker and the Iniquity Development Team,
-1995–97, Turbo Pascal, 1.00a26r5) for running a BBS on today's internet.
+A BBS for today's internet, written in Rust and based on **Iniquity**
+(Mike Fricker and the Iniquity Development Team, 1995–97, Turbo Pascal,
+1.00a26r5): a port of it first, and much more since (a DOS machine for
+doors, FTN mail, a message center after PTT, AI chat, an art gallery).
+`fluxbbs` is the name wherever a slash can't go (the program, crates,
+files, container).
 
 SSH and telnet replace the modems, SQLite and TOML replace the `.DAT`
 files, and it all runs in one process. The stock screens, menus and
@@ -12,7 +16,7 @@ prompts are kept, so an old Iniquity board imports and looks the same.
 ## Quick start
 
     tools/setup_host.sh                      # first time: stock data, build
-    cargo run --release                      # serves iniquity.toml
+    cargo run --release                      # serves fluxbbs.toml
     ssh -p 2222 anyname@localhost            # UTF-8 terminal
     syncterm ssh://anyname@localhost:2222    # CP437 BBS terminal
     syncterm telnet://localhost:2323         # plain telnet
@@ -21,7 +25,7 @@ Log in as `SysOp` / `SYSOP` (system password `SYSTEM`), and change both.
 New callers pick "apply as new" or type `new` at the login prompt.
 
 `--wfc` adds the waiting-for-caller screen on the console. The database
-is `data/iniquity.db` and uploads live in `files/`; neither is in git.
+is `data/fluxbbs.db` and uploads live in `files/`; neither is in git.
 
 ## In a container
 
@@ -29,7 +33,7 @@ is `data/iniquity.db` and uploads live in `files/`; neither is in git.
 
 The image holds the server and the stock files; your board directory
 (`BOARD`, default `~/code/disflux_bbs`) is mounted beside them. SSH is
-on port 2222, telnet on 23, logs in `docker logs iniquity`.
+on port 2222, telnet on 23, logs in `docker logs fluxbbs`.
 
 ## What's done
 
@@ -59,7 +63,7 @@ escalating bans, password rules and sign-up limits.
 - A JSON feed for the board's website
 - A MeshCore radio bridge: mesh channels as message areas
 - The textfiles.com archive as file areas, the site's tree and
-  descriptions kept (`iniquity textfiles`)
+  descriptions kept (`fluxbbs textfiles`)
 - From 2.0/2.20: the voting booth, newscan selections, message search,
   invisible logons, chat commands, door names in the status, web file
   lists ([details](docs/FEATURES.md#from-20-and-220))
@@ -102,5 +106,6 @@ converters.
 ## Credits
 
 Iniquity BBS © 1995–97 Mike Fricker and the Iniquity Development Team.
-This port reimplements its behavior in Rust; the stock screens, menus
-and strings are the original's.
+flux/bbs began as a port of it and reimplements its behavior in Rust;
+the stock screens, menus and strings are the original's. Boards from
+before the rename keep their `iniquity.toml` and `data/iniquity.db`.

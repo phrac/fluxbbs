@@ -184,7 +184,7 @@ pub fn infoform_answers(buf: &[u8], user: u16) -> Option<Vec<String>> {
     let mut p = pos;
     for _ in 0..count {
         let len = *buf.get(p)? as usize;
-        out.push(iniquity_term::cp437::decode(buf.get(p + 1..p + 1 + len)?));
+        out.push(fluxbbs_term::cp437::decode(buf.get(p + 1..p + 1 + len)?));
         p += 1 + len;
     }
     Some(out)
@@ -205,10 +205,10 @@ pub fn parse_votes(buf: &[u8]) -> Vec<LegacyVote> {
     while p + 7 <= buf.len() {
         let voter = u16::from_le_bytes([buf[p], buf[p + 1]]);
         let candidate = u16::from_le_bytes([buf[p + 2], buf[p + 3]]);
-        let initials = iniquity_term::cp437::decode(&buf[p + 4..p + 6]);
+        let initials = fluxbbs_term::cp437::decode(&buf[p + 4..p + 6]);
         let len = buf[p + 6] as usize;
         let Some(c) = buf.get(p + 7..p + 7 + len) else { break };
-        out.push(LegacyVote { voter, candidate, initials, comment: iniquity_term::cp437::decode(c) });
+        out.push(LegacyVote { voter, candidate, initials, comment: fluxbbs_term::cp437::decode(c) });
         p += 7 + len;
     }
     out
@@ -238,7 +238,7 @@ impl LegacyTextLib {
         let mut files = Vec::new();
         for e in index.chunks(19) {
             let len = (e[0] as usize).min(12);
-            let name = iniquity_term::cp437::decode(&e[1..1 + len]);
+            let name = fluxbbs_term::cp437::decode(&e[1..1 + len]);
             let pos = u32::from_le_bytes([e[13], e[14], e[15], e[16]]) as usize;
             let size = u16::from_le_bytes([e[17], e[18]]) as usize;
             let data = buf.get(pos..pos + size).ok_or(crate::Error::Size { what: "TFL file", expected: pos + size, got: buf.len() })?;
@@ -250,7 +250,7 @@ impl LegacyTextLib {
 
 /// TEXTLIB.DAT: the installed libraries' names (`String[8]`), in order.
 pub fn text_lib_names(buf: &[u8]) -> Vec<String> {
-    buf.as_chunks::<9>().0.iter().map(|c| iniquity_term::cp437::decode(&c[1..1 + (c[0] as usize).min(8)])).collect()
+    buf.as_chunks::<9>().0.iter().map(|c| fluxbbs_term::cp437::decode(&c[1..1 + (c[0] as usize).min(8)])).collect()
 }
 
 #[cfg(test)]

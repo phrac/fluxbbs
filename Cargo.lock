@@ -731,6 +731,56 @@ dependencies = [
 ]
 
 [[package]]
+name = "fluxbbs"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "chrono",
+ "chrono-tz",
+ "flate2",
+ "fluxbbs-dos",
+ "fluxbbs-term",
+ "futures-util",
+ "hmac 0.12.1",
+ "image",
+ "iniquity-legacy",
+ "libc",
+ "md-5",
+ "mlua",
+ "rand",
+ "reqwest",
+ "rusqlite",
+ "russh",
+ "serde",
+ "serde_json",
+ "tar",
+ "tokio",
+ "toml",
+ "toml_edit",
+ "tracing",
+ "tracing-subscriber",
+ "zip",
+ "zmodem2",
+]
+
+[[package]]
+name = "fluxbbs-dos"
+version = "0.1.0"
+dependencies = [
+ "chrono",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "fluxbbs-term"
+version = "0.1.0"
+dependencies = [
+ "serde",
+]
+
+[[package]]
 name = "foldhash"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1249,62 +1299,12 @@ dependencies = [
 ]
 
 [[package]]
-name = "iniquity"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "chrono",
- "chrono-tz",
- "flate2",
- "futures-util",
- "hmac 0.12.1",
- "image",
- "iniquity-dos",
- "iniquity-legacy",
- "iniquity-term",
- "libc",
- "md-5",
- "mlua",
- "rand",
- "reqwest",
- "rusqlite",
- "russh",
- "serde",
- "serde_json",
- "tar",
- "tokio",
- "toml",
- "toml_edit",
- "tracing",
- "tracing-subscriber",
- "zip",
- "zmodem2",
-]
-
-[[package]]
-name = "iniquity-dos"
-version = "0.1.0"
-dependencies = [
- "chrono",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "iniquity-legacy"
 version = "0.1.0"
 dependencies = [
  "chrono",
- "iniquity-term",
+ "fluxbbs-term",
  "thiserror 2.0.21",
-]
-
-[[package]]
-name = "iniquity-term"
-version = "0.1.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]

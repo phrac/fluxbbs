@@ -22,7 +22,7 @@ Every value goes in shell-quoted, so don't put quotes around codes.
 
 **DOS doors.** A command whose program ends in `.BAT`, `.COM` or `.EXE`
 (the stock menus' `LORD.BAT`, say) runs in the built-in DOS machine
-(`crates/iniquity-dos`): a real-mode x86 with 640 KB, the BIOS video,
+(`crates/fluxbbs-dos`): a real-mode x86 with 640 KB, the BIOS video,
 keyboard and timer services, a FOSSIL (revision 5) and an 8250 COM1
 wired to the caller, and enough of DOS 5 for door programs (files,
 directories, memory, exec, batch files). Drop a door into a directory

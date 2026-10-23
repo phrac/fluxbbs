@@ -3,7 +3,7 @@
 Iniquity's IPL (the Iniquity Programming Language, compiled `.IPS` →
 `.IPX` modules) is replaced by [Lua 5.4](https://www.lua.org/manual/5.4/),
 built into the BBS. A script is a `.lua` file in `scripts/`
-(`[paths] scripts` in `iniquity.toml`). Old `.IPS` modules don't run;
+(`[paths] scripts` in `fluxbbs.toml`). Old `.IPS` modules don't run;
 the table at the end shows what each IPL call became, so porting one is
 mostly mechanical (see `scripts/oneliner.lua`, the stock ONELINER.IPS).
 

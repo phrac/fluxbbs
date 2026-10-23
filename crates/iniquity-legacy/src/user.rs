@@ -1,6 +1,6 @@
 //! USERS.DAT: an array of `tUserRec` (1294 bytes). Record N is user N.
 
-use iniquity_term::Color;
+use fluxbbs_term::Color;
 
 use crate::pascal::{Reader, check};
 

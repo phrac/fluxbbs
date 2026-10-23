@@ -1,7 +1,7 @@
 //! INIQUITY.DAT: one `tCfgRec` (10000 bytes). Only fields the port uses
 //! are kept; the rest are walked over so offsets stay right.
 
-use iniquity_term::Color;
+use fluxbbs_term::Color;
 
 use crate::pascal::{Reader, check};
 
