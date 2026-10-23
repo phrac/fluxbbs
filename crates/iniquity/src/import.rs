@@ -564,6 +564,7 @@ fn convert_area(a: &LegacyMsgArea) -> MsgArea {
     MsgArea {
         name: a.name.clone(),
         file: a.filename.to_ascii_uppercase(),
+        about: String::new(),
         sponsor: a.sponsor.clone(),
         acs: a.acs.clone(),
         post_acs: a.post_acs.clone(),
@@ -723,6 +724,7 @@ fn convert_user(l: &LegacyUser) -> User {
         plan: Vec::new(),
         time_zone: String::new(),
         thread_sort: String::new(),
+        area_sort: String::new(),
         last_call_at: None,
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.

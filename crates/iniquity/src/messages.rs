@@ -525,6 +525,13 @@ impl Session {
     /// the caller quit (which ends a global newscan). A scan (`!show_empty`)
     /// passes over messages already read in the message centre.
     pub async fn read_messages(&mut self, a: &AreaRef, start: u32, mandatory: bool, show_empty: bool) -> io::Result<bool> {
+        let was = self.reading(a.key());
+        let r = self.read_messages_in(a, start, mandatory, show_empty).await;
+        self.reading(&was);
+        r
+    }
+
+    async fn read_messages_in(&mut self, a: &AreaRef, start: u32, mandatory: bool, show_empty: bool) -> io::Result<bool> {
         let mut total = self.state.msgs.count(a.key()).map_err(io_err)?;
         if total == 0 {
             if show_empty {

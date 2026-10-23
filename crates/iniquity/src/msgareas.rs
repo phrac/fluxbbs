@@ -38,6 +38,9 @@ pub struct MsgArea {
     pub name: String,
     /// Storage key; unique.
     pub file: String,
+    /// New: what the board is for, a line in the message center's list.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub about: String,
     #[serde(default)]
     pub sponsor: String,
     #[serde(default)]
@@ -78,6 +81,7 @@ impl MsgArea {
         Self {
             name: name.into(),
             file: file.into(),
+            about: String::new(),
             sponsor: "SysOp".into(),
             acs: "s25".into(),
             post_acs: "s50".into(),

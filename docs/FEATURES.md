@@ -270,24 +270,40 @@ New: `MH` (`r` on the message menu) and `MW Read` (`n` there, and the
 newscan prompt `SCANMSG` asks on the way in) replace the classic reader
 and newscan (`MR`, `MN`, still there for menus that want them).
 
-- The areas, with how many messages are new in each and the latest
-  post. Enter opens one, `n` reads everything new, `p` posts. While
-  anything has been pushed in the last two days, "Hot across the board"
-  heads the list: the threads being pushed in every area you read,
-  hottest first (screens `MHOT` TOP/MID/HIL/BOT: `~AT` area, `~MT`
-  subject, `~SN` started by, `~SC` score, `~NW` new, `~DT` latest).
-- An area is a list of threads, the latest activity first, with their
-  replies, score and what's new. Enter reads a thread from its first new
-  message, `n` reads what's new in the area, `p` starts a thread, `s`
-  sorts by latest, hot (pushes in the last 48 hours, newer counting
-  more) or top (score); the choice is kept for the caller.
+Callers see areas as "boards", laid out after Taiwan's PTT but in a
+forum's words: boards, then threads, then the reader, with arrows and
+Enter to go in, Esc (or left) to go back, and the keys for each level
+on its bottom line. A board can point its main menu's message key
+straight at `MH` (disflux does), leaving the message menu behind `m`.
+
+- The boards: number, name, what it's for (the area's `about`, set in
+  `*A`), how many callers are reading it now (PTT's popularity), new
+  posts, moderator (the sponsor) and the latest post's date. Enter opens
+  one, `n` reads everything new, `p` posts, `f` searches (`MO`), `s`
+  puts the busiest first (readers now, then posts this week; kept for
+  the caller), `h` shows MSGGUIDE (or the reader's help), `m` goes to
+  the message menu. While anything has been voted on in the last two
+  days, "Hot right now" heads the list: the threads being voted on in
+  every board you read, hottest first (screens `MHOT` TOP/MID/HIL/BOT:
+  `~AT` board, `~MK` `*` if new, `~MT` title, `~SN` author, `~SC`
+  score, `~NW` new, `~DS`/`~DT` latest day and date). Screens: `MHUB`
+  with `~AN` `~AT` `~DE` (about) `~RD` (reading now) `~NW` `~NM` `~LP`
+  `~LD` `~SP`.
+- A board is a list of threads, a line each in PTT's order: number,
+  score, date, author, replies and title, `*` before the title if
+  anything in it is new. The latest activity comes first; `s` sorts by
+  latest, hot (votes in the last 48 hours, newer counting more) or top
+  (score), kept for the caller. Enter reads a thread from its first new
+  message, `n` reads what's new in the board, `p` starts a thread, `h`
+  help. Screens: `MTHRD` with `~MN` `~MK` `~MT` `~SN` `~RP` `~SC` `~NW`
+  `~DS` `~DT` `~TI`.
 - The reader keeps the header (MSGHEAD) at the top and scrolls the text
   under it, with the keys on the bottom line: left and right for the
   previous and next message, up and down to scroll, `r` reply, `p` post,
-  `t` the whole thread, `u` up to the message this one answers, `x`
-  push, `l` or Esc back, `q` stop, `?` help, a number to go to that
-  message.
-- Pushes (new, after Taiwan's PTT): `x` then `+` (up), `-` (down) or `>`
+  `x` vote, `t` the whole thread, `u` up to the message this one
+  answers, `f` finger the author, `l` or Esc back, `q` stop, `?` or `h`
+  help, a number to go to that message.
+- Votes and comments (pushes, new, after PTT): `x` then `+` (up), `-` (down) or `>`
   (a comment) leaves a line of up to 50 characters under the message,
   with your handle and the time; a vote's words are optional, a
   comment's aren't. Each caller has one vote on a message (voting again

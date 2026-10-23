@@ -105,9 +105,12 @@ have, add it here (and the details in the doc it belongs to).
   offers to read them. ([FEATURES](FEATURES.md#message-center))
 - `MX newest`, `hot`, `dig`, `mouth`, `loud`, `unread`: straight to a
   message, an area or what's new, for the menu's stats.
-- Pushes, after PTT: `x` in the reader leaves a one-line push up, down
-  or comment under a message; scores in the thread list, which sorts by
-  latest, hot or top; a Hot list across the board; karma on profiles.
+- Message boards after PTT: the message center shows areas as boards
+  with what each is for and how many are reading it now, threads a line
+  each with their score up front, the same keys at every level; `x` in
+  the reader leaves a one-line vote up, down or comment under a message;
+  threads sort by latest, hot or top, boards by number or busiest; a Hot
+  list across the board; karma on profiles.
   ([FEATURES](FEATURES.md#message-center))
 - @mentions: `@handle` in a public post tells that caller, by node
   message if they're on and at their next logon; `M@` reads them.
@@ -184,7 +187,7 @@ New screens ([ARTWORK](ARTWORK.md)):
 | `GALLERY` | the art gallery (else `LISTFILE`) |
 | `AICHAT` | AI chat |
 | `MHUB` TOP/MID/HIL/BOT | the message center's areas |
-| `MTHRD` TOP/MID/HIL/BOT | an area's threads (`~SC` score) |
+| `MTHRD` TOP/MID/HIL/BOT | an area's threads (`~SC` score, `~MK` new, `~DS` day) |
 | `MHOT` TOP/MID/HIL/BOT | the Hot list |
 | `MSGRHELP` | the reader's help |
 | `CFGFAREA` TOP/MID/HIL/BOT | `*F`'s area list |

@@ -11,9 +11,11 @@
 [7C[1mG      [0mGet the file attached to the message
 [7C[1mD      [0mDelete or undelete the current message (if yours)
 [7C[1mE      [0mEdit the current message (if yours)
+[7C[1mF      [0mFinger the author
+[7C[1mX      [0mVote: + up, - down, or > a comment under the message
 [7C[1mL/Esc  [0mBack to the list
 [7C[1mQ      [0mQuit reading
-[7C[1m?      [0mDisplay this help screen
+[7C[1m?/H    [0mDisplay this help screen
 [7C[1m###    [0mYou may also type the number of any message to jump
 [17Cdirectly to that message
 [1;30m--[0m

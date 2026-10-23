@@ -394,6 +394,7 @@ impl Session {
             f.label("Current area", 12, format!("{num} of {n}"));
             f.item('A', "Description", 40, &a.name, "This message area's description (shown in message area lists, etc); up to 80 characters.");
             f.item('B', "Storage key", 8, &a.file, "Name the area's messages are kept under (letters and digits).");
+            f.item('C', "About", 40, &a.about, "New: what the area is for, one line in the message center's list.");
             f.item('G', "Area sponsor", 36, &a.sponsor, "Creator or manager of this message area (usually the SysOp).");
             f.item('H', "Access ACS", 20, &a.acs, "ACS required to access or read messages in this area.");
             f.item('I', "Post ACS", 20, &a.post_acs, "ACS required to post messages in this area.");
@@ -447,6 +448,11 @@ impl Session {
                             // Save now: the messages already moved.
                             areas.areas[idx] = a.clone();
                             self.save_areas(areas.clone())?;
+                        }
+                    }
+                    'C' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(60)).await? {
+                            a.about = v;
                         }
                     }
                     'G' => {

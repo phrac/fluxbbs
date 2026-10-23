@@ -72,11 +72,13 @@ menu with a different line on it each time.
 - [x] `MSGLTOP` / `MSGLMID` / `MSGLHIL` / `MSGLBOT`: message listing (a
   page is as many rows as fit under `MSGLTOP`, so a tall header is fine)
 - [x] `MHUBTOP` / `MHUBMID` / `MHUBHIL` / `MHUBBOT`: the message center's
-  area list (`~AN` number, `~AT` area, `~NW` new, `~NM` messages, `~LP` /
+  area list (`~AN` number, `~AT` area, `~DE` about, `~RD` reading now,
+  `~NW` new, `~NM` messages, `~LP` /
   `~LD` the latest post's author and date, `~SP` sponsor)
 - [x] `MTHRDTOP` / `MTHRDMID` / `MTHRDHIL` / `MTHRDBOT`: an area's threads
-  (`~MN` number, `~MT` subject, `~SN` started by, `~RP` replies, `~SC`
-  score from pushes, `~NW` new, `~DT` / `~TI` latest post)
+  (`~MN` number, `~MK` `*` if new, `~MT` subject, `~SN` started by,
+  `~RP` replies, `~SC` score from votes, `~NW` new, `~DS` day (mm/dd),
+  `~DT` / `~TI` latest post)
 - [ ] `MHOTTOP` / `MHOTMID` / `MHOTHIL` / `MHOTBOT`: the Hot list (`~AT`
   area, `~MT` subject, `~SN` started by, `~SC` score, `~NW` new, `~DT`
   latest post)

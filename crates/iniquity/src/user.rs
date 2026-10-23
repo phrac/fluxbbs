@@ -95,6 +95,9 @@ pub struct User {
     /// New: how the message centre orders threads (`hot`, `top`; blank
     /// for latest first).
     pub thread_sort: String,
+    /// New: how the message center orders areas (`popular`; blank for by
+    /// number).
+    pub area_sort: String,
     /// New: when the last call began (board time); `last_call` is its day.
     pub last_call_at: Option<NaiveDateTime>,
 }
@@ -169,6 +172,7 @@ impl Default for User {
             plan: Vec::new(),
             time_zone: String::new(),
             thread_sort: String::new(),
+            area_sort: String::new(),
             last_call_at: None,
         }
     }

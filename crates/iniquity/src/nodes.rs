@@ -54,6 +54,9 @@ pub struct NodeInfo {
     pub sysop: bool,
     /// Hidden from other callers' lists (`XI`, 2.0); SysOps still see it.
     pub invisible: bool,
+    /// New: the message area being read (its key), for the message
+    /// center's readers-now count; empty if none.
+    pub msg_area: String,
 }
 
 pub struct Nodes {

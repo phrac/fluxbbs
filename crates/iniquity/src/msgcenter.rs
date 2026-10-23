@@ -232,62 +232,81 @@ impl Session {
 
     // ---- the message centre ---------------------------------------------
 
-    /// `MH`: the areas with how many new messages each has, the latest
-    /// post, and keys to open one, read everything new, or post. MHUBTOP,
-    /// MHUBMID, MHUBHIL and MHUBBOT dress it (`~AN` number, `~AT` name,
-    /// `~NW` new, `~NM` messages, `~LP` and `~LD` the latest post's author
-    /// and date, `~SP` sponsor).
+    /// `MH`: the areas ("boards" to callers) with how many new messages
+    /// each has, and keys to open one, read everything new, post, and (new)
+    /// put the busiest first, search, help, or go to the message menu.
+    /// MHUBTOP, MHUBMID, MHUBHIL and MHUBBOT dress it (`~AN` number, `~AT`
+    /// name, `~DE` what it's for, `~RD` reading it now, `~NW` new, `~NM`
+    /// messages, `~LP` and `~LD` the latest post's author and date, `~SP`
+    /// sponsor, the SysOp's handle for "SysOp").
     pub async fn msg_center(&mut self) -> io::Result<()> {
         loop {
             let mut rows = Vec::new();
             let mut labels = Vec::new();
             let mut total_new = 0;
+            let readers = self.readers_now();
+            let week = crate::clock::now().naive_local() - chrono::Duration::days(7);
+            // (readers now, posts this week) for the popular order.
+            let mut pop: HashMap<u32, (usize, usize)> = HashMap::new();
             for (label, a) in self.readable_areas() {
                 let v = self.area_view(&a)?;
                 let new = v.new_count();
                 total_new += new;
+                let now = readers.get(&a.key().to_ascii_uppercase()).copied().unwrap_or(0);
+                pop.insert(a.num, (now, v.msgs.iter().filter(|m| m.posted >= week).count()));
+                let now_s = if now == 0 { String::new() } else { now.to_string() };
                 let (who, when) = v.msgs.last().map(|m| (m.from.name.clone(), self.local(m.posted).format("%m/%d/%y").to_string())).unwrap_or_default();
+                let mod_ = if a.area.sponsor.eq_ignore_ascii_case("sysop") { self.state.config().bbs.sysop_alias.clone() } else { a.area.sponsor.clone() };
                 let new_s = if new == 0 { "-".to_string() } else { new.to_string() };
                 let w = waves([
                     ("AN", label.to_string()),
                     ("AT", a.area.name.clone()),
+                    ("DE", a.area.about.clone()),
+                    ("RD", now_s.clone()),
                     ("NW", new_s.clone()),
                     ("NM", v.msgs.len().to_string()),
                     ("LP", who.clone()),
                     ("LD", when.clone()),
-                    ("SP", a.area.sponsor.clone()),
+                    ("SP", mod_.clone()),
                 ]);
                 let plain = format!(
-                    " {} {} {} {}  {} {}",
+                    " {} {} {} {} {} {} {}",
                     resize(&label.to_string(), 4),
-                    resize(&a.area.name, 30),
-                    resize(&new_s, 5),
-                    resize(&v.msgs.len().to_string(), 6),
-                    resize(&who, 16),
+                    resize(&a.area.name, 16),
+                    resize(&a.area.about, 24),
+                    resize(&now_s, 3),
+                    resize(&new_s, 4),
+                    resize(&mod_, 12),
                     when
                 );
                 rows.push(BarRow { n: a.num, waves: w, plain });
                 labels.push((label, a.num));
             }
+            // New: busiest first (`s`): readers now, then posts this week.
+            if self.user.area_sort == "popular" {
+                rows.sort_by_key(|r| std::cmp::Reverse(pop.get(&r.n).copied().unwrap_or_default()));
+            }
             // New: the Hot list first, while anything's being pushed.
             let since = crate::clock::now().naive_local() - chrono::Duration::hours(HOT_HOURS);
             if !self.state.msgs.recent_pushes(since).map_err(io_err)?.is_empty() {
                 let name = self.strings().get("HotName").to_string();
-                let w = waves([("AN", "*".into()), ("AT", name.clone()), ("NW", String::new()), ("NM", String::new()), ("LP", String::new()), ("LD", String::new()), ("SP", String::new())]);
-                rows.insert(0, BarRow { n: HOT_ROW, waves: w, plain: format!(" {} {}", resize("*", 4), name) });
+                let about = self.strings().get("HotAbout").to_string();
+                let w = waves([("AN", "*".into()), ("AT", name.clone()), ("DE", about.clone()), ("RD", String::new()), ("NW", String::new()), ("NM", String::new()), ("LP", String::new()), ("LD", String::new()), ("SP", String::new())]);
+                rows.insert(0, BarRow { n: HOT_ROW, waves: w, plain: format!(" {} {} {}", resize("*", 4), resize(&name, 16), about) });
             }
             let start = rows.iter().position(|r| r.n == self.user.cur_msg_area).unwrap_or(0);
-            let help = self.strings().fmt("MsgHubKeys", &[&total_new.to_string()]);
+            let order = self.strings().get(if self.user.area_sort == "popular" { "AreaSortPopular" } else { "AreaSortNumber" }).to_string();
+            let help = self.strings().fmt("MsgHubKeys", &[&total_new.to_string(), &order]);
             let spec = BarSpec {
                 prefix: "MHUB",
-                header: " #    Area                           New   Msgs    Latest post",
+                header: " #    Board            About                    Now New  Mod          Latest",
                 rows: &rows,
                 labels: &labels,
                 start,
                 help: &help,
                 ask: "",
                 can_go_up: false,
-                keys: "NP",
+                keys: "NPSFHM",
             };
             self.node.update(|n| n.activity = "Reading messages".into());
             match self.area_bar(&spec).await? {
@@ -309,6 +328,17 @@ impl Session {
                         self.post(&a, "All", "", None).await?;
                     }
                 }
+                BarPick::Key('S', _) => {
+                    self.user.area_sort = if self.user.area_sort == "popular" { String::new() } else { "popular".into() };
+                    self.state.users.save(&self.user).map_err(io_err)?;
+                }
+                BarPick::Key('F', _) => self.msg_search("").await?,
+                BarPick::Key('H', _) => self.msg_help().await?,
+                // The classic message menu (newscan settings and the rest).
+                BarPick::Key('M', _) => {
+                    self.menu_change('^', "MESSAGE");
+                    return Ok(());
+                }
                 _ => return Ok(()),
             }
             if self.hangup {
@@ -317,12 +347,41 @@ impl Session {
         }
     }
 
+    /// New: how many callers are reading each message area (by key, upper
+    /// case) right now, PTT's popular boards; invisible ones only for SysOps.
+    fn readers_now(&self) -> HashMap<String, usize> {
+        let sysop = self.is_sysop();
+        let mut n = HashMap::new();
+        for (_, i) in self.state.nodes.online() {
+            if !i.msg_area.is_empty() && (!i.invisible || sysop) {
+                *n.entry(i.msg_area.to_ascii_uppercase()).or_insert(0) += 1;
+            }
+        }
+        n
+    }
+
     /// An area's threads, the latest activity first (or, new, the hottest
-    /// or best pushed: `s`). MTHRDTOP, MTHRDMID, MTHRDHIL and MTHRDBOT
-    /// dress it (`~MN` the first message's number, `~MT` subject, `~SN` who
-    /// started it, `~RP` replies, `~SC` its score, `~NW` new, `~DT` and
-    /// `~TI` the latest post's date and time).
+    /// or best pushed: `s`), a line each in PTT's order. MTHRDTOP, MTHRDMID,
+    /// MTHRDHIL and MTHRDBOT dress it (`~MN` the first message's number,
+    /// `~MK` `*` if any are new, `~MT` subject, `~SN` who started it, `~RP`
+    /// replies, `~SC` its score, `~NW` new, `~DS` the latest post's day
+    /// (mm/dd), `~DT` and `~TI` its date and time).
     async fn thread_list(&mut self, a: &AreaRef) -> io::Result<()> {
+        let was = self.reading(a.key());
+        let r = self.thread_list_in(a).await;
+        self.reading(&was);
+        r
+    }
+
+    /// Say which area this node is reading (empty: none); returns the
+    /// one it was.
+    pub(crate) fn reading(&self, key: &str) -> String {
+        let mut was = String::new();
+        self.node.update(|n| was = std::mem::replace(&mut n.msg_area, key.to_string()));
+        was
+    }
+
+    async fn thread_list_in(&mut self, a: &AreaRef) -> io::Result<()> {
         let mut on_root: Option<i64> = None;
         loop {
             let v = self.area_view(a)?;
@@ -351,26 +410,21 @@ impl Session {
                 let new_s = if new == 0 { String::new() } else { format!("{new} new") };
                 let replies = (t.msgs.len() - 1).to_string();
                 let score = score_label(scores.get(&root.id).copied());
+                let mark = if new > 0 { "*" } else { " " };
+                let day = self.local(t.last).format("%m/%d").to_string();
                 let w = waves([
                     ("MN", root.num.to_string()),
+                    ("MK", mark.into()),
                     ("MT", root.subject.clone()),
                     ("SN", root.from.name.clone()),
                     ("RP", replies.clone()),
                     ("SC", score.clone()),
                     ("NW", new_s.clone()),
+                    ("DS", day.clone()),
                     ("DT", self.local(t.last).format("%m/%d/%y").to_string()),
-                    ("TI", self.local(t.last).format("%-I:%M%P").to_string()),
+                    ("TI", self.local(t.last).format("%H:%M").to_string()),
                 ]);
-                let plain = format!(
-                    " {} {} {} {} {} {} {}",
-                    resize(&root.num.to_string(), 5),
-                    resize(&root.subject, 28),
-                    resize(&root.from.name, 15),
-                    resize(&replies, 3),
-                    resize(&score, 4),
-                    resize(&new_s, 7),
-                    self.local(t.last).format("%m/%d/%y")
-                );
+                let plain = post_line(mark, &root.num.to_string(), &score, &day, &root.from.name, &replies, &root.subject);
                 rows.push(BarRow { n: i as u32, waves: w, plain });
                 labels.push((root.num, i as u32));
             }
@@ -381,16 +435,17 @@ impl Session {
                 _ => "ThreadSortLatest",
             }).to_string();
             let help = self.strings().fmt("MsgThreadKeys", &[&a.area.name, &v.new_count().to_string(), &sort]);
+            let header = post_line(" ", "#", "+/-", "Date", "Author", "Re", "Title");
             let spec = BarSpec {
                 prefix: "MTHRD",
-                header: " #     Subject                      Started by      Re  +/-  New     Latest",
+                header: &header,
                 rows: &rows,
                 labels: &labels,
                 start,
                 help: &help,
                 ask: "",
                 can_go_up: true,
-                keys: "NPS",
+                keys: "NPSH",
             };
             match self.area_bar(&spec).await? {
                 BarPick::Area(i) => {
@@ -412,6 +467,7 @@ impl Session {
                 BarPick::Key('P', _) => {
                     self.post(a, "All", "", None).await?;
                 }
+                BarPick::Key('H', _) => self.msg_help().await?,
                 BarPick::Key('S', n) => {
                     on_root = ts.get(n as usize).map(|t| t.msgs[0].0);
                     self.user.thread_sort = match self.user.thread_sort.as_str() {
@@ -439,8 +495,9 @@ impl Session {
 
     /// The Hot list (new): threads being pushed lately in every area the
     /// caller reads, hottest first. MHOTTOP, MHOTMID, MHOTHIL and MHOTBOT
-    /// dress it (`~AT` area, `~MT` subject, `~SN` who started it, `~SC`
-    /// score, `~NW` new, `~DT` latest post's date).
+    /// dress it (`~AT` area, `~MK` `*` if any are new, `~MT` subject, `~SN`
+    /// who started it, `~SC` score, `~NW` new, `~DS` and `~DT` the latest
+    /// post's day and date).
     async fn hot_list(&mut self) -> io::Result<()> {
         let mut on: Option<i64> = None;
         loop {
@@ -463,24 +520,19 @@ impl Session {
                     let new = t.msgs.iter().filter(|(n, _)| self_new(&v, &by_id, *n)).count();
                     let new_s = if new == 0 { String::new() } else { format!("{new} new") };
                     let score = score_label(scores.get(&root.id).copied());
-                    let date = self.local(t.last).format("%m/%d/%y").to_string();
+                    let mark = if new > 0 { "*" } else { " " };
+                    let day = self.local(t.last).format("%m/%d").to_string();
                     let w = waves([
                         ("AT", a.area.name.clone()),
+                        ("MK", mark.into()),
                         ("MT", root.subject.clone()),
                         ("SN", root.from.name.clone()),
                         ("SC", score.clone()),
                         ("NW", new_s.clone()),
-                        ("DT", date.clone()),
+                        ("DS", day.clone()),
+                        ("DT", self.local(t.last).format("%m/%d/%y").to_string()),
                     ]);
-                    let plain = format!(
-                        " {} {} {} {} {} {}",
-                        resize(&a.area.name, 16),
-                        resize(&root.subject, 26),
-                        resize(&root.from.name, 12),
-                        resize(&score, 4),
-                        resize(&new_s, 7),
-                        date
-                    );
+                    let plain = hot_line(mark, &a.area.name, &score, &day, &root.from.name, &root.subject);
                     let seq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
                     let from = seq.iter().position(|&n| self_new(&v, &by_id, n)).unwrap_or(0);
                     hot.push((h, a.clone(), seq, from, BarRow { n: 0, waves: w, plain }));
@@ -501,16 +553,17 @@ impl Session {
             }
             let start = on.and_then(|id| picks.iter().position(|p| p.1[0] == id)).unwrap_or(0);
             let help = self.strings().get("HotKeys").to_string();
+            let header = hot_line(" ", "Board", "+/-", "Date", "Author", "Title");
             let spec = BarSpec {
                 prefix: "MHOT",
-                header: " Area             Subject                    Started by   +/-  New     Latest",
+                header: &header,
                 rows: &bar,
                 labels: &[],
                 start,
                 help: &help,
                 ask: "",
                 can_go_up: true,
-                keys: "",
+                keys: "H",
             };
             match self.area_bar(&spec).await? {
                 BarPick::Area(i) => {
@@ -518,6 +571,7 @@ impl Session {
                     on = Some(seq[0]);
                     self.read_seq(&a, &seq, from).await?;
                 }
+                BarPick::Key('H', _) => self.msg_help().await?,
                 _ => return Ok(()),
             }
             if self.hangup {
@@ -706,6 +760,13 @@ impl Session {
     /// (MSGHEAD) at the top, the text scrolling under it, and a line of
     /// keys at the bottom (`MsgReaderBar`).
     async fn read_seq(&mut self, a: &AreaRef, seq: &[i64], at: usize) -> io::Result<ReadEnd> {
+        let was = self.reading(a.key());
+        let r = self.read_seq_in(a, seq, at).await;
+        self.reading(&was);
+        r
+    }
+
+    async fn read_seq_in(&mut self, a: &AreaRef, seq: &[i64], at: usize) -> io::Result<ReadEnd> {
         if seq.is_empty() {
             return Ok(ReadEnd::Back);
         }
@@ -906,7 +967,7 @@ impl Session {
                             cur = Some((m, lines, attached));
                         }
                     }
-                    Some('?') => {
+                    Some('?' | 'H') => {
                         self.reader_help().await?;
                         redraw = true;
                     }
@@ -920,6 +981,15 @@ impl Session {
     fn reader_prompt_area(&mut self) {
         self.screen.set_color(iniquity_term::Color::DEFAULT);
         self.clear_screen();
+    }
+
+    /// `h` in the message center: MSGGUIDE, or the reader's help.
+    async fn msg_help(&mut self) -> io::Result<()> {
+        self.reader_prompt_area();
+        if self.show_file("MSGGUIDE").await? {
+            return Ok(());
+        }
+        self.reader_help().await
     }
 
     async fn reader_help(&mut self) -> io::Result<()> {
@@ -976,6 +1046,25 @@ impl Session {
             self.write_with_controls(&crate::editor::printable(l));
         }
     }
+}
+
+/// A line of the post list, PTT's order: number, score, date, author,
+/// replies, then the title with `*` before it if anything's new.
+fn post_line(mark: &str, num: &str, score: &str, day: &str, author: &str, replies: &str, title: &str) -> String {
+    format!(
+        "  {} {} {} {} {} {mark}{}",
+        resize(num, 4),
+        resize(score, 4),
+        resize(day, 5),
+        resize(author, 12),
+        resize(replies, 3),
+        resize(title, 41)
+    )
+}
+
+/// A line of the Hot list: the post list's, with the board in front.
+fn hot_line(mark: &str, board: &str, score: &str, day: &str, author: &str, title: &str) -> String {
+    format!("  {} {} {} {} {mark}{}", resize(board, 13), resize(score, 4), resize(day, 5), resize(author, 12), resize(title, 38))
 }
 
 /// Whether message (row id) `n` is new to the caller.
