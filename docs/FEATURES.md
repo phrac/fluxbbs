@@ -175,7 +175,10 @@ Everything the port does, in detail. The [README](../README.md) has the short li
   with the board and the start menu (STARTUP) is built from it; without
   the file STARTUP runs as written. The oneliners run in place, so they
   needn't come last. "New users stop here" sends callers who aren't
-  validated to NEWUSER: steps above it are seen by them too.
+  validated to NEWUSER: steps above it are seen by them too. "Fast
+  logon" asks validated callers (`s50`) whether to go straight on to
+  the main menu (STARTUP's fallback), skipping the steps after it; put
+  it first for a quick way in, or after the steps everyone must see.
 
 **Importing** an existing install: users (passwords re-hashed with
 argon2), message bases, file records and descriptions, areas,

@@ -139,7 +139,8 @@ have, add it here (and the details in the doc it belongs to).
 - Profiles: finger (`UF`, `f` in the reader, after the user list) with
   a plan written in user config. ([FEATURES](FEATURES.md#in-detail))
 - `*O` logon sequence: the steps after logging in, ordered and switched
-  on and off, with "new users stop here".
+  on and off, with "new users stop here" and a fast logon step that
+  offers to skip the rest.
 - `*V` events run by the server's own scheduler, with built-in pack jobs.
 - `*G` security: bans and recent failures, and lifting a ban.
 - A JSON feed of who's on, last callers, new files and posts, and

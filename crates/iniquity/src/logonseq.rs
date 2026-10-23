@@ -40,7 +40,7 @@ pub struct Sequence {
 }
 
 /// The steps there are: kind, what the editor calls it.
-pub const KINDS: [(&str, &str); 13] = [
+pub const KINDS: [(&str, &str); 14] = [
     ("infoforms", "Infoforms to fill in"),
     ("mail", "Waiting mail"),
     ("newuser", "New users stop here (NEWUSER)"),
@@ -54,6 +54,7 @@ pub const KINDS: [(&str, &str); 13] = [
     ("stats", "Your stats (USERSTAT)"),
     ("oneliners", "Oneliners"),
     ("screen", "Show a screen"),
+    ("fastlogon", "Fast logon: offer to skip the rest"),
 ];
 
 /// STARTUP's stock order.
@@ -90,7 +91,7 @@ impl Sequence {
     /// The start menu's commands: each step that's on, then the menu's
     /// fallback (the original went there from the oneliners).
     pub fn commands(&self, menus: &[PathBuf], fallback: &str) -> Vec<Command> {
-        let mut out: Vec<Command> = self.steps.iter().filter(|s| s.on).flat_map(|s| step_commands(s, menus)).collect();
+        let mut out: Vec<Command> = self.steps.iter().filter(|s| s.on).flat_map(|s| step_commands(s, menus, fallback)).collect();
         out.push(first("-^", fallback, "", "Go on to the main menu"));
         out
     }
@@ -106,7 +107,7 @@ fn first(command: &str, param: &str, acs: &str, desc: &str) -> Command {
 }
 
 /// What STARTUP ran for each step.
-fn step_commands(s: &Step, menus: &[PathBuf]) -> Vec<Command> {
+fn step_commands(s: &Step, menus: &[PathBuf], fallback: &str) -> Vec<Command> {
     match s.kind.as_str() {
         "infoforms" => vec![first("IM", "", "", "Check for infoforms")],
         "mail" => vec![first("EC", "", "", "Scan for waiting mail")],
@@ -135,6 +136,11 @@ fn step_commands(s: &Step, menus: &[PathBuf]) -> Vec<Command> {
             })
             .unwrap_or_default(),
         "screen" if !s.screen.is_empty() => vec![first("-F", &s.screen, "", "Show a screen")],
+        // New: a validated caller may go straight on to the main menu.
+        "fastlogon" => vec![
+            first("?N", "|u2:|u1:|u3: |u1Fast logon, straight to the main menu|u2? ", "s50", "Ask fast logon"),
+            first("-^", fallback, "s50*", "If OkFlag set, skip the rest"),
+        ],
         _ => Vec::new(),
     }
 }
@@ -274,5 +280,15 @@ mod tests {
         assert!(!cmds.iter().any(|c| c.command == "IM"));
         assert_eq!(cmds[cmds.len() - 2].param, "BULLETIN");
         assert_eq!(cmds.last().unwrap().param, "MAIN");
+    }
+
+    #[test]
+    fn fast_logon_asks_then_skips_to_the_fallback() {
+        let mut seq = Sequence::stock();
+        seq.steps.insert(0, Step { kind: "fastlogon".into(), on: true, screen: String::new() });
+        let cmds = seq.commands(&[PathBuf::from("/nonexistent")], "MAIN");
+        assert_eq!((cmds[0].command.as_str(), cmds[0].acs.as_str()), ("?N", "s50"));
+        assert_eq!((cmds[1].command.as_str(), cmds[1].param.as_str(), cmds[1].acs.as_str()), ("-^", "MAIN", "s50*"));
+        assert_eq!(cmds[2].command, "IM");
     }
 }
