@@ -442,6 +442,12 @@ impl Session {
                                 self.gallery_file(name, src).await?
                             };
                             match picked {
+                                // Q leaves the gallery from a viewer too.
+                                Some('Q') => {
+                                    self.screen.set_color(iniquity_term::Color::DEFAULT);
+                                    self.clear_screen();
+                                    return Ok(());
+                                }
                                 Some('P') if is_image(name) => {}
                                 Some('P') => self.gallery_played(&items[i], speed).await?,
                                 Some('D') => self.gallery_download(&items[i]).await?,
@@ -804,7 +810,7 @@ impl Session {
         }
         let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
         let grid = crate::pager::render(text, utf8);
-        self.page_grid_keys(name, &grid, "GalleryViewHelp", &['D']).await
+        self.page_grid_keys(name, &grid, "GalleryViewHelp", &['D', 'Q']).await
     }
 
     /// A piece in the scrolling viewer, titled from its SAUCE.
@@ -821,7 +827,7 @@ impl Session {
             Some(s) if !s.title.is_empty() => format!("{name}: {}", s.title),
             _ => name.to_string(),
         };
-        self.page_grid_keys(&title, &grid, "GalleryViewHelp", &['P', 'D']).await
+        self.page_grid_keys(&title, &grid, "GalleryViewHelp", &['P', 'D', 'Q']).await
     }
 
     /// A picture as ANSI, fitted to the screen; an animated GIF plays until

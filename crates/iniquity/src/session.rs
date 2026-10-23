@@ -46,6 +46,8 @@ pub enum BarPick {
     Area(u32),
     Up,
     Stay,
+    /// `q`: out of the lists altogether, back to the menu.
+    Quit,
     /// One of the spec's `keys`, with the row the bar was on (its `n`).
     Key(char, u32),
 }
@@ -843,8 +845,9 @@ impl Session {
     /// `rows` in a window between `{prefix}TOP` and `{prefix}BOT`, the bar
     /// drawn with `{prefix}HIL`, starting on `rows[start]`. Arrows,
     /// PgUp/PgDn and Home/End move it, scrolling the window; Enter or
-    /// right picks; left or backspace goes up when `can_go_up`; Esc
-    /// stays. Typing a number (a label) moves the bar to it. `header` is
+    /// right picks; Esc, left or backspace go up when `can_go_up` (Esc
+    /// otherwise stays); `q` quits. Typing a number (a label) moves the bar to it, as typed, and
+    /// a digit no label goes on with starts a new number. `header` is
     /// for boards without the screens.
     pub async fn area_bar(&mut self, spec: &BarSpec<'_>) -> io::Result<BarPick> {
         let BarSpec { prefix, header, rows, labels, start, help, ask, can_go_up, keys } = *spec;
@@ -952,12 +955,17 @@ impl Session {
                     Key::PgDn => cur = (cur + height).min(last),
                     Key::Home => cur = 0,
                     Key::End => cur = last,
+                    // A digit carries on the number while some label
+                    // starts that way, else starts a new one.
                     Key::Char(c) if c.is_ascii_digit() => {
-                        if typed.len() < 4 {
-                            typed.push(c as char);
-                        }
+                        let more = format!("{typed}{}", c as char);
+                        typed = if labels.iter().any(|(l, _)| l.to_string().starts_with(&more)) { more } else { (c as char).to_string() };
                         if let Some(i) = find(&typed).and_then(|n| rows.iter().position(|r| r.n == n)) {
                             cur = i;
+                        }
+                        // Nothing longer to come: the bar's there, start afresh.
+                        if !labels.iter().any(|(l, _)| l.to_string().len() > typed.len() && l.to_string().starts_with(typed.as_str())) {
+                            typed.clear();
                         }
                     }
                     Key::Backspace if !typed.is_empty() => {
@@ -973,7 +981,7 @@ impl Session {
                     }
                     Key::Esc => {
                         self.newline();
-                        return Ok(BarPick::Stay);
+                        return Ok(if can_go_up { BarPick::Up } else { BarPick::Stay });
                     }
                     k if k.upper().is_some_and(|c| keys.contains(c)) => {
                         self.newline();
@@ -982,7 +990,7 @@ impl Session {
                     }
                     k if k.upper() == Some('Q') => {
                         self.newline();
-                        return Ok(BarPick::Stay);
+                        return Ok(BarPick::Quit);
                     }
                     _ => {}
                 }

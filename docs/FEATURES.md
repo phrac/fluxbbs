@@ -283,7 +283,7 @@ straight at `MH` (disflux does), leaving the message menu behind `m`.
   puts the busiest first (readers now, then posts this week; kept for
   the caller), `h` shows MSGGUIDE (or the reader's help), `m` goes to
   the message menu. While anything has been voted on in the last two
-  days, "Hot right now" heads the list: the threads being voted on in
+  days, "Hot right now" (`!`, from anywhere in the boards) heads the list: the threads being voted on in
   every board you read, hottest first (screens `MHOT` TOP/MID/HIL/BOT:
   `~AT` board, `~MK` `*` if new, `~MT` title, `~SN` author, `~SC`
   score, `~NW` new, `~DS`/`~DT` latest day and date). Screens: `MHUB`
@@ -292,7 +292,8 @@ straight at `MH` (disflux does), leaving the message menu behind `m`.
 - My boards (new, PTT's favorites): `a` in the board list adds the
   board (or folder) under the bar to the caller's "my boards", or takes
   it off; "my boards/" stays second in the top-level list, a folder of
-  them with their figures added up (`MyBoardsName`, `MyBoardsAbout`).
+  them with their figures added up (`MyBoardsName`, `MyBoardsAbout`);
+  `*` goes to it from anywhere in the boards.
   They're kept with the caller (`fav_boards`); a board they can no
   longer read drops out of it.
 - Sub-boards (new, as file areas have, and PTT's board classes): a

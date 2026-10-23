@@ -387,8 +387,8 @@ impl Session {
                 let now_s = if b.now == 0 { String::new() } else { b.now.to_string() };
                 let new_s = if b.new == 0 { "-".to_string() } else { b.new.to_string() };
                 let when = b.latest.map(|t| self.local(t).format("%m/%d/%y").to_string()).unwrap_or_default();
-                let w = waves([("AN", String::new()), ("AT", name.clone()), ("DE", about.clone()), ("RD", now_s.clone()), ("NW", new_s.clone()), ("NM", b.msgs.to_string()), ("LP", b.by.clone()), ("LD", when.clone()), ("SP", String::new())]);
-                let plain = format!(" {} {} {} {} {} {} {}", resize("", 4), resize(&name, 16), resize(&about, 24), resize(&now_s, 3), resize(&new_s, 4), resize("", 12), when);
+                let w = waves([("AN", "*".into()), ("AT", name.clone()), ("DE", about.clone()), ("RD", now_s.clone()), ("NW", new_s.clone()), ("NM", b.msgs.to_string()), ("LP", b.by.clone()), ("LD", when.clone()), ("SP", String::new())]);
+                let plain = format!(" {} {} {} {} {} {} {}", resize("*", 4), resize(&name, 16), resize(&about, 24), resize(&now_s, 3), resize(&new_s, 4), resize("", 12), when);
                 rows.insert(0, BarRow { n: FAV_ROW, waves: w, plain });
             }
             // New: the Hot list first, while anything's being voted on.
@@ -396,8 +396,8 @@ impl Session {
             if level.is_none() && !self.state.msgs.recent_pushes(since).map_err(io_err)?.is_empty() {
                 let name = self.strings().get("HotName").to_string();
                 let about = self.strings().get("HotAbout").to_string();
-                let w = waves([("AN", "*".into()), ("AT", name.clone()), ("DE", about.clone()), ("RD", String::new()), ("NW", String::new()), ("NM", String::new()), ("LP", String::new()), ("LD", String::new()), ("SP", String::new())]);
-                rows.insert(0, BarRow { n: HOT_ROW, waves: w, plain: format!(" {} {} {}", resize("*", 4), resize(&name, 16), about) });
+                let w = waves([("AN", "!".into()), ("AT", name.clone()), ("DE", about.clone()), ("RD", String::new()), ("NW", String::new()), ("NM", String::new()), ("LP", String::new()), ("LD", String::new()), ("SP", String::new())]);
+                rows.insert(0, BarRow { n: HOT_ROW, waves: w, plain: format!(" {} {} {}", resize("!", 4), resize(&name, 16), about) });
             }
             let want = came_from.take().unwrap_or(self.user.cur_msg_area);
             let start = rows
@@ -424,12 +424,16 @@ impl Session {
                 help: &help,
                 ask: "",
                 can_go_up: level.is_some(),
-                keys: if create { "NPSFHMCA" } else { "NPSFHMA" },
+                keys: if create { "NPSFHMCA*!" } else { "NPSFHMA*!" },
             };
             self.node.update(|n| n.activity = "Reading messages".into());
             let is_folder = |n: u32| n == FAV_ROW || (Some(n) != level && has_kids(n));
             match self.area_bar(&spec).await? {
-                BarPick::Area(HOT_ROW) => self.hot_list().await?,
+                BarPick::Area(HOT_ROW) => {
+                    if self.hot_list().await? {
+                        return Ok(());
+                    }
+                }
                 BarPick::Area(FAV_ROW) if favs.is_empty() => {
                     self.reader_prompt_area();
                     self.say_line("MyBoardsEmpty").await?;
@@ -440,8 +444,24 @@ impl Session {
                 BarPick::Area(n) => {
                     if self.change_area(n).await?
                         && let Some(a) = self.msg_area(n)
+                        && self.thread_list(&a).await?
                     {
-                        self.thread_list(&a).await?;
+                        return Ok(());
+                    }
+                }
+                // `*` (my boards) and `!` (hot) from anywhere in the boards.
+                BarPick::Key('*', _) if level != Some(FAV_ROW) => {
+                    if favs.is_empty() {
+                        self.reader_prompt_area();
+                        self.say_line("MyBoardsEmpty").await?;
+                        self.prompt_key().await?;
+                    } else {
+                        path = vec![FAV_ROW];
+                    }
+                }
+                BarPick::Key('!', _) => {
+                    if self.hot_list().await? {
+                        return Ok(());
                     }
                 }
                 BarPick::Key('N', _) => {
@@ -488,7 +508,9 @@ impl Session {
                         && let Some(a) = self.msg_area(n)
                     {
                         came_from = Some(n);
-                        self.thread_list(&a).await?;
+                        if self.thread_list(&a).await? {
+                            return Ok(());
+                        }
                     }
                 }
                 // The classic message menu (newscan settings and the rest).
@@ -497,6 +519,7 @@ impl Session {
                     return Ok(());
                 }
                 BarPick::Key(..) => {}
+                BarPick::Quit => return Ok(()),
                 // Back up out of a folder, or out of the boards.
                 _ => match path.pop() {
                     Some(f) => came_from = Some(f),
@@ -530,7 +553,8 @@ impl Session {
     /// `~MK` `*` if any are new, `~MT` subject, `~SN` who started it, `~RP`
     /// replies, `~SC` its score, `~NW` new, `~DS` the latest post's day
     /// (mm/dd), `~DT` and `~TI` its date and time).
-    async fn thread_list(&mut self, a: &AreaRef) -> io::Result<()> {
+    /// True if the caller quit the boards altogether (`q`).
+    async fn thread_list(&mut self, a: &AreaRef) -> io::Result<bool> {
         let was = self.reading(a.key());
         let r = self.thread_list_in(a).await;
         self.reading(&was);
@@ -545,7 +569,7 @@ impl Session {
         was
     }
 
-    async fn thread_list_in(&mut self, a: &AreaRef) -> io::Result<()> {
+    async fn thread_list_in(&mut self, a: &AreaRef) -> io::Result<bool> {
         let mut on_root: Option<i64> = None;
         let mut a = a.clone();
         let mut tag: Option<String> = None;
@@ -650,15 +674,17 @@ impl Session {
                     on_root = Some(t.msgs[0].0);
                     let seq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
                     let from = seq.iter().position(|&n| self_new(&v, &by_id, n)).unwrap_or(0);
-                    self.read_seq(a, &seq, from).await?;
+                    if self.read_seq(a, &seq, from).await? == ReadEnd::Quit {
+                        return Ok(true);
+                    }
                 }
                 BarPick::Key('N', _) => {
                     let seq = v.new_in_thread_order();
                     if seq.is_empty() {
                         self.say_line("MsgNothingNew").await?;
                         self.prompt_key().await?;
-                    } else {
-                        self.read_seq(a, &seq, 0).await?;
+                    } else if self.read_seq(a, &seq, 0).await? == ReadEnd::Quit {
+                        return Ok(true);
                     }
                 }
                 BarPick::Key('P', _) => {
@@ -669,7 +695,7 @@ impl Session {
                     let root = ts.get(n as usize).map(|t| t.msgs[0].0);
                     on_root = root;
                     if self.moderate_board(a, root.and_then(|r| by_id.get(&r).map(|m| (*m).clone()))).await? {
-                        return Ok(());
+                        return Ok(false);
                     }
                 }
                 BarPick::Key('T', n) => {
@@ -689,10 +715,11 @@ impl Session {
                     .into();
                     self.state.users.save(&self.user).map_err(io_err)?;
                 }
-                _ => return Ok(()),
+                BarPick::Quit => return Ok(true),
+                _ => return Ok(false),
             }
             if self.hangup {
-                return Ok(());
+                return Ok(false);
             }
         }
     }
@@ -709,7 +736,7 @@ impl Session {
     /// dress it (`~AT` area, `~MK` `*` if any are new, `~MT` subject, `~SN`
     /// who started it, `~SC` score, `~NW` new, `~DS` and `~DT` the latest
     /// post's day and date).
-    async fn hot_list(&mut self) -> io::Result<()> {
+    async fn hot_list(&mut self) -> io::Result<bool> {
         let mut on: Option<i64> = None;
         loop {
             let heat = self.heat_now()?;
@@ -752,7 +779,8 @@ impl Session {
             if hot.is_empty() {
                 self.newline();
                 self.say_line("HotNone").await?;
-                return self.prompt_key().await;
+                self.prompt_key().await?;
+                return Ok(false);
             }
             hot.sort_by(|x, y| y.0.total_cmp(&x.0));
             let mut bar = Vec::new();
@@ -780,13 +808,16 @@ impl Session {
                 BarPick::Area(i) => {
                     let Some((a, seq, from)) = picks.get(i as usize).cloned() else { continue };
                     on = Some(seq[0]);
-                    self.read_seq(&a, &seq, from).await?;
+                    if self.read_seq(&a, &seq, from).await? == ReadEnd::Quit {
+                        return Ok(true);
+                    }
                 }
                 BarPick::Key('H', _) => self.msg_help().await?,
-                _ => return Ok(()),
+                BarPick::Quit => return Ok(true),
+                _ => return Ok(false),
             }
             if self.hangup {
-                return Ok(());
+                return Ok(false);
             }
         }
     }

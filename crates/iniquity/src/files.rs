@@ -344,7 +344,7 @@ impl Session {
                         level = level.and_then(|g| fareas.parent_of(g));
                         continue;
                     }
-                    BarPick::Stay | BarPick::Key(..) => {
+                    BarPick::Stay | BarPick::Quit | BarPick::Key(..) => {
                         if level.is_some() {
                             self.announce_farea().await?;
                         }
@@ -1087,9 +1087,13 @@ impl Session {
                 _ => {}
             }
             let c = match key {
-                Key::Esc => Some('Q'),
+                Key::Esc | Key::Backspace => Some('Q'),
                 Key::Enter => None,
-                k => k.upper().map(|c| if c == '?' { 'H' } else { c }),
+                k => k.upper().map(|c| match c {
+                    '?' => 'H',
+                    '+' => 'F',
+                    c => c,
+                }),
             };
             let m = if bar.is_some() { &mut barm } else { &mut list };
             let choice = match c {
