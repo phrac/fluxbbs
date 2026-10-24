@@ -656,6 +656,15 @@ impl Session {
         // Enter saves; Escape puts everything back (a password change,
         // confirmed on its own, stays).
         let (original, charset) = (self.user.clone(), self.screen.charset());
+        // A SysOp's edit meanwhile waits until the screen's done, so Esc
+        // puts back only what the caller changed here.
+        let held = std::mem::replace(&mut self.hold_account_changes, true);
+        let r = self.user_config_screen_in(screen, original, charset).await;
+        self.hold_account_changes = held;
+        r
+    }
+
+    async fn user_config_screen_in(&mut self, screen: &str, original: crate::user::User, charset: fluxbbs_term::Charset) -> io::Result<()> {
         loop {
             self.screen.set_color(fluxbbs_term::Color::DEFAULT);
             self.clear_screen();

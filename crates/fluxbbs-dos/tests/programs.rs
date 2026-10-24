@@ -162,7 +162,8 @@ fn nodes_share_files_with_modes_and_locks() {
     // Read/write, deny none: A locks and waits; B can't lock the same bytes.
     std::fs::write(dir.join("A.COM"), locker(0x42, true)).unwrap();
     std::fs::write(dir.join("B.COM"), locker(0x42, false)).unwrap();
-    // Read/write, deny all: refused while A has the file open.
+    // Read/write, deny all: refused (access denied, as DOS has it for two
+    // deny modes) while A has the file open.
     std::fs::write(dir.join("C.COM"), locker(0x12, false)).unwrap();
     let mut out = Vec::new();
     let mut a = Machine::new(&dir, None);
@@ -173,7 +174,7 @@ fn nodes_share_files_with_modes_and_locks() {
     assert_eq!(run(&mut b, &mut out), Status::Exited(0x21), "lock violation");
     let mut c = Machine::new(&dir, None);
     c.start("C.COM", "").unwrap();
-    assert_eq!(run(&mut c, &mut out), Status::Exited(0x20), "sharing violation");
+    assert_eq!(run(&mut c, &mut out), Status::Exited(0x05), "two deny modes clash: access denied");
     // A goes, and its lock and open with it.
     a.feed(b"x");
     assert_eq!(run(&mut a, &mut out), Status::Exited(0));

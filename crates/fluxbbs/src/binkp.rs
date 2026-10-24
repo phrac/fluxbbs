@@ -15,6 +15,7 @@ use tokio::net::TcpStream;
 use tokio::sync::mpsc;
 
 use crate::BbsState;
+use crate::config::FtnNetwork;
 use crate::ftn::Addr;
 
 const M_NUL: u8 = 0;
@@ -226,10 +227,9 @@ impl Link {
     }
 
     /// Who we are: M_NUL lines (and `extra`, e.g. a CRAM challenge), then
-    /// M_ADR.
-    fn greet(&self, state: &BbsState, extra: Option<String>) -> anyhow::Result<()> {
+    /// M_ADR with our address(es) `me`.
+    fn greet(&self, state: &BbsState, me: &str, extra: Option<String>) -> anyhow::Result<()> {
         let cfg = state.config();
-        let me = cfg.ftn.address.trim().to_string();
         for nul in [
             format!("SYS {}", cfg.bbs.name),
             format!("ZYZ {}", cfg.bbs.sysop_alias),
@@ -243,7 +243,7 @@ impl Link {
         {
             self.send(cmd(M_NUL, &nul))?;
         }
-        self.send(cmd(M_ADR, &me))
+        self.send(cmd(M_ADR, me))
     }
 }
 
@@ -265,18 +265,25 @@ fn with_port(host: &str) -> String {
     }
 }
 
-/// Poll the hub once. Returns what was sent and received.
-pub async fn poll(state: Arc<BbsState>) -> anyhow::Result<Polled> {
-    let ftn = state.config().ftn.clone();
-    let (_, hub) = crate::ftntoss::addresses(&ftn)?;
-    let host = with_port(ftn.hub_host.trim());
-    // One session at a time, a poll or a call in: two at once would send
-    // the same packets.
-    let s = state.clone();
-    let _busy = tokio::task::spawn_blocking(move || crate::ftntoss::lock(&s, "binkp", true)).await??;
+/// A network's session lock: one session with its hub at a time, a poll
+/// or a call in (two at once would send the same packets).
+fn session_lock(state: &BbsState, net: &str, wait: bool) -> anyhow::Result<Option<std::fs::File>> {
+    crate::ftntoss::lock(state, &format!("binkp-{}", net.to_ascii_lowercase()), wait)
+}
+
+/// Poll a network's hub once. Returns what was sent and received.
+pub async fn poll(state: Arc<BbsState>, net: FtnNetwork) -> anyhow::Result<Polled> {
+    let (_, hub) = crate::ftntoss::addresses(&net)?;
+    let host = with_port(net.hub_host.trim());
+    // A session with this hub under way (it called): this poll's not
+    // needed, and waiting would hold up the other networks' polls.
+    let Some(_busy) = session_lock(&state, &net.name, false)? else {
+        tracing::info!("binkp: a session with {hub} ({}) is under way; not polling", net.name);
+        return Ok(Polled::default());
+    };
     let stream = tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&host)).await.with_context(|| format!("binkp: connecting to {host}"))??;
     let mut link = Link::new(stream)?;
-    link.greet(&state, None)?;
+    link.greet(&state, net.address.trim(), None)?;
 
     // The hub says who it is (and may offer CRAM-MD5); then our password.
     let mut challenge = None;
@@ -298,7 +305,7 @@ pub async fn poll(state: Arc<BbsState>) -> anyhow::Result<Polled> {
             _ => {}
         }
     }
-    let pw = &ftn.session_password;
+    let pw = &net.session_password;
     let answer = match &challenge {
         Some(c) if !pw.is_empty() => cram_md5(pw, c).ok_or_else(|| anyhow!("binkp: bad CRAM challenge"))?,
         _ if pw.is_empty() => "-".to_string(),
@@ -322,9 +329,9 @@ pub async fn poll(state: Arc<BbsState>) -> anyhow::Result<Polled> {
             _ => {}
         }
     }
-    let polled = exchange(&state, &mut link).await;
+    let polled = exchange(&mut link, &crate::ftntoss::outbound_dirs(&state, &net.name), &crate::ftntoss::inbound_dir(&state, &net.name)).await;
     let polled = link.end(polled).await?;
-    tracing::info!("binkp: poll of {hub}: sent {:?}, received {:?}", polled.sent, polled.received);
+    tracing::info!("binkp: poll of {hub} ({}): sent {:?}, received {:?}", net.name, polled.sent, polled.received);
     Ok(polled)
 }
 
@@ -333,18 +340,26 @@ pub async fn poll(state: Arc<BbsState>) -> anyhow::Result<Polled> {
 /// or plain), gets in; then files go both ways as in a poll, and what came
 /// is tossed. `peer` is who connected.
 async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketAddr) -> anyhow::Result<()> {
-    let ftn = state.config().ftn.clone();
-    let (_, hub) = crate::ftntoss::addresses(&ftn)?;
+    // Every network's hub may call: we're all our addresses, and the
+    // caller's say which network(s) it's on (one system can be the hub of
+    // several).
+    let nets: Vec<(FtnNetwork, Addr)> =
+        state.config().ftn.networks().into_iter().filter_map(|n| crate::ftntoss::addresses(&n).ok().map(|(_, hub)| (n, hub))).collect();
+    let mine: Vec<String> = nets.iter().map(|(n, _)| n.address.trim().to_string()).collect();
     let mut link = Link::new(stream)?;
     let challenge: String = (0..16).map(|_| format!("{:02x}", rand::random::<u8>())).collect();
-    link.greet(&state, Some(format!("OPT CRAM-MD5-{challenge}")))?;
-    let mut remote_is_hub = false;
+    link.greet(&state, &mine.join(" "), Some(format!("OPT CRAM-MD5-{challenge}")))?;
+    let mut claimed: Vec<(FtnNetwork, Addr)> = Vec::new();
+    let mut claims_any_hub = false;
     // A minute to say who they are.
     let hello = tokio::time::timeout(Duration::from_secs(60), async {
         loop {
             match link.read().await? {
                 Frame::Cmd(M_NUL, s) => tracing::debug!("binkp in: {s}"),
-                Frame::Cmd(M_ADR, s) => remote_is_hub = is_hub(&s, hub),
+                Frame::Cmd(M_ADR, s) => {
+                    claimed = nets.iter().filter(|(_, hub)| is_hub(&s, *hub)).cloned().collect();
+                    claims_any_hub = state.config().ftn.all_hubs().iter().filter_map(|h| Addr::parse(h)).any(|h| is_hub(&s, h));
+                }
                 Frame::Cmd(M_PWD, p) => break Ok(p),
                 Frame::Cmd(M_ERR | M_BSY, s) => break Err(anyhow!("binkp: {peer} said {s}")),
                 _ => {}
@@ -363,11 +378,19 @@ async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketA
             bail!("binkp: {peer} never gave a password");
         }
     };
-    let pw = &ftn.session_password;
+    let remote_is_hub = !claimed.is_empty();
     // The digest may have options after it (FTS-1027).
     let given = pwd.split_whitespace().next().unwrap_or("");
-    let good = remote_is_hub && !pw.is_empty() && (cram_md5(pw, &challenge).is_some_and(|c| c.eq_ignore_ascii_case(given)) || given == pw);
-    if !good {
+    // Signed in as each network whose hub it claims and whose password it
+    // gave: never as one whose password it didn't.
+    let authed: Vec<(FtnNetwork, Addr)> = claimed
+        .into_iter()
+        .filter(|(n, _)| {
+            let pw = &n.session_password;
+            !pw.is_empty() && (cram_md5(pw, &challenge).is_some_and(|c| c.eq_ignore_ascii_case(given)) || given == pw)
+        })
+        .collect();
+    if authed.is_empty() {
         let why = if remote_is_hub { "Incorrect password" } else { "Unknown address" };
         link.send(cmd(M_ERR, why))?;
         link.close().await;
@@ -377,25 +400,44 @@ async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketA
             // from every service. Guessing is held back by the connection
             // limits, and CRAM never shows the password.
             tracing::warn!("binkp: {peer} gave the hub's address with the wrong session password");
+        } else if claims_any_hub {
+            // The hub of a network that's set up wrong here: not their fault.
+            for p in state.config().ftn.problems() {
+                tracing::warn!("ftn: {p}");
+            }
+            tracing::warn!("binkp: {peer} is the hub of a network that isn't set up right (above); turned away");
         } else {
             crate::logon::record_failure(&state, peer, "binkp: unknown address");
         }
         return Ok(());
     }
-    // A poll is already under way: try again later.
-    let Some(_busy) = crate::ftntoss::lock(&state, "binkp", false)? else {
-        link.send(cmd(M_BSY, "busy, try again later"))?;
-        link.close().await;
-        return Ok(());
-    };
-    link.send(cmd(M_OK, "secure"))?;
-    let polled = exchange(&state, &mut link).await;
-    let polled = link.end(polled).await?;
-    tracing::info!("binkp: {hub} called: sent {:?}, received {:?}", polled.sent, polled.received);
-    if !polled.received.is_empty() {
-        let s = state.clone();
-        tokio::task::spawn_blocking(move || crate::ftntoss::toss(&s)).await??;
+    // A poll of one of them is already under way: try again later.
+    let mut busy = Vec::new();
+    for (n, _) in &authed {
+        match session_lock(&state, &n.name, false)? {
+            Some(l) => busy.push(l),
+            None => {
+                link.send(cmd(M_BSY, "busy, try again later"))?;
+                link.close().await;
+                return Ok(());
+            }
+        }
     }
+    link.send(cmd(M_OK, "secure"))?;
+    let outbound: Vec<PathBuf> = authed.iter().flat_map(|(n, _)| crate::ftntoss::outbound_dirs(&state, &n.name)).collect();
+    // What it sends is tossed as mail of these networks only (they share
+    // the password it gave: the first one's inbound stands for them all).
+    let inbound = crate::ftntoss::inbound_dir(&state, &authed[0].0.name);
+    let polled = exchange(&mut link, &outbound, &inbound).await;
+    let polled = link.end(polled).await;
+    drop(busy);
+    // What did arrive is tossed even if the session ended badly.
+    let s = state.clone();
+    let tossed = tokio::task::spawn_blocking(move || crate::ftntoss::toss(&s)).await?;
+    let polled = polled?;
+    tossed?;
+    let names: Vec<&str> = authed.iter().map(|(n, _)| n.name.as_str()).collect();
+    tracing::info!("binkp: {} ({}) called: sent {:?}, received {:?}", authed[0].1, names.join(", "), polled.sent, polled.received);
     Ok(())
 }
 
@@ -444,12 +486,14 @@ pub async fn listen(state: Arc<BbsState>) {
 /// Files both ways once the session is up: ours, then end-of-batch; GOTs
 /// for theirs go out as they finish. Done when both sides are, and every
 /// file we sent is acknowledged.
-async fn exchange(state: &BbsState, link: &mut Link) -> anyhow::Result<Polled> {
-    let (inbound, outbound, _) = crate::ftntoss::dirs(state);
+/// `outbound`: where the hub's packets wait; `inbound`: where what it
+/// sends goes, which no other session uses (it's the network's, and its
+/// lock is held).
+async fn exchange(link: &mut Link, outbound: &[PathBuf], inbound: &Path) -> anyhow::Result<Polled> {
+    let inbound = inbound.to_path_buf();
     std::fs::create_dir_all(&inbound)?;
-    std::fs::create_dir_all(&outbound)?;
-    // Halves of files from sessions that broke off (only one session runs
-    // at a time, so none is in use).
+    // Halves of files from sessions that broke off (none in use: see
+    // above).
     for e in std::fs::read_dir(&inbound)?.flatten() {
         if e.file_name().to_string_lossy().ends_with(".part") {
             let _ = std::fs::remove_file(e.path());
@@ -458,8 +502,13 @@ async fn exchange(state: &BbsState, link: &mut Link) -> anyhow::Result<Polled> {
     // M_GETs answered per file: a peer can't have a file sent over and over.
     let mut resent: std::collections::HashMap<String, u32> = Default::default();
     let mut waiting: Vec<(String, PathBuf)> = Vec::new();
-    for p in crate::ftntoss::outbound_files(&outbound) {
+    for p in outbound.iter().flat_map(|d| crate::ftntoss::outbound_files(d)) {
         let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        // GOT, SKIP and GET name a file: two of one name (two networks'
+        // outbounds) go in separate sessions.
+        if waiting.iter().any(|(n, _)| n == &name) {
+            continue;
+        }
         send_file(link, &name, &p, 0)?;
         waiting.push((name, p));
     }
@@ -575,7 +624,7 @@ pub async fn run(state: Arc<BbsState>) {
             (c.ftn.enabled, c.ftn.poll_minutes)
         };
         if enabled && minutes > 0 {
-            if let Err(e) = cycle(state.clone()).await {
+            if let Err(e) = cycle(state.clone(), None).await {
                 tracing::warn!("ftn: {e:#}");
             }
             tokio::time::sleep(Duration::from_secs(minutes as u64 * 60)).await;
@@ -586,15 +635,42 @@ pub async fn run(state: Arc<BbsState>) {
     }
 }
 
-/// Pack what's new, poll the hub, toss what came.
-pub async fn cycle(state: Arc<BbsState>) -> anyhow::Result<()> {
+/// Pack what's new, poll each network's hub (or just `only`), toss what
+/// came.
+pub async fn cycle(state: Arc<BbsState>, only: Option<&str>) -> anyhow::Result<()> {
+    for p in state.config().ftn.problems() {
+        tracing::warn!("ftn: {p}");
+    }
+    let (_, outbound, _) = crate::ftntoss::dirs(&state);
+    for d in crate::ftntoss::stray_dirs(&state, &outbound) {
+        if !crate::ftntoss::outbound_files(&d).is_empty() {
+            tracing::warn!("ftn: packets in {} are for no network set up (renamed?); move them to the network's outbound", d.display());
+        }
+    }
+    // Nothing packing (the database busy, say) doesn't stop mail coming.
+    let mut failed = Vec::new();
     let s = state.clone();
-    tokio::task::spawn_blocking(move || crate::ftntoss::scan(&s)).await??;
-    let polled = poll(state.clone()).await;
-    // Toss whatever arrived, even if the session broke off.
+    if let Err(e) = tokio::task::spawn_blocking(move || crate::ftntoss::scan(&s)).await? {
+        failed.push(format!("scan: {e:#}"));
+    }
+    let nets = match only {
+        Some(name) => vec![crate::ftntoss::network(&state, name)?],
+        // A hub with nowhere to call only calls us.
+        None => state.config().ftn.networks().into_iter().filter(|n| !n.hub_host.trim().is_empty()).collect(),
+    };
+    // One hub down doesn't hold up the others.
+    for net in nets {
+        let name = net.name.clone();
+        if let Err(e) = poll(state.clone(), net).await {
+            failed.push(format!("{name}: {e:#}"));
+        }
+    }
+    // Toss whatever arrived, even if a session broke off.
     let s = state.clone();
-    tokio::task::spawn_blocking(move || crate::ftntoss::toss(&s)).await??;
-    polled.map(|_| ())
+    if let Err(e) = tokio::task::spawn_blocking(move || crate::ftntoss::toss(&s)).await? {
+        failed.push(format!("toss: {e:#}"));
+    }
+    if failed.is_empty() { Ok(()) } else { Err(anyhow!(failed.join("; "))) }
 }
 
 #[cfg(test)]
@@ -679,13 +755,73 @@ mod tests {
             (again, got)
         });
         let mut link = Link::new(TcpStream::connect(addr).await.unwrap()).unwrap();
-        let polled = exchange(&state, &mut link).await.unwrap();
+        let polled = exchange(&mut link, std::slice::from_ref(&outbound), &crate::ftntoss::inbound_dir(&state, "test")).await.unwrap();
         link.close().await;
         let (again, got) = peer.await.unwrap();
         assert!(again.starts_with("0000abcd.pkt 40000 ") && again.ends_with(" 30000"), "{again}");
         assert_eq!(got, body[30000..]);
         assert_eq!(polled.sent, ["0000abcd.pkt"]);
         assert!(!outbound.join("0000abcd.pkt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// A hub calling in is matched to its network by its address: it gets
+    /// that network's password checked and only that network's mail.
+    #[tokio::test]
+    async fn a_call_in_is_on_the_callers_network() {
+        let dir = std::env::temp_dir().join(format!("inq-binkp-nets-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = crate::tests::state();
+        {
+            let mut cfg = (*state.config()).clone();
+            cfg.root = dir.clone();
+            cfg.paths.data = "data".into();
+            cfg.ftn.enabled = true;
+            cfg.ftn.address = "21:1/999@fsxnet".into();
+            cfg.ftn.hub = "21:1/100".into();
+            cfg.ftn.session_password = "FSXPW".into();
+            cfg.ftn.networks.push(FtnNetwork { name: "agoranet".into(), address: "46:1/200@agoranet".into(), hub: "46:1/100".into(), session_password: "AGNPW".into(), ..Default::default() });
+            *state.config.write().unwrap() = Arc::new(cfg);
+        }
+        for (net, file) in [("fsxnet", "00000001.pkt"), ("agoranet", "00000002.pkt")] {
+            let out = crate::ftntoss::outbound_dir(&state, net);
+            std::fs::create_dir_all(&out).unwrap();
+            std::fs::write(out.join(file), b"packet").unwrap();
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let st = state.clone();
+        let board = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            answer(st, stream, peer).await.unwrap();
+        });
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        let clock = AtomicU64::new(now_ms());
+        let ours = loop {
+            if let Frame::Cmd(M_ADR, a) = read_frame(&mut s, &clock).await.unwrap() {
+                break a;
+            }
+        };
+        assert_eq!(ours, "21:1/999@fsxnet 46:1/200@agoranet");
+        s.write_all(&cmd(M_ADR, "46:1/100@agoranet")).await.unwrap();
+        s.write_all(&cmd(M_PWD, "AGNPW")).await.unwrap();
+        let mut files = Vec::new();
+        loop {
+            match read_frame(&mut s, &clock).await.unwrap() {
+                Frame::Cmd(M_FILE, a) => {
+                    let w: Vec<String> = a.split_whitespace().map(String::from).collect();
+                    s.write_all(&cmd(M_GOT, &format!("{} {} {}", w[0], w[1], w[2]))).await.unwrap();
+                    files.push(w[0].clone());
+                }
+                Frame::Cmd(M_EOB, _) => break,
+                Frame::Cmd(M_ERR, e) => panic!("refused: {e}"),
+                _ => {}
+            }
+        }
+        s.write_all(&cmd(M_EOB, "")).await.unwrap();
+        board.await.unwrap();
+        assert_eq!(files, ["00000002.pkt"], "only agoranet's mail");
+        assert!(crate::ftntoss::outbound_dir(&state, "fsxnet").join("00000001.pkt").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

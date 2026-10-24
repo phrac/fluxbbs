@@ -102,6 +102,15 @@ const COLUMNS: &[&str] = &[
     "fav_boards",
 ];
 
+fn write(db: &Connection, u: &User) -> anyhow::Result<()> {
+    let sets = COLUMNS.iter().map(|c| format!("{c} = ?")).collect::<Vec<_>>().join(",");
+    let sql = format!("UPDATE users SET {sets} WHERE id = ?");
+    let mut values = bind(u);
+    values.push(Box::new(u.id));
+    db.execute(&sql, rusqlite::params_from_iter(values.iter().map(|b| b.as_ref())))?;
+    Ok(())
+}
+
 /// Add columns newer than the database (`ALTER TABLE`, since SQLite
 /// can't `CREATE TABLE IF NOT EXISTS` its way to new columns).
 fn migrate(db: &Connection) -> rusqlite::Result<()> {
@@ -296,6 +305,13 @@ impl UserStore {
     }
 
     /// `userSearch`: by handle, real name, or user number.
+    /// New: the (undeleted) user with exactly this handle, not a real name
+    /// or number: for what's kept by handle, like moderators and bans.
+    pub fn find_handle(&self, handle: &str) -> anyhow::Result<Option<User>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT * FROM users WHERE handle = ?1 AND NOT deleted ORDER BY id LIMIT 1", [handle.trim()], from_row).optional()?)
+    }
+
     pub fn find(&self, name: &str, include_deleted: bool) -> anyhow::Result<Option<User>> {
         let name = name.trim();
         let id: i64 = name.parse().unwrap_or(-1);
@@ -345,12 +361,33 @@ impl UserStore {
     /// `userSave`.
     pub fn save(&self, u: &User) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
-        let sets = COLUMNS.iter().map(|c| format!("{c} = ?")).collect::<Vec<_>>().join(",");
-        let sql = format!("UPDATE users SET {sets} WHERE id = ?");
-        let mut values = bind(u);
-        values.push(Box::new(u.id));
-        db.execute(&sql, rusqlite::params_from_iter(values.iter().map(|b| b.as_ref())))?;
-        Ok(())
+        write(&db, u)
+    }
+
+    /// New: put into the record as it is now what changed from `base` to
+    /// `mine` (`User::merge_edit`), reading and writing it in one go, so
+    /// two sessions (or `fluxbbs` beside the board) can't lose each
+    /// other's changes. Returns the record as saved.
+    pub fn merge(&self, base: &User, mine: &User) -> anyhow::Result<User> {
+        self.merge_with(base, mine, false)
+    }
+
+    /// [`Self::merge`]; `exact`: counters changed are set to `mine`'s
+    /// values rather than moved by the change.
+    pub fn merge_with(&self, base: &User, mine: &User, exact: bool) -> anyhow::Result<User> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let now = tx.query_row("SELECT * FROM users WHERE id = ?1", [mine.id], from_row).optional()?;
+        let u = match now {
+            Some(mut n) => {
+                if exact { n.merge_values(base, mine) } else { n.merge_edit(base, mine) }
+                n
+            }
+            None => mine.clone(),
+        };
+        write(&tx, &u)?;
+        tx.commit()?;
+        Ok(u)
     }
 
     /// All users, by number.
@@ -370,6 +407,22 @@ impl UserStore {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn merges_from_one_base_both_count() {
+        let store = UserStore::open_memory().unwrap();
+        let mut u = User { handle: "Ann".into(), posts: 3, ..User::default() };
+        store.insert(&mut u).unwrap();
+        // Two nodes (or a vote and the caller) from the same copy.
+        let (mut a, mut b) = (u.clone(), u.clone());
+        a.posts += 1;
+        b.posts += 1;
+        b.time_per_day = 120;
+        store.merge(&u, &a).unwrap();
+        let saved = store.merge(&u, &b).unwrap();
+        assert_eq!((saved.posts, saved.time_per_day), (5, 120));
+        assert_eq!(store.get(u.id).unwrap().unwrap().posts, 5);
+    }
 
     #[test]
     fn insert_find_save() {

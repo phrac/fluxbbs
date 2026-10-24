@@ -468,10 +468,19 @@ pub fn ansi_bytes(s: &str) -> Vec<u8> {
                 break;
             }
         }
-        if let Some(e @ ('m' | 'C')) = end
-            && params.chars().all(|d| d.is_ascii_digit() || d == ';')
-        {
-            out.extend(format!("\x1b[{params}{e}").bytes());
+        // Colours the screen keeps track of, and a cursor-right of no more
+        // than a line (ANSI art's spacing).
+        match end {
+            Some('m') if params.chars().all(|d| d.is_ascii_digit() || d == ';') => {
+                if let Some(f) = fluxbbs_term::codes::sgr_filter(&params) {
+                    out.extend(format!("\x1b[{f}m").bytes());
+                }
+            }
+            Some('C') if params.chars().all(|d| d.is_ascii_digit()) => {
+                let n = params.parse::<u32>().unwrap_or(1).clamp(1, 79);
+                out.extend(format!("\x1b[{n}C").bytes());
+            }
+            _ => {}
         }
     }
     out.extend(fluxbbs_term::cp437::encode(&printable(&text)));
@@ -855,6 +864,7 @@ mod tests {
         let b = ansi_bytes("\x1b[1;31mred\x1b[0m\x1b[5C!\x1b]0;title\x07\x1b[2J\x1b[6n\u{2190}[H.");
         // What's left of a dropped sequence is plain text.
         assert_eq!(b, b"\x1b[1;31mred\x1b[0m\x1b[5C!]0;title[H.".to_vec());
+        assert_eq!(ansi_bytes("\x1b[65535Cx\x1b[8my"), b"\x1b[79Cxy".to_vec(), "a line at most; no hidden text");
     }
 
     #[test]

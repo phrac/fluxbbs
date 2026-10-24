@@ -794,12 +794,15 @@ impl Session {
                     return Ok(());
                 };
                 tracing::info!("checked {}'s mailbox", other.handle);
+                // Their record, with its own base, for the while.
+                let base = self.user_base.replace(Some(other.clone()));
                 let sysop = std::mem::replace(&mut self.user, other);
                 let r = self.read_email(false, false).await;
                 if let Err(e) = self.save_own_user() {
                     tracing::error!("saving {}: {e}", self.user.handle);
                 }
                 self.user = sysop;
+                *self.user_base.borrow_mut() = base;
                 r?;
             }
             LocalJob::EditText => self.edit_textfile().await?,

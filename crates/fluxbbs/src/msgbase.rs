@@ -569,8 +569,10 @@ impl MsgBase {
         let kept: std::collections::HashSet<i64> = keep.iter().map(|k| k.0).collect();
         for (id, _, _) in rows.iter().filter(|r| !kept.contains(&r.0)) {
             tx.prepare_cached("DELETE FROM messages WHERE id = ?1")?.execute([id])?;
-            // `ftn_msgs` stays: it's the dupe history (row ids aren't
-            // used again, so nothing new takes the row).
+            // `ftn_msgs` stays: it's the dupe history. (SQLite can give the
+            // highest row id out again, so what refers to a row by it goes:
+            // a pin left behind would pin the next post.)
+            tx.prepare_cached("DELETE FROM pins WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM seen WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM mentions WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM pushes WHERE msg_id = ?1")?.execute([id])?;

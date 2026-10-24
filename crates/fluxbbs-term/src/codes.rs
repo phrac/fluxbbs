@@ -283,7 +283,9 @@ pub fn tokenize_user(src: &[u8]) -> Vec<Token> {
         if c == 0x1B && src.get(i + 1) == Some(&b'[') {
             let params = src[i + 2..].iter().take_while(|b| b.is_ascii_digit() || **b == b';').count();
             if src.get(i + 2 + params) == Some(&b'm') {
-                text.extend_from_slice(&src[i..i + 3 + params]);
+                if let Some(f) = sgr_filter(&String::from_utf8_lossy(&src[i + 2..i + 2 + params])) {
+                    text.extend_from_slice(format!("\x1b[{f}m").as_bytes());
+                }
                 i += 3 + params;
                 continue;
             }
@@ -357,13 +359,65 @@ pub fn squish(s: &str, len: usize) -> String {
     out
 }
 
+/// `ESC[<params>m`'s parameters cut down to what the screen keeps track
+/// of (and so can put back): bold, blink, normal, and foreground and
+/// background colours, 16, 256 or 24-bit. Not hidden, reversed,
+/// underlined or struck-through text, which would outlast the caller's
+/// line; those are dropped one by one, so `0;7;36` keeps its reset and
+/// colour. None if nothing is left of it.
+pub fn sgr_filter(params: &str) -> Option<String> {
+    if params.is_empty() {
+        return Some(String::new());
+    }
+    let p: Vec<Option<u32>> = params.split(';').map(|v| if v.is_empty() { Some(0) } else { v.parse().ok() }).collect();
+    let mut keep: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < p.len() {
+        match p[i] {
+            Some(v @ (0 | 1 | 5 | 6 | 22 | 25 | 30..=37 | 39 | 40..=47 | 49 | 90..=97 | 100..=107)) => {
+                keep.push(v.to_string());
+                i += 1;
+            }
+            Some(v @ (38 | 48)) => {
+                let arg = |k: usize| p.get(i + k).copied().flatten().filter(|&n| n < 256);
+                match p.get(i + 1).copied().flatten() {
+                    Some(5) if arg(2).is_some() => {
+                        keep.push(format!("{v};5;{}", arg(2).unwrap_or(0)));
+                        i += 3;
+                    }
+                    Some(2) if (2..5).all(|k| arg(k).is_some()) => {
+                        keep.push(format!("{v};2;{};{};{}", arg(2).unwrap_or(0), arg(3).unwrap_or(0), arg(4).unwrap_or(0)));
+                        i += 5;
+                    }
+                    // Not a colour we can tell: the rest can't be read.
+                    _ => break,
+                }
+            }
+            _ => i += 1,
+        }
+    }
+    (!keep.is_empty()).then(|| keep.join(";"))
+}
+
+/// Is `ESC[<params>m` wholly colours the screen keeps track of?
+pub fn sgr_ok(params: &str) -> bool {
+    sgr_filter(params).is_some_and(|f| f == params || (params.is_empty() && f.is_empty()))
+}
+
 /// How many characters CP437 text takes on screen: ANSI escape sequences
 /// take none.
 pub fn visible_bytes(b: &[u8]) -> usize {
     let (mut n, mut i) = (0, 0);
     while i < b.len() {
         if b[i] == 0x1B && b.get(i + 1) == Some(&b'[') {
-            i += 2 + b[i + 2..].iter().position(|c| (0x40..=0x7E).contains(c)).map_or(b.len(), |p| p + 1);
+            let len = b[i + 2..].iter().position(|c| (0x40..=0x7E).contains(c)).map_or(b.len() - i - 2, |p| p + 1);
+            // A cursor-right moves along as spaces would.
+            if b.get(i + 1 + len) == Some(&b'C') {
+                // Its first number, at least 1 (as terminals take 0).
+                let first = std::str::from_utf8(&b[i + 2..i + 1 + len]).ok().and_then(|s| s.split(';').next()?.parse::<usize>().ok()).unwrap_or(1);
+                n += first.clamp(1, 80);
+            }
+            i += 2 + len;
             continue;
         }
         n += 1;
@@ -488,6 +542,13 @@ mod tests {
 
     #[test]
     fn caller_text_keeps_only_colours() {
+        // Colours the screen tracks; not hidden or reversed text, which it
+        // can't put back.
+        assert!(sgr_ok("1;36") && sgr_ok("") && sgr_ok("38;2;170;170;170") && sgr_ok("48;5;17;1"));
+        assert!(!sgr_ok("8") && !sgr_ok("7") && !sgr_ok("4") && !sgr_ok("38;2;300;0;0") && !sgr_ok("38;5"));
+        assert_eq!(tokenize_user(b"\x1b[8mhid"), vec![Text(b"hid".to_vec())], "a sequence with nothing left goes");
+        assert_eq!(sgr_filter("0;7;36").as_deref(), Some("0;36"), "the reset and colour stay");
+        assert_eq!(sgr_filter("38;2;1;2;3;1").as_deref(), Some("38;2;1;2;3;1"));
         assert_eq!(
             tokenize_user(b"|04hi|CS|PS @10%UN\x1b[2J"),
             vec![Ctrl(Control::Fore(4)), Text(b"hi|CS|PS @10%UN[2J".to_vec())]

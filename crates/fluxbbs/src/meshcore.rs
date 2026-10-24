@@ -68,14 +68,17 @@ impl Outbox {
     pub fn post(&self, m: &Message) {
         let Some(tx) = self.0.lock().unwrap().clone() else { return };
         let body_end = if m.sig_pos > 0 { (m.sig_pos as usize - 1).min(m.lines.len()) } else { m.lines.len() };
+        // Colour codes and escapes are this board's: radios get plain text.
+        let plain = crate::editor::strip_colours;
         let text = m.lines[..body_end]
             .iter()
+            .map(|l| plain(l))
             .filter(|l| !l.chars().take(4).any(|c| c == '>'))
-            .flat_map(|l| l.split_whitespace())
+            .flat_map(|l| l.split_whitespace().map(String::from).collect::<Vec<_>>())
             .collect::<Vec<_>>()
             .join(" ");
-        let text = if text.is_empty() { m.subject.clone() } else { text };
-        let _ = tx.send(Outgoing { area: m.area.clone(), from: m.from.name.clone(), text });
+        let text = if text.is_empty() { plain(&m.subject) } else { text };
+        let _ = tx.send(Outgoing { area: m.area.clone(), from: plain(&m.from.name), text });
     }
 }
 

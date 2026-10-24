@@ -1057,7 +1057,7 @@ pub fn int21(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) -> After {
                     Err(_) => break,
                 }
             }
-            match made.map(|(name, host, f)| (Shared::open(&host, 2, 0), name, host, f)) {
+            match made.map(|(name, host, f)| (Shared::open(&host, 2, 0, false), name, host, f)) {
                 None => fail(sys, cpu, mem, ERR_PATH_NOT_FOUND),
                 Some((Ok(share), name, host, f)) => {
                     let full = name.as_bytes();
@@ -1299,9 +1299,9 @@ fn ioctl(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) {
     }
 }
 
-/// The functions that take a path at DS:DX.
+/// The functions that take a path at DS:DX (6Ch: DS:SI, DX its action).
 fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
-    let name = read_asciiz(mem, cpu.ds(), cpu.dx());
+    let name = read_asciiz(mem, cpu.ds(), if ah == 0x6C { cpu.r16(cpu::SI) } else { cpu.dx() });
     let creating = matches!(ah, 0x39 | 0x3C | 0x5B) || (ah == 0x6C && cpu.dx() != 0 && cpu.r16(cpu::DX) & 0x10 != 0);
     let resolved = match sys.dos.resolve(&name, creating || ah == 0x6C || ah == 0x4E) {
         Ok(r) => r,
@@ -1351,7 +1351,7 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
             }
         }
         0x3C => {
-            let share = match Shared::open(&host, 2, 0) {
+            let share = match Shared::open(&host, 2, 0, host.exists()) {
                 Ok(s) => s,
                 Err(e) => return fail(sys, cpu, mem, e),
             };
@@ -1362,7 +1362,7 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
             let f = File::options().read(true).write(true).create_new(true).open(&host);
             match f {
                 Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => fail(sys, cpu, mem, 80),
-                f => match Shared::open(&host, 2, 0) {
+                f => match Shared::open(&host, 2, 0, false) {
                     Ok(share) => open(sys, cpu, mem, f, host, share),
                     Err(e) => fail(sys, cpu, mem, e),
                 },
@@ -1380,7 +1380,18 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
             if !matches!(mode, 0 | 1 | 2 | 4) {
                 return fail(sys, cpu, mem, 0x0C);
             }
-            let share = match Shared::open(&host, mode, (full >> 4) & 7) {
+            // 6Ch's action: 1 opened, 2 created, 3 replaced (emptied).
+            let exists = host.is_file();
+            let action = if ah != 0x6C {
+                1
+            } else if !exists {
+                2
+            } else if cpu.dx() & 0x0F == 2 {
+                3
+            } else {
+                1
+            };
+            let share = match Shared::open(&host, mode, (full >> 4) & 7, action == 3) {
                 Ok(s) => s,
                 Err(e) => return fail(sys, cpu, mem, e),
             };
@@ -1405,9 +1416,16 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
                 }
             }
             let f = o.open(&host).or_else(|_| File::open(&host));
+            if ah == 0x6C {
+                cpu.set_r16(cpu::CX, action);
+            }
             open(sys, cpu, mem, f, host, share);
         }
         0x41 => {
+            // SHARE: not while it's open, here or on another node.
+            if crate::share::in_use(&host) {
+                return fail(sys, cpu, mem, ERR_ACCESS_DENIED);
+            }
             if std::fs::remove_file(&host).is_err() {
                 fail(sys, cpu, mem, ERR_FILE_NOT_FOUND);
             }
@@ -1436,7 +1454,7 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
             let new = read_asciiz(mem, cpu.es(), cpu.di());
             match sys.dos.resolve(&new, true) {
                 Ok(Resolved::Path { host: to, .. }) => {
-                    if to.exists() || std::fs::rename(&host, &to).is_err() {
+                    if to.exists() || crate::share::in_use(&host) || std::fs::rename(&host, &to).is_err() {
                         fail(sys, cpu, mem, ERR_ACCESS_DENIED);
                     }
                 }

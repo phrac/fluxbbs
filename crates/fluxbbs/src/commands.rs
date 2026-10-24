@@ -411,29 +411,43 @@ impl Session {
     /// now; so a SysOp's edit meanwhile (their daily time, say) stays.
     pub(crate) fn save_own_user(&self) -> anyhow::Result<()> {
         let base = self.user_base.borrow().clone().filter(|b| b.id == self.user.id);
-        let u = match (base, self.state.users.get(self.user.id)?) {
-            (Some(base), Some(mut now)) => {
-                now.merge_edit(&base, &self.user);
-                now
+        match base {
+            Some(base) => {
+                self.state.users.merge(&base, &self.user)?;
             }
-            _ => self.user.clone(),
-        };
-        self.state.users.save(&u)?;
+            None => self.state.users.save(&self.user)?,
+        }
         *self.user_base.borrow_mut() = Some(self.user.clone());
         Ok(())
     }
 
     /// New: save someone else's record, changed from `original` (the
     /// SysOp's editors, votes), and if they're online tell their session.
-    pub(crate) fn save_other_user(&self, original: &crate::user::User, u: &crate::user::User) -> anyhow::Result<()> {
-        self.state.users.save(u)?;
-        if u.id != self.user.id
-            && let Some(n) = self.state.nodes.find_user(&original.handle)
-        {
-            let ev = crate::nodes::NodeEvent::AccountChanged { original: Box::new(original.clone()), edited: Box::new(u.clone()) };
-            self.state.nodes.send(n, ev);
+    /// The record is read again and only what changed from `original`
+    /// goes in, so whatever the caller (or anyone) saved meanwhile stays.
+    /// Returns the record as saved.
+    pub(crate) fn save_other_user(&self, original: &crate::user::User, u: &crate::user::User) -> anyhow::Result<crate::user::User> {
+        self.save_other(original, u, false)
+    }
+
+    /// [`Self::save_other_user`] where what changed is a value set, not a
+    /// change made (the user editor, a level's limits): counters too.
+    pub(crate) fn save_other_user_exact(&self, original: &crate::user::User, u: &crate::user::User) -> anyhow::Result<crate::user::User> {
+        self.save_other(original, u, true)
+    }
+
+    fn save_other(&self, original: &crate::user::User, u: &crate::user::User, exact: bool) -> anyhow::Result<crate::user::User> {
+        let now = self.state.users.merge_with(original, u, exact)?;
+        if u.id != self.user.id {
+            // Every node they're on (by either name, if it changed).
+            for (n, info) in self.state.nodes.online() {
+                if info.user.eq_ignore_ascii_case(&original.handle) || info.user.eq_ignore_ascii_case(&u.handle) {
+                    let ev = crate::nodes::NodeEvent::AccountChanged { original: Box::new(original.clone()), edited: Box::new(u.clone()) };
+                    self.state.nodes.send(n, ev);
+                }
+            }
         }
-        Ok(())
+        Ok(now)
     }
 
     /// New: read our record again after someone else changed it (keeping
@@ -442,10 +456,10 @@ impl Session {
     pub(crate) fn absorb_account_changes(&mut self) -> Vec<String> {
         use crate::nodes::NodeEvent;
         let mut told = Vec::new();
-        while let Some(NodeEvent::AccountChanged { original, edited }) = self.node.take_if(|e| matches!(e, NodeEvent::AccountChanged { .. })) {
-            if edited.id != self.user.id {
-                continue;
-            }
+        // Only this caller's (in the WFC mailbox view, the user shown is
+        // someone else: the SysOp's own wait their turn).
+        let me = self.user.id;
+        while let Some(NodeEvent::AccountChanged { original, edited }) = self.node.take_if(|e| matches!(e, NodeEvent::AccountChanged { edited, .. } if edited.id == me)) {
             let db = match self.state.users.get(self.user.id) {
                 Ok(Some(db)) => db,
                 _ => continue,
@@ -454,11 +468,13 @@ impl Session {
             let mine = self.user.clone();
             let mut now = db.clone();
             now.merge_edit(&base, &mine);
-            // Time given (or taken) adds to ours, rather than losing to it.
-            if mine.time_today != base.time_today {
-                now.time_today = (mine.time_today as i64 + edited.time_today as i64 - original.time_today as i64).max(0) as u32;
-            }
             self.user = now;
+            // Who they are to other nodes (a SysOp gets pages) follows.
+            let (sysop, handle) = (self.is_sysop(), self.user.handle.clone());
+            self.node.update(|n| {
+                n.sysop = sysop;
+                n.user = handle;
+            });
             *self.user_base.borrow_mut() = Some(db);
             tracing::info!("{}: account changed elsewhere, read again", self.user.handle);
             let what = account_changes(&original, &edited, &self.strings());

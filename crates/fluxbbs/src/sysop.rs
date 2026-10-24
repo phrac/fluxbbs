@@ -388,6 +388,9 @@ impl Session {
             let n = areas.areas.len() as u32;
             let idx = num as usize - 1;
             let mut a = areas.areas[idx].clone();
+            // Saved by its key into the list as it is then: callers make,
+            // change and remove boards while this is open.
+            let (opened, mut stored_key) = (a.clone(), a.file.clone());
             let msgs = self.state.msgs.count(&a.file).map_err(io_err)?;
             let mut f = Form::new(&format!("{} Message Area Editor", self.state.config().bbs.name));
             f.value_col(20);
@@ -450,10 +453,21 @@ impl Session {
                             for o in areas.areas.iter_mut().filter(|o| o.parent.eq_ignore_ascii_case(&a.file)) {
                                 o.parent = v.clone();
                             }
-                            a.file = v;
+                            let old_key = std::mem::replace(&mut a.file, v.clone());
                             // Save now: the messages already moved.
                             areas.areas[idx] = a.clone();
-                            self.save_areas(areas.clone())?;
+                            let moved = a.clone();
+                            self.state
+                                .update_areas(|ar| {
+                                    for o in ar.areas.iter_mut().filter(|o| o.parent.eq_ignore_ascii_case(&old_key)) {
+                                        o.parent = v.clone();
+                                    }
+                                    if let Some(x) = ar.areas.iter_mut().find(|x| x.file.eq_ignore_ascii_case(&old_key)) {
+                                        *x = moved;
+                                    }
+                                })
+                                .map_err(io_err)?;
+                            stored_key = v;
                         }
                     }
                     'C' => {
@@ -483,6 +497,11 @@ impl Session {
                     }
                     'G' => {
                         if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT).await? {
+                            // New: a caller's handle is kept with their number too.
+                            a.sponsor_id = self.state.users.find_handle(v.trim()).map_err(io_err)?.map_or(0, |u| u.id);
+                            if a.sponsor_id == 0 && !v.trim().is_empty() && !v.trim().eq_ignore_ascii_case("sysop") {
+                                self.cfg_info(&mut f, "No caller has that handle; the sponsor goes by name until one does.");
+                            }
                             a.sponsor = v;
                         }
                     }
@@ -516,9 +535,15 @@ impl Session {
                     }
                 }
             };
-            if areas.areas[idx] != a {
-                areas.areas[idx] = a;
-                self.save_areas(areas)?;
+            if a != opened {
+                let key = stored_key.clone();
+                self.state
+                    .update_areas(|ar| {
+                        if let Some(x) = ar.areas.iter_mut().find(|x| x.file.eq_ignore_ascii_case(&key)) {
+                            *x = a;
+                        }
+                    })
+                    .map_err(io_err)?;
             }
             if step == 0 {
                 self.screen.goto(1, self.screen.rows());

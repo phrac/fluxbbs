@@ -562,15 +562,41 @@ fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, from_caller: sync_mpsc
     let started = Instant::now();
     let mut lost: Option<Instant> = None;
     let mut code = 0;
-    let send = |m: &mut Machine| -> Result<(), String> {
+    // Output for the caller. One whose side stopped taking it (a dead link
+    // that never closed) mustn't hold the door, and its locks on files
+    // other nodes share, for as long as TCP takes to give up: after a
+    // minute carrier drops, as for a hangup, and the door has its grace to
+    // save and go. What it writes after that goes nowhere.
+    let send = |m: &mut Machine, lost: &mut Option<Instant>| {
         for l in m.sys.log.drain(..) {
             tracing::debug!("dos: {l}");
         }
         let out = m.take_output();
-        if out.is_empty() || to_caller.blocking_send(out).is_ok() { Ok(()) } else { Err("the caller has gone".into()) }
+        if out.is_empty() || lost.is_some() {
+            return;
+        }
+        let give_up = Instant::now() + Duration::from_secs(60);
+        let mut out = out;
+        loop {
+            match to_caller.try_send(out) {
+                Ok(()) => return,
+                Err(tokio::sync::mpsc::error::TrySendError::Full(o)) if Instant::now() < give_up => {
+                    out = o;
+                    std::thread::sleep(Duration::from_millis(20));
+                }
+                Err(e) => {
+                    if matches!(e, tokio::sync::mpsc::error::TrySendError::Full(_)) {
+                        tracing::warn!("dos: the caller took no output for a minute; dropping carrier");
+                    }
+                    *lost = Some(Instant::now());
+                    m.set_carrier(false);
+                    return;
+                }
+            }
+        }
     };
     while let Some((prog, args)) = batch.next(&mut m)? {
-        send(&mut m)?;
+        send(&mut m, &mut lost);
         m.start(&prog, &args)?;
         loop {
             loop {
@@ -590,7 +616,7 @@ fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, from_caller: sync_mpsc
                 return Err("the caller hung up and the door didn't notice".into());
             }
             let st = m.run(TICK_INSTRUCTIONS / 8);
-            send(&mut m)?;
+            send(&mut m, &mut lost);
             if m.sys.hangup {
                 return Ok(MachineEnd::Hangup);
             }
@@ -620,7 +646,7 @@ fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, from_caller: sync_mpsc
             }
         }
     }
-    send(&mut m)?;
+    send(&mut m, &mut lost);
     Ok(MachineEnd::Exited(code))
 }
 

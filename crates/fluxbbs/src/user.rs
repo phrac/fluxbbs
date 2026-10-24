@@ -192,17 +192,31 @@ pub fn gender_name(c: char) -> &'static str {
 }
 
 /// New: take the fields an editor changed (`original` to `edited`), and
-/// only those, so an online caller's own counters survive a SysOp's edit.
+/// only those, so an online caller's own changes survive a SysOp's edit.
+/// Counters (time, posts, file points, the bank...) take the change
+/// rather than the value, so two at once both count.
 macro_rules! merge_fields {
-    ($me:expr, $original:expr, $edited:expr, $($f:ident),* $(,)?) => {{
+    ($me:expr, $original:expr, $edited:expr, [$($f:ident),* $(,)?], [$($c:ident),* $(,)?]) => {{
         // Every field, so a new one can't be forgotten here.
-        let User { $($f),* } = $edited;
+        let User { $($f,)* $($c,)* } = $edited;
         $(
             if *$f != $original.$f {
                 $me.$f = $f.clone();
             }
         )*
+        $(
+            if *$c != $original.$c {
+                $me.$c = add_change($me.$c, $original.$c, *$c);
+            }
+        )*
     }};
+}
+
+/// `now` moved on by what took `from` to `to`, kept in range (0 up to
+/// the largest of the three, if it would go past what the type holds).
+fn add_change<T: Copy + Ord + Into<i128> + TryFrom<i128>>(now: T, from: T, to: T) -> T {
+    let v: i128 = now.into() + to.into() - from.into();
+    T::try_from(v.max(0)).unwrap_or_else(|_| now.max(to).max(from))
 }
 
 impl User {
@@ -211,75 +225,161 @@ impl User {
             self,
             original,
             edited,
-            id,
-            handle,
-            real_name,
-            password_hash,
-            phone,
-            birth_date,
-            location,
-            address,
-            zip_code,
-            note,
-            sysop_note,
-            sex,
-            sl,
-            dsl,
-            level,
-            flags,
-            hot_keys,
-            expert,
-            pause,
-            quote,
-            yes_no_bars,
-            deleted,
-            palette,
-            page_length,
-            start_menu,
-            total_calls,
-            calls_today,
-            first_call,
-            last_call,
-            time_today,
-            time_per_day,
-            posts,
-            email,
-            uploads,
-            downloads,
-            upload_kb,
-            download_kb,
-            file_points,
-            post_call,
-            limit_dl,
-            limit_dl_kb,
-            today_dl,
-            today_dl_kb,
-            uldl_ratio,
-            kb_ratio,
-            cur_msg_area,
-            cur_file_area,
-            conf_msg,
-            conf_file,
-            autosig,
-            vote_yes,
-            vote_no,
-            file_scan,
-            theme,
-            last_rep,
-            bank_time,
-            bank_kb,
-            bank_time_in,
-            bank_time_out,
-            bank_kb_in,
-            bank_kb_out,
-            ssh_keys,
-            ssh_user,
-            plan,
-            time_zone,
-            thread_sort,
-            area_sort,
-            fav_boards,
-            last_call_at
+            [
+                id,
+                handle,
+                real_name,
+                password_hash,
+                phone,
+                birth_date,
+                location,
+                address,
+                zip_code,
+                note,
+                sysop_note,
+                sex,
+                sl,
+                dsl,
+                level,
+                flags,
+                hot_keys,
+                expert,
+                pause,
+                quote,
+                yes_no_bars,
+                deleted,
+                palette,
+                page_length,
+                start_menu,
+                first_call,
+                last_call,
+                time_per_day,
+                post_call,
+                limit_dl,
+                limit_dl_kb,
+                uldl_ratio,
+                kb_ratio,
+                cur_msg_area,
+                cur_file_area,
+                conf_msg,
+                conf_file,
+                autosig,
+                file_scan,
+                theme,
+                last_rep,
+                ssh_keys,
+                ssh_user,
+                plan,
+                time_zone,
+                thread_sort,
+                area_sort,
+                fav_boards,
+                last_call_at,
+            ],
+            [
+                total_calls,
+                calls_today,
+                time_today,
+                posts,
+                email,
+                uploads,
+                downloads,
+                upload_kb,
+                download_kb,
+                file_points,
+                today_dl,
+                today_dl_kb,
+                vote_yes,
+                vote_no,
+                bank_time,
+                bank_kb,
+                bank_time_in,
+                bank_time_out,
+                bank_kb_in,
+                bank_kb_out,
+            ]
+        );
+    }
+
+    /// [`Self::merge_edit`], counters too taken as values (what a SysOp
+    /// typed, a level's limits).
+    pub fn merge_values(&mut self, original: &User, edited: &User) {
+        merge_fields!(
+            self,
+            original,
+            edited,
+            [
+                id,
+                handle,
+                real_name,
+                password_hash,
+                phone,
+                birth_date,
+                location,
+                address,
+                zip_code,
+                note,
+                sysop_note,
+                sex,
+                sl,
+                dsl,
+                level,
+                flags,
+                hot_keys,
+                expert,
+                pause,
+                quote,
+                yes_no_bars,
+                deleted,
+                palette,
+                page_length,
+                start_menu,
+                first_call,
+                last_call,
+                time_per_day,
+                post_call,
+                limit_dl,
+                limit_dl_kb,
+                uldl_ratio,
+                kb_ratio,
+                cur_msg_area,
+                cur_file_area,
+                conf_msg,
+                conf_file,
+                autosig,
+                file_scan,
+                theme,
+                last_rep,
+                ssh_keys,
+                ssh_user,
+                plan,
+                time_zone,
+                thread_sort,
+                area_sort,
+                fav_boards,
+                last_call_at,
+                            total_calls,
+                calls_today,
+                time_today,
+                posts,
+                email,
+                uploads,
+                downloads,
+                upload_kb,
+                download_kb,
+                file_points,
+                today_dl,
+                today_dl_kb,
+                vote_yes,
+                vote_no,
+                bank_time,
+                bank_kb,
+                bank_time_in,
+                bank_time_out,
+                bank_kb_in,
+                bank_kb_out,
+                        ],
+            []
         );
     }
 
@@ -362,6 +462,19 @@ mod tests {
         live.posts = 4;
         live.merge_edit(&original, &edited);
         assert_eq!((live.time_per_day, live.posts), (120, 4));
+        // Counters add: 30 minutes given while 5 were used is 25 more.
+        let base = User { time_today: 60, ..User::default() };
+        let mut now = User { time_today: 90, ..User::default() };
+        now.merge_edit(&base, &User { time_today: 55, ..User::default() });
+        assert_eq!(now.time_today, 85);
+        let mut low = User { time_today: 3, ..User::default() };
+        low.merge_edit(&base, &User { time_today: 0, ..User::default() });
+        assert_eq!(low.time_today, 0, "never below nothing");
+        // A value a SysOp typed stays what was typed.
+        let mut db = User { file_points: 150, ..User::default() };
+        db.merge_values(&User { file_points: 100, ..User::default() }, &User { file_points: 0, ..User::default() });
+        assert_eq!(db.file_points, 0);
+        assert_eq!(add_change(u32::MAX - 1, 0u32, 5), u32::MAX - 1, "past the top: the largest, not a wrap");
     }
 
     #[test]

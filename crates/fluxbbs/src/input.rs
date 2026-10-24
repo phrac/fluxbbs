@@ -195,7 +195,7 @@ impl Session {
                             let _ = self.flush().await;
                             return Err(crate::session::kicked());
                         }
-                        if !self.hold_node_msgs {
+                        if !self.hold_node_msgs && !self.hold_account_changes {
                             Box::pin(self.take_account_changes()).await?;
                         }
                         if !self.hold_node_msgs && self.node.has_messages() {

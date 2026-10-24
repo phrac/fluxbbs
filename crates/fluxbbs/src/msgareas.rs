@@ -52,12 +52,20 @@ pub struct MsgArea {
     /// New: handles its moderator has banned from posting and voting here.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub banned: Vec<String>,
+    /// New: their user numbers (bans from before these were kept go by
+    /// handle alone).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub banned_ids: Vec<u32>,
     /// New: the tags a post here can carry, PTT's categories: a new thread
     /// picks one and its title starts `[tag]`; the thread list filters on them.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<String>,
     #[serde(default)]
     pub sponsor: String,
+    /// New: the sponsor's user number, so whoever takes a deleted
+    /// sponsor's handle doesn't inherit the area; 0: matched by handle.
+    #[serde(default, skip_serializing_if = "is_zero")]
+    pub sponsor_id: u32,
     #[serde(default)]
     pub acs: String,
     #[serde(default)]
@@ -100,8 +108,10 @@ impl MsgArea {
             parent: String::new(),
             created: String::new(),
             banned: Vec::new(),
+            banned_ids: Vec::new(),
             tags: Vec::new(),
             sponsor: "SysOp".into(),
+            sponsor_id: 0,
             acs: "s25".into(),
             post_acs: "s50".into(),
             password: String::new(),

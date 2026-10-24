@@ -37,6 +37,12 @@ use crate::users::UserStore;
 pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
     let cfg_path = dest.join("fluxbbs.toml");
     let db_path = dest.join("data/fluxbbs.db");
+    // A board from before the rename counts too: its iniquity.* would be
+    // hidden by new fluxbbs.* files.
+    let old = [dest.join("iniquity.toml"), dest.join("data/iniquity.db")];
+    if old.iter().any(|p| p.exists()) {
+        bail!("{} has a board already (iniquity.toml or data/iniquity.db); import somewhere else", dest.display());
+    }
     if !force && (cfg_path.exists() || db_path.exists()) {
         bail!("{} already has fluxbbs.toml or data/fluxbbs.db; use --force to replace them", dest.display());
     }
@@ -568,8 +574,10 @@ fn convert_area(a: &LegacyMsgArea) -> MsgArea {
         parent: String::new(),
         created: String::new(),
         banned: Vec::new(),
+        banned_ids: Vec::new(),
         tags: Vec::new(),
         sponsor: a.sponsor.clone(),
+        sponsor_id: 0,
         acs: a.acs.clone(),
         post_acs: a.post_acs.clone(),
         password: a.password.clone(),

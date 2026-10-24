@@ -110,6 +110,9 @@ pub struct Session {
     pub node: NodeGuard,
     /// Keep node messages queued (full-screen editor, chat).
     pub hold_node_msgs: bool,
+    /// New: a SysOp's edits to this caller wait (their settings screen is
+    /// open, and Esc there puts its own copy back).
+    pub(crate) hold_account_changes: bool,
     pub user: User,
     /// The caller's record as this session last loaded or saved it, to
     /// tell its own changes from others' (`save_own_user`).
@@ -306,6 +309,7 @@ impl Session {
             caller,
             node,
             hold_node_msgs: false,
+            hold_account_changes: false,
             user,
             user_base: Default::default(),
             io,
@@ -448,25 +452,41 @@ impl Session {
         let (who, sent) = (&self.user.handle, self.sent);
         let started = std::time::Instant::now();
         let io = &mut self.io;
-        let mut write = std::pin::pin!(async move {
-            io.write_all(&out).await?;
-            io.flush().await
-        });
         let mut warned = false;
-        loop {
-            tokio::select! {
-                r = &mut write => {
-                    if warned {
-                        tracing::warn!("{who}: output moving again after {:.0}s", started.elapsed().as_secs_f64());
-                    }
-                    return r;
+        // In pieces, so a slow link that's moving is told from one that's
+        // gone: five minutes with no piece through and it's taken as gone
+        // (hung up), rather than holding the node, and anything it has
+        // locked, until TCP gives up.
+        const STALL: std::time::Duration = std::time::Duration::from_secs(300);
+        for piece in out.chunks(16 * 1024).map(Some).chain(std::iter::once(None)) {
+            let mut write = std::pin::pin!(async {
+                match piece {
+                    Some(p) => io.write_all(p).await,
+                    None => io.flush().await,
                 }
-                _ = tokio::time::sleep(std::time::Duration::from_secs(10)), if !warned => {
-                    tracing::warn!("{who}: output stalled for 10s, {sent} bytes sent this call");
-                    warned = true;
+            });
+            let deadline = tokio::time::Instant::now() + STALL;
+            loop {
+                tokio::select! {
+                    r = &mut write => {
+                        r?;
+                        break;
+                    }
+                    _ = tokio::time::sleep(std::time::Duration::from_secs(10)), if !warned => {
+                        tracing::warn!("{who}: output stalled for 10s, {sent} bytes sent this call");
+                        warned = true;
+                    }
+                    _ = tokio::time::sleep_until(deadline) => {
+                        tracing::warn!("{who}: no output went for 5 minutes; hanging up");
+                        return Err(io::Error::new(io::ErrorKind::TimedOut, "output stalled"));
+                    }
                 }
             }
         }
+        if warned {
+            tracing::warn!("{who}: output moving again after {:.0}s", started.elapsed().as_secs_f64());
+        }
+        Ok(())
     }
 
     pub fn newline(&mut self) {
@@ -564,7 +584,7 @@ impl Session {
         let toks = tokenize(src, source);
         for (i, tok) in toks.iter().enumerate() {
             if *tok == Token::AlignRight {
-                let w = self.rest_of_line_len(&toks[i + 1..], waves);
+                let w = self.rest_of_line_len(&toks[i + 1..], waves, st.limit);
                 self.screen.pos_x(80u16.saturating_sub(w as u16).max(1));
                 continue;
             }
@@ -575,12 +595,17 @@ impl Session {
     }
 
     /// How wide what's left of a line of a screen will be on screen.
-    fn rest_of_line_len(&self, toks: &[Token], waves: Option<&Waves>) -> usize {
-        let (mut n, mut limit) = (0, None);
-        let fit = |v: String, limit: &mut Option<(usize, bool)>| match limit.take() {
-            Some((w, true)) => w,
-            Some((w, false)) => v.chars().count().min(w),
-            None => v.chars().count(),
+    fn rest_of_line_len(&self, toks: &[Token], waves: Option<&Waves>, limit: Option<(usize, bool)>) -> usize {
+        let (mut n, mut limit) = (0, limit);
+        // As `display_token` draws them: a `{NN`/`}NN` holds for every
+        // value after it, and colour codes in a value take no room.
+        let fit = |v: String, limit: &mut Option<(usize, bool)>| {
+            let w = fluxbbs_term::codes::width(&v);
+            match *limit {
+                Some((n, true)) => n,
+                Some((n, false)) => w.min(n),
+                None => w,
+            }
         };
         for t in toks {
             match t {
@@ -1026,11 +1051,16 @@ impl Session {
                     Key::Char(c) if c.is_ascii_digit() => {
                         let more = format!("{typed}{}", c as char);
                         typed = if labels.iter().any(|(l, _)| l.to_string().starts_with(&more)) { more } else { (c as char).to_string() };
-                        if let Some(i) = find(&typed).and_then(|n| rows.iter().position(|r| r.n == n)) {
+                        let here = find(&typed).and_then(|n| rows.iter().position(|r| r.n == n));
+                        if let Some(i) = here {
                             cur = i;
                         }
-                        // Nothing longer to come: the bar's there, start afresh.
-                        if !labels.iter().any(|(l, _)| l.to_string().len() > typed.len() && l.to_string().starts_with(typed.as_str())) {
+                        // Nothing longer to come and the bar's on it: start
+                        // afresh. (One elsewhere, in another folder, stays
+                        // typed for enter to open.)
+                        let longer = labels.iter().any(|(l, _)| l.to_string().len() > typed.len() && l.to_string().starts_with(typed.as_str()));
+                        // Or a number nothing has: it goes rather than sit there.
+                        if !longer && (here.is_some() || find(&typed).is_none()) {
                             typed.clear();
                         }
                     }

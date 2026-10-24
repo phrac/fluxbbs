@@ -122,12 +122,20 @@ channels do.
 Multi-node doors work as they did on a network or under a multitasker
 with SHARE loaded: every node's machine runs in the board's process, and
 they share one table of open files and locks. Opening with a deny mode
-(`3Dh` with bits 4-6 set) fails with a sharing violation (20h) against
-the opens it conflicts with; `5Ch` locks and unlocks byte ranges, and a
-read or write into another process's locked range fails with a lock
-violation (21h, at once: the retry count of `440Bh` is taken and
-ignored). Closing a file, a program ending or a caller hanging up lets
-go of what they held. `INT 2Fh` 1000h says SHARE is installed.
+(`3Dh` with bits 4-6 set) fails against the opens it conflicts with:
+access denied (05h), or a sharing violation (20h) for an open in
+compatibility mode (DOS's INT 24h case), as in Ralf Brown's table. A
+create (`3Ch`, or `6Ch` replacing) can't empty a file another open
+holds with a deny mode, and such a file can't be deleted or renamed
+(compatibility opens don't stop either: single-node doors erase and
+rename files they have open).
+`5Ch` locks and unlocks byte ranges, and a read or write into another
+process's locked range fails with a lock violation (21h, at once: the
+retry count of `440Bh` is taken and ignored). Closing a file lets go of
+the locks made through it; a program ending or a caller hanging up lets
+go of everything they held. A caller whose link stops taking output for
+a minute loses carrier, as at a hangup, so the door saves and goes and
+a dead connection can't hold a game's locks. `INT 2Fh` 1000h says SHARE is installed.
 Compatibility-mode opens (no deny bits) deny nothing, as under DOSBox,
 since single-node doors open that way and still expect to share files
 with their own maintenance programs. Temporary files (`5Ah`) get the

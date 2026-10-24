@@ -500,9 +500,12 @@ impl Session {
         let (x, y) = (f.items[i].vx, f.items[i].y);
         let mut cur = 0u8;
         let mut shown = None;
+        // Looked up once: there may be hundreds of areas.
+        let uses = self.flag_uses();
         loop {
             if shown != Some(cur) {
-                let about = self.flag_about((b'A' + cur) as char);
+                let c = (b'A' + cur) as char;
+                let about = self.flag_about(c, uses.get(&c).map(Vec::as_slice).unwrap_or_default());
                 self.cfg_info(f, &about);
                 shown = Some(cur);
             }
@@ -574,10 +577,9 @@ impl Session {
 impl Session {
     /// New: the flag editor's line about flag `c`: what it's for (set
     /// with `?`), and where access strings test it.
-    fn flag_about(&self, c: char) -> String {
+    fn flag_about(&self, c: char, uses: &[String]) -> String {
         let cfg = self.state.config();
         let what = cfg.flags.get(&c.to_string()).cloned().filter(|s| !s.is_empty()).unwrap_or_else(|| "no description (? sets one)".into());
-        let uses = self.flag_uses(c);
         let used = if uses.is_empty() { "used nowhere".to_string() } else { format!("used by {}", uses.join(", ")) };
         let s = format!("{c}: {what} | {used}");
         // The info line's width.
@@ -597,11 +599,18 @@ impl Session {
         Ok(())
     }
 
-    /// Where flag `c` is tested: menu commands, message and file areas,
-    /// and system settings.
-    fn flag_uses(&self, c: char) -> Vec<String> {
-        let has = |v: &str| crate::acs::flags_in(v).contains(&c);
-        let mut out = Vec::new();
+    /// Where each flag is tested: menu commands, message and file areas and
+    /// conferences, and system settings.
+    fn flag_uses(&self) -> std::collections::BTreeMap<char, Vec<String>> {
+        let mut out: std::collections::BTreeMap<char, Vec<String>> = Default::default();
+        let mut add = |acs: &str, label: &str| {
+            for c in crate::acs::flags_in(acs) {
+                let v = out.entry(c).or_default();
+                if !v.iter().any(|l| l == label) {
+                    v.push(label.to_string());
+                }
+            }
+        };
         // Menus: the board's own first, then stock ones it doesn't replace.
         let mut seen = BTreeSet::new();
         for dir in self.state.config().menu_dirs() {
@@ -614,60 +623,64 @@ impl Session {
                     continue;
                 }
                 let Ok(v) = std::fs::read_to_string(&p).unwrap_or_default().parse::<toml::Table>() else { continue };
-                if v.get("acs").and_then(|a| a.as_str()).is_some_and(has) {
-                    out.push(format!("{name} menu"));
+                if let Some(a) = v.get("acs").and_then(|a| a.as_str()) {
+                    add(a, &format!("{name} menu"));
                 }
                 for cmd in v.get("command").and_then(|c| c.as_array()).into_iter().flatten() {
-                    if cmd.get("acs").and_then(|a| a.as_str()).is_some_and(has) {
-                        let keys = cmd.get("keys").and_then(|k| k.as_str()).unwrap_or("");
-                        out.push(format!("{name} {keys}"));
+                    if let Some(a) = cmd.get("acs").and_then(|a| a.as_str()) {
+                        add(a, &format!("{name} {}", cmd.get("keys").and_then(|k| k.as_str()).unwrap_or("")));
                     }
                 }
             }
         }
-        let mut acs_fields = |label: &str, v: toml::Value| {
-            let mut found = Vec::new();
-            walk_acs(&v, "", &mut |path, s| {
-                if has(s) {
-                    found.push(path.to_string());
-                }
-            });
-            if !found.is_empty() {
-                out.push(if label.is_empty() { found.join(", ") } else { format!("{label} ({})", found.join(", ")) });
-            }
+        let mut walk = |label: &str, v: toml::Value| {
+            walk_acs(&v, "", false, &mut |path, s| add(s, &if label.is_empty() { path.to_string() } else { format!("{label} ({path})") }));
         };
-        for a in &self.state.areas().areas {
+        let (areas, fareas) = (self.state.areas(), self.state.fareas());
+        for a in &areas.areas {
             if let Ok(v) = toml::Value::try_from(a) {
-                acs_fields(&format!("msg area {}", a.name), v);
+                walk(&format!("msg area {}", a.name), v);
             }
         }
-        for a in &self.state.fareas().areas {
+        for a in &fareas.areas {
             if let Ok(v) = toml::Value::try_from(a) {
-                acs_fields(&format!("file area {}", a.name), v);
+                walk(&format!("file area {}", a.name), v);
+            }
+        }
+        for c in &areas.confs {
+            if let Ok(v) = toml::Value::try_from(c) {
+                walk(&format!("msg conference {}", c.key), v);
+            }
+        }
+        for c in &fareas.confs {
+            if let Ok(v) = toml::Value::try_from(c) {
+                walk(&format!("file conference {}", c.key), v);
             }
         }
         if let Ok(v) = toml::Value::try_from(&*self.state.config()) {
-            acs_fields("", v);
+            walk("", v);
         }
         out
     }
 }
 
-/// Every string under a key with "acs" in its name, with its dotted path.
-fn walk_acs(v: &toml::Value, path: &str, f: &mut impl FnMut(&str, &str)) {
+/// Every access string, with its dotted path: strings under a key with
+/// "acs" in its name, or anywhere in a table that has (`[acs] sysop`).
+fn walk_acs(v: &toml::Value, path: &str, in_acs: bool, f: &mut impl FnMut(&str, &str)) {
     match v {
         toml::Value::Table(t) => {
             for (k, x) in t {
                 let p = if path.is_empty() { k.clone() } else { format!("{path}.{k}") };
+                let acs = in_acs || k.contains("acs");
                 match x {
-                    toml::Value::String(s) if k.contains("acs") => f(&p, s),
-                    _ => walk_acs(x, &p, f),
+                    toml::Value::String(s) if acs => f(&p, s),
+                    _ => walk_acs(x, &p, acs, f),
                 }
             }
         }
         toml::Value::Array(a) => {
             for (i, x) in a.iter().enumerate() {
-                walk_acs(x, &format!("{path}[{i}]"), f);
+                walk_acs(x, &format!("{path}[{i}]"), in_acs, f);
             }
         }
         _ => {}

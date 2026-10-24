@@ -162,9 +162,24 @@ impl BbsState {
     /// Save new message areas to msgareas.toml and start using them.
     pub fn set_areas(&self, new: MsgAreas) -> anyhow::Result<()> {
         let path = self.config().resolve(&self.config().paths.msgareas);
+        // Held across the write, so it and `update_areas` can't cross.
+        let mut held = self.areas.write().unwrap_or_else(|e| e.into_inner());
         write_atomic(&path, &new.to_toml())?;
-        *self.areas.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+        *held = Arc::new(new);
         Ok(())
+    }
+
+    /// Change the message areas as they are now, in one go (no other
+    /// change can come between reading and writing them): what callers
+    /// do to their boards while others do the same.
+    pub fn update_areas<T>(&self, f: impl FnOnce(&mut MsgAreas) -> T) -> anyhow::Result<T> {
+        let path = self.config().resolve(&self.config().paths.msgareas);
+        let mut held = self.areas.write().unwrap_or_else(|e| e.into_inner());
+        let mut new = (**held).clone();
+        let r = f(&mut new);
+        write_atomic(&path, &new.to_toml())?;
+        *held = Arc::new(new);
+        Ok(r)
     }
 
     pub fn events(&self) -> Arc<events::Events> {
@@ -270,8 +285,9 @@ fn purge_unvalidated(state: &BbsState) -> anyhow::Result<()> {
     for mut u in state.users.list()? {
         let stale = u.first_call.is_some_and(|d| d <= cutoff);
         if !u.deleted && u.level == 'A' && u.total_calls <= 1 && stale && !state.nodes.online().iter().any(|(_, n)| n.user.eq_ignore_ascii_case(&u.handle)) {
+            let original = u.clone();
             u.deleted = true;
-            state.users.save(&u)?;
+            state.users.merge(&original, &u)?;
             tracing::info!("purged {} (#{}): never validated or called back in {days} days", u.handle, u.id);
         }
     }
@@ -353,9 +369,11 @@ fn add_files(path: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `fluxbbs ftn poll|toss|scan|areafix +TAG -TAG... [config]`: the FTN
-/// jobs by hand (new); `areafix` asks the hub's AreaFix to link (+) or
-/// unlink (-) echoes, `areafix %LIST` for what it carries.
+/// `fluxbbs ftn poll [NET]|toss|scan|areafix [NET] +TAG -TAG... [config]`:
+/// the FTN jobs by hand (new); `poll` polls every network's hub, or NET's;
+/// `areafix` asks a hub's AreaFix to link (+) or unlink (-) echoes,
+/// `areafix NET %LIST` for what it carries. Without NET, AreaFix goes to
+/// the network the first tag's echo is on (else the first network).
 async fn ftn_command(args: &[String]) -> anyhow::Result<()> {
     let (path, rest): (PathBuf, &[String]) = match args.split_last() {
         Some((last, rest)) if last.ends_with(".toml") => (last.into(), rest),
@@ -363,7 +381,7 @@ async fn ftn_command(args: &[String]) -> anyhow::Result<()> {
     };
     let state = load_state(&path)?;
     match rest.first().map(String::as_str) {
-        Some("poll") => binkp::cycle(state).await,
+        Some("poll") => binkp::cycle(state, rest.get(1).map(String::as_str)).await,
         Some("toss") => {
             println!("{:?}", ftntoss::toss(&state)?);
             Ok(())
@@ -373,15 +391,33 @@ async fn ftn_command(args: &[String]) -> anyhow::Result<()> {
             Ok(())
         }
         Some("areafix") if rest.len() > 1 => {
-            let cfg = state.config().ftn.clone();
-            let (_, hub) = ftntoss::addresses(&cfg)?;
-            let pw = if cfg.areafix_password.is_empty() { cfg.session_password.clone() } else { cfg.areafix_password.clone() };
+            let ftn = state.config().ftn.clone();
+            // A network's name, else a tag (bare, + or -) or %command.
+            let named = !rest[1].starts_with(['+', '-', '%']) && ftn.networks().iter().any(|n| n.name.eq_ignore_ascii_case(&rest[1]));
+            let net = if named {
+                ftntoss::network(&state, &rest[1])?
+            } else {
+                let tag = rest[1].trim_start_matches(['+', '-']);
+                let on = ftn.areas.iter().find(|a| a.tag.eq_ignore_ascii_case(tag)).map(|a| ftn.network_of(a));
+                let nets = ftn.networks();
+                match on {
+                    Some(n) => ftntoss::network(&state, &n)?,
+                    // An echo not mapped yet: which hub can't be guessed.
+                    None if nets.len() > 1 => anyhow::bail!("{tag} isn't in [[ftn.area]]: say which network (fluxbbs ftn areafix NET +{tag})"),
+                    None => nets.into_iter().next().ok_or_else(|| anyhow::anyhow!("ftn: no network set up"))?,
+                }
+            };
+            let lines = &rest[if named { 2 } else { 1 }..];
+            if lines.is_empty() {
+                anyhow::bail!("say what to ask AreaFix: fluxbbs ftn areafix {} +TAG", net.name);
+            }
+            let (_, hub) = ftntoss::addresses(&net)?;
             let sysop = state.config().bbs.sysop_alias.clone();
-            ftntoss::netmail(&state, &sysop, "AreaFix", hub, &pw, &rest[1..])?;
-            println!("queued for AreaFix at {hub}; it goes with the next poll (fluxbbs ftn poll)");
+            ftntoss::netmail(&state, &net, &sysop, "AreaFix", hub, net.areafix_pw(), lines)?;
+            println!("queued for AreaFix at {hub} ({}); it goes with the next poll (fluxbbs ftn poll {})", net.name, net.name);
             Ok(())
         }
-        _ => anyhow::bail!("usage: fluxbbs ftn poll|toss|scan|areafix +TAG -TAG... [config]"),
+        _ => anyhow::bail!("usage: fluxbbs ftn poll [NET]|toss|scan|areafix [NET] +TAG -TAG... [config]"),
     }
 }
 
@@ -488,6 +524,31 @@ async fn main() -> anyhow::Result<()> {
             }));
         }
         Err(e) => tracing::error!("loading bans: {e}"),
+    }
+    // New: callers' boards from before moderators were kept by number get
+    // theirs (by exact handle), so a new caller taking a deleted
+    // moderator's handle can't inherit a board.
+    let unnumbered: Vec<(String, u32)> = state
+        .areas()
+        .areas
+        .iter()
+        .filter(|a| !a.created.is_empty() && a.sponsor_id == 0)
+        .filter_map(|a| state.users.find_handle(&a.sponsor).ok().flatten().map(|u| (a.file.clone(), u.id)))
+        .collect();
+    if !unnumbered.is_empty() {
+        let r = state.update_areas(|areas| {
+            for (file, id) in &unnumbered {
+                if let Some(a) = areas.areas.iter_mut().find(|a| a.file.eq_ignore_ascii_case(file) && a.sponsor_id == 0) {
+                    a.sponsor_id = *id;
+                }
+            }
+        });
+        if let Err(e) = r {
+            tracing::error!("numbering boards' moderators: {e}");
+        }
+    }
+    for p in state.config().ftn.problems() {
+        tracing::warn!("ftn: {p}");
     }
     tokio::spawn(events::scheduler(state.clone()));
     tokio::spawn(meshcore::run(state.clone()));

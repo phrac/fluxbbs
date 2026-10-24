@@ -409,7 +409,7 @@ the reconnect delay and the parts; channels are listed in the file.
 
 ## FTN echomail
 
-New: the board can be a node of a FidoNet-style network such as fsxNet,
+New: the board can be a node of FidoNet-style networks such as fsxNet,
 with its own mailer and tosser (the original handed packets to outside
 programs). It polls its hub over binkp (`binkp.rs`, FTS-1026; the
 session password goes as CRAM-MD5 when the hub offers it), sends what's
@@ -487,6 +487,44 @@ been posted here and tosses what came (`ftntoss.rs`).
     [[ftn.area]]
     tag = "FSX_GEN"
     area = "FSXGEN"
+
+- More than one network: `[ftn]`'s address, hub and passwords are the
+  first network's (named `[ftn] name`, else by its address's domain,
+  `fsxnet`); each
+  `[[ftn.network]]` adds another, with its own `name`, `address`,
+  `hub`, `hub_host`, passwords and (optionally) `origin`. An echo says
+  which network it's on with `network` (none: the first). Every network
+  polls its own hub (one session each at a time, its own outbound in
+  `data/ftn/outbound/NAME`); a hub calling in is shown all the board's
+  addresses and taken as the network its own address is on, with that
+  network's password, and gets only that network's mail (a system that's
+  the hub of several gets each whose password it gave). What a hub
+  sends goes to `data/ftn/inbound/NAME` and is tossed only as mail of
+  the network(s) its session proved it was, so one network's hub can't
+  post into another's echoes; packets put in `inbound` itself by hand
+  (from `bad`, say) are taken as whichever network they're addressed
+  on, and a zoneless one that could be on two goes to bad. A name may
+  only have letters, digits, `-` and `_`; a network with a bad or
+  repeated name or address is left out, and that and echoes on no
+  network (or on two) are logged at each poll, without stopping the
+  other networks. The first network also sends what's left in
+  `data/ftn/outbound` from before there were several. A network with no
+  `hub_host` isn't polled (its hub calls in). `fluxbbs ftn poll agoranet` polls one;
+  `fluxbbs ftn areafix agoranet +AGN_GEN` sends to a given network's
+  AreaFix (without a name, the network of the first tag's echo). `*C`
+  edits the first network; the others are edited in the file.
+
+      [[ftn.network]]
+      name = "agoranet"
+      address = "46:1/200@agoranet"
+      hub = "46:1/100"
+      hub_host = "binkp.pharcyde.org"
+      session_password = "..."
+
+      [[ftn.area]]
+      tag = "AGN_GEN"
+      area = "AGNGEN"
+      network = "agoranet"
 
 Not yet: callers writing netmail to an FTN address, and file echoes
 (TIC).

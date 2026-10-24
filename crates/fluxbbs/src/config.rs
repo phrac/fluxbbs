@@ -376,11 +376,16 @@ impl Default for MeshCore {
 }
 
 /// FTN echomail (new): a node of a network such as fsxNet, polling its
-/// hub over binkp (`ftntoss.rs`, `binkp.rs`).
+/// hub over binkp (`ftntoss.rs`, `binkp.rs`). The address, hub and
+/// passwords here are the first network's; `[[ftn.network]]` adds more,
+/// each with its own hub, all through the one mailer.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct Ftn {
     pub enabled: bool,
+    /// The first network's name here (letters, digits, `-`, `_`); blank
+    /// for its address's domain. Its outbound is `data/ftn/outbound/NAME`.
+    pub name: String,
     /// This board's address, with the network's domain: `21:1/999@fsxnet`.
     pub address: String,
     /// The hub's address, and where its binkp mailer listens (`host:port`;
@@ -404,6 +409,9 @@ pub struct Ftn {
     /// Echo areas: the network's tag and the message area it's tossed to.
     #[serde(rename = "area", default)]
     pub areas: Vec<FtnArea>,
+    /// More networks than the first.
+    #[serde(rename = "network", default, skip_serializing_if = "Vec::is_empty")]
+    pub networks: Vec<FtnNetwork>,
 }
 
 /// One echo and the message area it lives in.
@@ -414,12 +422,148 @@ pub struct FtnArea {
     pub tag: String,
     /// The message area's storage key.
     pub area: String,
+    /// Which network it's on (its name); blank for the first.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub network: String,
+}
+
+/// A network this board is a node of: the first (from `[ftn]`), or one
+/// from `[[ftn.network]]`.
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct FtnNetwork {
+    /// What it's called here (`agoranet`); blank for the address's domain.
+    pub name: String,
+    pub address: String,
+    pub hub: String,
+    pub hub_host: String,
+    pub session_password: String,
+    pub packet_password: String,
+    pub areafix_password: String,
+    /// The origin line's text; blank for `[ftn] origin`.
+    pub origin: String,
+}
+
+impl FtnNetwork {
+    /// AreaFix's password: its own, else the session password.
+    pub fn areafix_pw(&self) -> &str {
+        if self.areafix_password.is_empty() { &self.session_password } else { &self.areafix_password }
+    }
+}
+
+/// A network's name from its address's domain (`fidonet.org` is
+/// `fidonet-org`), or `ftn` / `netN` without one.
+fn derived_name(address: &str, i: usize) -> String {
+    match address.split_once('@') {
+        Some((_, d)) if !d.trim().is_empty() => d.trim().to_ascii_lowercase().chars().map(|c| if c.is_ascii_alphanumeric() || c == '_' { c } else { '-' }).collect(),
+        _ if i == 0 => "ftn".to_string(),
+        _ => format!("net{i}"),
+    }
+}
+
+impl Ftn {
+    /// Every network in the file that has a hub, set up right or not:
+    /// a caller claiming one that's left out is a mistake here, not theirs.
+    pub fn all_hubs(&self) -> Vec<String> {
+        self.checked().into_iter().map(|(n, _)| n.hub).filter(|h| !h.trim().is_empty()).collect()
+    }
+
+    /// The networks set up (with an address and a usable name and hub),
+    /// the first first, each named.
+    pub fn networks(&self) -> Vec<FtnNetwork> {
+        self.checked().into_iter().filter_map(|(n, why)| why.is_none().then_some(n)).filter(|n| !n.address.trim().is_empty()).collect()
+    }
+
+    /// What's wrong with the FTN set-up, for the log: networks left out,
+    /// and echoes on no network or on two.
+    pub fn problems(&self) -> Vec<String> {
+        if !self.enabled {
+            return Vec::new();
+        }
+        let checked = self.checked();
+        let mut out: Vec<String> = checked.iter().filter_map(|(n, why)| why.as_ref().map(|w| format!("network {:?} left out: {w}", n.name))).collect();
+        // Any network in the file, set up yet or not (one waiting for its
+        // address is fine).
+        let names: Vec<String> = checked.into_iter().map(|(n, _)| n.name).collect();
+        let mut seen: std::collections::HashMap<String, String> = Default::default();
+        for a in &self.areas {
+            let on = self.network_of(a);
+            if !names.iter().any(|n| n.eq_ignore_ascii_case(&on)) {
+                out.push(format!("echo {} ({}) is on network {on:?}, which there's none of", a.tag, a.area));
+            }
+            if let Some(other) = seen.insert(a.area.to_ascii_uppercase(), on.clone())
+                && !other.eq_ignore_ascii_case(&on)
+            {
+                out.push(format!("area {} is on two networks ({other}, {on}); its posts go out on only one", a.area));
+            }
+        }
+        out
+    }
+
+    /// Every network in the file, named, with why it can't be used.
+    fn checked(&self) -> Vec<(FtnNetwork, Option<String>)> {
+        let first = FtnNetwork {
+            name: self.name.clone(),
+            address: self.address.clone(),
+            hub: self.hub.clone(),
+            hub_host: self.hub_host.clone(),
+            session_password: self.session_password.clone(),
+            packet_password: self.packet_password.clone(),
+            areafix_password: self.areafix_password.clone(),
+            origin: self.origin.clone(),
+        };
+        let mut out: Vec<(FtnNetwork, Option<String>)> = Vec::new();
+        for (i, mut n) in std::iter::once(first).chain(self.networks.iter().cloned()).enumerate() {
+            n.name = n.name.trim().to_ascii_lowercase();
+            if n.name.is_empty() {
+                n.name = derived_name(&n.address, i);
+            }
+            if n.origin.trim().is_empty() {
+                n.origin = self.origin.clone();
+            }
+            // The name is a directory and a lock file's name.
+            let why = if !n.name.chars().all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_') {
+                Some("its name may only have letters, digits, - and _".to_string())
+            } else if !n.address.trim().is_empty() && out.iter().any(|(o, why)| why.is_none() && !o.address.trim().is_empty() && o.name == n.name) {
+                Some("another network has that name".to_string())
+            } else if !n.address.trim().is_empty() && crate::ftn::Addr::parse(&n.address).is_none() {
+                Some(format!("address {:?} isn't an FTN address", n.address))
+            } else if !n.address.trim().is_empty() && crate::ftn::Addr::parse(&n.hub).is_none() {
+                Some(format!("hub {:?} isn't an FTN address", n.hub))
+            } else {
+                None
+            };
+            out.push((n, why));
+        }
+        out
+    }
+
+    /// The first network's name (what an echo with none is on), set up
+    /// or not.
+    pub fn first_name(&self) -> String {
+        let name = self.name.trim().to_ascii_lowercase();
+        if !name.is_empty() {
+            return name;
+        }
+        derived_name(&self.address, 0)
+    }
+
+    /// The network an echo is on.
+    pub fn network_of(&self, a: &FtnArea) -> String {
+        if a.network.trim().is_empty() { self.first_name() } else { a.network.trim().to_ascii_lowercase() }
+    }
+
+    /// The echoes on network `name`.
+    pub fn areas_of(&self, name: &str) -> Vec<FtnArea> {
+        self.areas.iter().filter(|a| self.network_of(a).eq_ignore_ascii_case(name)).cloned().collect()
+    }
 }
 
 impl Default for Ftn {
     fn default() -> Self {
         Self {
             enabled: false,
+            name: String::new(),
             address: String::new(),
             hub: String::new(),
             hub_host: String::new(),
@@ -430,6 +574,7 @@ impl Default for Ftn {
             poll_minutes: 60,
             listen: String::new(),
             areas: Vec::new(),
+            networks: Vec::new(),
         }
     }
 }

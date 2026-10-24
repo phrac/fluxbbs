@@ -10,6 +10,7 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 
+pub const ERR_ACCESS: u16 = 0x05;
 pub const ERR_SHARING: u16 = 0x20;
 pub const ERR_LOCK: u16 = 0x21;
 
@@ -30,6 +31,8 @@ struct Open {
 struct Lock {
     /// The process that holds it: (machine, PSP).
     owner: (u64, u16),
+    /// The open it was made through: closing that lets go of it.
+    open: u64,
     start: u64,
     end: u64,
 }
@@ -61,22 +64,40 @@ pub struct Shared {
 }
 
 /// The key a file goes by: its real path, so two drives or names for one
-/// file meet.
+/// file meet; one not made yet goes by its directory's real path, as it
+/// will once it's there.
 fn key(path: &Path) -> PathBuf {
-    std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf())
+    std::fs::canonicalize(path).unwrap_or_else(|_| match (path.parent().and_then(|d| std::fs::canonicalize(d).ok()), path.file_name()) {
+        (Some(d), Some(n)) => d.join(n),
+        _ => path.to_path_buf(),
+    })
+}
+
+/// Is `path` held open with a deny mode anywhere (so it can't be deleted
+/// or renamed)? Compatibility opens deny nothing, here as elsewhere:
+/// single-node doors erase and rename files they have open.
+pub fn in_use(path: &Path) -> bool {
+    let path = key(path);
+    table(|t| t.opens.get(&path).is_some_and(|o| o.iter().any(|o| o.deny != 0)))
 }
 
 impl Shared {
     /// Open `path` with DOS access code `access` (0 read, 1 write, 2
     /// both, 4 read) and sharing mode `share` (bits 4-6 of the open
-    /// mode), or fail with a sharing violation.
-    pub fn open(path: &Path, access: u8, share: u8) -> Result<Arc<Shared>, u16> {
+    /// mode), or fail: access denied when two deny modes clash, a sharing
+    /// violation when compatibility mode is in it (as DOS has it, its
+    /// INT 24h failed). `truncate`: the open empties the file (a create),
+    /// which no other open with a deny mode allows.
+    pub fn open(path: &Path, access: u8, share: u8, truncate: bool) -> Result<Arc<Shared>, u16> {
         let path = key(path);
-        let (read, write) = (access != 1, access == 1 || access == 2);
+        let (read, write) = (access != 1, access == 1 || access == 2 || truncate);
         table(|t| {
             let opens = t.opens.entry(path.clone()).or_default();
-            if opens.iter().any(|o| denies(o.deny, read, write) || denies(share, o.read, o.write)) {
-                return Err(ERR_SHARING);
+            // RBIL's table: an open in compatibility mode that clashes goes
+            // through INT 24h (here 20h); one with a deny mode is refused
+            // (05h), whatever is open already.
+            if opens.iter().any(|o| denies(o.deny, read, write) || denies(share, o.read, o.write) || (truncate && o.deny != 0)) {
+                return Err(if share == 0 { ERR_SHARING } else { ERR_ACCESS });
             }
             t.next += 1;
             let id = t.next;
@@ -94,7 +115,7 @@ impl Shared {
             if len == 0 || locks.iter().any(|l| l.start < end && start < l.end) {
                 return Err(ERR_LOCK);
             }
-            locks.push(Lock { owner, start, end });
+            locks.push(Lock { owner, open: self.id, start, end });
             Ok(())
         })
     }
@@ -128,6 +149,13 @@ impl Drop for Shared {
                 opens.retain(|o| o.id != self.id);
                 if opens.is_empty() {
                     t.opens.remove(&self.path);
+                }
+            }
+            // Closing a file lets go of the locks made through it.
+            if let Some(locks) = t.locks.get_mut(&self.path) {
+                locks.retain(|l| l.open != self.id);
+                if locks.is_empty() {
+                    t.locks.remove(&self.path);
                 }
             }
         });
@@ -175,18 +203,49 @@ mod tests {
     #[test]
     fn deny_modes_shut_out_what_they_say() {
         let p = file("deny");
-        let a = Shared::open(&p, 2, 2).unwrap(); // read/write, deny write
-        assert!(Shared::open(&p, 0, 4).is_ok()); // read, deny none: fine
-        assert_eq!(Shared::open(&p, 1, 4).err(), Some(ERR_SHARING)); // write: denied
-        assert_eq!(Shared::open(&p, 0, 3).err(), Some(ERR_SHARING)); // would deny a's reading
+        let a = Shared::open(&p, 2, 2, false).unwrap(); // read/write, deny write
+        assert!(Shared::open(&p, 0, 4, false).is_ok()); // read, deny none: fine
+        assert_eq!(Shared::open(&p, 1, 4, false).err(), Some(ERR_ACCESS)); // write: denied (two deny modes: 05h)
+        assert_eq!(Shared::open(&p, 0, 3, false).err(), Some(ERR_ACCESS)); // would deny a's reading
         drop(a);
-        let b = Shared::open(&p, 1, 0).unwrap(); // compatibility: denies nothing
-        let c = Shared::open(&p, 2, 0).unwrap();
-        assert_eq!(Shared::open(&p, 0, 1).err(), Some(ERR_SHARING)); // deny all, with others open
+        let b = Shared::open(&p, 1, 0, false).unwrap(); // compatibility: denies nothing
+        let c = Shared::open(&p, 2, 0, false).unwrap();
+        assert_eq!(Shared::open(&p, 0, 1, false).err(), Some(ERR_ACCESS)); // deny all, with others open: a deny mode, 05h
         drop((b, c));
-        let d = Shared::open(&p, 0, 1).unwrap();
-        assert_eq!(Shared::open(&p, 0, 4).err(), Some(ERR_SHARING));
+        let d = Shared::open(&p, 0, 1, false).unwrap();
+        assert_eq!(Shared::open(&p, 0, 4, false).err(), Some(ERR_ACCESS));
+        assert_eq!(Shared::open(&p, 0, 0, false).err(), Some(ERR_SHARING), "compatibility mode in it: 20h");
         drop(d);
+        // A create can't empty what another node holds with a deny mode,
+        // even deny-none; compatibility opens don't stop it.
+        let e = Shared::open(&p, 2, 4, false).unwrap();
+        assert_eq!(Shared::open(&p, 2, 0, true).err(), Some(ERR_SHARING));
+        drop(e);
+        let f = Shared::open(&p, 2, 0, false).unwrap();
+        assert!(!in_use(&p), "compatibility opens don't stop a delete");
+        assert!(Shared::open(&p, 2, 0, true).is_ok());
+        let g = Shared::open(&p, 0, 4, false).unwrap();
+        assert!(in_use(&p), "a deny-mode open does");
+        drop((f, g));
+        assert!(!in_use(&p));
+        std::fs::remove_file(p).unwrap();
+    }
+
+    #[test]
+    fn closing_a_file_lets_go_of_its_locks() {
+        let p = file("close");
+        let me = (machine_id(), 0x100);
+        let a = Shared::open(&p, 2, 4, false).unwrap();
+        a.lock(me, 0, 4).unwrap();
+        let other = (machine_id(), 0x100);
+        let b = Shared::open(&p, 2, 4, false).unwrap();
+        assert_eq!(b.check(other, 0, 1), Err(ERR_LOCK));
+        drop(a);
+        assert!(b.check(other, 0, 1).is_ok(), "the lock went with the close");
+        // Locking it again (reopened) works: it isn't still there.
+        let a2 = Shared::open(&p, 2, 4, false).unwrap();
+        a2.lock(me, 0, 4).unwrap();
+        drop((a2, b));
         std::fs::remove_file(p).unwrap();
     }
 
@@ -194,8 +253,8 @@ mod tests {
     fn locks_keep_other_processes_out() {
         let p = file("lock");
         let (me, them) = ((machine_id(), 0x100), (machine_id(), 0x100));
-        let a = Shared::open(&p, 2, 4).unwrap();
-        let b = Shared::open(&p, 2, 4).unwrap();
+        let a = Shared::open(&p, 2, 4, false).unwrap();
+        let b = Shared::open(&p, 2, 4, false).unwrap();
         a.lock(me, 2, 4).unwrap(); // bytes 2-5
         assert_eq!(b.lock(them, 5, 2), Err(ERR_LOCK));
         assert_eq!(a.lock(me, 4, 1), Err(ERR_LOCK)); // no overlaps, even its own

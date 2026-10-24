@@ -131,7 +131,8 @@ FTN tear lines and binkp's `VER`. Boards set up before the rename keep
   ([FEATURES](FEATURES.md#message-center))
 - FTN echomail (fsxNet and the like) built in: a binkp mailer that
   polls and answers (CRAM-MD5), a tosser and scanner with threading and
-  dupe checking, netmail to email, and AreaFix. ([FEATURES](FEATURES.md#ftn-echomail))
+  dupe checking, netmail to email, and AreaFix; on several networks at
+  once, each with its own hub. ([FEATURES](FEATURES.md#ftn-echomail))
 - MeshCore radio channels bridged to message areas.
   ([FEATURES](FEATURES.md#meshcore))
 - QWK: email as conference 0, threads in and out, four-digit years.

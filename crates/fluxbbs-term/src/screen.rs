@@ -365,8 +365,8 @@ impl Screen {
         let n = |i: usize| params.get(i).copied().filter(|&v| v > 0).unwrap_or(1);
         match fin {
             b'A' => self.y = self.y.saturating_sub(n(0)).max(1),
-            b'B' => self.y = (self.y + n(0)).min(self.rows),
-            b'C' => self.x = (self.x + n(0)).min(COLUMNS),
+            b'B' => self.y = self.y.saturating_add(n(0)).min(self.rows),
+            b'C' => self.x = self.x.saturating_add(n(0)).min(COLUMNS),
             b'D' => self.x = self.x.saturating_sub(n(0)).max(1),
             b'H' | b'f' => {
                 self.y = n(0).min(self.rows);

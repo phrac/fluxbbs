@@ -488,9 +488,14 @@ impl Session {
                     'Y' => {
                         self.write("Yes");
                         self.newline();
+                        // As they are now: others may have voted meanwhile.
+                        if let Some(f) = self.state.users.get(u.id).map_err(io_err)? {
+                            u = f;
+                        }
+                        let still = !u.deleted && self.acs_for(&u, &nuv.candidate_acs);
                         let original = u.clone();
                         u.vote_yes += 1;
-                        let done = u.vote_yes >= nuv.votes_yes as u32;
+                        let done = still && u.vote_yes >= nuv.votes_yes as u32;
                         if done {
                             let s = self.strings().fmt("NuvValidated", &[&u.handle]);
                             self.show_line(&s).await?;
@@ -505,9 +510,13 @@ impl Session {
                     'N' => {
                         self.write("No");
                         self.newline();
+                        if let Some(f) = self.state.users.get(u.id).map_err(io_err)? {
+                            u = f;
+                        }
+                        let still = !u.deleted && self.acs_for(&u, &nuv.candidate_acs);
                         let original = u.clone();
                         u.vote_no += 1;
-                        let done = u.vote_no >= nuv.votes_no as u32;
+                        let done = still && u.vote_no >= nuv.votes_no as u32;
                         if done {
                             let s = self.strings().fmt("NuvDeleted", &[&u.handle]);
                             self.show_line(&s).await?;

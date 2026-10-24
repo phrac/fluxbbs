@@ -247,9 +247,11 @@ impl Session {
             if u.level == key {
                 let original = u.clone();
                 u.apply_level(key, level);
-                self.save_other_user(&original, &u).map_err(io_err)?;
+                // A level's limits are values, not changes.
+                let saved = self.save_other_user_exact(&original, &u).map_err(io_err)?;
                 if u.id == self.user.id {
-                    self.user = u;
+                    *self.user_base.borrow_mut() = Some(saved.clone());
+                    self.user = saved;
                 }
                 n += 1;
             }
@@ -517,16 +519,25 @@ impl Session {
     /// Save an edited user. Our own record also lives in the session, so
     /// keep that in step.
     fn store_user(&mut self, original: &User, u: &User) -> io::Result<()> {
+        // What was typed is what's kept (file points 0 is 0, whatever came
+        // in meanwhile).
+        let mut saved = self.save_other_user_exact(original, u).map_err(io_err)?;
         // New: more daily time is more time today too (unless today's was
-        // set as well).
-        let mut u = u.clone();
+        // set as well): given on top of what they have now.
         if u.time_per_day > original.time_per_day && u.time_today == original.time_today {
-            u.time_today += u.time_per_day - original.time_per_day;
+            let mut more = saved.clone();
+            more.time_today += u.time_per_day - original.time_per_day;
+            saved = self.save_other_user(&saved, &more).map_err(io_err)?;
         }
-        let u = &u;
-        self.save_other_user(original, u).map_err(io_err)?;
+        let u = &saved;
         if u.id == self.user.id {
-            self.user = u.clone();
+            *self.user_base.borrow_mut() = Some(saved.clone());
+            self.user = saved.clone();
+            let (sysop, handle) = (self.is_sysop(), self.user.handle.clone());
+            self.node.update(|n| {
+                n.sysop = sysop;
+                n.user = handle;
+            });
         }
         tracing::info!("{}: saved user #{} ({})", self.user.handle, u.id, u.handle);
         Ok(())

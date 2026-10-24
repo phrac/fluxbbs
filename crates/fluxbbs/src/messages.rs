@@ -90,6 +90,9 @@ impl Session {
     /// names aren't unique: a new caller could give the sponsor's).
     pub(crate) fn is_sponsor(&self, a: &AreaRef) -> bool {
         let s = a.area.sponsor.trim();
+        if a.area.sponsor_id != 0 {
+            return a.area.sponsor_id == self.user.id && self.acs(&a.area.acs);
+        }
         !s.is_empty()
             && self.acs(&a.area.acs)
             && (s.eq_ignore_ascii_case(&self.user.handle)
@@ -106,18 +109,21 @@ impl Session {
     }
 
     pub(crate) fn ok_to_delete(&self, a: &AreaRef, m: &Message) -> bool {
-        self.is_cosysop() || self.is_sponsor(a) || (m.private && self.is_me(&m.to)) || self.wrote(&m.from)
+        self.is_cosysop() || self.is_sponsor(a) || (m.private && self.is_me(&m.to)) || (self.wrote(&m.from) && !self.banned_from(a))
     }
 
     pub(crate) fn ok_to_edit(&self, a: &AreaRef, m: &Message) -> bool {
-        self.is_cosysop() || self.is_sponsor(a) || self.wrote(&m.from)
+        // Banned from a board: not their old posts there either.
+        self.is_cosysop() || self.is_sponsor(a) || (self.wrote(&m.from) && !self.banned_from(a))
     }
 
     /// `maChangeArea`: switch to an area if the caller may, asking for its
     /// password.
     pub async fn change_area(&mut self, n: u32) -> io::Result<bool> {
         let Some(a) = self.msg_area(n) else { return Ok(false) };
-        if !self.acs(&a.area.acs) {
+        // Its folders' access too (a sub-board under a closed folder).
+        let areas = self.state.areas();
+        if !self.acs(&a.area.acs) || !areas.lineage(a.num).iter().skip(1).all(|&p| areas.get(p).is_some_and(|p| self.acs(&p.acs))) {
             return Ok(false);
         }
         if !a.area.password.is_empty() && !self.opened_areas.contains(&a.key().to_ascii_uppercase()) {

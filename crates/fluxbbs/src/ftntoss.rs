@@ -13,7 +13,7 @@ use anyhow::{Context, anyhow};
 use chrono::NaiveDateTime;
 
 use crate::BbsState;
-use crate::config::Ftn;
+use crate::config::{FtnArea, FtnNetwork};
 use crate::ftn::{self, Addr, PackedMsg, Packet, Parts};
 use crate::msgbase::{Message, Party};
 
@@ -68,11 +68,52 @@ fn bundle_name(lower: &str) -> bool {
     })
 }
 
-/// This node's and the hub's addresses.
-pub fn addresses(cfg: &Ftn) -> anyhow::Result<(Addr, Addr)> {
-    let me = Addr::parse(&cfg.address).ok_or_else(|| anyhow!("[ftn] address {:?} isn't an FTN address", cfg.address))?;
-    let hub = Addr::parse(&cfg.hub).ok_or_else(|| anyhow!("[ftn] hub {:?} isn't an FTN address", cfg.hub))?;
+/// This node's and the hub's addresses on a network.
+pub fn addresses(net: &FtnNetwork) -> anyhow::Result<(Addr, Addr)> {
+    let me = Addr::parse(&net.address).ok_or_else(|| anyhow!("ftn {}: address {:?} isn't an FTN address", net.name, net.address))?;
+    let hub = Addr::parse(&net.hub).ok_or_else(|| anyhow!("ftn {}: hub {:?} isn't an FTN address", net.name, net.hub))?;
     Ok((me, hub))
+}
+
+/// The networks set up, with their addresses; an error if there are none.
+/// (`Ftn::networks` leaves out any that are set up wrong.)
+fn networks(state: &BbsState) -> anyhow::Result<Vec<(FtnNetwork, Addr, Addr)>> {
+    let nets: Vec<_> = state.config().ftn.networks().into_iter().filter_map(|n| addresses(&n).ok().map(|(me, hub)| (n, me, hub))).collect();
+    if nets.is_empty() {
+        anyhow::bail!("ftn: no network set up ([ftn] address, or [[ftn.network]])");
+    }
+    Ok(nets)
+}
+
+/// The network called `name` (any case).
+pub fn network(state: &BbsState, name: &str) -> anyhow::Result<FtnNetwork> {
+    let nets = state.config().ftn.networks();
+    nets.iter().find(|n| n.name.eq_ignore_ascii_case(name)).cloned().ok_or_else(|| {
+        let names: Vec<&str> = nets.iter().map(|n| n.name.as_str()).collect();
+        anyhow!("ftn: no network {name:?} (there's {})", if names.is_empty() { "none".to_string() } else { names.join(", ") })
+    })
+}
+
+/// Where packets for a network's hub wait.
+pub fn outbound_dir(state: &BbsState, net: &str) -> PathBuf {
+    dirs(state).1.join(net.to_ascii_lowercase())
+}
+
+/// Every directory with packets for a network's hub: its own, and for
+/// the first network `outbound` itself (packets queued before there were
+/// several networks).
+pub fn outbound_dirs(state: &BbsState, net: &str) -> Vec<PathBuf> {
+    let mut v = vec![outbound_dir(state, net)];
+    if state.config().ftn.first_name().eq_ignore_ascii_case(net) {
+        v.push(dirs(state).1);
+    }
+    v
+}
+
+/// Where a session with a network's hub puts what it receives: tossed
+/// only as mail of the network(s) that session proved it was.
+pub fn inbound_dir(state: &BbsState, net: &str) -> PathBuf {
+    dirs(state).0.join(net.to_ascii_lowercase())
 }
 
 /// The inbound, outbound and bad directories.
@@ -83,8 +124,9 @@ pub fn dirs(state: &BbsState) -> (PathBuf, PathBuf, PathBuf) {
 }
 
 /// Hold `data/ftn/NAME.lock` until the file is dropped: one toss or scan
-/// (`toss`), one binkp session (`binkp`) at a time, across processes too
-/// (the board, and `fluxbbs ftn` beside it). `wait` false: None if busy.
+/// (`toss`), one binkp session per network (`binkp-NAME`) at a time,
+/// across processes too (the board, and `fluxbbs ftn` beside it). `wait`
+/// false: None if busy.
 pub fn lock(state: &BbsState, name: &str, wait: bool) -> anyhow::Result<Option<std::fs::File>> {
     let (inbound, _, _) = dirs(state);
     let dir = inbound.parent().unwrap_or(&inbound);
@@ -98,18 +140,62 @@ pub fn lock(state: &BbsState, name: &str, wait: bool) -> anyhow::Result<Option<s
     Ok(Some(f))
 }
 
-/// Toss everything in the inbound directory.
+/// Toss everything inbound: each network's own inbound as mail of the
+/// networks its hub's session proved it was (those sharing its session
+/// password), and `inbound` itself (put there by hand, as from `bad`) as
+/// whichever network a packet is addressed on.
 pub fn toss(state: &BbsState) -> anyhow::Result<Tossed> {
-    let cfg = state.config().ftn.clone();
-    let (me, hub) = addresses(&cfg)?;
-    let (inbound, _, bad) = dirs(state);
+    let nets = networks(state)?;
+    let (inbound, _, _) = dirs(state);
     std::fs::create_dir_all(&inbound)?;
     let _lock = lock(state, "toss", true)?;
+    let mut t = Tossed::default();
+    let result = (|| {
+        for (net, _, _) in &nets {
+            let allowed: Vec<_> = nets
+                .iter()
+                .filter(|(n, _, _)| n.name == net.name || (!net.session_password.is_empty() && n.session_password == net.session_password))
+                .cloned()
+                .collect();
+            toss_dir(state, &inbound_dir(state, &net.name), &allowed, &mut t)?;
+        }
+        // A network renamed (or left out) leaves its inbound behind: that
+        // and `inbound` itself go by the packets' addresses, as by hand.
+        for d in stray_dirs(state, &inbound) {
+            tracing::warn!("ftn: {} belongs to no network set up; tossing it by its packets' addresses", d.display());
+            toss_dir(state, &d, &nets, &mut t)?;
+        }
+        toss_dir(state, &inbound, &nets, &mut t)
+    })();
+    if t != Tossed::default() {
+        tracing::info!("ftn: tossed {t:?}");
+    }
+    result.map(|()| t)
+}
+
+/// Directories under `dir` that aren't a network's (a network renamed,
+/// say).
+pub fn stray_dirs(state: &BbsState, dir: &Path) -> Vec<PathBuf> {
+    let names: Vec<String> = state.config().ftn.networks().into_iter().map(|n| n.name).collect();
+    let mut v: Vec<PathBuf> = std::fs::read_dir(dir)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.path())
+        .filter(|p| p.is_dir() && p.file_name().is_some_and(|n| !names.iter().any(|m| m.eq_ignore_ascii_case(&n.to_string_lossy()))))
+        .collect();
+    v.sort();
+    v
+}
+
+/// Toss the files in `dir` as mail of `nets`.
+fn toss_dir(state: &BbsState, dir: &Path, nets: &[(FtnNetwork, Addr, Addr)], t: &mut Tossed) -> anyhow::Result<()> {
+    let (_, _, bad) = dirs(state);
+    let Ok(rd) = std::fs::read_dir(dir) else { return Ok(()) };
     // Oldest first (by name when the clock can't tell), so a thread comes
     // in in order.
-    let mut files: Vec<PathBuf> = std::fs::read_dir(&inbound)?.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_file()).collect();
+    let mut files: Vec<PathBuf> = rd.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_file()).collect();
     files.sort_by_key(|p| (std::fs::metadata(p).and_then(|m| m.modified()).ok(), p.file_name().map(|n| n.to_os_string())));
-    let mut t = Tossed::default();
     for path in files {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let lower = name.to_ascii_lowercase();
@@ -127,9 +213,9 @@ pub fn toss(state: &BbsState) -> anyhow::Result<Tossed> {
             }
         };
         let result = if packet {
-            toss_packet(state, &data, me, hub, &cfg, &mut t)
+            toss_packet(state, &data, nets, t)
         } else if data.starts_with(b"PK\x03\x04") && bundled(&data) {
-            toss_bundle(state, &data, me, hub, &cfg, &mut t)
+            toss_bundle(state, &data, nets, t)
         } else if bundle_name(&lower) {
             Err(Fault::Bad("not a mail bundle that can be read here (ZIP only)".into()))
         } else {
@@ -143,18 +229,10 @@ pub fn toss(state: &BbsState) -> anyhow::Result<Tossed> {
                 std::fs::rename(&path, free_name(&bad, &name))?;
                 t.bad += 1;
             }
-            Err(Fault::Board(e)) => {
-                if t != Tossed::default() {
-                    tracing::info!("ftn: tossed {t:?}");
-                }
-                return Err(e.context(format!("ftn: tossing {name} (left in inbound)")));
-            }
+            Err(Fault::Board(e)) => return Err(e.context(format!("ftn: tossing {name} (left in inbound)"))),
         }
     }
-    if t != Tossed::default() {
-        tracing::info!("ftn: tossed {t:?}");
-    }
-    Ok(t)
+    Ok(())
 }
 
 /// Is this ZIP a mail bundle (packets inside), not some other archive?
@@ -163,7 +241,7 @@ fn bundled(data: &[u8]) -> bool {
 }
 
 /// Every packet in a bundle, whatever happens to one of them.
-fn toss_bundle(state: &BbsState, data: &[u8], me: Addr, hub: Addr, cfg: &Ftn, t: &mut Tossed) -> Result<(), Fault> {
+fn toss_bundle(state: &BbsState, data: &[u8], nets: &[(FtnNetwork, Addr, Addr)], t: &mut Tossed) -> Result<(), Fault> {
     let bad = |e: &dyn std::fmt::Display| Fault::Bad(e.to_string());
     let mut zip = zip::ZipArchive::new(std::io::Cursor::new(data)).map_err(|e| bad(&e))?;
     let mut problems = Vec::new();
@@ -176,7 +254,7 @@ fn toss_bundle(state: &BbsState, data: &[u8], me: Addr, hub: Addr, cfg: &Ftn, t:
         // A bundle is a few MB; one that unpacks to far more is refused.
         let mut pkt = Vec::new();
         std::io::Read::read_to_end(&mut std::io::Read::take(&mut f, 64 << 20), &mut pkt).map_err(|e| bad(&e))?;
-        match toss_packet(state, &pkt, me, hub, cfg, t) {
+        match toss_packet(state, &pkt, nets, t) {
             Ok(()) => {}
             Err(Fault::Bad(why)) => problems.push(format!("{name}: {why}")),
             Err(e) => return Err(e),
@@ -185,17 +263,31 @@ fn toss_bundle(state: &BbsState, data: &[u8], me: Addr, hub: Addr, cfg: &Ftn, t:
     if problems.is_empty() { Ok(()) } else { Err(Fault::Bad(problems.join("; "))) }
 }
 
-fn toss_packet(state: &BbsState, data: &[u8], me: Addr, hub: Addr, cfg: &Ftn, t: &mut Tossed) -> Result<(), Fault> {
+/// Does packet address `a` (zone 0: unknown) name `b`?
+fn same_node(a: Addr, b: Addr) -> bool {
+    (a.zone == 0 || a.zone == b.zone) && a.net == b.net && a.node == b.node
+}
+
+fn toss_packet(state: &BbsState, data: &[u8], nets: &[(FtnNetwork, Addr, Addr)], t: &mut Tossed) -> Result<(), Fault> {
     let pkt = Packet::parse(data).map_err(Fault::Bad)?;
-    if (pkt.dest.zone != 0 && pkt.dest.zone != me.zone) || pkt.dest.net != me.net || pkt.dest.node != me.node {
-        return Err(Fault::Bad(format!("addressed to {}, not {me}", pkt.dest)));
+    // The network it's on: addressed to us there, and (a leaf node's mail
+    // all comes through its hub) from that network's hub.
+    let on: Vec<_> = nets.iter().filter(|(_, me, hub)| same_node(pkt.dest, *me) && same_node(pkt.orig, *hub)).collect();
+    // A packet without zones, between net/node numbers we have on two
+    // networks, can't be told apart.
+    if on.len() > 1 {
+        return Err(Fault::Bad(format!("{} to {} could be on {} networks (no zone in it)", pkt.orig, pkt.dest, on.len())));
     }
-    // A leaf node's mail all comes through its hub.
-    if (pkt.orig.zone != 0 && pkt.orig.zone != hub.zone) || pkt.orig.net != hub.net || pkt.orig.node != hub.node {
-        return Err(Fault::Bad(format!("from {}, not the hub {hub}", pkt.orig)));
-    }
+    let Some((net, me, _)) = on.first().copied() else {
+        return Err(Fault::Bad(match nets.iter().find(|(_, me, _)| same_node(pkt.dest, *me)) {
+            Some((_, _, hub)) => format!("from {}, not the hub {hub}", pkt.orig),
+            None => format!("addressed to {}, not to us on a network it may send for", pkt.dest),
+        }));
+    };
+    let me = *me;
+    let areas = state.config().ftn.areas_of(&net.name);
     // The header holds 8 characters of it.
-    let want: String = cfg.packet_password.chars().take(8).collect();
+    let want: String = net.packet_password.chars().take(8).collect();
     if !want.is_empty() && !pkt.password.eq_ignore_ascii_case(&want) {
         return Err(Fault::Bad(format!("wrong packet password from {}", pkt.orig)));
     }
@@ -205,7 +297,7 @@ fn toss_packet(state: &BbsState, data: &[u8], me: Addr, hub: Addr, cfg: &Ftn, t:
     for m in &pkt.msgs {
         let parts = ftn::split_text(&m.text);
         match &parts.area {
-            Some(tag) => toss_echo(state, cfg, tag, m, &parts, t)?,
+            Some(tag) => toss_echo(state, &areas, tag, m, &parts, t)?,
             None => toss_netmail(state, m, &parts, me, pkt.orig, t, &mut problems)?,
         }
     }
@@ -265,8 +357,8 @@ fn party(name: &str) -> Party {
     Party { name: name.to_string(), alias: name.to_string(), real_name: name.to_string(), ..Party::default() }
 }
 
-fn toss_echo(state: &BbsState, cfg: &Ftn, tag: &str, m: &PackedMsg, parts: &Parts, t: &mut Tossed) -> anyhow::Result<()> {
-    let Some(map) = cfg.areas.iter().find(|a| a.tag.eq_ignore_ascii_case(tag)) else {
+fn toss_echo(state: &BbsState, areas: &[FtnArea], tag: &str, m: &PackedMsg, parts: &Parts, t: &mut Tossed) -> anyhow::Result<()> {
+    let Some(map) = areas.iter().find(|a| a.tag.eq_ignore_ascii_case(tag)) else {
         t.unknown += 1;
         return Ok(());
     };
@@ -403,9 +495,9 @@ fn tzutc(at: NaiveDateTime) -> String {
     format!("{sign}{:02}{:02}", secs / 3600, secs % 3600 / 60)
 }
 
-fn origin_line(state: &BbsState, cfg: &Ftn, me: Addr) -> String {
+fn origin_line(state: &BbsState, net: &FtnNetwork, me: Addr) -> String {
     let board = state.config();
-    let text = crate::editor::strip_codes(if cfg.origin.trim().is_empty() { &board.bbs.name } else { cfg.origin.trim() });
+    let text = crate::editor::strip_codes(if net.origin.trim().is_empty() { &board.bbs.name } else { net.origin.trim() });
     let tail = format!(" ({me})");
     let room = 79usize.saturating_sub(" * Origin: ".len() + tail.len());
     format!(" * Origin: {}{tail}", text.chars().take(room).collect::<String>())
@@ -416,11 +508,19 @@ fn tear_line() -> String {
 }
 
 /// Pack what's been posted here in the echo areas since the last scan
-/// into a packet for the hub. Returns how many messages.
+/// into a packet for each network's hub. Returns how many messages.
 pub fn scan(state: &BbsState) -> anyhow::Result<usize> {
-    let cfg = state.config().ftn.clone();
-    let (me, hub) = addresses(&cfg)?;
+    let nets = networks(state)?;
     let _lock = lock(state, "toss", true)?;
+    let mut n = 0;
+    for (net, me, hub) in &nets {
+        n += scan_net(state, net, *me, *hub)?;
+    }
+    Ok(n)
+}
+
+fn scan_net(state: &BbsState, net: &FtnNetwork, me: Addr, hub: Addr) -> anyhow::Result<usize> {
+    let areas = state.config().ftn.areas_of(&net.name);
     let now = crate::clock::now().naive_local();
     let mut msgs = Vec::new();
     // Recorded once the packet is written: lost mail is worse than a
@@ -429,7 +529,7 @@ pub fn scan(state: &BbsState) -> anyhow::Result<usize> {
     let mut marks: Vec<(String, i64)> = Vec::new();
     // An area mapped to two echoes goes out in the first only.
     let mut done = std::collections::HashSet::new();
-    for map in &cfg.areas {
+    for map in &areas {
         let key = format!("sent:{}", map.area.to_ascii_uppercase());
         // First time: start from what's there now.
         let Some(after) = state.msgs.ftn_get(&key)? else {
@@ -466,7 +566,7 @@ pub fn scan(state: &BbsState) -> anyhow::Result<usize> {
                 body.push(String::new());
             }
             body.push(tear_line());
-            body.push(origin_line(state, &cfg, me));
+            body.push(origin_line(state, net, me));
             let mut seen = vec![me.net_node(), hub.net_node()];
             seen.sort_by_key(|s| s.split_once('/').map(|(n, f)| (n.parse::<u32>().unwrap_or(0), f.parse::<u32>().unwrap_or(0))));
             seen.dedup();
@@ -495,17 +595,16 @@ pub fn scan(state: &BbsState) -> anyhow::Result<usize> {
     }
     let n = msgs.len();
     if n > 0 {
-        write_packet(state, &Packet { orig: me, dest: hub, password: cfg.packet_password.clone(), created: now, msgs })?;
-        tracing::info!("ftn: packed {n} message(s) for {hub}");
+        write_packet(state, &net.name, &Packet { orig: me, dest: hub, password: net.packet_password.clone(), created: now, msgs })?;
+        tracing::info!("ftn: packed {n} message(s) for {hub} ({})", net.name);
     }
     state.msgs.ftn_sent(&sent, &marks)?;
     Ok(n)
 }
 
-/// Send a netmail (to AreaFix, say) with the next poll.
-pub fn netmail(state: &BbsState, from: &str, to: &str, to_addr: Addr, subject: &str, body: &[String]) -> anyhow::Result<()> {
-    let cfg = state.config().ftn.clone();
-    let (me, hub) = addresses(&cfg)?;
+/// Send a netmail (to AreaFix, say) on network `net` with its next poll.
+pub fn netmail(state: &BbsState, net: &FtnNetwork, from: &str, to: &str, to_addr: Addr, subject: &str, body: &[String]) -> anyhow::Result<()> {
+    let (me, hub) = addresses(net)?;
     let _lock = lock(state, "toss", true)?;
     let msgid = format!("{me} {:08x}", next_serial(state)?);
     let mut kludges = vec![("INTL".to_string(), format!("{} {}", Addr { point: 0, ..to_addr }, Addr { point: 0, ..me }))];
@@ -537,20 +636,25 @@ pub fn netmail(state: &BbsState, from: &str, to: &str, to_addr: Addr, subject: &
         text: ftn::join_text(&parts),
     };
     // Netmail goes by way of the hub.
-    write_packet(state, &Packet { orig: me, dest: hub, password: cfg.packet_password.clone(), created: now, msgs: vec![m] })?;
+    write_packet(state, &net.name, &Packet { orig: me, dest: hub, password: net.packet_password.clone(), created: now, msgs: vec![m] })?;
     tracing::info!("ftn: netmail to {to} at {to_addr} queued");
     Ok(())
 }
 
-/// Write a packet to the outbound directory, under a fresh name.
-fn write_packet(state: &BbsState, pkt: &Packet) -> anyhow::Result<PathBuf> {
-    let (_, outbound, _) = dirs(state);
+/// Write a packet to a network's outbound directory, under a fresh name.
+fn write_packet(state: &BbsState, net: &str, pkt: &Packet) -> anyhow::Result<PathBuf> {
+    let outbound = outbound_dir(state, net);
     std::fs::create_dir_all(&outbound)?;
+    // A name no network's outbound has: a hub of several networks gets
+    // them all in one session, where files go by name.
+    let base = dirs(state).1;
+    let mut all = vec![base.clone()];
+    all.extend(std::fs::read_dir(&base).into_iter().flatten().flatten().map(|e| e.path()).filter(|p| p.is_dir()));
     let mut serial = crate::clock::now().timestamp_millis() as u32;
     let path = loop {
-        let p = outbound.join(format!("{serial:08x}.pkt"));
-        if !p.exists() {
-            break p;
+        let name = format!("{serial:08x}.pkt");
+        if !all.iter().any(|d| d.join(&name).exists()) {
+            break outbound.join(name);
         }
         serial = serial.wrapping_add(1);
     };
@@ -573,7 +677,7 @@ pub fn outbound_files(dir: &Path) -> Vec<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::config::FtnArea;
+    use crate::config::{Ftn, FtnArea};
 
     fn board() -> (std::sync::Arc<BbsState>, PathBuf) {
         let dir = std::env::temp_dir().join(format!("inq-ftn-{}-{:?}", std::process::id(), std::thread::current().id()));
@@ -589,7 +693,7 @@ mod tests {
                 address: "21:1/999@fsxnet".into(),
                 hub: "21:1/100".into(),
                 packet_password: "PKTPW".into(),
-                areas: vec![FtnArea { tag: "FSX_GEN".into(), area: "GENERAL".into() }],
+                areas: vec![FtnArea { tag: "FSX_GEN".into(), area: "GENERAL".into(), network: String::new() }],
                 ..Ftn::default()
             };
             *state.config.write().unwrap() = std::sync::Arc::new(cfg);
@@ -649,7 +753,7 @@ mod tests {
     #[test]
     fn replies_in_one_scan_and_resends_keep_msgids() {
         let (state, dir) = board();
-        let (_, outbound, _) = dirs(&state);
+        let outbound = outbound_dir(&state, "fsxnet");
         assert_eq!(scan(&state).unwrap(), 0);
         let post = |subject: &str, reply_to: i64| {
             let mut m = Message {
@@ -688,7 +792,8 @@ mod tests {
     #[test]
     fn toss_and_scan() {
         let (state, dir) = board();
-        let (inbound, outbound, _) = dirs(&state);
+        let (inbound, _, _) = dirs(&state);
+        let outbound = outbound_dir(&state, "fsxnet");
         std::fs::create_dir_all(&inbound).unwrap();
         let netmail_parts = Parts { kludges: vec![("INTL".into(), "21:1/999 21:1/100".into()), ("MSGID".into(), "21:1/100 00000009".into())], body: vec!["Linked FSX_GEN".into()], ..Default::default() };
         let areafix_reply = PackedMsg { orig_node: 100, dest_node: 999, orig_net: 1, dest_net: 1, datetime: "20 Oct 26  12:05:00".into(), to: "SysOp".into(), from: "AreaFix".into(), subject: "reply".into(), text: ftn::join_text(&netmail_parts), ..Default::default() };
@@ -768,7 +873,7 @@ mod tests {
         assert_eq!((t.echomail, t.dupes), (1, 1));
         assert!(inbound.join("FSXNET.Z93").exists());
 
-        netmail(&state, "SysOp", "AreaFix", Addr::parse("21:1/100").unwrap(), "secret", &["+FSX_BOT".into()]).unwrap();
+        netmail(&state, &network(&state, "fsxnet").unwrap(), "SysOp", "AreaFix", Addr::parse("21:1/100").unwrap(), "secret", &["+FSX_BOT".into()]).unwrap();
         let files = outbound_files(&outbound);
         assert_eq!(files.len(), 2);
         let nm = Packet::parse(&std::fs::read(&files[1]).unwrap()).unwrap();
@@ -776,5 +881,107 @@ mod tests {
         assert_eq!((p.area.as_deref(), p.kludge("INTL")), (None, Some("21:1/100 21:1/999")));
         assert_eq!(nm.msgs[0].attr & ftn::ATTR_PRIVATE, ftn::ATTR_PRIVATE);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn two_networks_each_their_own() {
+        let (state, dir) = board();
+        {
+            let mut cfg = (*state.config()).clone();
+            cfg.ftn.networks.push(crate::config::FtnNetwork {
+                name: "agoranet".into(),
+                address: "46:1/200@agoranet".into(),
+                hub: "46:1/100".into(),
+                ..Default::default()
+            });
+            cfg.ftn.areas.push(FtnArea { tag: "AGN_GEN".into(), area: "AGNGEN".into(), network: "agoranet".into() });
+            *state.config.write().unwrap() = std::sync::Arc::new(cfg);
+            let mut areas = (*state.areas()).clone();
+            areas.areas.push(crate::msgareas::MsgArea::new("Agora general", "AGNGEN"));
+            *state.areas.write().unwrap() = std::sync::Arc::new(areas);
+        }
+        let names: Vec<String> = state.config().ftn.networks().into_iter().map(|n| n.name).collect();
+        assert_eq!(names, ["fsxnet", "agoranet"]);
+        let (inbound, _, _) = dirs(&state);
+        std::fs::create_dir_all(&inbound).unwrap();
+        let from_agora = |msgs: Vec<PackedMsg>| Packet { orig: Addr::parse("46:1/100").unwrap(), dest: Addr::parse("46:1/200").unwrap(), password: String::new(), created: crate::clock::now().naive_local(), msgs };
+        let mut m = echo("Acc", "hi", "46:1/100 00000001", None, "agora", "AGN_GEN");
+        (m.orig_net, m.dest_net, m.dest_node) = (1, 1, 200);
+        // FSX_GEN isn't an echo of this network's, whatever its tag says.
+        let wrong = echo("Eve", "x", "46:1/100 00000002", None, "x", "FSX_GEN");
+        std::fs::write(inbound.join("00000001.pkt"), from_agora(vec![m, wrong]).to_bytes()).unwrap();
+        let t = toss(&state).unwrap();
+        assert_eq!((t.echomail, t.unknown), (1, 1));
+        assert_eq!(state.msgs.all("AGNGEN").unwrap().len(), 1);
+        assert!(state.msgs.all("GENERAL").unwrap().is_empty());
+        // What agoranet's hub sent in its own session can't pass for
+        // fsxnet's mail, whatever the packet says.
+        let agn_in = inbound_dir(&state, "agoranet");
+        std::fs::create_dir_all(&agn_in).unwrap();
+        let forged = Packet { orig: Addr::parse("21:1/100").unwrap(), dest: Addr::parse("21:1/999").unwrap(), password: "PKTPW".into(), created: crate::clock::now().naive_local(), msgs: vec![echo("Mallory", "x", "21:1/100 00000003", None, "x", "FSX_GEN")] };
+        std::fs::write(agn_in.join("00000003.pkt"), forged.to_bytes()).unwrap();
+        assert_eq!(toss(&state).unwrap().bad, 1);
+        assert!(state.msgs.all("GENERAL").unwrap().is_empty());
+        // A packet from a stranger on a network we're on goes to bad.
+        let stranger = Packet { orig: Addr::parse("46:1/5").unwrap(), ..from_agora(Vec::new()) };
+        std::fs::write(inbound.join("00000002.pkt"), stranger.to_bytes()).unwrap();
+        assert_eq!(toss(&state).unwrap().bad, 1);
+
+        // Posts go out each to their own network's hub, from our address
+        // there.
+        assert_eq!(scan(&state).unwrap(), 0);
+        for area in ["GENERAL", "AGNGEN"] {
+            let mut m = Message {
+                id: 0,
+                area: area.into(),
+                num: 0,
+                from: party("phrac"),
+                to: party("All"),
+                subject: format!("in {area}"),
+                posted: crate::clock::now().naive_local(),
+                deleted: false,
+                private: false,
+                anonymous: false,
+                replies: 0,
+                sig_pos: 0,
+                tag: 0,
+                reply_to: 0,
+                lines: vec!["hello".into()],
+            };
+            state.msgs.add(&mut m).unwrap();
+        }
+        assert_eq!(scan(&state).unwrap(), 2);
+        for (net, me, hub, tag) in [("fsxnet", "21:1/999", "21:1/100", "FSX_GEN"), ("agoranet", "46:1/200", "46:1/100", "AGN_GEN")] {
+            let files = outbound_files(&outbound_dir(&state, net));
+            assert_eq!(files.len(), 1, "{net}");
+            let p = Packet::parse(&std::fs::read(&files[0]).unwrap()).unwrap();
+            assert_eq!((p.orig.to_string(), p.dest.to_string()), (me.to_string(), hub.to_string()));
+            let parts = ftn::split_text(&p.msgs[0].text);
+            assert_eq!(parts.area.as_deref(), Some(tag));
+            assert!(parts.body.iter().any(|l| l.contains(&format!("({me})"))), "the origin line has our address there");
+        }
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn bad_networks_are_left_out_and_said_so() {
+        let n = |name: &str, addr: &str| crate::config::FtnNetwork { name: name.into(), address: addr.into(), hub: "46:1/100".into(), ..Default::default() };
+        let ftn = Ftn {
+            enabled: true,
+            name: "FSX".into(),
+            address: "21:1/999@fsxnet".into(),
+            hub: "21:1/100".into(),
+            networks: vec![n("../inbound", "46:1/1@agoranet"), n("fsx", "46:1/2"), n("agoranet", "46:1/200"), n("", "")],
+            areas: vec![
+                FtnArea { tag: "AGN_GEN".into(), area: "AGNGEN".into(), network: "agoranet".into() },
+                FtnArea { tag: "X_GEN".into(), area: "AGNGEN".into(), network: "nope".into() },
+            ],
+            ..Ftn::default()
+        };
+        let names: Vec<String> = ftn.networks().into_iter().map(|n| n.name).collect();
+        assert_eq!(names, ["fsx", "agoranet"], "a path for a name and a second fsx are left out; one with no address is off");
+        let p = ftn.problems().join("\n");
+        assert!(p.contains("\"../inbound\" left out") && p.contains("\"fsx\" left out"), "{p}");
+        assert!(p.contains("X_GEN") && p.contains("two networks"), "{p}");
     }
 }

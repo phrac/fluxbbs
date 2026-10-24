@@ -31,7 +31,7 @@ impl Session {
 
     /// The caller is banned from posting and voting in `a`.
     pub(crate) fn banned_from(&self, a: &AreaRef) -> bool {
-        a.area.banned.iter().any(|h| h.eq_ignore_ascii_case(&self.user.handle))
+        a.area.banned_ids.contains(&self.user.id) || a.area.banned.iter().any(|h| h.eq_ignore_ascii_case(&self.user.handle))
     }
 
     /// `c` in the message center: make a board. Returns its number.
@@ -44,7 +44,7 @@ impl Session {
             return Ok(None);
         }
         let limit = self.state.config().messages.boards_per_caller;
-        let mine = self.state.areas().areas.iter().filter(|a| !a.created.is_empty() && a.sponsor.eq_ignore_ascii_case(&self.user.handle)).count();
+        let mine = self.state.areas().areas.iter().filter(|a| !a.created.is_empty() && if a.sponsor_id != 0 { a.sponsor_id == self.user.id } else { a.sponsor.eq_ignore_ascii_case(&self.user.handle) }).count();
         if mine >= limit as usize {
             let s = self.strings().fmt("BoardLimit", &[&limit.to_string()]);
             self.show_line(&s).await?;
@@ -72,23 +72,60 @@ impl Session {
         if !self.yes_no(true).await? {
             return Ok(None);
         }
-        let mut areas = (*self.state.areas()).clone();
         let base: String = name.chars().filter(char::is_ascii_alphanumeric).take(6).collect::<String>().to_ascii_uppercase();
         let base = if base.is_empty() { "BOARD".to_string() } else { base };
-        let file = crate::sysop::unused_key(areas.areas.iter().map(|a| a.file.as_str()).chain(std::iter::once(areas.email.file.as_str())), &base);
         let folder = self.state.config().messages.board_folder.clone();
-        let parent = areas.areas.iter().find(|a| !folder.is_empty() && a.file.eq_ignore_ascii_case(&folder)).map(|a| a.file.clone()).unwrap_or_default();
-        areas.areas.push(MsgArea {
-            about,
-            parent,
-            sponsor: self.user.handle.clone(),
-            created: crate::clock::now().date_naive().format("%Y-%m-%d").to_string(),
-            private: false,
-            anonymous: false,
-            ..MsgArea::new(&name, &file)
-        });
-        let n = areas.areas.len() as u32;
-        self.state.set_areas(areas).map_err(io_err)?;
+        let ftn = self.state.config().ftn.areas.clone();
+        let (state, sponsor, sponsor_id) = (self.state.clone(), self.user.handle.clone(), self.user.id);
+        let msgs = &state.msgs;
+        let made = state
+            .update_areas(|areas| -> anyhow::Result<Option<(u32, String)>> {
+                // Someone else may have taken the name meanwhile.
+                if areas.areas.iter().any(|a| a.name.eq_ignore_ascii_case(&name)) {
+                    return Ok(None);
+                }
+                // Not a key an old area's messages (deleted, messages kept)
+                // or an echo are still under: the board would inherit them.
+                let taken = |k: &str| -> anyhow::Result<bool> {
+                    Ok(areas.areas.iter().any(|a| a.file.eq_ignore_ascii_case(k))
+                        || areas.email.file.eq_ignore_ascii_case(k)
+                        || ftn.iter().any(|m| m.area.eq_ignore_ascii_case(k))
+                        || msgs.count(k)? > 0)
+                };
+                // A database error stops it (the list is locked meanwhile).
+                let mut file = None;
+                for n in 1..1000 {
+                    let k = if n == 1 { base.clone() } else { format!("{base}{n}") };
+                    match taken(&k) {
+                        Ok(false) => {
+                            file = Some(k);
+                            break;
+                        }
+                        Ok(true) => {}
+                        Err(e) => return Err(e),
+                    }
+                }
+                let Some(file) = file else { return Ok(None) };
+                let parent = areas.areas.iter().find(|a| !folder.is_empty() && a.file.eq_ignore_ascii_case(&folder)).map(|a| a.file.clone()).unwrap_or_default();
+                areas.areas.push(MsgArea {
+                    about,
+                    parent,
+                    sponsor,
+                    sponsor_id,
+                    created: crate::clock::now().date_naive().format("%Y-%m-%d").to_string(),
+                    private: false,
+                    anonymous: false,
+                    ..MsgArea::new(&name, &file)
+                });
+                Ok(Some((areas.areas.len() as u32, file)))
+            })
+            .map_err(io_err)?
+            .map_err(io_err)?;
+        let Some((n, file)) = made else {
+            self.say_line("BoardNameTaken").await?;
+            self.prompt_key().await?;
+            return Ok(None);
+        };
         tracing::info!("{}: made the board {name} ({file})", self.user.handle);
         let s = self.strings().fmt("BoardMade", &[&name]);
         self.show_line(&s).await?;
@@ -102,7 +139,7 @@ impl Session {
     pub(crate) async fn moderate_board(&mut self, a: &AreaRef, thread: Option<Message>) -> io::Result<bool> {
         let key = a.key().to_string();
         loop {
-            let Some((i, area)) = self.state.areas().areas.iter().enumerate().find(|(_, x)| x.file.eq_ignore_ascii_case(&key)).map(|(i, x)| (i, x.clone())) else {
+            let Some(area) = self.state.areas().areas.iter().find(|x| x.file.eq_ignore_ascii_case(&key)).cloned() else {
                 return Ok(true);
             };
             self.screen.set_color(fluxbbs_term::Color::DEFAULT);
@@ -112,7 +149,15 @@ impl Session {
             self.newline();
             let none = self.strings().get("BoardNone").to_string();
             let about = if area.about.is_empty() { "-".to_string() } else { area.about.clone() };
-            let banned = if area.banned.is_empty() { none } else { area.banned.join(", ") };
+            // Those banned by number under their handles now; older bans by
+            // the handle they had.
+            let mut names: Vec<String> = area.banned_ids.iter().filter_map(|&id| self.state.users.get(id).ok().flatten().map(|u| u.handle)).collect();
+            for h in &area.banned {
+                if !names.iter().any(|n| n.eq_ignore_ascii_case(h)) && self.state.users.find_handle(h).ok().flatten().is_none_or(|u| !area.banned_ids.contains(&u.id)) {
+                    names.push(h.clone());
+                }
+            }
+            let banned = if names.is_empty() { none } else { names.join(", ") };
             let s = self.strings().fmt("BoardModAbout", &[&fluxbbs_term::lit(&about)]);
             self.show_line(&s).await?;
             let tags = if area.tags.is_empty() { "-".to_string() } else { area.tags.join(", ") };
@@ -136,26 +181,34 @@ impl Session {
             let k = self.read_key().await?;
             self.newline();
             self.newline();
-            let mut areas = (*self.state.areas()).clone();
-            let changed = match k.upper() {
+            // Changes go to the board as it is when they're made (found by
+            // its key: others may have changed the list meanwhile).
+            let state = self.state.clone();
+            let edit = |f: &dyn Fn(&mut MsgArea)| {
+                state.update_areas(|areas| {
+                    if let Some(x) = areas.areas.iter_mut().find(|x| x.file.eq_ignore_ascii_case(&key)) {
+                        f(x);
+                    }
+                })
+            };
+            match k.upper() {
                 Some('A') => {
                     self.say("BoardAskAbout").await?;
                     let v = self.read_string(ReadOpts::new(ABOUT_WIDTH).prefill(area.about.clone())).await?;
-                    areas.areas[i].about = crate::editor::strip_colours(&v).trim().to_string();
-                    true
+                    let about = crate::editor::strip_colours(&v).trim().to_string();
+                    edit(&|x| x.about = about.clone()).map_err(io_err)?;
                 }
                 Some('T') => {
                     self.say("BoardAskTags").await?;
                     let v = self.read_string(ReadOpts::new(60).prefill(area.tags.join(", "))).await?;
-                    areas.areas[i].tags = crate::msgcenter::parse_tags(&crate::editor::strip_colours(&v));
-                    true
+                    let tags = crate::msgcenter::parse_tags(&crate::editor::strip_colours(&v));
+                    edit(&|x| x.tags = tags.clone()).map_err(io_err)?;
                 }
                 Some('P') if thread.is_some() => {
                     if let (Some(m), Some(on)) = (&thread, pinned) {
                         self.state.msgs.set_pinned(m.id, !on).map_err(io_err)?;
                         tracing::info!("{}: {} \"{}\" in {}", self.user.handle, if on { "unpinned" } else { "pinned" }, m.subject, area.name);
                     }
-                    false
                 }
                 Some(c @ ('B' | 'U')) => {
                     self.say(if c == 'B' { "BoardBanWho" } else { "BoardUnbanWho" }).await?;
@@ -163,31 +216,38 @@ impl Session {
                     opts.complete_users = true;
                     let who = self.read_string(opts).await?;
                     self.newline();
-                    let who = who.trim();
-                    let list = &mut areas.areas[i].banned;
+                    let who = who.trim().to_string();
                     if who.is_empty() {
-                        false
                     } else if c == 'U' {
-                        let before = list.len();
-                        list.retain(|h| !h.eq_ignore_ascii_case(who));
-                        list.len() != before
+                        // By the handle shown: whoever has it now, and the
+                        // handle as it was banned.
+                        let id = self.state.users.find_handle(&who).map_err(io_err)?.map(|u| u.id);
+                        edit(&|x| {
+                            x.banned.retain(|h| !h.eq_ignore_ascii_case(&who));
+                            x.banned_ids.retain(|i| Some(*i) != id);
+                        })
+                        .map_err(io_err)?;
                     } else {
-                        match self.state.users.find(who, false).map_err(io_err)? {
-                            Some(u) if u.id == self.user.id || u.handle.eq_ignore_ascii_case(&area.sponsor) => {
+                        match self.state.users.find_handle(&who).map_err(io_err)? {
+                            Some(u) if u.id == self.user.id || if area.sponsor_id != 0 { u.id == area.sponsor_id } else { u.handle.eq_ignore_ascii_case(&area.sponsor) } => {
                                 self.say_line("BoardBanSelf").await?;
                                 self.prompt_key().await?;
-                                false
                             }
-                            Some(u) if !list.iter().any(|h| h.eq_ignore_ascii_case(&u.handle)) => {
+                            Some(u) => {
                                 tracing::info!("{}: banned {} from {}", self.user.handle, u.handle, area.name);
-                                list.push(u.handle);
-                                true
+                                edit(&|x| {
+                                    if !x.banned.iter().any(|h| h.eq_ignore_ascii_case(&u.handle)) {
+                                        x.banned.push(u.handle.clone());
+                                    }
+                                    if !x.banned_ids.contains(&u.id) {
+                                        x.banned_ids.push(u.id);
+                                    }
+                                })
+                                .map_err(io_err)?;
                             }
-                            Some(_) => false,
                             None => {
                                 self.say_line("FingerUnknown").await?;
                                 self.prompt_key().await?;
-                                false
                             }
                         }
                     }
@@ -199,18 +259,14 @@ impl Session {
                     if !self.yes_no(false).await? {
                         continue;
                     }
-                    areas.areas.remove(i);
-                    self.state.set_areas(areas).map_err(io_err)?;
+                    self.state.update_areas(|areas| areas.areas.retain(|x| !x.file.eq_ignore_ascii_case(&key))).map_err(io_err)?;
                     self.state.msgs.delete_area(&area.file).map_err(io_err)?;
                     crate::attach::remove_orphans(&self.state).map_err(io_err)?;
                     tracing::info!("{}: deleted the board {} ({posts} posts)", self.user.handle, area.name);
                     return Ok(true);
                 }
                 _ if k == Key::Esc || k.upper().is_some() || k == Key::Enter => return Ok(false),
-                _ => false,
-            };
-            if changed {
-                self.state.set_areas(areas).map_err(io_err)?;
+                _ => {}
             }
         }
     }
@@ -224,8 +280,8 @@ pub fn remove_empty_boards(state: &BbsState) -> anyhow::Result<usize> {
         return Ok(0);
     }
     let today = crate::clock::now().date_naive();
-    let mut areas = (*state.areas()).clone();
-    let mut gone = Vec::new();
+    let areas = state.areas();
+    let mut gone: Vec<String> = Vec::new();
     for a in &areas.areas {
         let Ok(made) = chrono::NaiveDate::parse_from_str(&a.created, "%Y-%m-%d") else { continue };
         let parent_of_some = areas.areas.iter().any(|o| o.parent.eq_ignore_ascii_case(&a.file));
@@ -236,8 +292,18 @@ pub fn remove_empty_boards(state: &BbsState) -> anyhow::Result<usize> {
     if gone.is_empty() {
         return Ok(0);
     }
-    areas.areas.retain(|a| !gone.contains(&a.file));
-    state.set_areas(areas)?;
+    // Looked at again as they go: a post made meanwhile keeps a board.
+    let gone: Vec<String> = state.update_areas(|areas| {
+        let mut went = Vec::new();
+        areas.areas.retain(|a| {
+            let go = gone.contains(&a.file) && state.msgs.count(&a.file).is_ok_and(|n| n == 0);
+            if go {
+                went.push(a.file.clone());
+            }
+            !go
+        });
+        went
+    })?;
     for file in &gone {
         state.msgs.delete_area(file)?;
         tracing::info!("event: removed the empty board {file}");
