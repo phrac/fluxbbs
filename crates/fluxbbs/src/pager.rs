@@ -24,11 +24,13 @@ pub struct Attr {
     fore: u8,
     back: u8,
     bright_back: bool,
-    /// New: code's shaded background (`Session::shade_sgr`).
+    /// New: code's shaded background (`Session::look`).
     shade: bool,
+    /// New: a 24-bit foreground (a theme's), in place of `fore`.
+    rgb: Option<[u8; 3]>,
 }
 
-const PLAIN: Attr = Attr { fore: 7, back: 0, bright_back: false, shade: false };
+const PLAIN: Attr = Attr { fore: 7, back: 0, bright_back: false, shade: false, rgb: None };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Cell {
@@ -63,27 +65,27 @@ pub fn trimmed(mut grid: Vec<Vec<Cell>>) -> Vec<Vec<Cell>> {
 
 /// New: a file by its name: Markdown drawn, source code in colors, and
 /// anything else as `render` draws it.
-pub fn render_named(text: &[u8], utf8: bool, name: &str) -> Vec<Vec<Cell>> {
+pub fn render_named(text: &[u8], utf8: bool, name: &str, look: &crate::markup::Look) -> Vec<Vec<Cell>> {
     // CP437 for the upper half only: newlines and tabs stay what they are.
     let plain = || if utf8 { String::from_utf8_lossy(text).into_owned() } else { text.iter().map(|&b| if b < 0x80 { b as char } else { cp437::TO_UNICODE[b as usize] }).collect() };
     if crate::markup::is_markdown(name) {
-        return from_lines(&crate::markup::render_markdown(&plain(), WIDTH));
+        return from_lines(&crate::markup::render_markdown(&plain(), WIDTH), look);
     }
     // Source code with ANSI codes in it is art, not code.
     if let Some(lang) = crate::markup::lang_for_name(name).filter(|_| !text.contains(&0x1b)) {
-        return from_lines(&crate::markup::render_code(lang, &plain(), WIDTH));
+        return from_lines(&crate::markup::render_code(lang, &plain(), WIDTH), look);
     }
     render(text, utf8)
 }
 
 /// Styled lines as rows of cells (each cut at the width).
-pub fn from_lines(lines: &[crate::markup::Line]) -> Vec<Vec<Cell>> {
+pub fn from_lines(lines: &[crate::markup::Line], look: &crate::markup::Look) -> Vec<Vec<Cell>> {
     lines
         .iter()
         .map(|l| {
             let mut row = Vec::new();
             for s in l {
-                let attr = Attr { fore: s.ink.color(), back: 0, bright_back: false, shade: s.shade };
+                let attr = Attr { fore: s.ink.color(), back: 0, bright_back: false, shade: s.shade, rgb: look.rgb(s.ink, s.shade) };
                 for ch in cp437::encode(&s.text) {
                     if row.len() < WIDTH {
                         row.push(Cell { ch: if ch < 0x20 { b' ' } else { ch }, attr });
@@ -222,7 +224,11 @@ fn row_bytes(cells: &[Cell], shade: &str) -> Vec<u8> {
             } else {
                 (if a.bright_back { 100 } else { 40 } + ansi(a.back) as u16).to_string()
             };
-            out.extend_from_slice(format!("\x1b[0;{}3{};{back}m", if a.fore >= 8 { "1;" } else { "" }, ansi(a.fore)).as_bytes());
+            let fore = match a.rgb {
+                Some([r, g, b]) => format!("38;2;{r};{g};{b}"),
+                None => format!("{}3{}", if a.fore >= 8 { "1;" } else { "" }, ansi(a.fore)),
+            };
+            out.extend_from_slice(format!("\x1b[0;{fore};{back}m").as_bytes());
             cur = Some(a);
         }
         out.push(c.ch);
@@ -248,7 +254,7 @@ impl Session {
         let last_top = total.saturating_sub(height);
         let mut top = 0usize;
         let mut drawn: Option<usize> = None;
-        let shade = self.shade_sgr();
+        let shade = self.look().shade;
         loop {
             if drawn != Some(top) {
                 self.clear_screen();
@@ -259,7 +265,7 @@ impl Session {
                 self.show(&s).await?;
                 for (k, line) in grid.iter().skip(top).take(height).enumerate() {
                     self.screen.goto(1, 2 + k as u16);
-                    self.screen.write_bytes(&row_bytes(line, shade));
+                    self.screen.write_bytes(&row_bytes(line, &shade));
                 }
                 self.screen.goto(1, rows as u16);
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
@@ -316,8 +322,8 @@ mod tests {
     #[test]
     fn colours_and_wrapping() {
         let g = render(b"\x1b[1;33;44mA\x1b[5;42mB\x1b[0m", false);
-        assert_eq!(g[0][0].attr, Attr { fore: 14, back: 1, bright_back: false, shade: false });
-        assert_eq!(g[0][1].attr, Attr { fore: 14, back: 2, bright_back: true, shade: false });
+        assert_eq!(g[0][0].attr, Attr { fore: 14, back: 1, bright_back: false, shade: false, rgb: None });
+        assert_eq!(g[0][1].attr, Attr { fore: 14, back: 2, bright_back: true, shade: false, rgb: None });
         let long = vec![b'x'; 85];
         assert_eq!(render(&long, false)[1].len(), 5);
         // A title-setting sequence draws nothing and isn't passed on.

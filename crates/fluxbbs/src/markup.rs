@@ -71,9 +71,183 @@ pub fn width_of(line: &Line) -> usize {
     line.iter().map(|s| s.text.chars().count()).sum()
 }
 
+// ---- themes ------------------------------------------------------------------
+
+/// A theme's 24-bit colors.
+pub struct Colors {
+    pub bg: [u8; 3],
+    pub text: [u8; 3],
+    pub keyword: [u8; 3],
+    pub kind: [u8; 3],
+    pub string: [u8; 3],
+    pub number: [u8; 3],
+    pub comment: [u8; 3],
+    pub pre: [u8; 3],
+    pub heading: [u8; 3],
+    pub bold: [u8; 3],
+    pub italic: [u8; 3],
+    pub bullet: [u8; 3],
+    pub dim: [u8; 3],
+    pub link: [u8; 3],
+}
+
+/// A color theme for code (its colors and background) or Markdown (its
+/// headings, emphasis, bullets and links). `classic` is the 16 DOS colors,
+/// which terminals without 24-bit color always get.
+pub struct Theme {
+    pub name: &'static str,
+    pub colors: Option<Colors>,
+}
+
+const fn hex(v: u32) -> [u8; 3] {
+    [(v >> 16) as u8, (v >> 8) as u8, v as u8]
+}
+
+/// The themes; the second (Nord) is the default.
+pub const THEMES: [Theme; 5] = [
+    Theme { name: "classic", colors: None },
+    Theme {
+        name: "nord",
+        colors: Some(Colors {
+            bg: hex(0x2E3440),
+            text: hex(0xD8DEE9),
+            keyword: hex(0x81A1C1),
+            kind: hex(0x8FBCBB),
+            string: hex(0xA3BE8C),
+            number: hex(0xB48EAD),
+            comment: hex(0x616E88),
+            pre: hex(0x5E81AC),
+            heading: hex(0x88C0D0),
+            bold: hex(0xECEFF4),
+            italic: hex(0x8FBCBB),
+            bullet: hex(0xEBCB8B),
+            dim: hex(0x4C566A),
+            link: hex(0x81A1C1),
+        }),
+    },
+    Theme {
+        name: "dracula",
+        colors: Some(Colors {
+            bg: hex(0x282A36),
+            text: hex(0xF8F8F2),
+            keyword: hex(0xFF79C6),
+            kind: hex(0x8BE9FD),
+            string: hex(0xF1FA8C),
+            number: hex(0xBD93F9),
+            comment: hex(0x6272A4),
+            pre: hex(0x50FA7B),
+            heading: hex(0xBD93F9),
+            bold: hex(0xFFB86C),
+            italic: hex(0xF1FA8C),
+            bullet: hex(0xFF79C6),
+            dim: hex(0x6272A4),
+            link: hex(0x8BE9FD),
+        }),
+    },
+    Theme {
+        name: "one dark",
+        colors: Some(Colors {
+            bg: hex(0x282C34),
+            text: hex(0xABB2BF),
+            keyword: hex(0xC678DD),
+            kind: hex(0xE5C07B),
+            string: hex(0x98C379),
+            number: hex(0xD19A66),
+            comment: hex(0x7F848E),
+            pre: hex(0xE06C75),
+            heading: hex(0xE06C75),
+            bold: hex(0xD19A66),
+            italic: hex(0xC678DD),
+            bullet: hex(0xE5C07B),
+            dim: hex(0x5C6370),
+            link: hex(0x61AFEF),
+        }),
+    },
+    Theme {
+        name: "monokai",
+        colors: Some(Colors {
+            bg: hex(0x272822),
+            text: hex(0xF8F8F2),
+            keyword: hex(0xF92672),
+            kind: hex(0x66D9EF),
+            string: hex(0xE6DB74),
+            number: hex(0xAE81FF),
+            comment: hex(0x75715E),
+            pre: hex(0xA6E22E),
+            heading: hex(0xA6E22E),
+            bold: hex(0xFD971F),
+            italic: hex(0xE6DB74),
+            bullet: hex(0xF92672),
+            dim: hex(0x75715E),
+            link: hex(0x66D9EF),
+        }),
+    },
+];
+
+/// The theme named `name`, or Nord.
+pub fn theme(name: &str) -> &'static Theme {
+    THEMES.iter().find(|t| t.name.eq_ignore_ascii_case(name)).unwrap_or(&THEMES[1])
+}
+
+impl Theme {
+    fn rgb(&self, ink: Ink) -> Option<[u8; 3]> {
+        let c = self.colors.as_ref()?;
+        Some(match ink {
+            Ink::Text | Ink::Code => c.text,
+            Ink::Keyword => c.keyword,
+            Ink::Type => c.kind,
+            Ink::Str => c.string,
+            Ink::Num => c.number,
+            Ink::Comment => c.comment,
+            Ink::Pre => c.pre,
+            Ink::Heading => c.heading,
+            Ink::Bold => c.bold,
+            Ink::Italic => c.italic,
+            Ink::Bullet => c.bullet,
+            Ink::Dim => c.dim,
+            Ink::Link => c.link,
+        })
+    }
+}
+
+/// How code and Markdown are colored for one caller: their themes, the
+/// code background (an SGR, empty for none) and whether 24-bit colors go
+/// out (else the classic 16).
+#[derive(Clone)]
+pub struct Look {
+    pub code: &'static Theme,
+    pub md: &'static Theme,
+    pub shade: String,
+    pub rgb: bool,
+}
+
+impl Look {
+    /// A span's 24-bit color, if it has one here: code (shaded) in the
+    /// code theme's, the rest in the Markdown theme's.
+    pub fn rgb(&self, ink: Ink, shaded: bool) -> Option<[u8; 3]> {
+        if !self.rgb {
+            return None;
+        }
+        if shaded { self.code.rgb(ink) } else { self.md.rgb(ink) }
+    }
+
+    /// A span's foreground as SGR parameters.
+    pub fn fore(&self, ink: Ink, shaded: bool) -> String {
+        match self.rgb(ink, shaded) {
+            Some([r, g, b]) => format!("38;2;{r};{g};{b}"),
+            None => {
+                let fg = ink.color();
+                format!("{}3{}", if fg >= 8 { "1;" } else { "" }, [0, 4, 2, 6, 1, 5, 3, 7][(fg & 7) as usize])
+            }
+        }
+    }
+}
+
 /// Code's backgrounds a caller can pick: name, 24-bit SGR, 16-color SGR
-/// (`100` is dark gray, shown with iCE colors). The first is the default.
-pub const CODE_BACKS: [(&str, &str, &str); 6] = [
+/// (`100` is dark gray, shown with iCE colors). The first, the code
+/// theme's own, is the default.
+pub const CODE_BACKS: [(&str, &str, &str); 7] = [
+    ("theme", "", "100"),
     ("gray", "48;2;58;58;58", "100"),
     ("dim", "48;2;36;36;40", "100"),
     ("blue", "48;2;20;40;84", "44"),
@@ -967,13 +1141,13 @@ pub fn message_code_blocks(lines: &[String], width: usize) -> Option<Vec<Result<
     Some(out)
 }
 
-/// A line as ANSI: each span's color, the shade as `shade` (an SGR
-/// background), `text` for plain text (the caller's own color, as SGR).
-pub fn to_ansi(line: &Line, shade: &str, text: &str) -> String {
+/// A line as ANSI in a caller's `look`; `text` for plain text outside
+/// code (the caller's own color, as SGR; empty: the Markdown theme's).
+pub fn to_ansi(line: &Line, look: &Look, text: &str) -> String {
+    let shade = look.shade.as_str();
     let mut s = String::new();
     for sp in line {
-        let fg = sp.ink.color();
-        let fore = format!("{}3{}", if fg >= 8 { "1;" } else { "" }, [0, 4, 2, 6, 1, 5, 3, 7][(fg & 7) as usize]);
+        let fore = look.fore(sp.ink, sp.shade);
         let code = match (sp.ink, sp.shade) {
             (Ink::Text, false) if !text.is_empty() => format!("\x1b[0;{text}m"),
             (_, true) if !shade.is_empty() => format!("\x1b[0;{fore};{shade}m"),
@@ -1093,8 +1267,15 @@ mod tests {
         assert_eq!(out[4], Ok("bye".to_string()));
         assert!(message_code_blocks(&["plain".to_string()], 20).is_none());
         assert_eq!(code_back("blue").1, "48;2;20;40;84");
-        assert_eq!(code_back("").0, "gray");
-        let a = to_ansi(&vec![span("x", Ink::Keyword, true)], "48;2;1;2;3", "");
+        assert_eq!(code_back("").0, "theme");
+        let classic = Look { code: theme("classic"), md: theme("classic"), shade: "48;2;1;2;3".into(), rgb: true };
+        let a = to_ansi(&vec![span("x", Ink::Keyword, true)], &classic, "");
         assert_eq!(a, "\x1b[0;1;37;48;2;1;2;3mx\x1b[0m");
+        let nord = Look { code: theme(""), md: theme("nord"), shade: "48;2;46;52;64".into(), rgb: true };
+        assert_eq!(theme("").name, "nord");
+        assert_eq!(to_ansi(&vec![span("x", Ink::Keyword, true)], &nord, ""), "\x1b[0;38;2;129;161;193;48;2;46;52;64mx\x1b[0m");
+        // Without 24-bit color, the classic 16 whatever the theme.
+        let old = Look { rgb: false, ..nord };
+        assert!(to_ansi(&vec![span("x", Ink::Keyword, true)], &old, "").starts_with("\x1b[0;1;37;"));
     }
 }

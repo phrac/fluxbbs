@@ -37,18 +37,25 @@ impl Session {
         self.screen.plain()
     }
 
-    /// New: the SGR background for code (`markup.rs`), the one the
-    /// caller picked (gray unless they did): 24-bit where the terminal
-    /// takes it, else the nearest of the 16; none in plain text.
-    pub(crate) fn shade_sgr(&self) -> &'static str {
-        let (_, rgb, dos) = crate::markup::code_back(&self.user.code_bg);
-        if self.plain() {
-            ""
-        } else if self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8 {
-            rgb
+    /// New: how this caller sees code and Markdown (`markup::Look`):
+    /// their themes and code background, in 24-bit color where the
+    /// terminal takes it, else the classic 16; no colors in plain text.
+    pub(crate) fn look(&self) -> crate::markup::Look {
+        let code = crate::markup::theme(&self.user.code_theme);
+        let md = crate::markup::theme(&self.user.md_theme);
+        let rgb = !self.plain() && (self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8);
+        let (name, back_rgb, dos) = crate::markup::code_back(&self.user.code_bg);
+        let shade = if self.plain() {
+            String::new()
+        } else if !rgb {
+            dos.to_string()
+        } else if name == "theme" {
+            let [r, g, b] = code.colors.as_ref().map_or([58, 58, 58], |c| c.bg);
+            format!("48;2;{r};{g};{b}")
         } else {
-            dos
-        }
+            back_rgb.to_string()
+        };
+        crate::markup::Look { code, md, shade, rgb }
     }
 
     /// A key, or in plain text the first character of a line (Enter

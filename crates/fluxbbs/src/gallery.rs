@@ -817,7 +817,7 @@ impl Session {
             return self.archive_note(&s).await.map(|_| None);
         }
         let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
-        let grid = crate::pager::trimmed(crate::pager::render_named(text, utf8, name));
+        let grid = crate::pager::trimmed(crate::pager::render_named(text, utf8, name, &self.look()));
         let title = format!("{name} in {}", crate::editor::strip_colours(area));
         self.page_grid_keys(&title, &grid, "GalleryViewHelp", &['D', 'Q']).await
     }

@@ -1790,7 +1790,7 @@ impl Session {
             let line = match line {
                 Ok(l) => l,
                 Err(code) => {
-                    out.push(crate::markup::to_ansi(code, self.shade_sgr(), ""));
+                    out.push(crate::markup::to_ansi(code, &self.look(), ""));
                     continue;
                 }
             };

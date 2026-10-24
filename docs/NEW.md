@@ -287,7 +287,9 @@ All in [DOORS](DOORS.md).
 - `dosrun` tries a door outside the board.
 - Code and Markdown in the viewer: source code in colors, Markdown laid
   out, code on a shaded background; the same for code blocks in
-  messages and AI chat replies. ([FEATURES](FEATURES.md#code-and-markdown))
+  messages and AI chat replies. Each caller picks a code theme and a
+  Markdown theme (Nord, Dracula, One Dark, Monokai, classic) and the
+  code background. ([FEATURES](FEATURES.md#code-and-markdown))
 - BBSLink: games on bbslink.net's server, with players from other
   boards (`DB code`, the stock BBSLINK menu). ([DOORS](DOORS.md#bbslink))
 - A log of every door played (who, which, when, how long), for the

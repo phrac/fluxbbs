@@ -313,7 +313,8 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 | `~Q?` | the plan's lines | `~QP` |
 | `~R?` | the time zone | `~RZ` |
 | `~S?` | text mode: plain text or ANSI (`auto` follows flag B) | `~SB` |
-| `~T?` | code's background (gray, dim, blue, green, purple, none) | `~TG` |
+| `~T?` | code's background (theme, gray, dim, blue, green, purple, none) | `~TG` |
+| `~U?` / `~V?` | the code and Markdown color themes (nord, dracula, one dark, monokai, classic) | none |
 
 The second character is the field's key.
 

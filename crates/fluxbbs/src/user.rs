@@ -101,6 +101,10 @@ pub struct User {
     pub text_mode: String,
     /// New: code's background (`markup::CODE_BACKS`); blank for gray.
     pub code_bg: String,
+    /// New: color themes (`markup::THEMES`) for code and for Markdown;
+    /// blank for Nord.
+    pub code_theme: String,
+    pub md_theme: String,
     /// New: the time zone times are shown to them in (an IANA name or
     /// an offset, as `clock::Zone::parse` reads it); blank for the board's.
     pub time_zone: String,
@@ -190,6 +194,8 @@ impl Default for User {
             ai_profile: String::new(),
             text_mode: String::new(),
             code_bg: String::new(),
+            code_theme: String::new(),
+            md_theme: String::new(),
             time_zone: String::new(),
             thread_sort: String::new(),
             area_sort: String::new(),
@@ -297,6 +303,8 @@ impl User {
                 ai_profile,
                 text_mode,
                 code_bg,
+                code_theme,
+                md_theme,
             ],
             [
                 total_calls,
@@ -385,6 +393,8 @@ impl User {
                 ai_profile,
                 text_mode,
                 code_bg,
+                code_theme,
+                md_theme,
                             total_calls,
                 calls_today,
                 time_today,

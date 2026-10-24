@@ -1101,7 +1101,7 @@ impl Session {
     /// AI's own color, the rest in theirs, code shaded.
     async fn ai_pieces(&mut self, pieces: &[crate::markup::Piece]) -> io::Result<()> {
         use crate::markup::{Ink, Piece};
-        let shade = self.shade_sgr();
+        let look = self.look();
         let mut style: Option<(Ink, bool)> = self.ai_style;
         for p in pieces {
             match p {
@@ -1117,7 +1117,7 @@ impl Session {
                             self.ai_show(&format!("\x1b[0m{ink}")).await?;
                         } else {
                             let line = vec![crate::markup::Span { text: String::new(), ink: *ink, shade: *sh }];
-                            let codes = crate::markup::to_ansi(&line, shade, "");
+                            let codes = crate::markup::to_ansi(&line, &look, "");
                             // Just the color: what comes before the text.
                             let codes = codes.trim_end_matches("\x1b[0m").to_string();
                             self.ai_show(&codes).await?;

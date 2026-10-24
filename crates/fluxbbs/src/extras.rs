@@ -810,8 +810,10 @@ impl Session {
             },
             // New: the time zone they see times in.
             'R' => crate::clock::Zone::parse(&u.time_zone).map_or_else(|| "board's".into(), |z| z.short()),
-            // New: code's background.
+            // New: code's background, and the themes for code and Markdown.
             'T' => crate::markup::code_back(&u.code_bg).0.into(),
+            'U' => crate::markup::theme(&u.code_theme).name.into(),
+            'V' => crate::markup::theme(&u.md_theme).name.into(),
             // New: plain text, ANSI, or as a bot or not (flag B).
             'S' => {
                 let on = crate::plain::wants_plain(&u.text_mode, crate::aimemory::is_bot(u));
@@ -844,7 +846,16 @@ impl Session {
             'P' => self.ssh_keys_edit().await?,
             'Q' => self.profile_edit().await?,
             'R' => self.time_zone_edit().await?,
-            // The next background for code (blank is the first, gray).
+            // The next theme (blank is Nord).
+            'U' | 'V' => {
+                let cur = if f == 'U' { &self.user.code_theme } else { &self.user.md_theme };
+                let themes = &crate::markup::THEMES;
+                let at = themes.iter().position(|t| t.name == crate::markup::theme(cur).name).unwrap_or(1);
+                let next = themes[(at + 1) % themes.len()].name;
+                let v = if next == "nord" { String::new() } else { next.to_string() };
+                if f == 'U' { self.user.code_theme = v } else { self.user.md_theme = v }
+            }
+            // The next background for code (blank is the first, the theme's).
             'T' => {
                 let backs = crate::markup::CODE_BACKS;
                 let cur = backs.iter().position(|b| b.0 == crate::markup::code_back(&self.user.code_bg).0).unwrap_or(0);
@@ -944,6 +955,8 @@ impl Session {
             ('R', 'Z', "Time zone"),
             ('S', 'B', "Text mode"),
             ('T', 'G', "Code background"),
+            ('U', 'R', "Code theme"),
+            ('V', 'M', "Markdown theme"),
         ];
         loop {
             self.newline();
@@ -966,7 +979,7 @@ impl Session {
             self.newline();
             let Some(c) = key.upper().filter(|_| !matches!(key, Key::Enter | Key::Esc)) else { return Ok(()) };
             if let Some(&(f, _, name)) = items.iter().find(|(_, k, _)| *k == c) {
-                if !"AHIJKLMNRST".contains(f) {
+                if !"AHIJKLMNRSTUV".contains(f) {
                     self.show(&format!("|U1{name}|U2: |U3")).await?;
                 }
                 self.edit_user_field(f).await?;
