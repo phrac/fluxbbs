@@ -159,6 +159,60 @@ posting and replying, quoting, the full-screen editor, newscans and
 mandatory messages, email and auto-signatures. The
 [message center](#message-center) is the newer way to read.
 
+#### Editing your posts
+
+Callers can edit what they've posted, as on reddit, but what they
+posted stays. `e` in a reader on your own message opens the editor
+empty ("what you posted stays as it was; this is added under it"); what
+you write there is added at the end, under a dated line:
+
+```
+works for me, nice board
+
+[edit 10/24/26 22:11]
+also: try the doors menu
+```
+
+The signature stays at the very end. `MsgEditMark` is the dated line;
+it's kept in the message, so it's plain text. Echomail already sent
+doesn't change. A moderator (or co-SysOp) editing someone else's post
+still gets the whole text, to clean it up.
+
+#### Taking it back
+
+Everyone posts something they regret. `d` on your own post (in either
+reader, in any area but email) offers a way back, kindly but on the
+record:
+
+- **Take it back.** Within `take_back_minutes` of posting (15 to start),
+  while nobody has commented, voted or replied, it goes as if you never
+  posted it.
+- **Retract it.** Everyone else sees "[retracted by its author
+  10/24/26]" in its place, with the comments and votes still under it
+  so the thread makes sense. You and the moderators still see what it
+  said. `d` again undoes it.
+- **Burn it.** Gone for good: its text, the comments and votes under
+  it, any attachment, and what a retraction kept. It costs
+  `burn_points` file points (25 to start), a small sacrifice you can
+  earn back; on a board without file points it's free. It asks twice.
+
+Nobody is told, and nothing says who took what back beyond the
+placeholder. A taken-back or burned post leaves a deleted stub
+("[burned by its author ...]") that moderators see until the area is
+packed. On an echomail area, copies already sent to other boards stay
+there, and it says so. Both settings are in `[messages]`, and in `*C`,
+Caller Boards ("Take-back minutes", "Burn points"). Moderators deleting
+someone else's post still use the usual delete.
+
+#### Editor hints
+
+As the full-screen editor opens, its prompt row shows one of the
+board's mottos, at random, until the first key: "the internet never
+forgets", "never forget", "every word goes on the record", or that `n`
+on the main menu tells the SysOp what the board should do. They're the
+strings `FsHint1`, `FsHint2`... (`*E` changes them; add more by number,
+or blank one to drop it).
+
 #### Attachments
 
 A file can be attached to a message. This follows the manual.
@@ -315,7 +369,8 @@ the caller, and is told never to reveal, quote or hint at them.
 Flag `B` marks an account as a bot (an agent that calls in, say). A
 bot gets the board as it comes: no memory is kept, the AI chat isn't
 given notes or memory, and menus show no hints. A bot can't start a
-request on a [request board](#request-boards). [AGENTS.md](AGENTS.md)
+request on a [request board](#request-boards), and always signs its
+posts (it isn't asked about posting anonymously). [AGENTS.md](AGENTS.md)
 covers setting one up as the SysOp's assistant.
 
 #### Menu hints
@@ -728,6 +783,35 @@ The reply keeps coming in during a pause.
 | Up/Down, PgUp/PgDn, Home | look back over the last 1000 lines (`AiBack`), at the prompt or a pause |
 | End, or typing | come back |
 
+## Tarot and fortunes
+
+`AT` is a door for the board's AI: tarot readings and fortune cookies.
+The board draws the cards; the AI only reads them. It's in the stock
+door menu as `T`.
+
+| Key | Does |
+|---|---|
+| `d` | the card of the day: one card, the same one all day for you, another tomorrow |
+| `t` | three cards (past, present, future) for a question you type, or a general reading |
+| `f` | a fortune cookie, with six lucky numbers |
+| `q` or Esc | back |
+
+- The deck is the 78 cards of the Rider-Waite tarot; each card drawn
+  is upright or reversed. Three cards are three different ones from a
+  shuffled deck.
+- The cards are drawn on screen as frames with their number (or suit)
+  and name, their place over them. The reading follows, paged.
+- The AI is told to be warm and a little mysterious but grounded: for
+  fun and reflection, never foretelling death, illness or disaster,
+  never giving medical, legal or financial advice.
+- It takes the AI chat's settings and access (`[ai]`, its ACS), and
+  each reading or fortune counts against the same daily limit
+  (`TarotLimit` says so).
+- A parameter goes straight to one reading and back: `day`, `three` or
+  `fortune` (say, `AT day` on a logon menu for a card of the day).
+- A TAROT screen heads it if the board has one; otherwise the
+  `TarotTitle` line.
+
 ## Message center
 
 `MH` (`r` on the message menu) and `MW Read` (`n` there) replace the
@@ -914,7 +998,7 @@ new one.
 | Key | Does |
 |---|---|
 | Enter | read on from the message under the bar |
-| `r` | reply to it |
+| `r` | comment on it (in email and echomail, reply) |
 | a number | move to that message |
 | Esc | back |
 | `q` | out of the boards |
@@ -943,27 +1027,57 @@ Only the innermost ten levels of a very deep thread are drawn.
 ### Request boards
 
 A request board is a message area with "Requests" set in `*A` (item 6).
-Each thread on it asks for something: a file, a door, a fix. Once
-it's been found, it's marked filled.
+Anyone who may post there asks for something (a file, a door, a text) by
+starting a thread. Anyone else answers it, usually with a comment that
+[links to the file](#file-links) on the board. The asker says when it's
+been filled, and the one who filled it gets [points](#points-for-fills).
 
-- **Marking.** `f` on the thread in the list, or `m` in the reader (on
-  any message of the thread), marks it filled. It asks how it was
-  filled, e.g. "in DOORS: lord407p.zip". Pressing it again on a filled
-  request asks whether to mark it open again.
-- **Who may mark.** Whoever asked, the board's moderator (its sponsor),
-  and co-SysOps.
+- **Answering.** `r` in the reader leaves a comment under the request;
+  `/l` as the comment picks a file to link to. A longer answer can be
+  posted with a link from the editor's `/L`.
+- **Marking.** The asker presses `f` on the thread in the list, or `m`
+  in the reader. A lightbar lists the answers (comments and replies,
+  with how many files each links to); the asker picks the one that
+  filled it, or "none of these". In the reader, on someone's reply, it
+  first asks "Did ...'s reply fill it?". The answer's links become the
+  note; with none, it asks for one.
+- **Who may mark.** Only the asker: whoever answers doesn't get to say
+  it's done. Co-SysOps may too, for a request left behind. Pressing it
+  again on a filled request asks whether to mark it open again.
 - **The list.** Open requests come first (after pinned threads), then
-  filled ones, which have `[filled]` in front of their title.
-- **The reader** shows "Filled 10/24/26 by hermes: in DOORS:
-  lord407p.zip" above the request.
-- **Telling the asker.** If someone else filled it, the asker's next
-  menu shows "Your request ... was filled" in its help line, once,
-  ahead of any other hint. Reading the request counts as told too.
-- **Bots ask nothing.** A bot (flag [`B`](#bots)) can reply on a
+  filled ones, which have `[filled]` in front of their title. `$` shows
+  the [top fillers](#points-for-fills).
+- **The reader** shows "Filled 10/24/26 by ansifan:
+  file:DOORS/lord407p.zip" above the request.
+- **Telling people.** If a co-SysOp marked it, the asker's next menu
+  says so in its help line, once. The filler's next menu says "Your
+  reply filled ...: +10 points", once.
+- **Bots ask nothing.** A bot (flag [`B`](#bots)) can answer on a
   request board, but can't start a request (`ReqBotNoAsk`).
 
-The marks are in the `filled` table, by the request's row id. Packing
+The marks are in the `filled` table, by the request's row id; packing
 the request away takes its mark with it.
+
+#### Points for fills
+
+Topsite-style credit for filling requests, without the drama:
+
+- The filler gets `fill_points` (`[messages]`, "Points per fill" in
+  `*C`, Caller Boards; 10 to start, 0 for none). On a board that uses
+  file points, they're added to the filler's file points too, to spend
+  on downloads.
+- Points are only ever given. Reopening a request doesn't take them
+  back, and marking it filled again doesn't pay twice.
+- Nobody earns points from their own request, or for marking one
+  themselves. Bots earn none, and aren't ranked.
+- `MF` (the stock message menu's `T`, or `$` on a request board) shows
+  the top ten fillers this week, in the last 30 days and of all time,
+  side by side, and your own total. A FILLERS screen heads it if the
+  board has one.
+- A caller's profile shows their fills (`~FI` on FINGER).
+
+The ledger is the `fills` table. It outlasts the requests, so packing
+doesn't change anyone's standing.
 
 ### Pinned threads
 
@@ -981,17 +1095,22 @@ there, and the one picked heads the title: `[question] How do I...`.
 ### The reader
 
 The reader keeps the header (MSGHEAD) at the top and scrolls the text
-under it. The keys are on the bottom line.
+under it. The keys are on the bottom line. A reply starts with the
+message it answers: "in reply to #1 by phrac: ..." (`MsgReaderReplyTo`,
+its number, author and first words), so it reads on its own.
 
 | Key | Does |
 |---|---|
 | Left, Right | previous, next message |
 | Up, Down | scroll |
-| `r` | reply |
+| `r` | comment ([below](#votes-and-comments)); in email and echomail, reply |
 | `p` | post |
 | `x` | vote or comment |
-| `t` | the whole thread |
+| `g` | the attached file and the files the message [links to](#file-links) |
+| `t` | the whole thread; reading it already, its [tree](#the-thread-tree) |
 | `v` | the [thread tree](#the-thread-tree) |
+| `e` | [edit](#editing-your-posts): add to your own post (a moderator rewrites one) |
+| `d` | your own post: [take it back, retract or burn it](#taking-it-back); as the moderator, delete |
 | `u` | up to the message this one answers |
 | `m` | on a [request board](#request-boards): mark the request filled, or open again |
 | `f` | finger the author |
@@ -1002,9 +1121,12 @@ under it. The keys are on the bottom line.
 
 ### Votes and comments
 
-Votes and comments are PTT's pushes. `x`, then one of these, leaves a
-line of up to 50 characters under the message, with your handle and the
-time:
+Votes and comments are PTT's pushes. They're how you answer a post:
+`r` in the reader goes straight to a comment, so there aren't two ways
+to reply. (Email and echomail are the exceptions: there `r` writes a
+real reply, since comments don't leave this board.) `x`, then one of
+these, leaves a line of up to 50 characters under the message, with
+your handle and the time:
 
 | Key | Leaves |
 |---|---|
@@ -1029,6 +1151,27 @@ and as `HOT` from 25.
 - Packing a message takes its pushes with it.
 - Karma, on a caller's profile, is the votes on their public posts (not
   anonymous ones).
+
+### File links
+
+A message or comment can link to a file on the board. A link is written
+`file:AREA/NAME`, with the file area's storage key and the file's name:
+`file:DOORS/lord407p.zip`. It reads plainly in QWK readers and on FTN
+too, and anyone can type one by hand.
+
+- **Writing one.** `/L` in the full-screen editor, or `/l` as a
+  comment, asks for a name (a part of one, or wildcards), lists the
+  matching files in the areas you can see in a lightbar, and puts the
+  link in for the one you pick.
+- **Following one.** The reader's bottom line says `g files (n)` when a
+  message or its comments link to files that are here. `g` lists them
+  in a lightbar (with the attached file, if any); Enter shows one's
+  details and offers it for download, with the usual checks.
+- Links to files that aren't here, or are in areas you can't see,
+  aren't listed.
+
+The lightbars use MFILES screens (TOP/MID/HIL/BOT) if the board has
+them: `~FN` name, `~SZ` size, `~AT` area, `~DE` description.
 
 ### Threads and what's read
 

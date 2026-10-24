@@ -6,7 +6,8 @@
 //! FINGER screen dresses it (`~UN` handle, `~LO` location, `~UO` note,
 //! `~FC` first call, `~LS` last seen, `~CA` calls, `~PO` posts, `~UL`
 //! uploads, `~DL` downloads, `~LP` latest post, `~LU` latest uploads,
-//! `~KA` karma, from pushes, `~P1`-`~P6` the plan); without it, a plain one.
+//! `~KA` karma, from pushes, `~FI` requests filled, `~P1`-`~P6` the plan);
+//! without it, a plain one.
 
 use std::io;
 
@@ -96,6 +97,9 @@ impl Session {
             uploads.iter().map(|f| f.name.clone()).collect::<Vec<_>>().join(", ")
         };
         let karma = self.karma_text(u.id)?;
+        // New: requests they've filled, and the points.
+        let (fills, fill_pts) = self.state.msgs.fills_of(u.id).map_err(io::Error::other)?;
+        let fills = if fills == 0 { String::new() } else { self.strings().fmt("FingerFillsAre", &[&fills.to_string(), &fill_pts.to_string()]) };
         // New: their real name, if they show it.
         let real = if u.show_real_name { u.real_name.clone() } else { String::new() };
         let mut w = vec![
@@ -112,6 +116,7 @@ impl Session {
             ("LP", latest_post.clone()),
             ("LU", latest_uploads.clone()),
             ("KA", karma.clone()),
+            ("FI", fills.clone()),
         ];
         let plan_codes = ["P1", "P2", "P3", "P4", "P5", "P6"];
         for (i, code) in plan_codes.iter().enumerate() {
@@ -136,7 +141,7 @@ impl Session {
         self.rule().await?;
         let pair = |a: &str, b: &str, c: &str, d: &str| format!("|U1 {} |U3{}|U1{} |U3{}", resize(a, 11), lit(&resize(b, 26)), resize(c, 12), lit(&squish(d, 26)));
         let s = self.strings();
-        let lines = [
+        let mut lines = vec![
             pair(s.get("FingerFrom"), &u.location, s.get("FingerNote"), &u.note),
             pair(s.get("FingerSince"), &fmt_date(u.first_call), s.get("FingerSeen"), &seen),
             pair(s.get("FingerCalls"), &u.total_calls.to_string(), s.get("FingerPosts"), &u.posts.to_string()),
@@ -145,6 +150,9 @@ impl Session {
             format!("|U1 {} |U3{}", resize(s.get("FingerFiles"), 11), lit(&squish(&latest_uploads, 66))),
             format!("|U1 {} |U3{}", resize(s.get("FingerKarma"), 11), squish(&karma, 66)),
         ];
+        if !fills.is_empty() {
+            lines.push(format!("|U1 {} |U3{}", resize(s.get("FingerFills"), 11), squish(&fills, 66)));
+        }
         drop(s);
         for l in lines {
             self.show_line(&l).await?;

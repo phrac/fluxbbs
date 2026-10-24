@@ -507,8 +507,13 @@ impl Session {
                 }
             }
         let mut v = self.fs_draw(&ctx, &d).await?;
+        let mut hinted = self.fs_hint(&d, &mut v).await?;
         let saved = loop {
             let key = self.read_key().await?;
+            if std::mem::take(&mut hinted) {
+                self.fs_info_clear(&d, &v);
+                self.fs_render(&d, &mut v, Redraw::Cursor);
+            }
             let change = match key {
                 Key::Left => {
                     d.left();
@@ -720,7 +725,7 @@ impl Session {
                 Key::Enter | Key::Esc => 'C',
                 k => k.upper().unwrap_or('\0'),
             };
-            if "CNSAT?U/".contains(c) || c == quote_key {
+            if "CNSAT?U/L".contains(c) || c == quote_key {
                 break c;
             }
         };
@@ -769,6 +774,15 @@ impl Session {
                 }
                 *v = self.fs_draw(ctx, d).await?;
             }
+            // New: a link to a file on the board, picked from a lightbar.
+            'L' => {
+                if let Some(link) = self.pick_file_link().await? {
+                    for c in link.chars() {
+                        d.type_char(c);
+                    }
+                }
+                *v = self.fs_draw(ctx, d).await?;
+            }
             '/' => result = Some(d.type_char('/')),
             _ => {}
         }
@@ -778,6 +792,33 @@ impl Session {
         }
         self.fs_render(d, v, result.unwrap_or(Redraw::Cursor));
         Ok(None)
+    }
+
+    /// New: a line in the prompt row as the editor opens, until a key:
+    /// the caller's `editor_note`, or one of the `FsHint` strings (the
+    /// board's mottos). False if there was none.
+    async fn fs_hint(&mut self, d: &Draft, v: &mut View) -> io::Result<bool> {
+        let line = match self.editor_note.take() {
+            Some(n) => n,
+            None => {
+                let hints: Vec<String> = (1..)
+                    .map(|k| format!("FsHint{k}"))
+                    .take_while(|k| !self.strings().stock(k).is_empty())
+                    .map(|k| self.strings().get(&k).to_string())
+                    .filter(|s| !s.trim().is_empty())
+                    .collect();
+                if hints.is_empty() {
+                    return Ok(false);
+                }
+                hints[rand::random::<u32>() as usize % hints.len()].clone()
+            }
+        };
+        self.screen.goto(1, v.info);
+        self.set_slot(Slot::Text);
+        self.screen.clear_eol();
+        self.show(&line).await?;
+        self.fs_render(d, v, Redraw::Cursor);
+        Ok(true)
     }
 
     async fn fs_info(&mut self, name: &str, v: &View) -> io::Result<()> {

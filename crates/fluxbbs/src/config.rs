@@ -846,6 +846,15 @@ pub struct Messages {
     /// New: a caller's board with no posts this many days after it was
     /// made goes when `pack-messages` runs (0: never).
     pub board_empty_days: u32,
+    /// New: points for filling a request on a request board (also file
+    /// points, where the board uses them).
+    pub fill_points: u32,
+    /// New: minutes after posting in which an author may take a message
+    /// back outright, while nobody has answered it (0: never).
+    pub take_back_minutes: u32,
+    /// New: file points an author gives up to burn a message for good
+    /// (0, or a board without file points: free).
+    pub burn_points: u32,
 }
 
 impl Default for Messages {
@@ -876,6 +885,9 @@ impl Default for Messages {
             board_folder: String::new(),
             boards_per_caller: 1,
             board_empty_days: 30,
+            fill_points: 10,
+            take_back_minutes: 15,
+            burn_points: 25,
         }
     }
 }

@@ -223,6 +223,9 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('B', "Folder", 8, "Storage key of the message area callers' boards go under (blank = top level).", Text(|c| &mut c.messages.board_folder, TEXT.max(8))),
             set('C', "Boards per caller", 3, "Boards each caller may run.", Num(|c| c.messages.boards_per_caller as u64, |c, v| c.messages.boards_per_caller = v as u32, 1, 99)),
             set('D', "Empty after days", 3, "Remove a caller's board with no posts this many days after it was made (0 = never).", Num(|c| c.messages.board_empty_days as u64, |c, v| c.messages.board_empty_days = v as u32, 0, 999)),
+            set('F', "Take-back minutes", 3, "Minutes in which an author may take a post back, while nobody has answered it (0 = never).", Num(|c| c.messages.take_back_minutes as u64, |c, v| c.messages.take_back_minutes = v as u32, 0, 1440)),
+            set('G', "Burn points", 5, "File points an author gives up to delete a post for good (0 = free).", Num(|c| c.messages.burn_points as u64, |c, v| c.messages.burn_points = v as u32, 0, 99999)),
+            set('E', "Points per fill", 5, "Points for filling a request on a request board (and file points, if used; 0 = none).", Num(|c| c.messages.fill_points as u64, |c, v| c.messages.fill_points = v as u32, 0, 99999)),
         ]),
         ("Transfers", false, vec![
             set('A', "Max upload bytes", 12, "Largest upload accepted (0 = no limit).", Num(|c| c.files.max_upload_bytes, |c, v| c.files.max_upload_bytes = v, 0, u64::MAX / 2)),

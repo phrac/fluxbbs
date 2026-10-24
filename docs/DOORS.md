@@ -79,6 +79,9 @@ It never takes the security level.
   directories at the drop directory.
 - DOOR32.SYS (`D4`) is new.
 
+The tarot and fortune door (`AT`) is built in, and uses the board's AI;
+see [FEATURES.md](FEATURES.md#tarot-and-fortunes).
+
 ## Native doors
 
 A native door gets a pseudo-terminal wired to the caller: 80 columns,

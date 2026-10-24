@@ -415,17 +415,17 @@ MsgBarKeys = "|U1Arrows move, |U3enter|U1 picks, |U3esc|U1 stays put, or type an
 MsgReplyTo = "#%S1 by %S2"
 MsgHubKeys = "|U3n|U1 new |U2(|U3%S1|U2)  |U3p|U1 post  |U3s|U1 sort  |U3h|U1 help  |U3m|U1 more  |U3esc|U1 back"
 MsgThreadKeys = "|U3%S1|U2:  |U3n|U1 new |U2(|U3%S2|U2)  |U3p|U1 post  |U3v|U1 tree  |U3s|U1 sort  |U3h|U1 help  |U3esc|U1 back"
-MsgReaderBar = "|U5%S1 |U3r|U1 reply |U3p|U1 post |U3x|U1 vote |U3t|U1 thread |U3u|U1 up |U3h|U1 help |U3esc|U1 back %S2"
+MsgReaderBar = "|U5%S1 |U3r|U1 comment |U3p|U1 post |U3x|U1 vote |U3t|U1 thread |U3u|U1 up |U3h|U1 help |U3esc|U1 back %S2"
 MsgReaderMore = "|U5(more: |U3down|U5)"
 MsgReaderAttached = "|U5(file: |U3g|U5ets it)"
 MsgReaderGoto = "|U4Message #|U5: |U6"
 MsgReaderHelp1 = "|U3 right|U5, |U3enter|U5, |U3space|U1  next message (enter and space page through a long one first)"
 MsgReaderHelp2 = "|U3 left|U1             previous message"
 MsgReaderHelp3 = "|U3 up|U5/|U3down|U5, |U3pgup|U5/|U3pgdn|U1  scroll the message"
-MsgReaderHelp4 = "|U3 r|U1  reply      |U3p|U1  post a new message      |U3g|U1  get an attached file"
-MsgReaderHelp5 = "|U3 t|U1  read the whole thread      |U3u|U1  up to the message this one answers"
+MsgReaderHelp4 = "|U3 r|U1  comment (in email and echomail: reply)      |U3p|U1  post      |U3g|U1  get files"
+MsgReaderHelp5 = "|U3 t|U1  read the whole thread (in it: its tree)      |U3u|U1  up to the message this one answers"
 MsgReaderHelp6 = "|U3 l|U5, |U3esc|U1  back to the list      |U3q|U1  stop reading      |U3a number|U1  go to that message"
-MsgReaderHelp7 = "|U3 d|U1  delete      |U3e|U1  edit (your own messages, or as the area's sponsor)      |U3f|U1  finger the author"
+MsgReaderHelp7 = "|U3 d|U1  delete      |U3e|U1  edit: add to your own post (a sponsor rewrites)      |U3f|U1  finger"
 MsgNothingNew = "|U4Nothing new|U5."
 MsgLogonNew = "|U4There are |U6%S1|U4 new posts in |U6%S2|U4 area(s) since your last call|U5. |U4Read them now? "
 AiStats = "|U5  [|U4%S1 tokens|U5 · |U4%S2 thinking|U5 · |U3%S3|U4 tok/s|U5]"
@@ -525,7 +525,7 @@ PushAsk = "|U4Vote|U5: |U3+|U1 up  |U3-|U1 down  |U3>|U1 comment  |U3esc|U1 canc
 PushAskSponsor = "|U4Vote|U5: |U3+|U1 up  |U3-|U1 down  |U3>|U1 comment  |U3d|U1 remove someone's  |U3esc|U1 cancel|U5: "
 PushTextUp = "|10+ |U4Vote up |U5(|U4add a few words, or just enter|U5): |U6"
 PushTextDown = "|12- |U4Vote down |U5(|U4add a few words, or just enter|U5): |U6"
-PushTextComment = "|11> |U4Comment|U5: |U6"
+PushTextComment = "|11> |U4Comment |U5(|U3/l|U4 links a file|U5): |U6"
 PushOwn = "|U4You can't vote on your own message|U5: |U4a comment (|U3>|U4) is fine|U5."
 PushTooFast = "|U4Easy|U5: |U4one vote or comment every few seconds|U5."
 PushNotHere = "|U4You can't vote or comment here|U5."
@@ -615,7 +615,7 @@ HintPosts = "|U3%S1|U1 new post%S2 in your boards%S3"
 HintFiles = "|U3%S1|U1 new file%S2 since your last scan%S3"
 
 # The thread tree (`v` in the thread list and the reader): %S1 the subject.
-MsgTreeKeys = "|U3%S1|U2:  |U3enter|U1 read  |U3r|U1 reply  |U3q|U1 quit  |U3esc|U1 back"
+MsgTreeKeys = "|U3%S1|U2:  |U3enter|U1 read  |U3r|U1 comment  |U3q|U1 quit  |U3esc|U1 back"
 MsgReaderHelp9 = "|U3 v|U1  the thread as a tree: who answered whom"
 
 # Request boards (an area's "Requests" flag): each thread asks for
@@ -623,8 +623,8 @@ MsgReaderHelp9 = "|U3 v|U1  the thread as a tree: who answered whom"
 ReqOpen = "open"
 ReqFilled = "filled"
 ReqFilledTag = "[filled] "
-ReqFillKey = "  |U3f|U1 filled"
-ReqNotYours = "|U1Only whoever asked, the board's moderator or a co-SysOp can mark a request filled."
+ReqFillKey = "  |U3f|U1 filled  |U3$|U1 top"
+ReqNotYours = "|U1Only whoever asked marks a request filled|U2; |U1if you found it, reply with a link to it |U2(|U3/L|U2 in the editor)|U1."
 ReqHead = "|U2Request: |U3%S1"
 ReqAskNote = "|U1How was it filled? Where can it be found? |U2(enter: no note)|U1: |U3"
 ReqAskReopen = "|U1This request is marked filled. Mark it open again? "
@@ -633,3 +633,81 @@ ReqFilledNote = "|U2: |U3%S1"
 MsgReaderHelp10 = "|U3 m|U1  on a request board: mark the request filled, or open again"
 HintFilled = "|U1Your request |U3%S1|U1 was filled%S2"
 ReqBotNoAsk = "|U1Bots answer requests here; they don't make them."
+
+# The tarot and fortune door (`AT`). TarotLimit: %S1 the AI's daily limit,
+# which readings share with the AI chat.
+TarotTitle = "|U3 tarot & fortunes |U2- |U1the cards are drawn here; the AI reads them"
+TarotMenu = "|U3d|U1 card of the day  |U3t|U1 three cards  |U3f|U1 a fortune  |U3q|U1 quit |U2: "
+TarotAsk = "|U1Your question |U2(enter for a general reading)|U1: |U3"
+TarotToday = "today"
+TarotPast = "past"
+TarotPresent = "present"
+TarotFuture = "future"
+TarotReversed = "reversed"
+TarotWait = "|U2the cards are speaking..."
+TarotNothing = "|U4The cards are silent today|U5."
+TarotLimit = "|U4That's |U3%S1|U4 for today, readings and AI chat together|U5; |U4come back tomorrow|U5."
+TarotLucky = "|U1Lucky numbers|U2: |U3%S1"
+
+# File links in messages (`file:AREA/NAME`): `g` in the reader lists them,
+# `/L` in the editor picks one. MsgReaderFiles: %S1 how many.
+MsgReaderFiles = "|U3g|U1 files (%S1)"
+MsgNoFiles = "|U1This message links to no files here."
+MsgFilesAttached = "(the attached file)"
+MsgFilesKeys = "|U3enter|U1 get it  |U3esc|U1 back to the message"
+LinkAskFile = "|U1Link to which file? |U2(a name, part of one, or wildcards)|U1: |U3"
+LinkNone = "|U1No file here matches that."
+LinkKeys = "|U3enter|U1 link it  |U3/|U1 find  |U3esc|U1 cancel"
+# Marking a request filled: who answered it.
+ReqAskThisReply = "|U1Did |U3%S1|U1's reply fill it? "
+ReqNoneOfThese = "(none of these: filled some other way)"
+ReqPickKeys = "|U3%S1|U2:  |U1which reply filled it?  |U3enter|U1 pick  |U3esc|U1 cancel"
+
+# Points for fills: the top fillers (`MF`, `$` on a request board), and
+# the filler's hint (%S1 the request, %S2 points). FillYours: %S1 fills,
+# %S2 points.
+FillTitle = "|U3 top fillers |U2- |U1points for requests filled, as their askers marked them"
+FillWeek = "this week"
+FillMonth = "last 30 days"
+FillEver = "all time"
+FillYours = "|U1Requests you've filled|U2: |U3%S1|U2, |U1for |U3%S2|U1 points."
+HintFill = "|U1Your reply filled |U3%S1|U1: |U3+%S2|U1 points"
+FingerFills = "fills"
+FingerFillsAre = "%S1 requests filled, %S2 points"
+# Over a reply in the reader: %S1 the number it answers, %S2 its author,
+# %S3 its first words.
+MsgReaderReplyTo = "|U2in reply to |U3#%S1|U2 by |U3%S2|U2: |U1%S3"
+# An author's edit, added under their post: %S1 the date and time. Kept in
+# the message text, so plain (no color codes).
+MsgEditMark = "[edit %S1]"
+MsgEditNote = "|U2editing|U1: |U3what you posted stays as it was|U1; this is added under it"
+# Shown as the full-screen editor opens, one at random, until a key: the
+# board's mottos. Add FsHint9, FsHint10... with *E, or blank any to drop it.
+FsHint1 = "|U2∙ |U1the internet never forgets|U2 ∙"
+FsHint2 = "|U2∙ |U1never forget|U2 ∙"
+FsHint3 = "|U2∙ |U1what you post here stays: edits are added, never erased|U2 ∙"
+FsHint4 = "|U2∙ |U1write it like it'll be read in twenty years. it will be|U2 ∙"
+FsHint5 = "|U2∙ |U1every word goes on the record|U2 ∙"
+FsHint6 = "|U2∙ |U1ink, not pencil|U2 ∙"
+FsHint7 = "|U2∙ |U1the logs remember what you forget|U2 ∙"
+FsHint8 = "|U2∙ |U1post like the sysop is reading. they are|U2 ∙"
+FsHint9 = "|U2∙ |U1want something the board doesn't do? |U3n|U1 on the main menu: tell the sysop|U2 ∙"
+
+# Taking back your own post (`d` on it): take back while it's fresh and
+# unanswered, retract (hidden, kept, undoable), or burn (gone for good).
+# RegretAsk/RegretAskRetracted: %S1 RegretBurnCost or nothing. The
+# Retracted*/Burned* lines are kept in the message, so plain (%S1: date).
+RegretEcho = "|U2(This board's echomail: copies already sent to other boards stay there.)"
+RegretTakeBack = "|U1Nobody's answered it yet. Take it back, as if you never posted it? "
+RegretAsk = "|U3r|U1 retract it |U2(hidden from others, kept; you can undo it)  |U3b|U1 burn it%S1  |U3esc|U1 keep it|U2: "
+RegretAskRetracted = "|U3u|U1 undo the retraction  |U3b|U1 burn it%S1  |U3esc|U1 keep it|U2: "
+RegretBurnCost = " |U2(gone for good: |U3%S1|U2 points)"
+RegretSureRetract = "|U1Everyone posts something they'd rather not. Retract it? Others see only that you did. "
+RegretSureBurn = "|U1Burn it? It's gone for good, and that can't be undone. "
+RegretBurnPoor = "|U1Burning costs |U3%S1|U1 points, and you have |U3%S2|U1. Retracting it is free."
+RegretGone = "|U1Gone."
+RetractedSubject = "[retracted]"
+RetractedBody = "[retracted by its author %S1]"
+BurnedSubject = "[burned]"
+BurnedBody = "[burned by its author %S1]"
+RetractedYouSee = "|U2(retracted: only you and the moderators see what it said)"

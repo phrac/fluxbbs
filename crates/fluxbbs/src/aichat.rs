@@ -645,7 +645,7 @@ impl Session {
     }
 
     /// Count a message against the day's limit; false if it's used up.
-    fn ai_count(&mut self, limit: u32) -> bool {
+    pub(crate) fn ai_count(&mut self, limit: u32) -> bool {
         if limit == 0 || self.is_sysop() {
             return true;
         }

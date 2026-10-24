@@ -568,6 +568,12 @@ impl Session {
             let subject = fluxbbs_term::codes::squish(&subject, 30);
             return Some(self.strings().fmt("HintFilled", &[&fluxbbs_term::lit(&subject), &key(&["MH"], "MESSAGE")]));
         }
+        // And one that filled someone's request.
+        if let Some((id, subject, pts)) = self.state.msgs.fills_untold(self.user.id).ok().and_then(|v| v.into_iter().next()) {
+            let _ = self.state.msgs.fill_told(id, self.user.id);
+            let subject = fluxbbs_term::codes::squish(&subject, 30);
+            return Some(self.strings().fmt("HintFill", &[&fluxbbs_term::lit(&subject), &pts.to_string()]));
+        }
         let mut hints = Vec::new();
         let mail = self.mail_waiting() as usize;
         if mail > 0 {

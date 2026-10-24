@@ -197,10 +197,31 @@ All in [FEATURES](FEATURES.md#message-center).
 - Pinned threads, post tags with a filter, and "my boards" (favorites).
 - A thread as a tree (`v`): who answered whom.
   ([FEATURES](FEATURES.md#the-thread-tree))
-- Request boards (`*A` item 6): each thread asks for something, and is
-  marked filled (`f`, `m`) with a note on where to find it; the asker
-  hears at their next menu. Bots can't make requests.
-  ([FEATURES](FEATURES.md#request-boards))
+- Request boards (`*A` item 6): anyone asks, anyone answers, and only
+  the asker marks it filled (`f`, `m`), picking the answer that did it.
+  Bots can't make requests. ([FEATURES](FEATURES.md#request-boards))
+- Points for fills, topsite style without the drama: never taken back,
+  paid once a request, file points too where used; the top fillers
+  (`MF`, `$`). ([FEATURES](FEATURES.md#points-for-fills))
+- File links in messages and comments (`file:AREA/NAME`): `/L` in the
+  editor or `/l` in a comment picks one from a lightbar; `g` in the
+  reader lists them to download. ([FEATURES](FEATURES.md#file-links))
+- Editing your own post adds to it, reddit style: the original stays,
+  the edit goes under a dated line. ([FEATURES](FEATURES.md#editing-your-posts))
+- Taking back a post you regret (`d` on your own): take it back while
+  it's fresh and unanswered, retract it (hidden, kept, undoable), or
+  burn it for good for a few file points.
+  ([FEATURES](FEATURES.md#taking-it-back))
+- The editor opens with one of the board's mottos ("the internet never
+  forgets"). ([FEATURES](FEATURES.md#editor-hints))
+- A reply in the reader starts with what it answers ("in reply to #1
+  by ..."); `t` in a thread already open shows its tree.
+- One way to answer a post: `r` in the reader is a comment under it,
+  like `x` then `>` (email and echomail still get a real reply).
+  ([FEATURES](FEATURES.md#votes-and-comments))
+- A tarot and fortune door read by the AI (`AT`): card of the day,
+  three cards for a question, fortune cookies.
+  ([FEATURES](FEATURES.md#tarot-and-fortunes))
 
 ### Mentions
 

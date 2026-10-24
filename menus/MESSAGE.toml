@@ -57,6 +57,15 @@ on = "|B1Post message"
 off = "|B0Post message"
 
 [[command]]
+keys = "T"
+command = "MF"
+acs = "s25"
+desc = "Top fillers"
+help = "Who has filled the most requests on the request boards"
+on = "|B1Top fillers"
+off = "|B0Top fillers"
+
+[[command]]
 keys = "Q"
 command = "-^"
 param = "MAIN"

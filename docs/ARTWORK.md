@@ -188,6 +188,14 @@ prompt itself (e.g. `MHUBBOT`).
       threads ([markers](#message-center))
 - [ ] `MTREETOP` / `MTREEMID` / `MTREEHIL` / `MTREEBOT`: a thread as a
       tree ([markers](#message-center))
+- [ ] `MFILESTOP` / `MFILESMID` / `MFILESHIL` / `MFILESBOT`: a message's
+      linked files, and the file picker for links (`~FN` name, `~SZ`
+      size, `~AT` area, `~DE` description)
+- [ ] `MFILLTOP` / `MFILLMID` / `MFILLHIL` / `MFILLBOT`: the answers to
+      a request, to pick the one that filled it (`~SN` who, `~DS` day,
+      `~TX` what)
+- [ ] `FILLERS`: heads the top fillers (`MF`)
+- [ ] `TAROT`: heads the tarot and fortune door (`AT`)
 - [ ] `MHOTTOP` / `MHOTMID` / `MHOTHIL` / `MHOTBOT`: the Hot list
       ([markers](#message-center))
 - [ ] `MSGRHELP`: the message reader's help (otherwise the
@@ -307,6 +315,7 @@ The second character is the field's key.
 |---|---|
 | `~UN` | handle |
 | `~RN` | real name, if they show it |
+| `~FI` | requests filled and points, if any |
 | `~LO` | location |
 | `~UO` | note |
 | `~FC` | first call |

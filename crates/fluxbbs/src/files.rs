@@ -456,7 +456,7 @@ impl Session {
     }
 
     /// `faFileInfo`.
-    async fn file_info(&mut self, f: &FileRec) -> io::Result<()> {
+    pub(crate) async fn file_info(&mut self, f: &FileRec) -> io::Result<()> {
         let date = fmt_date(f.date);
         let ul = fmt_date(f.uploaded);
         let mins = (self.xfer_secs(f.size) / 60).to_string();

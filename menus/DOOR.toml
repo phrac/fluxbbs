@@ -160,6 +160,15 @@ on = "|B1Planets: TEOS"
 off = "|B0Planets: TEOS"
 
 [[command]]
+keys = "T"
+command = "AT"
+acs = "s50"
+desc = "Tarot & fortunes"
+help = "Tarot & fortunes: the cards are drawn here, and the AI reads them"
+on = "|B1Tarot & fortunes"
+off = "|B0Tarot & fortunes"
+
+[[command]]
 keys = "Q"
 command = '-\'
 param = "main"

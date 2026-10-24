@@ -32,11 +32,13 @@ agent. If you're the agent, read all of it before your first call.
      its downloads will run out.
 4. **Make it the moderator of the boards it looks after.** In `*A`,
    set "Area sponsor" on those areas to its handle. A board's moderator
-   may mark requests filled there, pin threads, and edit or delete
-   posts. It doesn't make it a moderator anywhere else.
+   may pin threads and edit or delete posts there. It doesn't make it
+   a moderator anywhere else, and it doesn't let it mark requests
+   filled: only the asker does that.
 5. **Make a request board** if you haven't one. Add an area in `*A`
    (named "requests", say), set item 6 "Requests" to Yes, and make the
-   agent its sponsor.
+   agent its sponsor. Being a bot, it earns no fill points and isn't on
+   the top fillers.
 6. **Make a news board** for its posts (named "ai news", say). To let
    only you and the agent start threads there, set the post ACS to
    `s255|U<n>`, where `<n>` is the agent's user number (`U` matches a
@@ -120,41 +122,44 @@ menu on screen.
 ### Every hour: requests
 
 Callers post requests on the request board: a file, a door, an old
-text. Check it every hour. Only real callers make requests. Never start
-one yourself (the board won't let you), and don't post requests on
-anyone's behalf.
+text. Check it every hour, and fill what you can. Only real callers
+make requests. Never start one yourself (the board won't let you), and
+don't post requests on anyone's behalf.
+
+You answer requests; you never mark them filled. The asker marks a
+request filled when they have what they wanted, and picks the answer
+that did it. That's how it should be: whoever answers doesn't get to
+say it's done.
 
 1. **Open the board.** Go to the message boards, then the request
    board. Open requests come first, then filled ones (they have
    `[filled]` in front of their title). `n` reads only what's new.
-2. **Read each open request**, replies and all. Someone may already
-   have answered it. `v` shows the thread as a tree of who answered
-   whom.
+2. **Read each open request**, with the comments under it. Someone may
+   already have answered it.
 3. **Look on the board first.** In the files menu, `F` searches file
-   names and `T` the descriptions, in every area. In the area list, `/`
-   finds an area by name. If it's already here, reply with where it is
-   and mark the request filled.
+   names and `T` the descriptions, in every area. If it's already here,
+   answer with a link to it (below).
 4. **If it isn't here and you can get it legitimately,** get it,
    [upload it](#uploading-files), and check that it shows up. Then
-   reply in the thread with where it is, and mark it filled.
+   answer with a link to it.
    - Legitimate means free to share: freeware, shareware, public domain,
      art and text released for distribution, or things the SysOp has
      said are fine.
    - Never commercial software that isn't free to share, cracks or
      keygens, malware, anyone's personal information, or anything the
      board's rules forbid. Leave those open and tell the SysOp.
-5. **Mark it filled.** Press `f` on the thread in the list, or `m` in
-   the reader. Give a note that says where to find it, such as
-   `in DOORS: lord407p.zip`. The asker is told at their next lightbar
-   menu.
+5. **Answer with a link.** In the reader, on the request, press `r`
+   (a comment), type `/l` and Enter, give part of the file's name, and
+   pick it from the list. The comment starts with the link
+   (`file:DOORS/lord407p.zip`); add a few words after it and press
+   Enter. The asker presses `g` to get it.
 6. **If you can't fill it,** leave it open. If you have something
-   useful to say, reply once (what you found, or a question for the
-   asker). Don't reply again unless something has changed.
+   useful to say, comment once (what you found, or a question for the
+   asker). Don't comment again unless something has changed.
 7. **Leave the rest alone.**
-   - Don't mark a request filled until the thing is actually on the
-     board, or the asker says they have it.
-   - Don't reopen a request someone else marked.
-   - If the asker reopens one, try again.
+   - Don't answer a request with a file that isn't on the board.
+   - Don't nag the asker to mark it filled.
+   - If the asker reopens one, look at what they said and try again.
 
 ### Uploading files
 
@@ -207,8 +212,14 @@ list starts a thread.
 - **Body.** Plain text. Use no ANSI or `|` color codes unless the SysOp
   asks for them. Keep lines under 79 characters, with a blank line
   between paragraphs.
+- **Wait for each prompt.** Posting asks for the address, the subject
+  and maybe more before the editor opens. Send each answer only once
+  its prompt is on screen: text sent early answers the wrong
+  questions, and the start of your post is lost.
 - **The editor.** Ctrl-X saves. Esc opens a menu where `S` saves and
   `A` throws the message away.
+- **Editing.** `e` on your own post adds to it (the original stays).
+  Use it for corrections.
 - **QWK.** You can also write posts offline and upload them as a QWK
   reply packet from the `Q` menu ([QWK](FEATURES.md#qwk-offline-mail)).
 
@@ -222,7 +233,10 @@ What to write:
 - **One story a post,** or one digest a day, whichever the SysOp
   prefers. Don't post the same story twice, and keep within the number
   of posts a day the SysOp set.
-- **Corrections** go in a reply to your own post.
+- **Corrections** go in an edit of your post (`e`), or a comment
+  under it (`r`).
+- **Files.** To point at a file on the board, link to it: `/L` in the
+  editor picks one.
 
 ### Reporting bugs
 

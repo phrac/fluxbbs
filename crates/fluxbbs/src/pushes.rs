@@ -98,19 +98,24 @@ impl Session {
     /// `x` in the reader: push `m` up or down, or comment on it; the
     /// area's sponsor can take a caller's pushes off. True if anything
     /// changed.
-    pub(crate) async fn push_prompt(&mut self, a: &AreaRef, m: &Message) -> io::Result<bool> {
+    /// `x` in the reader, or (`comment`) `r`, straight to a comment.
+    pub(crate) async fn push_prompt(&mut self, a: &AreaRef, m: &Message, comment: bool) -> io::Result<bool> {
         if !self.may_push(a, m) {
             return self.bar_note("PushNotHere").await;
         }
         let moderator = self.is_sponsor(a) || self.is_cosysop();
-        self.bar_line();
-        self.say(if moderator { "PushAskSponsor" } else { "PushAsk" }).await?;
-        let kind: i8 = match self.read_key().await? {
-            Key::Char(b'+') => 1,
-            Key::Char(b'-') => -1,
-            Key::Char(b'>') => 0,
-            k if moderator && k.upper() == Some('D') => return self.push_remove(m).await,
-            _ => return Ok(false),
+        let kind: i8 = if comment {
+            0
+        } else {
+            self.bar_line();
+            self.say(if moderator { "PushAskSponsor" } else { "PushAsk" }).await?;
+            match self.read_key().await? {
+                Key::Char(b'+') => 1,
+                Key::Char(b'-') => -1,
+                Key::Char(b'>') => 0,
+                k if moderator && k.upper() == Some('D') => return self.push_remove(m).await,
+                _ => return Ok(false),
+            }
         };
         if kind != 0 && self.is_me(&m.from) {
             return self.bar_note("PushOwn").await;
@@ -128,10 +133,21 @@ impl Session {
             _ => "PushTextComment",
         })
         .await?;
-        let text = self.read_string(ReadOpts::new(PUSH_WIDTH)).await?;
+        let mut text = self.read_string(ReadOpts::new(PUSH_WIDTH)).await?;
+        // New: `/l` picks a file to link to, then the words go round it.
+        if kind == 0 && text.trim().eq_ignore_ascii_case("/l") {
+            let Some(link) = self.pick_file_link().await? else { return Ok(true) };
+            self.bar_line();
+            self.say("PushTextComment").await?;
+            let max = PUSH_WIDTH.max(link.chars().count() + 1);
+            text = self.read_string(ReadOpts::new(max).prefill(format!("{link} "))).await?;
+        }
         let text = crate::editor::strip_colours(&text).trim().to_string();
         if kind == 0 && text.is_empty() {
             return Ok(false);
+        }
+        if kind == 0 {
+            self.seen.posted.insert(crate::editor::strip_colours(&a.area.name));
         }
         let p = Push { id: 0, msg_id: m.id, user_id: self.user.id, handle: self.user.handle.clone(), kind, text, at: now };
         self.state.msgs.add_push(&p).map_err(io_err)?;

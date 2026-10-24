@@ -82,7 +82,7 @@ impl Session {
     }
 
     /// Wrote it here: only a user number gives the right to edit or delete.
-    fn wrote(&self, p: &Party) -> bool {
+    pub(crate) fn wrote(&self, p: &Party) -> bool {
         p.user_id != 0 && p.user_id == self.user.id
     }
 
@@ -659,6 +659,14 @@ impl Session {
                         self.newline();
                     }
                 }
+                'D' if !a.is_email() && self.wrote(&m.from) => {
+                    if self.regret(a, &m).await?
+                        && let Some(now) = self.state.msgs.by_id(m.id).map_err(io_err)?
+                    {
+                        m = now;
+                    }
+                    show = true;
+                }
                 'D' if self.ok_to_delete(a, &m) => {
                     m.deleted = !m.deleted;
                     self.state.msgs.set_deleted(m.id, m.deleted).map_err(io_err)?;
@@ -936,7 +944,8 @@ impl Session {
             name: if a.area.real_names { u.real_name.clone() } else { u.handle.clone() },
             note: u.note.clone(),
         };
-        let can_anonymous = a.area.anonymous && !private && self.acs(&acs_anon);
+        // New: a bot (flag B) always signs its posts.
+        let can_anonymous = a.area.anonymous && !private && self.acs(&acs_anon) && !crate::aimemory::is_bot(&self.user);
         let mut anonymous = false;
         if can_anonymous {
             self.say("MsgAskAnonymous").await?;
@@ -1049,6 +1058,11 @@ impl Session {
 
     /// `maEditMessage` (`E` in the reader): re-edit a message's text.
     pub(crate) async fn edit_existing(&mut self, a: &AreaRef, m: &mut Message) -> io::Result<()> {
+        // New: an author's edit is added under what they posted, which
+        // stays as it was (as on reddit); a moderator's rewrites it.
+        if self.wrote(&m.from) {
+            return self.append_edit(a, m).await;
+        }
         // The editor would cut what it can't hold (echomail, ANSI).
         let body = m.body();
         if body.len() > crate::editor::MAX_LINES || body.iter().any(|l| l.contains('\x1b') || l.chars().count() > crate::editor::WIDTH) {
@@ -1082,6 +1096,58 @@ impl Session {
             if !a.is_email() {
                 crate::mentions::record(&self.state, m, &a.area.name, if m.anonymous { 0 } else { self.node.number() });
             }
+        }
+        Ok(())
+    }
+
+    /// New: an edit by the author, written in an empty editor and added
+    /// at the end, under a dated `MsgEditMark` line (before the signature).
+    async fn append_edit(&mut self, a: &AreaRef, m: &mut Message) -> io::Result<()> {
+        let ctx = EditCtx {
+            subject: m.subject.clone(),
+            from: m.from.name.clone(),
+            to: m.to.name.clone(),
+            date: m.posted,
+            anonymous: m.anonymous,
+            can_anonymous: false,
+            can_autosig: false,
+            autosig: false,
+            reply: None,
+            auto_quote: false,
+            text: Vec::new(),
+        };
+        self.editor_note = Some(self.strings().get("MsgEditNote").to_string());
+        let done = self.edit_message(ctx).await?;
+        self.editor_note = None;
+        let Some(done) = done else { return Ok(()) };
+        let mut added = done.lines;
+        while added.last().is_some_and(|l| l.trim().is_empty()) {
+            added.pop();
+        }
+        if added.iter().all(|l| l.trim().is_empty()) {
+            return Ok(());
+        }
+        let sig: Vec<String> = if m.sig_pos > 0 { m.lines[(m.sig_pos as usize - 1).min(m.lines.len())..].to_vec() } else { Vec::new() };
+        let mut lines = m.body().to_vec();
+        while lines.last().is_some_and(|l| l.trim().is_empty()) {
+            lines.pop();
+        }
+        let when = self.local(crate::clock::now().naive_local()).format("%m/%d/%y %H:%M").to_string();
+        lines.push(String::new());
+        // Plain: it's kept in the text (`fmt` marks what it fills in).
+        lines.push(self.strings().get("MsgEditMark").replace("%S1", &when));
+        lines.extend(added);
+        m.sig_pos = 0;
+        if !sig.is_empty() {
+            lines.push(String::new());
+            m.sig_pos = lines.len() as u32 + 1;
+            lines.extend(sig);
+        }
+        m.lines = lines;
+        self.state.msgs.update_text(m).map_err(io_err)?;
+        tracing::info!("{}: added an edit to #{} in {}", self.user.handle, m.num, a.area.name);
+        if !a.is_email() {
+            crate::mentions::record(&self.state, m, &a.area.name, if m.anonymous { 0 } else { self.node.number() });
         }
         Ok(())
     }

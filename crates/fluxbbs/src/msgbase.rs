@@ -59,8 +59,11 @@ pub struct Push {
     pub at: NaiveDateTime,
 }
 
-/// New: a request board's request marked filled: who said so, when, and
-/// how (where to find it, say). `told`: its asker has heard.
+/// New: a request board's request marked filled: who said so (its asker,
+/// or a co-SysOp), when, whose answer filled it (`filler`; `reply_id` the
+/// message, and `push_id` the comment under it if it was one; none if it
+/// was filled some other way) and a note. `told`: its asker has
+/// heard (they marked it themselves, or have seen it since).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Filled {
     pub msg_id: i64,
@@ -69,10 +72,39 @@ pub struct Filled {
     pub note: String,
     pub at: NaiveDateTime,
     pub told: bool,
+    pub filler_id: u32,
+    pub filler: String,
+    pub reply_id: i64,
+    pub push_id: i64,
 }
 
+/// Marking a request filled: by whom, the reply that filled it (if one
+/// did) and a note.
+pub struct FillMark<'a> {
+    pub by_id: u32,
+    pub by: &'a str,
+    pub filler_id: u32,
+    pub filler: &'a str,
+    pub reply_id: i64,
+    pub push_id: i64,
+    pub note: &'a str,
+}
+
+const FILLED_COLS: &str = "msg_id, user_id, handle, note, at, told, filler_id, filler, reply_id, push_id";
+
 fn filled_row(r: &Row) -> rusqlite::Result<Filled> {
-    Ok(Filled { msg_id: r.get(0)?, user_id: r.get(1)?, handle: r.get(2)?, note: r.get(3)?, at: r.get(4)?, told: r.get(5)? })
+    Ok(Filled {
+        msg_id: r.get(0)?,
+        user_id: r.get(1)?,
+        handle: r.get(2)?,
+        note: r.get(3)?,
+        at: r.get(4)?,
+        told: r.get(5)?,
+        filler_id: r.get(6)?,
+        filler: r.get(7)?,
+        reply_id: r.get(8)?,
+        push_id: r.get(9)?,
+    })
 }
 
 /// A file attached to a message (`tAttachRec`).
@@ -188,7 +220,30 @@ CREATE TABLE IF NOT EXISTS filled (
     handle  TEXT NOT NULL,
     note    TEXT NOT NULL,
     at      TEXT NOT NULL,
-    told    INTEGER NOT NULL DEFAULT 0
+    told    INTEGER NOT NULL DEFAULT 0,
+    filler_id INTEGER NOT NULL DEFAULT 0,
+    filler  TEXT NOT NULL DEFAULT '',
+    reply_id INTEGER NOT NULL DEFAULT 0,
+    push_id INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS fills (
+    msg_id    INTEGER NOT NULL,
+    filler_id INTEGER NOT NULL,
+    filler    TEXT NOT NULL,
+    area      TEXT NOT NULL,
+    subject   TEXT NOT NULL,
+    points    INTEGER NOT NULL,
+    at        TEXT NOT NULL,
+    told      INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (msg_id, filler_id)
+);
+CREATE INDEX IF NOT EXISTS fills_at ON fills(at);
+CREATE TABLE IF NOT EXISTS retracted (
+    msg_id  INTEGER PRIMARY KEY,
+    subject TEXT NOT NULL,
+    body    TEXT NOT NULL,
+    sig_pos INTEGER NOT NULL,
+    at      TEXT NOT NULL
 );
 ";
 
@@ -238,12 +293,16 @@ impl MsgBase {
         // together), each looking again once it has the lock.
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute_batch(SCHEMA)?;
-        // Databases from before email tags, and from before threads.
-        for (col, ddl) in [
-            ("tag", "ALTER TABLE messages ADD COLUMN tag INTEGER NOT NULL DEFAULT 0"),
-            ("reply_to", "ALTER TABLE messages ADD COLUMN reply_to INTEGER NOT NULL DEFAULT 0"),
+        // Databases from before email tags, threads, and fillers.
+        for (table, col, ddl) in [
+            ("messages", "tag", "ALTER TABLE messages ADD COLUMN tag INTEGER NOT NULL DEFAULT 0"),
+            ("messages", "reply_to", "ALTER TABLE messages ADD COLUMN reply_to INTEGER NOT NULL DEFAULT 0"),
+            ("filled", "filler_id", "ALTER TABLE filled ADD COLUMN filler_id INTEGER NOT NULL DEFAULT 0"),
+            ("filled", "filler", "ALTER TABLE filled ADD COLUMN filler TEXT NOT NULL DEFAULT ''"),
+            ("filled", "reply_id", "ALTER TABLE filled ADD COLUMN reply_id INTEGER NOT NULL DEFAULT 0"),
+            ("filled", "push_id", "ALTER TABLE filled ADD COLUMN push_id INTEGER NOT NULL DEFAULT 0"),
         ] {
-            let has: bool = tx.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('messages') WHERE name = ?1", [col], |r| r.get(0))?;
+            let has: bool = tx.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info(?1) WHERE name = ?2", [table, col], |r| r.get(0))?;
             if !has {
                 tx.execute(ddl, [])?;
             }
@@ -558,7 +617,7 @@ impl MsgBase {
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        for t in ["seen", "mentions", "pushes", "pins", "filled"] {
+        for t in ["seen", "mentions", "pushes", "pins", "filled", "retracted"] {
             tx.execute(&format!("DELETE FROM {t} WHERE msg_id IN (SELECT id FROM messages WHERE area = ?1)"), [area])?;
         }
         let n = tx.execute("DELETE FROM messages WHERE area = ?1", [area])?;
@@ -598,6 +657,7 @@ impl MsgBase {
             // a pin left behind would pin the next post.)
             tx.prepare_cached("DELETE FROM pins WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM filled WHERE msg_id = ?1")?.execute([id])?;
+            tx.prepare_cached("DELETE FROM retracted WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM seen WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM mentions WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM pushes WHERE msg_id = ?1")?.execute([id])?;
@@ -880,26 +940,26 @@ impl MsgBase {
     /// New: an area's filled requests, by the request's row id.
     pub fn filled(&self, area: &str) -> anyhow::Result<std::collections::HashMap<i64, Filled>> {
         let db = self.db.lock().unwrap();
-        let mut stmt = db.prepare("SELECT f.msg_id, f.user_id, f.handle, f.note, f.at, f.told FROM filled f JOIN messages m ON m.id = f.msg_id WHERE m.area = ?1")?;
+        let mut stmt = db.prepare("SELECT f.msg_id, f.user_id, f.handle, f.note, f.at, f.told, f.filler_id, f.filler, f.reply_id, f.push_id FROM filled f JOIN messages m ON m.id = f.msg_id WHERE m.area = ?1")?;
         let rows = stmt.query_map([area], |r| filled_row(r).map(|f| (f.msg_id, f)))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
     pub fn filled_one(&self, msg_id: i64) -> anyhow::Result<Option<Filled>> {
         let db = self.db.lock().unwrap();
-        Ok(db.query_row("SELECT msg_id, user_id, handle, note, at, told FROM filled WHERE msg_id = ?1", [msg_id], filled_row).optional()?)
+        Ok(db.query_row(&format!("SELECT {FILLED_COLS} FROM filled WHERE msg_id = ?1"), [msg_id], filled_row).optional()?)
     }
 
-    /// Mark a request filled (by, handle, note), or open again (None).
-    /// Filled by its own asker, there's nobody to tell.
-    pub fn set_filled(&self, msg_id: i64, by: Option<(u32, &str, &str)>, at: NaiveDateTime) -> anyhow::Result<()> {
+    /// Mark a request filled, or open again (None). Marked by its own
+    /// asker, there's nobody to tell.
+    pub fn set_filled(&self, msg_id: i64, mark: Option<FillMark>, at: NaiveDateTime) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
-        match by {
-            Some((user_id, handle, note)) => {
+        match mark {
+            Some(m) => {
                 db.execute(
-                    "INSERT OR REPLACE INTO filled (msg_id, user_id, handle, note, at, told)
-                     VALUES (?1, ?2, ?3, ?4, ?5, ?2 = (SELECT from_id FROM messages WHERE id = ?1))",
-                    rusqlite::params![msg_id, user_id, handle, note, at],
+                    "INSERT OR REPLACE INTO filled (msg_id, user_id, handle, note, at, told, filler_id, filler, reply_id, push_id)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?2 = (SELECT from_id FROM messages WHERE id = ?1), ?6, ?7, ?8, ?9)",
+                    rusqlite::params![msg_id, m.by_id, m.by, m.note, at, m.filler_id, m.filler, m.reply_id, m.push_id],
                 )?;
             }
             None => {
@@ -924,6 +984,121 @@ impl MsgBase {
     pub fn filled_told(&self, msg_id: i64) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
         db.execute("UPDATE filled SET told = 1 WHERE msg_id = ?1", [msg_id])?;
+        Ok(())
+    }
+
+    /// New: what's been said to a message: comments and votes under it,
+    /// and replies to it still there.
+    pub fn responses(&self, msg_id: i64) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row(
+            "SELECT (SELECT COUNT(*) FROM pushes WHERE msg_id = ?1) + (SELECT COUNT(*) FROM messages WHERE reply_to = ?1 AND NOT deleted)",
+            [msg_id],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// New: an author retracts a message. Its text is kept here and the
+    /// message shows `subject` and `body` (a note) in its place.
+    pub fn retract(&self, m: &Message, subject: &str, body: &str, at: NaiveDateTime) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
+            "INSERT OR IGNORE INTO retracted (msg_id, subject, body, sig_pos, at) SELECT id, subject, body, sig_pos, ?2 FROM messages WHERE id = ?1",
+            params![m.id, at],
+        )?;
+        tx.execute("UPDATE messages SET subject = ?2, body = ?3, sig_pos = 0 WHERE id = ?1", params![m.id, subject, body])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// A retracted message's own text: (subject, lines, when retracted).
+    pub fn retracted(&self, msg_id: i64) -> anyhow::Result<Option<(String, Vec<String>, NaiveDateTime)>> {
+        let db = self.db.lock().unwrap();
+        Ok(db
+            .query_row("SELECT subject, body, at FROM retracted WHERE msg_id = ?1", [msg_id], |r| {
+                let body: String = r.get(1)?;
+                Ok((r.get(0)?, body.split('\n').map(String::from).collect(), r.get(2)?))
+            })
+            .optional()?)
+    }
+
+    /// Undo a retraction: the message has its text back.
+    pub fn unretract(&self, msg_id: i64) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        tx.execute(
+            "UPDATE messages SET (subject, body, sig_pos) = (SELECT subject, body, sig_pos FROM retracted WHERE msg_id = ?1)
+             WHERE id = ?1 AND EXISTS (SELECT 1 FROM retracted WHERE msg_id = ?1)",
+            [msg_id],
+        )?;
+        tx.execute("DELETE FROM retracted WHERE msg_id = ?1", [msg_id])?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// New: an author takes a message back or burns it: its text (and any
+    /// kept by a retraction), what's under it and its marks are gone for
+    /// good; a stub (`subject`, `body`) stays, deleted, for moderators
+    /// until a pack. Returns the attachment it had, if any, to remove.
+    pub fn burn(&self, msg_id: i64, subject: &str, body: &str) -> anyhow::Result<Option<String>> {
+        let attached = {
+            let mut db = self.db.lock().unwrap();
+            let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+            let attached: Option<String> = tx.query_row("SELECT name FROM attachments WHERE msg_id = ?1", [msg_id], |r| r.get(0)).optional()?;
+            tx.execute("UPDATE messages SET subject = ?2, body = ?3, sig_pos = 0 WHERE id = ?1", params![msg_id, subject, body])?;
+            for t in ["pushes", "mentions", "pins", "filled", "retracted", "attachments"] {
+                tx.execute(&format!("DELETE FROM {t} WHERE msg_id = ?1"), [msg_id])?;
+            }
+            tx.commit()?;
+            attached
+        };
+        self.set_deleted(msg_id, true)?;
+        Ok(attached)
+    }
+
+    /// New: points for a fill, once per request and filler: they're never
+    /// taken back (reopening doesn't), and marking it filled again doesn't
+    /// pay twice. True if this one is new. The ledger outlasts the request.
+    pub fn award_fill(&self, msg_id: i64, (filler_id, filler): (u32, &str), area: &str, subject: &str, points: u32, at: NaiveDateTime) -> anyhow::Result<bool> {
+        let db = self.db.lock().unwrap();
+        let n = db.execute(
+            "INSERT OR IGNORE INTO fills (msg_id, filler_id, filler, area, subject, points, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            rusqlite::params![msg_id, filler_id, filler, area, subject, points, at],
+        )?;
+        Ok(n > 0)
+    }
+
+    /// The fillers since `since` (None: ever), most points first: (user
+    /// number, handle, fills, points).
+    pub fn fill_board(&self, since: Option<NaiveDateTime>, limit: u32) -> anyhow::Result<Vec<(u32, String, u32, u32)>> {
+        let db = self.db.lock().unwrap();
+        let since = since.unwrap_or_default();
+        let mut stmt = db.prepare(
+            "SELECT filler_id, MAX(filler), COUNT(*), SUM(points) FROM fills WHERE at >= ?1
+             GROUP BY filler_id ORDER BY SUM(points) DESC, COUNT(*) DESC, MAX(at) LIMIT ?2",
+        )?;
+        let rows = stmt.query_map(rusqlite::params![since, limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// A caller's fills and points, ever.
+    pub fn fills_of(&self, user: u32) -> anyhow::Result<(u32, u32)> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT COUNT(*), COALESCE(SUM(points), 0) FROM fills WHERE filler_id = ?1", [user], |r| Ok((r.get(0)?, r.get(1)?)))?)
+    }
+
+    /// A caller's fills they haven't heard about: (request, subject, points).
+    pub fn fills_untold(&self, user: u32) -> anyhow::Result<Vec<(i64, String, u32)>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT msg_id, subject, points FROM fills WHERE filler_id = ?1 AND NOT told ORDER BY at")?;
+        let rows = stmt.query_map([user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn fill_told(&self, msg_id: i64, user: u32) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("UPDATE fills SET told = 1 WHERE msg_id = ?1 AND filler_id = ?2", rusqlite::params![msg_id, user])?;
         Ok(())
     }
 
@@ -1156,6 +1331,31 @@ mod tests {
         mb.add(&mut r2).unwrap();
         mb.update(&Message { replies: 1, ..stale }).unwrap();
         assert_eq!(mb.by_id(c.id).unwrap().unwrap().replies, 2);
+    }
+
+    #[test]
+    fn retracted_kept_and_burned_gone() {
+        let mb = MsgBase::open_memory().unwrap();
+        let mut p = msg("GEN", "All", "i regret this");
+        mb.add(&mut p).unwrap();
+        let mut r = msg("GEN", "All", "a reply");
+        r.reply_to = p.id;
+        mb.add(&mut r).unwrap();
+        assert_eq!(mb.responses(p.id).unwrap(), 1);
+        let at = NaiveDateTime::default();
+        mb.retract(&p, "[retracted]", "[retracted by its author]", at).unwrap();
+        let now = mb.by_id(p.id).unwrap().unwrap();
+        assert_eq!((now.subject.as_str(), now.lines.clone()), ("[retracted]", vec!["[retracted by its author]".to_string()]));
+        let kept = mb.retracted(p.id).unwrap().unwrap();
+        assert_eq!(kept.1, vec!["i regret this".to_string()]);
+        mb.unretract(p.id).unwrap();
+        assert_eq!(mb.by_id(p.id).unwrap().unwrap().lines, vec!["i regret this".to_string()]);
+        assert!(mb.retracted(p.id).unwrap().is_none());
+        mb.retract(&p, "[retracted]", "[retracted by its author]", at).unwrap();
+        mb.burn(p.id, "[burned]", "[burned by its author]").unwrap();
+        let gone = mb.by_id(p.id).unwrap().unwrap();
+        assert!(gone.deleted && gone.lines == vec!["[burned by its author]".to_string()]);
+        assert!(mb.retracted(p.id).unwrap().is_none(), "nothing of it is kept");
     }
 
     #[test]

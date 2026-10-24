@@ -185,6 +185,8 @@ pub struct Session {
     pub(crate) ai_ctx: String,
     /// The chat's rows under the header, kept to redraw them (new).
     pub(crate) ai_win: Option<crate::aichat::AiWindow>,
+    /// New: the line the editor opens with in place of a hint (once).
+    pub(crate) editor_note: Option<String>,
     /// New: what this call did, for the board's memory of the caller.
     pub(crate) seen: crate::aimemory::Seen,
 }
@@ -353,6 +355,7 @@ impl Session {
             ai_ink: String::new(),
             ai_ctx: String::new(),
             ai_win: None,
+            editor_note: None,
             seen: Default::default(),
         }
     }

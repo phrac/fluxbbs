@@ -688,6 +688,16 @@ impl Session {
             };
             let help = self.strings().fmt("MsgThreadKeys", &[&fluxbbs_term::lit(&fluxbbs_term::codes::squish(&name, room)), &new_count, &sort]) + &more;
             let header = post_line(" ", "#", "+/-", "Date", "Author", "Re", "Title");
+            let mut keys = String::from("NPSHV");
+            if moderator {
+                keys.push('O');
+            }
+            if tagged {
+                keys.push('T');
+            }
+            if a.area.requests {
+                keys.push_str("F$");
+            }
             let spec = BarSpec {
                 prefix: "MTHRD",
                 header: &header,
@@ -697,16 +707,7 @@ impl Session {
                 help: &help,
                 ask: "",
                 can_go_up: true,
-                keys: match (moderator, tagged, a.area.requests) {
-                    (true, true, false) => "NPSHOTV",
-                    (true, false, false) => "NPSHOV",
-                    (false, true, false) => "NPSHTV",
-                    (false, false, false) => "NPSHV",
-                    (true, true, true) => "NPSHOTVF",
-                    (true, false, true) => "NPSHOVF",
-                    (false, true, true) => "NPSHTVF",
-                    (false, false, true) => "NPSHVF",
-                },
+                keys: &keys,
             };
             match self.area_bar(&spec).await? {
                 BarPick::Area(i) => {
@@ -739,12 +740,16 @@ impl Session {
                     }
                 }
                 BarPick::Key('H', _) => self.msg_help().await?,
+                BarPick::Key('$', n) => {
+                    on_root = ts.get(n as usize).map(|t| t.msgs[0].0);
+                    self.top_fillers().await?;
+                }
                 BarPick::Key('F', n) => {
                     if let Some(root) = ts.get(n as usize).map(|t| by_id[&t.msgs[0].0]) {
                         on_root = Some(root.id);
                         let root = root.clone();
                         self.reader_prompt_area();
-                        self.fill_request(a, &root).await?;
+                        self.fill_request(a, &root, None).await?;
                     }
                 }
                 BarPick::Key('O', n) => {
@@ -859,7 +864,11 @@ impl Session {
                     if let Some(m) = seq.get(i as usize).and_then(|id| by_id.get(id)) {
                         on = Some(m.id);
                         let m = (*m).clone();
-                        self.post(a, "", "", Some(&m)).await?;
+                        if self.comments_only(a) {
+                            self.push_prompt(a, &m, true).await?;
+                        } else {
+                            self.post(a, "", "", Some(&m)).await?;
+                        }
                     }
                 }
                 BarPick::Quit => return Ok(true),
@@ -1224,6 +1233,8 @@ impl Session {
                 self.strings().get("MsgReaderMore").to_string()
             } else if attached {
                 self.strings().get("MsgReaderAttached").to_string()
+            } else if !crate::links::file_links(&self.link_lines(&m)).is_empty() {
+                self.strings().fmt("MsgReaderFiles", &[&crate::links::file_links(&self.link_lines(&m)).len().to_string()])
             } else {
                 String::new()
             };
@@ -1291,6 +1302,18 @@ impl Session {
                     }
                     Some('L') => return Ok(ReadEnd::Back),
                     Some('Q') => return Ok(ReadEnd::Quit),
+                    // A reply is a comment under the message (one system,
+                    // not two), but for email and echomail, where comments
+                    // can't go.
+                    Some('R') if self.comments_only(a) => {
+                        if self.push_prompt(a, &m, true).await? {
+                            let lines = self.reader_lines(a, &m);
+                            scroll = lines.len().saturating_sub(height);
+                            cur = Some((m, lines, attached));
+                        }
+                        // `/l`'s file picker took the screen.
+                        redraw = true;
+                    }
                     Some('R') => {
                         self.reader_prompt_area();
                         self.post(a, "", "", Some(&m)).await?;
@@ -1316,17 +1339,22 @@ impl Session {
                         }
                     }
                     Some('T') => {
-                        // The whole conversation this message is in.
+                        // The whole conversation this message is in; already
+                        // reading it, its tree.
                         let v = self.area_view(a)?;
                         if let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.id)) {
                             let tseq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
-                            if tseq != seq {
+                            let r = if tseq != seq {
                                 let at = tseq.iter().position(|&n| n == m.id).unwrap_or(0);
-                                if Box::pin(self.read_seq(a, &tseq, at)).await? == ReadEnd::Quit {
-                                    return Ok(ReadEnd::Quit);
-                                }
-                                cur = None;
+                                Box::pin(self.read_seq(a, &tseq, at)).await? == ReadEnd::Quit
+                            } else {
+                                Box::pin(self.thread_tree(a, tseq[0], Some(m.id))).await?
+                            };
+                            if r {
+                                return Ok(ReadEnd::Quit);
                             }
+                            cur = None;
+                            redraw = true;
                         }
                     }
                     // New: mark the request this thread makes filled (or open).
@@ -1335,7 +1363,7 @@ impl Session {
                         let root = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.id)).map(|t| t.msgs[0].0);
                         if let Some(r) = root.and_then(|r| v.msgs.iter().find(|x| x.id == r).cloned()) {
                             self.reader_prompt_area();
-                            self.fill_request(a, &r).await?;
+                            self.fill_request(a, &r, Some(&m)).await?;
                         }
                         cur = None;
                         redraw = true;
@@ -1352,6 +1380,13 @@ impl Session {
                         cur = None;
                         redraw = true;
                     }
+                    // New: your own post: take it back, retract or burn it.
+                    Some('D') if !a.is_email() && self.wrote(&m.from) => {
+                        self.reader_prompt_area();
+                        self.regret(a, &m).await?;
+                        cur = None;
+                        redraw = true;
+                    }
                     Some('D') if self.ok_to_delete(a, &m) => {
                         let mut x = m.clone();
                         x.deleted = !x.deleted;
@@ -1365,9 +1400,10 @@ impl Session {
                         self.edit_existing(a, &mut x).await?;
                         cur = None;
                     }
-                    Some('G') if attached => {
+                    // The attachment, and (new) the files the message links to.
+                    Some('G') if attached || !crate::links::file_links(&self.link_lines(&m)).is_empty() => {
                         self.reader_prompt_area();
-                        self.offer_attachment(&m).await?;
+                        self.message_files(&m, attached).await?;
                         redraw = true;
                     }
                     // New: finger the author.
@@ -1379,11 +1415,12 @@ impl Session {
                     }
                     // New: push it (`pushes.rs`), and see the new line.
                     Some('X') => {
-                        if self.push_prompt(a, &m).await? {
+                        if self.push_prompt(a, &m, false).await? {
                             let lines = self.reader_lines(a, &m);
                             scroll = lines.len().saturating_sub(height);
                             cur = Some((m, lines, attached));
                         }
+                        redraw = true;
                     }
                     Some('?' | 'H') => {
                         self.reader_help().await?;
@@ -1413,6 +1450,12 @@ impl Session {
     }
 
     /// Before a prompt from the reader: a clear screen to write on.
+    /// New: replies here are comments under the message, except in email
+    /// and echomail (comments stay on this board; a reply has to travel).
+    pub(crate) fn comments_only(&self, a: &AreaRef) -> bool {
+        !a.is_email() && !self.state.config().ftn.areas.iter().any(|f| f.area.eq_ignore_ascii_case(a.key()))
+    }
+
     /// A request board's thread: its state for `~FL` (`ReqOpen` or
     /// `ReqFilled`) and its title, `ReqFilledTag` in front once filled.
     /// Elsewhere, nothing and the subject.
@@ -1427,10 +1470,14 @@ impl Session {
         }
     }
 
-    /// New: mark a request filled, with a note on where to find it, or
-    /// open again. Its asker, the board's moderator and co-SysOps may.
-    async fn fill_request(&mut self, a: &AreaRef, root: &Message) -> io::Result<()> {
-        if !(self.is_me(&root.from) || self.is_sponsor(a) || self.is_cosysop()) {
+    /// New: mark a request filled, or open again. Only its asker (and
+    /// co-SysOps, for one left behind) may: whoever answers it doesn't get
+    /// to say it's done. They pick the answer that filled it (a comment, or
+    /// in echomail a reply), whose author is credited; `on`, the message
+    /// being read, is offered first when it's someone's reply. The note is
+    /// the answer's file links, else asked for.
+    async fn fill_request(&mut self, a: &AreaRef, root: &Message, on: Option<&Message>) -> io::Result<()> {
+        if !(self.is_me(&root.from) || self.is_cosysop()) {
             self.say_line("ReqNotYours").await?;
             return self.prompt_key().await;
         }
@@ -1445,16 +1492,144 @@ impl Session {
             }
             return Ok(());
         }
-        self.say("ReqAskNote").await?;
-        let note = self.read_string(ReadOpts::new(60)).await?;
-        self.newline();
+        // The answers: replies and comments in the thread, less the
+        // asker's own.
+        let v = self.area_view(a)?;
+        let by_id = v.by_id();
+        let thread: Vec<Message> = threads(&v.msgs)
+            .into_iter()
+            .find(|t| t.msgs[0].0 == root.id)
+            .map(|t| t.msgs.iter().filter_map(|(id, _)| by_id.get(id).map(|m| (*m).clone())).collect())
+            .unwrap_or_default();
+        let asker = |id: u32, name: &str| (root.from.user_id != 0 && id == root.from.user_id) || name.eq_ignore_ascii_case(&root.from.name);
+        let mut answers: Vec<Answer> = Vec::new();
+        for m in &thread {
+            if m.id != root.id && !asker(m.from.user_id, &m.from.name) {
+                answers.push(Answer { who: m.from.name.clone(), who_id: if m.anonymous { 0 } else { m.from.user_id }, at: m.posted, text: m.lines.clone(), msg: m.id, push: 0 });
+            }
+            for p in self.state.msgs.pushes(m.id).map_err(io_err)?.into_iter().filter(|p| p.kind == 0 && !asker(p.user_id, &p.handle)) {
+                answers.push(Answer { who: p.handle.clone(), who_id: p.user_id, at: p.at, text: vec![p.text.clone()], msg: m.id, push: p.id });
+            }
+        }
+        answers.sort_by_key(|x| x.at);
+        let mut pick = None;
+        if let Some(i) = on.and_then(|m| answers.iter().position(|x| x.msg == m.id && x.push == 0)) {
+            let s = self.strings().fmt("ReqAskThisReply", &[&fluxbbs_term::lit(&answers[i].who)]);
+            self.show(&s).await?;
+            if self.yes_no(true).await? {
+                pick = Some(i);
+            }
+            self.newline();
+        }
+        if pick.is_none() && !answers.is_empty() {
+            let none = self.strings().get("ReqNoneOfThese").to_string();
+            let mut rows = vec![BarRow { n: 0, waves: waves([("SN", none.clone())]), plain: format!("  {none}") }];
+            for (i, x) in answers.iter().enumerate() {
+                let files = crate::links::file_links(&x.text).len();
+                let words = if x.push != 0 { x.text.join(" ") } else { crate::mci::blurb(&x.text) };
+                let what = if files > 0 { format!("[{files} file{}] {words}", if files == 1 { "" } else { "s" }) } else { words };
+                let day = self.local(x.at).format("%m/%d").to_string();
+                let w = waves([("SN", x.who.clone()), ("DS", day.clone()), ("TX", what.clone())]);
+                rows.push(BarRow { n: i as u32 + 1, waves: w, plain: format!("  {} {} {}", resize(&x.who, 16), resize(&day, 5), resize(&what, 54)) });
+            }
+            let header = format!("  {} {} {}", resize("Who", 16), resize("Date", 5), "What");
+            let help = self.strings().fmt("ReqPickKeys", &[&fluxbbs_term::lit(&fluxbbs_term::codes::squish(&root.subject, 30))]);
+            let spec = BarSpec { prefix: "MFILL", header: &header, rows: &rows, labels: &[], start: 1, help: &help, ask: "", can_go_up: true, keys: "" };
+            match self.area_bar(&spec).await? {
+                BarPick::Area(0) => {}
+                BarPick::Area(i) => pick = Some(i as usize - 1),
+                _ => return Ok(()),
+            }
+            self.reader_prompt_area();
+            self.show_line(&s).await?;
+        }
+        let answer = pick.and_then(|i| answers.get(i));
+        let links: Vec<String> = answer.map(|x| crate::links::file_links(&x.text).iter().map(|(k, n)| crate::links::link_text(k, n)).collect()).unwrap_or_default();
+        let note = if links.is_empty() {
+            self.say("ReqAskNote").await?;
+            let n = self.read_string(ReadOpts::new(60)).await?;
+            self.newline();
+            n.trim().to_string()
+        } else {
+            links.join(" ")
+        };
         if self.hangup {
             return Ok(());
         }
         let handle = self.user.handle.clone();
-        self.state.msgs.set_filled(root.id, Some((self.user.id, &handle, note.trim())), now).map_err(io_err)?;
-        tracing::info!("{}: request {} in {} filled", self.user.handle, root.num, a.area.name);
+        let (filler_id, filler, reply_id, push_id) = match answer {
+            Some(x) if x.who_id != 0 => (x.who_id, x.who.clone(), x.msg, x.push),
+            Some(x) => (0, String::new(), x.msg, x.push),
+            None => (0, String::new(), 0, 0),
+        };
+        let mark = crate::msgbase::FillMark { by_id: self.user.id, by: &handle, filler_id, filler: &filler, reply_id, push_id, note: &note };
+        self.state.msgs.set_filled(root.id, Some(mark), now).map_err(io_err)?;
+        tracing::info!("{}: request {} in {} filled{}", self.user.handle, root.num, a.area.name, if filler.is_empty() { String::new() } else { format!(" by {filler}") });
+        self.pay_fill(a, root, filler_id, now)
+    }
+
+    /// New: the filler's points (`fill_points`, and as many file points
+    /// where the board uses them). Not to bots, nor to whoever marked it.
+    fn pay_fill(&self, a: &AreaRef, root: &Message, filler_id: u32, now: NaiveDateTime) -> io::Result<()> {
+        let pts = self.state.config().messages.fill_points;
+        if filler_id == 0 || pts == 0 || filler_id == self.user.id || filler_id == root.from.user_id {
+            return Ok(());
+        }
+        let Some(u) = self.state.users.get(filler_id).map_err(io_err)?.filter(|u| !u.deleted && !crate::aimemory::is_bot(u)) else { return Ok(()) };
+        if !self.state.msgs.award_fill(root.id, (u.id, &u.handle), a.key(), &root.subject, pts, now).map_err(io_err)? {
+            return Ok(());
+        }
+        if self.state.config().files.use_file_points {
+            let mut paid = u.clone();
+            paid.file_points = paid.file_points.saturating_add(pts);
+            self.save_other_user(&u, &paid).map_err(io_err)?;
+        }
+        tracing::info!("{}: {pts} points to {} for request {} in {}", self.user.handle, u.handle, root.num, a.area.name);
         Ok(())
+    }
+
+    /// `MF` (new): the top fillers of requests, this week, this month and
+    /// ever, side by side. FILLERS heads it if the board has one.
+    pub async fn top_fillers(&mut self) -> io::Result<()> {
+        self.reader_prompt_area();
+        if !self.show_file("FILLERS").await? {
+            self.say_line("FillTitle").await?;
+        }
+        if self.screen.where_x() != 1 {
+            self.newline();
+        }
+        self.newline();
+        let now = crate::clock::now().naive_local();
+        let mut cols = Vec::new();
+        for since in [Some(now - chrono::Duration::days(7)), Some(now - chrono::Duration::days(30)), None] {
+            cols.push(self.state.msgs.fill_board(since, 10).map_err(io_err)?);
+        }
+        let heads = ["FillWeek", "FillMonth", "FillEver"].map(|s| self.strings().get(s).to_string());
+        self.set_slot(fluxbbs_term::Slot::Info);
+        self.write(&heads.iter().map(|h| format!("  {}", resize(h, 24))).collect::<String>());
+        self.newline();
+        self.set_slot(fluxbbs_term::Slot::TextLo);
+        let head = format!("{:>2} {} {:>4} {:>5}", "#", resize("who", 10), "fill", "pts");
+        self.write(&format!("  {}", [head.as_str(); 3].join("  ")));
+        self.newline();
+        for i in 0..10 {
+            for col in &cols {
+                self.write("  ");
+                match col.get(i) {
+                    Some((id, handle, fills, pts)) => {
+                        self.set_slot(if *id == self.user.id { fluxbbs_term::Slot::InfoHi } else { fluxbbs_term::Slot::TextHi });
+                        self.write(&format!("{:>2} {} {:>4} {:>5}", i + 1, resize(handle, 10), fills, pts));
+                    }
+                    None => self.write(&" ".repeat(24)),
+                }
+            }
+            self.newline();
+        }
+        let (fills, pts) = self.state.msgs.fills_of(self.user.id).map_err(io_err)?;
+        self.newline();
+        let s = self.strings().fmt("FillYours", &[&fills.to_string(), &pts.to_string()]);
+        self.show_line(&s).await?;
+        self.prompt_key().await
     }
 
     fn reader_prompt_area(&mut self) {
@@ -1502,12 +1677,37 @@ impl Session {
         if m.anonymous && (self.is_sponsor(a) || self.is_cosysop()) {
             out.push(format!("|U5Anonymous message by: |U4{} |U5[{}]", m.from.alias, m.from.real_name));
         }
+        // New: what a reply answers, so it reads on its own.
+        if m.reply_to != 0
+            && let Ok(Some(p)) = self.state.msgs.by_id(m.reply_to)
+            && p.area.eq_ignore_ascii_case(a.key())
+            && self.ok_to_read(a, &p)
+        {
+            let who = if p.anonymous { self.strings().get("Anonymous").to_string() } else { p.from.name.clone() };
+            let words = fluxbbs_term::codes::squish(&crate::mci::blurb(p.body()), 50);
+            out.push(self.strings().fmt("MsgReaderReplyTo", &[&p.num.to_string(), &fluxbbs_term::lit(&who), &fluxbbs_term::lit(&words)]));
+            out.push(String::new());
+        }
+        // A retraction hides it from others; its author and moderators
+        // still see what it said.
+        if (self.wrote(&m.from) || self.is_sponsor(a) || self.is_cosysop())
+            && let Ok(Some((subject, lines, _))) = self.state.msgs.retracted(m.id)
+        {
+            out.extend(m.lines.iter().cloned());
+            out.push(self.strings().get("RetractedYouSee").to_string());
+            out.push(fluxbbs_term::lit(&subject));
+            out.push(String::new());
+            out.extend(lines);
+            out.extend(self.push_lines(m));
+            return out;
+        }
         if a.area.requests
             && let Ok(Some(f)) = self.state.msgs.filled_one(m.id)
         {
             let day = self.local(f.at).format("%m/%d/%y").to_string();
             let note = if f.note.is_empty() { String::new() } else { self.strings().fmt("ReqFilledNote", &[&fluxbbs_term::lit(&f.note)]) };
-            out.push(self.strings().fmt("ReqFilledLine", &[&day, &fluxbbs_term::lit(&f.handle), &note]));
+            let by = if f.filler.is_empty() { &f.handle } else { &f.filler };
+            out.push(self.strings().fmt("ReqFilledLine", &[&day, &fluxbbs_term::lit(by), &note]));
             out.push(String::new());
         }
         for line in &m.lines {
@@ -1553,6 +1753,18 @@ fn post_line(mark: &str, num: &str, score: &str, day: &str, author: &str, replie
         resize(replies, 3),
         resize(title, 41)
     )
+}
+
+/// An answer to a request: a reply, or a comment (`push`) under a
+/// message of its thread.
+struct Answer {
+    who: String,
+    /// 0: anonymous, or from elsewhere.
+    who_id: u32,
+    at: NaiveDateTime,
+    text: Vec<String>,
+    msg: i64,
+    push: i64,
 }
 
 /// A line of a thread's tree.
