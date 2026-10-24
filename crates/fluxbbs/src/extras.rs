@@ -810,6 +810,8 @@ impl Session {
             },
             // New: the time zone they see times in.
             'R' => crate::clock::Zone::parse(&u.time_zone).map_or_else(|| "board's".into(), |z| z.short()),
+            // New: code's background.
+            'T' => crate::markup::code_back(&u.code_bg).0.into(),
             // New: plain text, ANSI, or as a bot or not (flag B).
             'S' => {
                 let on = crate::plain::wants_plain(&u.text_mode, crate::aimemory::is_bot(u));
@@ -842,6 +844,13 @@ impl Session {
             'P' => self.ssh_keys_edit().await?,
             'Q' => self.profile_edit().await?,
             'R' => self.time_zone_edit().await?,
+            // The next background for code (blank is the first, gray).
+            'T' => {
+                let backs = crate::markup::CODE_BACKS;
+                let cur = backs.iter().position(|b| b.0 == crate::markup::code_back(&self.user.code_bg).0).unwrap_or(0);
+                let next = (cur + 1) % backs.len();
+                self.user.code_bg = if next == 0 { String::new() } else { backs[next].0.into() };
+            }
             // Plain text or ANSI, the other of what it is now; auto
             // (plain for bots) when that's what auto would give. It takes
             // effect at once.
@@ -934,6 +943,7 @@ impl Session {
             ('N', 'T', "Theme"),
             ('R', 'Z', "Time zone"),
             ('S', 'B', "Text mode"),
+            ('T', 'G', "Code background"),
         ];
         loop {
             self.newline();
@@ -956,7 +966,7 @@ impl Session {
             self.newline();
             let Some(c) = key.upper().filter(|_| !matches!(key, Key::Enter | Key::Esc)) else { return Ok(()) };
             if let Some(&(f, _, name)) = items.iter().find(|(_, k, _)| *k == c) {
-                if !"AHIJKLMNRS".contains(f) {
+                if !"AHIJKLMNRST".contains(f) {
                     self.show(&format!("|U1{name}|U2: |U3")).await?;
                 }
                 self.edit_user_field(f).await?;

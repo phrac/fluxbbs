@@ -99,6 +99,8 @@ pub struct User {
     /// New: `plain` for plain text (no ANSI), `ansi`, or blank: plain for
     /// bots (flag B).
     pub text_mode: String,
+    /// New: code's background (`markup::CODE_BACKS`); blank for gray.
+    pub code_bg: String,
     /// New: the time zone times are shown to them in (an IANA name or
     /// an offset, as `clock::Zone::parse` reads it); blank for the board's.
     pub time_zone: String,
@@ -187,6 +189,7 @@ impl Default for User {
             show_real_name: false,
             ai_profile: String::new(),
             text_mode: String::new(),
+            code_bg: String::new(),
             time_zone: String::new(),
             thread_sort: String::new(),
             area_sort: String::new(),
@@ -293,6 +296,7 @@ impl User {
                 show_real_name,
                 ai_profile,
                 text_mode,
+                code_bg,
             ],
             [
                 total_calls,
@@ -380,6 +384,7 @@ impl User {
                 show_real_name,
                 ai_profile,
                 text_mode,
+                code_bg,
                             total_calls,
                 calls_today,
                 time_today,

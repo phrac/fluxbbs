@@ -321,9 +321,12 @@ colors and Markdown laid out, and its title names the file area:
   blocks) on a shaded background, colored when the block names its
   language.
 
-The shade is a 24-bit dark gray on terminals that take 24-bit color
-(UTF-8 ones, and SyncTERM), dark gray (iCE) otherwise. The same drawing
-is used for code blocks in messages and AI chat.
+Code blocks stand two columns in from each side. Their background is
+the caller's pick in user config (`g`, code background): gray (the
+default), dim, blue, green, purple, or none; in 24-bit color on
+terminals that take it (UTF-8 ones, and SyncTERM), else the nearest of
+the 16 (dark gray is iCE). The same drawing is used for code blocks in
+messages and AI chat.
 
 #### The file base on screens
 

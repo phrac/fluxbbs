@@ -37,16 +37,17 @@ impl Session {
         self.screen.plain()
     }
 
-    /// New: the SGR background for code (`markup.rs`): a dark gray in
-    /// 24 bits where the terminal takes them, else dark gray (iCE); none
-    /// in plain text.
+    /// New: the SGR background for code (`markup.rs`), the one the
+    /// caller picked (gray unless they did): 24-bit where the terminal
+    /// takes it, else the nearest of the 16; none in plain text.
     pub(crate) fn shade_sgr(&self) -> &'static str {
+        let (_, rgb, dos) = crate::markup::code_back(&self.user.code_bg);
         if self.plain() {
             ""
         } else if self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8 {
-            "48;2;38;38;46"
+            rgb
         } else {
-            "100"
+            dos
         }
     }
 

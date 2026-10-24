@@ -71,6 +71,25 @@ pub fn width_of(line: &Line) -> usize {
     line.iter().map(|s| s.text.chars().count()).sum()
 }
 
+/// Code's backgrounds a caller can pick: name, 24-bit SGR, 16-color SGR
+/// (`100` is dark gray, shown with iCE colors). The first is the default.
+pub const CODE_BACKS: [(&str, &str, &str); 6] = [
+    ("gray", "48;2;58;58;58", "100"),
+    ("dim", "48;2;36;36;40", "100"),
+    ("blue", "48;2;20;40;84", "44"),
+    ("green", "48;2;18;54;30", "42"),
+    ("purple", "48;2;58;28;74", "45"),
+    ("none", "", ""),
+];
+
+/// The background named `name` (the default for anything else).
+pub fn code_back(name: &str) -> (&'static str, &'static str, &'static str) {
+    CODE_BACKS.iter().copied().find(|b| b.0.eq_ignore_ascii_case(name)).unwrap_or(CODE_BACKS[0])
+}
+
+/// Columns a code block stands in from each side.
+const MARGIN: usize = 2;
+
 // ---- code ------------------------------------------------------------------
 
 /// A language the highlighter knows.
@@ -352,15 +371,22 @@ fn fit(mut line: Line, width: usize, shade: bool) -> Line {
     out
 }
 
-/// A fenced code line: a space in, colored if the language is known,
-/// shaded to `width`.
+/// A fenced code line: in from the margin, colored if the language is
+/// known, shaded to the margin on the right.
 fn code_line(lang: Option<Lang>, raw: &str, st: &mut CodeState, width: usize) -> Line {
     let mut l = vec![span(" ", Ink::Text, true)];
     match lang {
         Some(lang) => l.extend(highlight(lang, raw, st, true)),
         None => push(&mut l, &raw.replace('\t', "    "), Ink::Text, true),
     }
-    fit(l, width, true)
+    block_line(l, width)
+}
+
+/// A line of a code block: the margin, then `l` shaded to its width.
+fn block_line(l: Line, width: usize) -> Line {
+    let mut out = vec![span(" ".repeat(MARGIN), Ink::Text, false)];
+    out.extend(fit(l, width.saturating_sub(2 * MARGIN), true));
+    out
 }
 
 // ---- Markdown ----------------------------------------------------------------
@@ -586,7 +612,7 @@ pub fn render_markdown(text: &str, width: usize) -> Vec<Line> {
         if let Some(lang) = fence {
             if matches!(block_of(raw).0, Block::Fence(_)) {
                 fence = None;
-                out.push(fit(Vec::new(), width, true));
+                out.push(block_line(Vec::new(), width));
             } else {
                 out.push(code_line(lang, raw, &mut code, width));
             }
@@ -607,7 +633,7 @@ fn markdown_line(raw: &str, width: usize, fence: &mut Option<Option<Lang>>, code
             *fence = Some(lang_for_tag(&tag));
             *code = CodeState::default();
             let label = if tag.is_empty() { String::new() } else { format!(" {tag}") };
-            vec![fit(vec![span(label, Ink::Dim, true)], width, true)]
+            vec![block_line(vec![span(label, Ink::Comment, true)], width)]
         }
         Block::Rule => vec![vec![span("─".repeat(width.min(79)), Ink::Dim, false)]],
         Block::Heading(n) => {
@@ -720,7 +746,7 @@ impl MdStream {
                     self.fence = None;
                     self.head = Some(String::new());
                     // A shaded line to close it, as at the top.
-                    self.emit_line(fit(Vec::new(), self.width, true), out);
+                    self.emit_line(block_line(Vec::new(), self.width), out);
                 } else {
                     let l = code_line(lang, &line, &mut self.code, self.width);
                     self.emit_line(l, out);
@@ -776,7 +802,7 @@ impl MdStream {
                 self.fence = Some(lang_for_tag(tag));
                 self.code = CodeState::default();
                 let label = if tag.is_empty() { String::new() } else { format!(" {tag}") };
-                self.emit_line(fit(vec![span(label, Ink::Dim, true)], self.width, true), out);
+                self.emit_line(block_line(vec![span(label, Ink::Comment, true)], self.width), out);
                 self.block = Block::Para;
                 return;
             }
@@ -921,7 +947,7 @@ pub fn message_code_blocks(lines: &[String], width: usize) -> Option<Vec<Result<
         match fence {
             Some(_) if is_fence => {
                 fence = None;
-                out.push(Err(fit(Vec::new(), width, true)));
+                out.push(Err(block_line(Vec::new(), width)));
             }
             Some(lang) => out.push(Err(code_line(lang, l, &mut code, width))),
             None if is_fence => {
@@ -929,7 +955,7 @@ pub fn message_code_blocks(lines: &[String], width: usize) -> Option<Vec<Result<
                 fence = Some(lang_for_tag(&tag));
                 code = CodeState::default();
                 let label = if tag.is_empty() { String::new() } else { format!(" {tag}") };
-                out.push(Err(fit(vec![span(label, Ink::Dim, true)], width, true)));
+                out.push(Err(block_line(vec![span(label, Ink::Comment, true)], width)));
             }
             None => out.push(Ok(l.clone())),
         }
@@ -946,7 +972,8 @@ pub fn to_ansi(line: &Line, shade: &str, text: &str) -> String {
         let fore = format!("{}3{}", if fg >= 8 { "1;" } else { "" }, [0, 4, 2, 6, 1, 5, 3, 7][(fg & 7) as usize]);
         let code = match (sp.ink, sp.shade) {
             (Ink::Text, false) if !text.is_empty() => format!("\x1b[0;{text}m"),
-            (_, true) => format!("\x1b[0;{fore};{shade}m"),
+            (_, true) if !shade.is_empty() => format!("\x1b[0;{fore};{shade}m"),
+            (Ink::Text, true) if !text.is_empty() => format!("\x1b[0;{text}m"),
             _ => format!("\x1b[0;{fore}m"),
         };
         s.push_str(&code);
@@ -1005,9 +1032,10 @@ mod tests {
         assert!(lines[3].iter().any(|s| s.text == "code" && s.shade));
         assert_eq!(text[4], "  ∙ one");
         assert_eq!(text[5], " │ said");
-        assert_eq!(text[6].trim_end(), " c");
+        assert_eq!(text[6].trim_end(), "   c", "two in, then the shade");
         assert!(lines[7].iter().any(|s| s.text == "int" && s.ink == Ink::Type && s.shade));
-        assert_eq!(text[7].chars().count(), 40, "code is shaded edge to edge");
+        assert_eq!(text[7].chars().count(), 38, "code is shaded to the margin");
+        assert!(!lines[7][0].shade && lines[7][1].shade);
         assert!(text[9].starts_with("───"));
         assert_eq!(text[10], "site <http://x.y>");
         // Stars that aren't emphasis stay.
@@ -1044,9 +1072,9 @@ mod tests {
         assert_eq!(lines[0], "Heading");
         assert_eq!(lines[1], "Some bold text.");
         assert_eq!(lines[2], "  ∙ item one");
-        assert_eq!(lines[3].trim_end(), " c");
-        assert_eq!(lines[4].trim_end(), " int x;");
-        assert_eq!(lines[4].chars().count(), 40);
+        assert_eq!(lines[3].trim_end(), "   c");
+        assert_eq!(lines[4].trim_end(), "   int x;");
+        assert_eq!(lines[4].chars().count(), 38);
         assert_eq!(lines.last().unwrap().trim(), "After.");
         let long = streamed(&[&"word ".repeat(30)]);
         assert!(long.lines().all(|l| l.chars().count() <= 40), "{long:?}");
@@ -1060,6 +1088,8 @@ mod tests {
         assert!(matches!(&out[2], Err(l) if l.iter().any(|s| s.text == "fn" && s.ink == Ink::Keyword)));
         assert_eq!(out[4], Ok("bye".to_string()));
         assert!(message_code_blocks(&["plain".to_string()], 20).is_none());
+        assert_eq!(code_back("blue").1, "48;2;20;40;84");
+        assert_eq!(code_back("").0, "gray");
         let a = to_ansi(&vec![span("x", Ink::Keyword, true)], "48;2;1;2;3", "");
         assert_eq!(a, "\x1b[0;1;37;48;2;1;2;3mx\x1b[0m");
     }
