@@ -70,6 +70,16 @@ on = "|B1TradeWars 2002"
 off = "|B0TradeWars 2002"
 
 [[command]]
+keys = "6"
+command = "DB"
+param = "bre"
+acs = "s50"
+desc = "Barren Realms Elite"
+help = "Barren Realms Elite, against other boards' empires"
+on = "|B1Barren Realms Elite"
+off = "|B0Barren Realms Elite"
+
+[[command]]
 keys = "Q"
 command = '-\'
 param = "DOOR"

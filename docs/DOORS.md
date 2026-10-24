@@ -97,7 +97,8 @@ the caller's rows and their `TERM`. Curses programs work.
 for boards that sign up: LORD, TradeWars and others, with players from
 every board in the same games. The menu command `DB` with a door code
 plays one; `DB menu` shows BBSLink's own list of all its games. The
-stock BBSLINK menu (`L` on the doors menu) has the list and five games.
+stock BBSLINK menu (`L` on the doors menu) has the list and six games.
+A code BBSLink doesn't have is refused with "Unauthorised (Error 5)".
 
 Setting it up:
 
@@ -118,7 +119,7 @@ scheme_code = "..."
 ```
 
 3. Add games to a menu: command `DB`, the door code as the parameter
-   (`lord`, `lord2`, `teos`, `ooii`, `tw2002`, `menu`...), and a
+   (`lord`, `lord2`, `teos`, `ooii`, `tw2002`, `bre`, `menu`...), and a
    description, which is the game's name in the status and the doors
    scoreboard.
 
