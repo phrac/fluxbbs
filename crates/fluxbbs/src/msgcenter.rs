@@ -464,8 +464,7 @@ impl Session {
                 }
                 BarPick::Area(FAV_ROW) if favs.is_empty() => {
                     self.reader_prompt_area();
-                    self.say_line("MyBoardsEmpty").await?;
-                    self.prompt_key().await?;
+                    self.note_say("MyBoardsEmpty").await?;
                     came_from = Some(FAV_ROW);
                 }
                 BarPick::Area(n) if is_folder(n) => path.push(n),
@@ -481,8 +480,7 @@ impl Session {
                 BarPick::Key('*', _) if level != Some(FAV_ROW) => {
                     if favs.is_empty() {
                         self.reader_prompt_area();
-                        self.say_line("MyBoardsEmpty").await?;
-                        self.prompt_key().await?;
+                        self.note_say("MyBoardsEmpty").await?;
                     } else {
                         path = vec![FAV_ROW];
                     }
@@ -524,8 +522,7 @@ impl Session {
                         came_from = Some(n);
                         self.reader_prompt_area();
                         let s = self.strings().fmt(if added { "FavAdded" } else { "FavRemoved" }, &[&fluxbbs_term::lit(&a.area.name)]);
-                        self.show_line(&s).await?;
-                        self.prompt_key().await?;
+                        self.note(s).await?;
                     }
                 }
                 BarPick::Key('H', _) => self.msg_help().await?,
@@ -727,8 +724,7 @@ impl Session {
                 BarPick::Key('N', _) => {
                     let seq = v.new_in_thread_order();
                     if seq.is_empty() {
-                        self.say_line("MsgNothingNew").await?;
-                        self.prompt_key().await?;
+                        self.note_say("MsgNothingNew").await?;
                     } else if self.read_seq(a, &seq, 0).await? == ReadEnd::Quit {
                         return Ok(true);
                     }
@@ -982,8 +978,7 @@ impl Session {
             }
             if hot.is_empty() {
                 self.newline();
-                self.say_line("HotNone").await?;
-                self.prompt_key().await?;
+                self.note_say("HotNone").await?;
                 return Ok(false);
             }
             hot.sort_by(|x, y| y.0.total_cmp(&x.0));
@@ -1042,8 +1037,7 @@ impl Session {
         }
         if read == 0 {
             self.newline();
-            self.say_line("MsgNothingNew").await?;
-            self.prompt_key().await?;
+            self.note_say("MsgNothingNew").await?;
         }
         Ok(read)
     }

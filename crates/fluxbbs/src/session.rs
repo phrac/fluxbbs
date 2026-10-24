@@ -185,6 +185,9 @@ pub struct Session {
     pub(crate) ai_ink: String,
     /// New: the style AI chat's text is in now (`markup.rs`).
     pub(crate) ai_style: Option<(crate::markup::Ink, bool)>,
+    /// New: a one-line note for the help line of the next list or menu
+    /// (`Session::note`).
+    pub(crate) note: Option<String>,
     /// The context the AI conversation has used, for the bar (`AiContext`).
     pub(crate) ai_ctx: String,
     /// The chat's rows under the header, kept to redraw them (new).
@@ -359,6 +362,7 @@ impl Session {
             ai_bar: String::new(),
             ai_ink: String::new(),
             ai_style: None,
+            note: None,
             ai_ctx: String::new(),
             ai_win: None,
             editor_note: None,
@@ -1000,6 +1004,9 @@ impl Session {
                     }
                     None => self.rule().await?,
                 }
+                // A note waiting takes the help line's place, this once.
+                let noted = self.note.take();
+                let help = noted.as_deref().unwrap_or(help);
                 if bar {
                     self.goto_pos(*b"HP");
                     // Kept to its row: the bar is under it.

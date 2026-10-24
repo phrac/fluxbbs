@@ -929,8 +929,7 @@ impl Session {
         // New: said, rather than going back to the list as if nothing
         // had happened.
         if subject.is_empty() {
-            self.say_line("MsgNoTitle").await?;
-            self.prompt_key().await?;
+            self.note_say("MsgNoTitle").await?;
             return Ok(None);
         }
         // New: a new thread in an area with tags picks one (PTT's categories).

@@ -258,13 +258,11 @@ impl Session {
         let cfg = self.state.config().bbslink.clone();
         if let Some(why) = not_ready(&cfg) {
             tracing::warn!("bbslink: {why}");
-            self.newline();
-            return self.say_line("BbsLinkOff").await;
+            return self.note_say("BbsLinkOff").await;
         }
         if !valid_code(code) {
             tracing::warn!("bbslink: bad door code {code:?}");
-            self.newline();
-            return self.say_line("BbsLinkOff").await;
+            return self.note_say("BbsLinkOff").await;
         }
         let name = if self.menu.cmd_desc.trim().is_empty() { format!("BBSLink {code}") } else { self.menu.cmd_desc.trim().to_string() };
         self.newline();
@@ -284,6 +282,7 @@ impl Session {
         let end = self.bbslink_run(stream, rows).await;
         self.input.clear();
         self.screen.resync();
+        self.full_screen_done();
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
         self.record_play(&name, started);
         match end? {
@@ -299,7 +298,7 @@ impl Session {
     async fn bbslink_failed(&mut self, why: &str) -> io::Result<()> {
         tracing::warn!("{}: BBSLink: {why}", self.user.handle);
         let s = self.strings().fmt("BbsLinkFailed", &[&fluxbbs_term::lit(why)]);
-        self.show_line(&s).await
+        self.note(s).await
     }
 
     /// The caller and the game, until one of them goes or time's up.

@@ -71,6 +71,8 @@ pub struct MenuState {
     pub(crate) cmd_desc: String,
     /// New: the menu last listed in plain text.
     pub(crate) plain_listed: String,
+    /// New: the screen's line count when the last command began.
+    lines_mark: u64,
 }
 
 impl MenuState {
@@ -156,6 +158,24 @@ impl Session {
         self.menu.skip_pause = true;
     }
 
+    /// New: a line to tell the caller, shown on the help line of the list
+    /// or menu they go back to (until their next key) rather than with a
+    /// "press any key" stop; plain text has it at once.
+    pub(crate) async fn note(&mut self, s: String) -> io::Result<()> {
+        if self.plain() {
+            return self.show_line(&s).await;
+        }
+        self.note = Some(s);
+        self.full_screen_done();
+        Ok(())
+    }
+
+    /// `note` with a prompt string by name.
+    pub(crate) async fn note_say(&mut self, name: &str) -> io::Result<()> {
+        let s = self.strings().get(name).to_string();
+        self.note(s).await
+    }
+
     /// After entering a menu, queue its FIRSTCMD commands.
     pub fn queue_first_cmd(&mut self) {
         let first = self.menu.commands().iter().any(|c| c.keys == FIRST_CMD && self.acs(&c.acs));
@@ -193,6 +213,7 @@ impl Session {
         } else {
             self.menu_handle().await?
         };
+        self.menu.lines_mark = self.screen.text_lines();
         while !cmd.is_empty() && !self.hangup {
             self.menu.next_cmd.clear();
             self.menu_execute(&cmd).await?;
@@ -217,8 +238,12 @@ impl Session {
         self.check_expert();
         let lightbar = menu.menu_type == MenuType::Lightbar && self.text_file_exists(&menu.help_file);
         // New: a lightbar menu is drawn again even in expert mode, over
-        // what the last command showed, so that waits for a key first.
-        if menu.pause_before && (self.menu.do_help || lightbar) && self.menu.last_cmd_good && !self.menu.skip_pause {
+        // what the last command showed, so that waits for a key first;
+        // and only after a command that showed something worth reading
+        // (two lines or more: not a menu change, nor a list or view
+        // the caller has just left).
+        let showed = self.screen.text_lines() >= self.menu.lines_mark + 2;
+        if menu.pause_before && (self.menu.do_help || lightbar) && self.menu.last_cmd_good && !self.menu.skip_pause && showed {
             self.prompt_key().await?;
         }
         self.menu.last_cmd_good = false;
@@ -238,6 +263,10 @@ impl Session {
         }
         if self.menu.do_help && !lightbar {
             self.menu_show(&menu).await?;
+        }
+        if !lightbar && let Some(n) = self.note.take() {
+            self.newline();
+            self.show_line(&n).await?;
         }
         if !lightbar && menu.show_prompt {
             self.newline();
@@ -445,8 +474,10 @@ impl Session {
         let has_number = allowed("#");
         let mut cur = 1;
         self.lightbar_item(menu, &items, cur, true, has_help, &mut help_len).await?;
-        // New: a hint for this caller in the help line, till they move.
-        if has_help && let Some(hint) = self.caller_hint(menu) {
+        // New: a note (`Session::note`), else a hint for this caller, in
+        // the help line till they move.
+        let hint = self.note.take().or_else(|| self.caller_hint(menu));
+        if has_help && let Some(hint) = hint {
             self.goto_pos(LIGHTBAR_HELP);
             self.write(&" ".repeat(help_len));
             self.goto_pos(LIGHTBAR_HELP);

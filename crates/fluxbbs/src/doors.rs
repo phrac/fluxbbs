@@ -794,15 +794,13 @@ impl Session {
         let drive = cfg.resolve(&cfg.dos.drive);
         if dos && !dos_program_found(&drive, cmd) {
             tracing::warn!("DOS door not found in {}: {cmd}", drive.display());
-            self.newline();
-            return self.say_line("DoorFailed").await;
+            return self.note_say("DoorFailed").await;
         }
         let _claim = if cfg.dos.one_at_a_time.iter().any(|d| door_name(d).eq_ignore_ascii_case(&door_name(cmd))) {
             match DoorClaim::take(&self.state, door_name(cmd).to_ascii_uppercase()) {
                 Some(c) => Some(c),
                 None => {
-                    self.newline();
-                    return self.say_line("DoorInUse").await;
+                    return self.note_say("DoorInUse").await;
                 }
             }
         } else {
@@ -826,8 +824,7 @@ impl Session {
             Ok(d) => d,
             Err(e) => {
                 tracing::error!("door drop directory {}: {e}", dir.display());
-                self.newline();
-                return self.say_line("DoorFailed").await;
+                return self.note_say("DoorFailed").await;
             }
         };
         self.save_user();
@@ -854,6 +851,9 @@ impl Session {
         }
         self.input.clear();
         self.screen.resync();
+        // New: the game had the screen; nothing of it to keep, so the
+        // menu comes back without a pause.
+        self.full_screen_done();
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
         if kind == '7' {
             self.door_readback(&dir);
@@ -862,8 +862,7 @@ impl Session {
             // The shell couldn't find it.
             Ok(DoorEnd::Exited(st)) if st.code() == Some(127) => {
                 tracing::warn!("door not found: {cmd}");
-                self.newline();
-                self.say_line("DoorFailed").await?;
+                self.note_say("DoorFailed").await?;
             }
             Ok(DoorEnd::Exited(st)) if !st.success() => tracing::info!("door exited with {st}: {cmd}"),
             Ok(DoorEnd::TimeUp) => tracing::info!("{}: out of time in a door", self.user.handle),
@@ -871,8 +870,7 @@ impl Session {
             Ok(_) => {}
             Err(e) => {
                 tracing::error!("running door {cmd}: {e}");
-                self.newline();
-                self.say_line("DoorFailed").await?;
+                self.note_say("DoorFailed").await?;
             }
         }
         Ok(())

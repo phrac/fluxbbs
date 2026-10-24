@@ -39,16 +39,14 @@ impl Session {
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
         self.clear_screen();
         if !self.may_create_board() {
-            self.say_line("BoardCreateNo").await?;
-            self.prompt_key().await?;
+            self.note_say("BoardCreateNo").await?;
             return Ok(None);
         }
         let limit = self.state.config().messages.boards_per_caller;
         let mine = self.state.areas().areas.iter().filter(|a| !a.created.is_empty() && if a.sponsor_id != 0 { a.sponsor_id == self.user.id } else { a.sponsor.eq_ignore_ascii_case(&self.user.handle) }).count();
         if mine >= limit as usize {
             let s = self.strings().fmt("BoardLimit", &[&limit.to_string()]);
-            self.show_line(&s).await?;
-            self.prompt_key().await?;
+            self.note(s).await?;
             return Ok(None);
         }
         self.say_line("BoardIntro").await?;
@@ -60,8 +58,7 @@ impl Session {
             return Ok(None);
         }
         if self.state.areas().areas.iter().any(|a| a.name.eq_ignore_ascii_case(&name)) {
-            self.say_line("BoardNameTaken").await?;
-            self.prompt_key().await?;
+            self.note_say("BoardNameTaken").await?;
             return Ok(None);
         }
         self.say("BoardAskAbout").await?;
@@ -122,14 +119,12 @@ impl Session {
             .map_err(io_err)?
             .map_err(io_err)?;
         let Some((n, file)) = made else {
-            self.say_line("BoardNameTaken").await?;
-            self.prompt_key().await?;
+            self.note_say("BoardNameTaken").await?;
             return Ok(None);
         };
         tracing::info!("{}: made the board {name} ({file})", self.user.handle);
         let s = self.strings().fmt("BoardMade", &[&name]);
-        self.show_line(&s).await?;
-        self.prompt_key().await?;
+        self.note(s).await?;
         Ok(Some(n))
     }
 

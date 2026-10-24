@@ -552,8 +552,14 @@ Where the original's behavior was a hazard or no longer fits.
 - Caller numbers don't repeat when two nodes log on at once.
 - Events are one scheduler in the server, not per node.
 - No modem off-hook.
-- A lightbar menu pauses after a command's output even in expert mode
-  (it's drawn again over it, so the output would vanish).
+- A menu's "press any key" (`pause_before`) comes only after a command
+  that showed something to read (two lines or more): not after changing
+  menus, nor coming back from a list, a door or anything full-screen.
+  A lightbar menu pauses after such output even in expert mode (it's
+  drawn again over it, so the output would vanish).
+- One-line notes ("Added to my boards", "Nothing new", a door that
+  wouldn't start) go on the help line of the list or menu the caller
+  returns to, until their next key, not behind a "press any key".
 - The stock screens, themes and menus say flux/bbs where they said
   Iniquity, but for the original's copyright line (PRELOGON.AN2) and
   the credit on the wait-for-call screen.

@@ -50,6 +50,11 @@ pub struct Screen {
     /// New: plain text (for bots): no colors, cursor moves or clears go
     /// out, and a clear screen starts a new line.
     plain: bool,
+    /// New: lines with text on them written so far (for the menu's
+    /// pause: only after a command that showed something), and whether
+    /// the current one has any yet.
+    text_lines: u64,
+    dirty: bool,
 }
 
 impl Screen {
@@ -70,6 +75,8 @@ impl Screen {
             truecolor: false,
             ice_blink: false,
             plain: false,
+            text_lines: 0,
+            dirty: false,
         }
         .init()
     }
@@ -111,6 +118,11 @@ impl Screen {
 
     pub fn plain(&self) -> bool {
         self.plain
+    }
+
+    /// Lines with text on them written so far.
+    pub fn text_lines(&self) -> u64 {
+        self.text_lines
     }
 
     pub fn set_rows(&mut self, rows: u16) {
@@ -293,6 +305,9 @@ impl Screen {
                 self.raw(b"\r");
             }
             b'\n' => {
+                if std::mem::take(&mut self.dirty) {
+                    self.text_lines += 1;
+                }
                 self.line_feed();
                 self.raw(b"\n");
             }
@@ -340,6 +355,9 @@ impl Screen {
     }
 
     fn glyph(&mut self, b: u8) {
+        if b != b' ' {
+            self.dirty = true;
+        }
         match self.charset {
             Charset::Cp437 => self.out.push(b),
             Charset::Utf8 => {
@@ -388,6 +406,7 @@ impl Screen {
             b'G' => self.x = n(0).min(COLUMNS),
             b'd' => self.y = n(0).min(self.rows),
             b'J' if params.first() == Some(&2) => {
+                self.dirty = false;
                 // Plain text has no screens: a new one starts a new line.
                 if self.plain && self.x > 1 {
                     self.raw(b"\r\n");
