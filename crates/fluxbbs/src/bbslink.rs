@@ -57,7 +57,10 @@ async fn connect(cfg: &BbsLink, user: u32, rows: u16, door: &str) -> anyhow::Res
         .map(|a| a.ip())
         .min_by_key(|ip| ip.is_ipv6())
         .ok_or_else(|| anyhow::anyhow!("{host} has no address"))?;
+    // BBSLink reads its headers by their exact names (`X-Auth`, not
+    // `x-auth`, which it answers with "Unauthorised (Error 7)").
     let client = reqwest::Client::builder()
+        .http1_title_case_headers()
         .resolve(&host, SocketAddr::new(ip, 80))
         .no_proxy()
         .redirect(reqwest::redirect::Policy::none())
@@ -376,5 +379,16 @@ mod tests {
         assert_eq!(t.start(), [IAC, DO, BINARY, IAC, WILL, BINARY]);
         assert!(t.server_sent(&[IAC, WILL, BINARY, IAC, DO, BINARY]).1.is_empty());
         assert_eq!(t.to_server(b"\r"), [b'\r']);
+    }
+
+    /// The real handshake, with codes from the environment (BBSLINK_SYSTEM,
+    /// BBSLINK_AUTH, BBSLINK_SCHEME): `cargo test live_handshake --
+    /// --ignored`. Signs in as user 1 and hangs up at once.
+    #[tokio::test]
+    #[ignore]
+    async fn live_handshake() {
+        let env = |k: &str| std::env::var(k).unwrap_or_default();
+        let cfg = BbsLink { enabled: true, system_code: env("BBSLINK_SYSTEM"), auth_code: env("BBSLINK_AUTH"), scheme_code: env("BBSLINK_SCHEME"), ..BbsLink::default() };
+        connect(&cfg, 1, 25, "menu").await.expect("BBSLink let us in");
     }
 }
