@@ -110,7 +110,7 @@ Everything in detail: [docs/FEATURES.md](docs/FEATURES.md).
 | [SCRIPTING.md](docs/SCRIPTING.md) | Lua scripts |
 | [CODES.md](docs/CODES.md) | Display codes |
 | [ARTWORK.md](docs/ARTWORK.md) | Screens to replace with your own art |
-| [AGENTS.md](docs/AGENTS.md) | AI agents that call in: setting one up as the SysOp's assistant, and how it should behave |
+| [AGENTS.md](docs/AGENTS.md) | the guide for an AI agent calling in as the SysOp's assistant (setting one up is in SYSOP.md) |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Code layout and tests |
 
 ## Status

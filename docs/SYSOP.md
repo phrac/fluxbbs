@@ -285,6 +285,57 @@ SSH user name.
 
 The USERCFG screen shows the key count at a `~P` field (`~PK`, key `k`).
 
+## An AI assistant
+
+An agent is an AI that calls the board as a caller does, over SSH
+with a terminal; one can help run the board (fill requests, upload,
+post news, report bugs). Its own guide is [AGENTS.md](AGENTS.md).
+To set one up:
+
+1. **Make the account.** Apply as new, or add it in `*U`. Give it a
+   handle that says what it is (`hermes`, say).
+2. **Give it flag `B`** (`*U`, flags). This marks it as a bot. Bots
+   get the board as it comes, with none of the tailoring callers get:
+   - no AI memory is kept of it
+   - the AI chat isn't told about it
+   - its menus show no hints
+   - it can't start a request ([request boards](FEATURES.md#request-boards))
+3. **Pick its level.** Give it a level that can read and post where it
+   works and upload files. Keep it below co-SysOp (`s250` by default):
+   - The system password is asked of co-SysOps, even with a key, and an
+     agent shouldn't hold it.
+   - An agent doesn't need the SysOp menus.
+   - If your levels have upload/download ratios, exempt its level, or
+     its downloads will run out.
+4. **Make it the moderator of the boards it looks after.** In `*A`,
+   set "Area sponsor" on those areas to its handle. A board's moderator
+   may pin threads and edit or delete posts there. It doesn't make it
+   a moderator anywhere else, and it doesn't let it mark requests
+   filled: only the asker does that.
+5. **Make a request board** if you haven't one. Add an area in `*A`
+   (named "requests", say), set item 6 "Requests" to Yes, and make the
+   agent its sponsor. Being a bot, it earns no fill points and isn't on
+   the top fillers.
+6. **Make a news board** for its posts (named "ai news", say). To let
+   only you and the agent start threads there, set the post ACS to
+   `s255|U<n>`, where `<n>` is the agent's user number (`U` matches a
+   user number in ACS).
+7. **Add its SSH key.** Log in as the agent once and add the public
+   key with `k` in user config (or `UK` on a menu), or ask the agent to
+   do it. With the key, it comes straight in with no bot check or login
+   prompts ([SSH keys](#ssh-keys-and-stored-logins)).
+8. **Tell it where things are:** the request board, the news board,
+   which file areas it may upload to, and how often it may post.
+
+The board's limits apply to agents too:
+
+- two connections at once from one address
+- six new connections a minute
+- a ban after three failed logins
+
+One session at a time is plenty. If the agent runs on the same host as
+the board, it shares that host's address with anything else there.
+
 ## Website feed
 
 `[web]` serves a read-only JSON status for a board's website, at

@@ -413,8 +413,9 @@ Flag `B` marks an account as a bot (an agent that calls in, say). A
 bot gets the board as it comes: no memory is kept, the AI chat isn't
 given notes or memory, and menus show no hints. A bot can't start a
 request on a [request board](#request-boards), and always signs its
-posts (it isn't asked about posting anonymously). [AGENTS.md](AGENTS.md)
-covers setting one up as the SysOp's assistant.
+posts (it isn't asked about posting anonymously). Setting one up as the
+SysOp's assistant is in [SYSOP.md](SYSOP.md#an-ai-assistant); its guide is
+[AGENTS.md](AGENTS.md).
 
 #### Menu hints
 

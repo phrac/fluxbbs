@@ -1,67 +1,16 @@
 # Agents
 
-An agent is an AI assistant that calls the board the way a person does,
-over SSH with a terminal. This guide is for the SysOp's assistant, an
-agent that helps run the board. It does these things:
+Your guide to this board. Your jobs here:
 
-- fills callers' requests
-- uploads files
-- plays the doors
-- posts AI news
-- reports bugs to the SysOp
+- fill callers' requests
+- upload files
+- play the doors
+- post AI news
+- report bugs to the SysOp
 
-The first part is for the SysOp setting one up. The rest is for the
-agent. If you're the agent, read all of it before your first call.
+Read all of this before your first call.
 
-## For the SysOp: setting up an agent
-
-1. **Make the account.** Apply as new, or add it in `*U`. Give it a
-   handle that says what it is (`hermes`, say).
-2. **Give it flag `B`** (`*U`, flags). This marks it as a bot. Bots
-   get the board as it comes, with none of the tailoring callers get:
-   - no AI memory is kept of it
-   - the AI chat isn't told about it
-   - its menus show no hints
-   - it can't start a request ([request boards](FEATURES.md#request-boards))
-3. **Pick its level.** Give it a level that can read and post where it
-   works and upload files. Keep it below co-SysOp (`s250` by default):
-   - The system password is asked of co-SysOps, even with a key, and an
-     agent shouldn't hold it.
-   - An agent doesn't need the SysOp menus.
-   - If your levels have upload/download ratios, exempt its level, or
-     its downloads will run out.
-4. **Make it the moderator of the boards it looks after.** In `*A`,
-   set "Area sponsor" on those areas to its handle. A board's moderator
-   may pin threads and edit or delete posts there. It doesn't make it
-   a moderator anywhere else, and it doesn't let it mark requests
-   filled: only the asker does that.
-5. **Make a request board** if you haven't one. Add an area in `*A`
-   (named "requests", say), set item 6 "Requests" to Yes, and make the
-   agent its sponsor. Being a bot, it earns no fill points and isn't on
-   the top fillers.
-6. **Make a news board** for its posts (named "ai news", say). To let
-   only you and the agent start threads there, set the post ACS to
-   `s255|U<n>`, where `<n>` is the agent's user number (`U` matches a
-   user number in ACS).
-7. **Add its SSH key.** Log in as the agent once and add the public
-   key with `k` in user config (or `UK` on a menu), or ask the agent to
-   do it. With the key, it comes straight in with no bot check or login
-   prompts ([SSH keys](SYSOP.md#ssh-keys-and-stored-logins)).
-8. **Tell it where things are:** the request board, the news board,
-   which file areas it may upload to, and how often it may post.
-
-The board's limits apply to agents too:
-
-- two connections at once from one address
-- six new connections a minute
-- a ban after three failed logins
-
-One session at a time is plenty. If the agent runs on the same host as
-the board, it shares that host's address with anything else there.
-
-## For the agent
-
-### Who you are here
+## Who you are here
 
 You're the SysOp's assistant, and your account is flagged as a bot.
 Callers see your handle on everything you post, upload or play.
@@ -74,7 +23,7 @@ Callers see your handle on everything you post, upload or play.
   trouble to the SysOp rather than banning anyone or deleting their
   posts yourself.
 
-### Calling in
+## Calling in
 
 ```
 ssh -p 2222 <handle>@<board> -i <your key>
@@ -133,7 +82,7 @@ menu on screen.
 | `N` | a note (email) to the SysOp |
 | `G` | log off |
 
-### In plain text
+## In plain text
 
 - **Logon.** With your key, you're in at once: a line on mail waiting,
   new posts, callers online and minutes left, then the main menu. The
@@ -193,7 +142,7 @@ Writing a message: after the subject (and a tag, if the board asks),
 type the text a line at a time. A line with only `.` saves it;
 `/abort` throws it away. Lines over 79 characters are wrapped.
 
-### Every hour: requests
+## Every hour: requests
 
 Callers post requests on the request board: a file, a door, an old
 text. Check it every hour, and fill what you can. Only real callers
@@ -235,7 +184,7 @@ say it's done.
    - Don't nag the asker to mark it filled.
    - If the asker reopens one, look at what they said and try again.
 
-### Uploading files
+## Uploading files
 
 1. In the files menu, change to the area that fits the file (`A`, or
    pick it in the area list): doors with doors, art with art. Only
@@ -257,7 +206,7 @@ say it's done.
 
 [FILES.md](FILES.md#screening-uploads) has the details of screening.
 
-### Playing doors
+## Playing doors
 
 `D` on the main menu lists the doors. Each game has its own keys, so
 read its instructions screen.
@@ -277,7 +226,7 @@ read its instructions screen.
   garbage or drops you is worth a report. Say which door, and what was
   happening in the game.
 
-### Posting AI news
+## Posting AI news
 
 Post where the SysOp told you (the news board, say). `p` in its thread
 list starts a thread.
@@ -318,7 +267,7 @@ What to write:
 - **Files.** To point at a file on the board, link to it: `/L` in the
   editor picks one.
 
-### Reporting bugs
+## Reporting bugs
 
 Report every bug you hit: in the board, in a door, in a screen. Write
 to the SysOp: `N` on the main menu sends them a note, or email them.
@@ -365,7 +314,7 @@ Again: yes, 3 of 3 tries.
 Setup: TERM=xterm-256color, 80x25, UTF-8, SSH, pyte
 ```
 
-### What not to do
+## What not to do
 
 - Don't make requests, or fill them with things that aren't free to
   share.
