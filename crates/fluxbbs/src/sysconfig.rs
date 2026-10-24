@@ -389,22 +389,130 @@ pub fn save_changes(path: &Path, old: &Config, new: &Config) -> anyhow::Result<(
     Ok(())
 }
 
+/// New: the sections on the `*C` screen, in four groups: each one's key
+/// (its place in [`sections`]; the last, the default colors), a short
+/// name and what's in it.
+type Group = (&'static str, &'static [(char, &'static str, &'static str)]);
+
+const GROUPS: &[Group] = &[
+    ("the board", &[
+        ('A', "Main BBS Settings", "Name, location, address, SysOp, nodes, idle timeout, time zone"),
+        ('B', "SSH, Telnet, Terminal", "Where SSH and telnet listen, character sets (takes effect at restart)"),
+        ('E', "Prompts", "Yes/no prompts and bars, password echo, pauses"),
+        ('H', "Website Feed", "The status feed for a website: who's on, last callers, new files"),
+        ('R', "Wait-For-Call", "The local wait-for-call screen"),
+        ('W', "Default Colors", "The color scheme new callers start with"),
+    ]),
+    ("callers", &[
+        ('C', "Access and Logon", "SysOp access, the matrix, logon tries, system password, time per call"),
+        ('F', "Security", "Bot check, connection limits, bans, allow and deny lists"),
+        ('I', "Passwords, Sign-ups", "Password rules, sign-up limits, reserved handles, purging"),
+        ('D', "New User Config", "New callers' settings, and which of them they're asked"),
+        ('J', "New User Questions", "What new callers are asked: real name, birth date, phone..."),
+        ('K', "New User Voting", "Callers voting new users in"),
+    ]),
+    ("messages & files", &[
+        ('L', "Message System", "Message access, private replies, quoting, deleting"),
+        ('M', "Attachments, Uploads", "Attaching files to messages, uploading messages"),
+        ('N', "Caller Boards", "Boards callers run, request fills and points"),
+        ('V', "File System", "File points, ratios, limits, validation, descriptions"),
+        ('O', "Transfers", "Upload size, transfer speed, logging off after"),
+        ('P', "Upload Tests", "Testing and unpacking uploads, the BBS ad, pictures"),
+        ('G', "Art Gallery", "The gallery's folder or file area, access, play speed"),
+    ]),
+    ("talk & networks", &[
+        ('Q', "Chat Mode", "Paging the SysOp: hours, beeps, overrides"),
+        ('S', "AI Chat", "The AI's server, model, limits, web search, tarot and fortunes"),
+        ('T', "MeshCore", "The MeshCore radio bridge"),
+        ('U', "FTN Echomail", "Echomail networks: addresses, hub, passwords, polling"),
+    ]),
+];
+
+/// Columns of the groups, and the row each group's heading is on.
+const GROUP_AT: [(u16, u16); 4] = [(2, 4), (28, 4), (54, 4), (2, 13)];
+
+fn on_off(on: bool) -> &'static str {
+    if on { "on" } else { "off" }
+}
+
+/// Cut from the left, for paths: "...end".
+fn tail(s: &str, n: usize) -> String {
+    let len = s.chars().count();
+    if len <= n { s.to_string() } else { format!("...{}", s.chars().skip(len + 3 - n).collect::<String>()) }
+}
+
 impl Session {
-    /// `cfgSystemConfig`: pick a section to edit.
+    /// The board right now, beside the groups.
+    fn config_status(&mut self, cfg: &Config) {
+        let st = self.state.clone();
+        let now = crate::clock::now().naive_local();
+        let up = (now - st.started).num_minutes().max(0) as u64;
+        let today = st.sys.day(now.date()).unwrap_or_default();
+        let ftn = match (cfg.ftn.enabled, cfg.ftn.address.trim()) {
+            (false, _) => "off".to_string(),
+            (true, "") => "on, no address yet".into(),
+            (true, a) if cfg.ftn.networks.is_empty() => a.to_string(),
+            (true, a) => format!("{a} +{} more", cfg.ftn.networks.len()),
+        };
+        let zone = if cfg.bbs.time_zone.trim().is_empty() { "host clock" } else { cfg.bbs.time_zone.trim() };
+        let rows = [
+            ("board", format!("{} · flux/bbs {}", cfg.bbs.name, env!("CARGO_PKG_VERSION"))),
+            ("up", format!("since {}, {}", st.started.format("%m/%d %H:%M"), crate::doorstats::span(up))),
+            ("online", format!("{} of {} nodes · {} users · {} calls today", st.nodes.online().len(), cfg.bbs.max_nodes, st.users.count().unwrap_or(0), today.calls)),
+            ("clock", format!("{} {zone}", now.format("%H:%M"))),
+            ("ai", if cfg.ai.enabled { cfg.ai.model.clone() } else { "off".into() }),
+            ("ftn", ftn),
+            ("meshcore", if cfg.meshcore.enabled { cfg.meshcore.address.clone() } else { "off".into() }),
+            ("config", tail(&self.config_path().display().to_string(), 40)),
+        ];
+        let (x, y) = (28, GROUP_AT[3].1);
+        self.screen.goto(x, y);
+        self.write_with_controls(&format!("|U5─[|U4 right now |U5]{}", "─".repeat(80 - x as usize - 14)));
+        for (i, (label, value)) in rows.iter().enumerate() {
+            self.screen.goto(x + 2, y + 1 + i as u16);
+            let value: String = value.chars().take(40).collect();
+            self.write_with_controls(&format!("|U5{label:<9}|U3"));
+            self.write(&value);
+        }
+    }
+
+    /// `cfgSystemConfig`: pick a section to edit. New: the sections in
+    /// groups, what each holds on the bottom bar, and the board's state.
     pub async fn system_config(&mut self) -> io::Result<()> {
         tracing::info!("{}: system config", self.user.handle);
         let original = (*self.state.config()).clone();
         let mut cfg = original.clone();
         let secs = sections();
+        let mut at = 'A';
         loop {
             let mut f = Form::new(&format!("{} System Configuration", cfg.bbs.name));
-            for (i, (title, restart, _)) in secs.iter().enumerate() {
-                let note = if *restart { "SSH and telnet settings take effect when the BBS restarts." } else { "" };
-                f.item((b'A' + i as u8) as char, title, 0, "", note);
+            f.hints();
+            for ((_, items), (x, y)) in GROUPS.iter().zip(GROUP_AT) {
+                for (i, (key, label, info)) in items.iter().enumerate() {
+                    // What's on, beside the sections that switch something on.
+                    let state = match key {
+                        'H' => on_off(cfg.web.enabled),
+                        'S' => on_off(cfg.ai.enabled),
+                        'T' => on_off(cfg.meshcore.enabled),
+                        'U' => on_off(cfg.ftn.enabled),
+                        _ => "",
+                    };
+                    // Rows count from the form's first (screen row 4).
+                    let row = y + 1 + i as u16 - 3;
+                    f.item_xy(x, row, x + 21, *key, label, if state.is_empty() { 0 } else { 3 }, state, info);
+                }
             }
-            f.item((b'A' + secs.len() as u8) as char, "Default Colors", 0, "", "");
+            // The bottom bar goes under the status lines.
+            f.gap(18);
+            f.select(at);
             self.cfg_draw(&f);
+            for ((title, _), (x, y)) in GROUPS.iter().zip(GROUP_AT) {
+                self.screen.goto(x, y);
+                self.write_with_controls(&format!("|U5─[|U4 {title} |U5]{}", "─".repeat(20 - title.len())));
+            }
+            self.config_status(&cfg);
             let Some(key) = self.cfg_command(&mut f).await? else { break };
+            at = key;
             let i = (key as u8 - b'A') as usize;
             match secs.get(i) {
                 Some((title, _, settings)) => self.config_section(title, settings, &mut cfg).await?,
@@ -514,6 +622,15 @@ mod tests {
         assert!(out.contains("# points!\nuse_file_points = true"), "{out}");
         assert_eq!(Config::load(&path).unwrap().bbs.name, "New Name");
         std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn every_section_is_in_a_group() {
+        let mut keys: Vec<char> = GROUPS.iter().flat_map(|(_, items)| items.iter().map(|i| i.0)).collect();
+        keys.sort();
+        let want: Vec<char> = (0..=sections().len() as u8).map(|i| (b'A' + i) as char).collect();
+        assert_eq!(keys, want);
+        assert!(GROUPS.iter().all(|(t, items)| t.len() <= 20 && items.iter().all(|i| i.1.len() <= 21 && i.2.len() <= 72)));
     }
 
     #[test]

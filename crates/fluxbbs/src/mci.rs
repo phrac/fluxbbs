@@ -201,6 +201,7 @@ impl Session {
             b"LA" => self.current_theme().map_or("n/a".into(), |t| t.author),
             b"LD" => self.current_theme().map_or("n/a".into(), |t| t.desc),
             [b'M', c] if MSG_STATS.contains(c) => self.msg_stat(*c),
+            [b'G', c] if crate::doorstats::DOOR_STATS.contains(c) => self.door_stat(*c),
             b"MI" => u.cur_msg_area.to_string(),
             b"MP" => self.menu.menu.as_ref().map(|m| m.prompt_name.clone()).unwrap_or_default(),
             b"MW" => self.mail_waiting().to_string(),

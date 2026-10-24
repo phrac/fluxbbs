@@ -834,17 +834,24 @@ impl Session {
         let cmd = self.door_command(cmd, &dir, dos);
         self.node.update(|n| n.activity = format!("Running {name}"));
         self.flush().await?;
-        let started = if dos && cfg.dos.emulator.is_empty() {
+        let started = crate::clock::now().naive_local();
+        let spawned = if dos && cfg.dos.emulator.is_empty() {
             Ok(spawn_builtin(&cmd, &dir, &drive))
         } else if dos {
             spawn_dos(&cfg.dos, &cmd, &dir, &drive).await.map(|(l, c)| (l, Proc::Child(c)))
         } else {
             self.spawn_native(&cmd, &dir).map(|(l, c)| (l, Proc::Child(c)))
         };
-        let result = match started {
+        let result = match spawned {
             Ok((line, proc)) => self.run_door(line, proc).await,
             Err(e) => Err(e),
         };
+        // A program the shell couldn't find wasn't played.
+        if let Ok(end) = &result
+            && !matches!(end, DoorEnd::Exited(st) if st.code() == Some(127))
+        {
+            self.record_play(&name, started);
+        }
         self.input.clear();
         self.screen.resync();
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));

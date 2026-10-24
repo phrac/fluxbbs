@@ -285,6 +285,8 @@ All in [DOORS](DOORS.md).
 - `[dos] emulator` runs a door under DOSBox instead, for one the
   machine can't run.
 - `dosrun` tries a door outside the board.
+- A log of every door played (who, which, when, how long), for the
+  doors menu's figures: the `%G?` codes. ([CODES](CODES.md#door-games-new))
 
 ## Around the board
 
@@ -332,6 +334,9 @@ All in [DOORS](DOORS.md).
 - `*F` as a bar list in tree order (see [Files](#files)).
 - `*U`'s flags field explains each flag (see
   [Passwords and accounts](#passwords-and-accounts)).
+- `*C` on one screen: its sections in four groups, what each holds on
+  the bottom bar, which features are on, and the board right now
+  (uptime, nodes, calls today, AI, FTN, MeshCore).
 
 ## Reference
 
@@ -365,6 +370,7 @@ Details in [CODES](CODES.md).
 | `%>` | right-align the rest of the line (screens) |
 | `%FT` `%FE` `%FZ` `%FY` `%FN` `%FU` `%FW` `%FG` `%FM` `%FX` `%FB` `%FL` `%FK` `%FQ` `%FR` `%FV` | the file base: totals, newest, most downloaded, biggest, top uploader, at random |
 | `%MG` `%MY` `%MB` `%MF` `%MD` `%MK` `%MH` `%MR` `%ML` `%MQ` `%MC` `%MX` `%MV` `%MJ` | the message base: totals, new for you, newest, most replied to, loudest area, top poster, at random |
+| `%GL` `%GW` `%GA` `%GP` `%GC` `%GK` `%GQ` `%GH` `%GN` `%GX` `%GJ` `%GZ` `%GO` `%GD` `%GG` `%GE` `%GF` `%GY` `%GU` `%GV` | door games: last played, most played, most time, longest play, who's in one now, gathering dust, untried, the caller's own |
 
 ### New screens
 

@@ -259,6 +259,38 @@ minute.
 | `%MV` | a message at random |
 | `%MJ` | a line of it with words in it |
 
+### Door games (new)
+
+From a log of every door played, worked out once a minute (and after
+the caller plays one). A tarot reading or fortune counts as a play of
+"Tarot". Doors go by their menu description.
+
+| Code | Value |
+|---|---|
+| `%GL` | the last door played |
+| `%GW` | who played it |
+| `%GA` | how long ago ("12m ago", "3h ago", "2d ago") |
+| `%GP` | the most played door |
+| `%GC` | its plays |
+| `%GK` | who has spent the most time in doors |
+| `%GQ` | how long ("9h 20m") |
+| `%GH` | all the time spent in doors |
+| `%GN` | plays today |
+| `%GX` | the longest single play's door |
+| `%GJ` | who played it |
+| `%GZ` | how long |
+| `%GO` | who's in a door now ("phrac in LORD", "+2" for more; "nobody") |
+| `%GD` | of the doors on the current menu, the one left longest unplayed |
+| `%GG` | when it last was ("never played") |
+| `%GE` | a door on the current menu the caller hasn't tried ("nothing left") |
+| `%GF` | the caller's most played door |
+| `%GY` | the caller's plays |
+| `%GU` | the caller's last door |
+| `%GV` | how long ago |
+
+`%GD`, `%GG` and `%GE` look at the menu being shown, so they belong on
+the doors menu's screen.
+
 ## Fitting values: `{NN` and `}NN`
 
 Put one before a `%XX` code (or a screen's `~XX` value) to fit it to a

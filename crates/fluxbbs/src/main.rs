@@ -25,6 +25,7 @@ mod challenge;
 mod chat;
 mod config;
 mod doors;
+mod doorstats;
 mod engine;
 mod events;
 mod extprog;
@@ -133,6 +134,8 @@ pub struct BbsState {
     pub mesh: meshcore::Outbox,
     /// The `[dos] one_at_a_time` doors someone is in.
     pub doors_in_use: std::sync::Mutex<std::collections::HashSet<String>>,
+    /// When the board started (its clock).
+    pub started: chrono::NaiveDateTime,
 }
 
 impl BbsState {
@@ -475,6 +478,7 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         ai_usage: Default::default(),
         mesh: Default::default(),
         doors_in_use: Default::default(),
+        started: clock::now().naive_local(),
     }))
 }
 
@@ -646,6 +650,7 @@ pub mod tests {
             ai_usage: Default::default(),
             mesh: Default::default(),
             doors_in_use: Default::default(),
+            started: clock::now().naive_local(),
             config: std::sync::RwLock::new(Arc::new(config)),
         })
     }

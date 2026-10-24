@@ -113,6 +113,14 @@ CREATE TABLE IF NOT EXISTS scan_off (
     area      TEXT NOT NULL,
     PRIMARY KEY (user_id, kind, area)
 );
+CREATE TABLE IF NOT EXISTS door_plays (
+    id        INTEGER PRIMARY KEY,
+    user_id   INTEGER NOT NULL,
+    handle    TEXT NOT NULL,
+    door      TEXT NOT NULL,
+    started   TEXT NOT NULL,
+    minutes   INTEGER NOT NULL
+);
 ";
 
 /// A voting booth question (2.0).
@@ -193,6 +201,40 @@ pub struct Bbs {
     pub storage: String,
     pub info: String,
     pub who_added: String,
+}
+
+/// A door game played (new).
+#[derive(Debug, Clone, PartialEq)]
+pub struct Play {
+    pub handle: String,
+    pub door: String,
+    pub started: NaiveDateTime,
+    pub minutes: u32,
+}
+
+/// The doors menu's figures (new), over every play and the caller's own.
+#[derive(Debug, Clone, Default)]
+pub struct DoorStats {
+    pub last: Option<Play>,
+    /// The most played door and its plays.
+    pub popular: Option<(String, u32)>,
+    /// Who has spent the most time in doors, and their minutes.
+    pub top_player: Option<(String, u64)>,
+    pub minutes: u64,
+    pub plays_today: u32,
+    /// The longest single play.
+    pub marathon: Option<Play>,
+    /// When each door (upper case) was last played.
+    pub last_by_door: std::collections::HashMap<String, NaiveDateTime>,
+    pub my_favorite: Option<(String, u32)>,
+    pub my_plays: u32,
+    pub my_last: Option<Play>,
+    /// The doors (upper case) the caller has played.
+    pub my_doors: std::collections::HashSet<String>,
+}
+
+fn play(r: &rusqlite::Row) -> rusqlite::Result<Play> {
+    Ok(Play { handle: r.get(0)?, door: r.get(1)?, started: r.get(2)?, minutes: r.get(3)? })
 }
 
 pub struct SysData {
@@ -544,6 +586,55 @@ impl SysData {
         Ok(())
     }
 
+    // ---- door plays (new) ---------------------------------------------------
+
+    pub fn add_play(&self, user: u32, p: &Play) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute(
+            "INSERT INTO door_plays (user_id, handle, door, started, minutes) VALUES (?1, ?2, ?3, ?4, ?5)",
+            params![user, p.handle, p.door, p.started, p.minutes],
+        )?;
+        Ok(())
+    }
+
+    /// The doors menu's figures, with `user`'s own; "today" starts at `day`.
+    pub fn door_stats(&self, user: u32, day: NaiveDateTime) -> anyhow::Result<DoorStats> {
+        let db = self.db.lock().unwrap();
+        const COLS: &str = "SELECT handle, door, started, minutes FROM door_plays";
+        let one = |sql: &str, p: &[&dyn rusqlite::ToSql]| db.query_row(&format!("{COLS} {sql} LIMIT 1"), p, play).optional();
+        // A door's plays are counted by name, whatever its case.
+        let most = |sql: &str, p: &[&dyn rusqlite::ToSql]| {
+            db.query_row(&format!("SELECT door, COUNT(*) n FROM door_plays {sql} GROUP BY UPPER(door) ORDER BY n DESC, MAX(started) DESC LIMIT 1"), p, |r| {
+                Ok((r.get(0)?, r.get(1)?))
+            })
+            .optional()
+        };
+        let mut s = DoorStats {
+            last: one("ORDER BY started DESC, id DESC", &[])?,
+            popular: most("", &[])?,
+            // The handle comes from their latest play.
+            top_player: db
+                .query_row(
+                    "SELECT handle, SUM(minutes) m, MAX(id) FROM door_plays GROUP BY user_id HAVING m > 0 ORDER BY m DESC LIMIT 1",
+                    [],
+                    |r| Ok((r.get(0)?, r.get::<_, i64>(1)? as u64)),
+                )
+                .optional()?,
+            minutes: db.query_row("SELECT COALESCE(SUM(minutes), 0) FROM door_plays", [], |r| r.get::<_, i64>(0))? as u64,
+            plays_today: db.query_row("SELECT COUNT(*) FROM door_plays WHERE started >= ?1", [day], |r| r.get(0))?,
+            marathon: one("WHERE minutes > 0 ORDER BY minutes DESC, started DESC", &[])?,
+            my_favorite: most("WHERE user_id = ?1", &[&user])?,
+            my_plays: db.query_row("SELECT COUNT(*) FROM door_plays WHERE user_id = ?1", [user], |r| r.get(0))?,
+            my_last: one("WHERE user_id = ?1 ORDER BY started DESC, id DESC", &[&user])?,
+            ..DoorStats::default()
+        };
+        let mut stmt = db.prepare("SELECT UPPER(door), MAX(started) FROM door_plays GROUP BY UPPER(door)")?;
+        s.last_by_door = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+        let mut stmt = db.prepare("SELECT DISTINCT UPPER(door) FROM door_plays WHERE user_id = ?1")?;
+        s.my_doors = stmt.query_map([user], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(s)
+    }
+
     // ---- newscan selections (2.0's `ME`/`FE`) ------------------------------
 
     /// The areas (by file name) a user has taken out of newscans; `kind`
@@ -875,5 +966,26 @@ mod tests {
         assert_eq!(sd.bbs_list().unwrap()[0].ssh, "r666.example:2222");
         drop(sd);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn door_plays() {
+        let sd = SysData::open_memory().unwrap();
+        let at = |h: u32| d("2026-10-24").and_hms_opt(h, 0, 0).unwrap();
+        let p = |handle: &str, door: &str, h, minutes| Play { handle: handle.into(), door: door.into(), started: at(h), minutes };
+        sd.add_play(1, &p("phrac", "LORD", 1, 20)).unwrap();
+        sd.add_play(2, &p("subcarrier", "lord", 2, 5)).unwrap();
+        sd.add_play(2, &p("subcarrier", "BRE", 9, 50)).unwrap();
+        sd.add_play(1, &p("phrac", "Tarot", 10, 0)).unwrap();
+        let s = sd.door_stats(1, at(5)).unwrap();
+        assert_eq!(s.last.unwrap().door, "Tarot");
+        assert_eq!(s.popular.map(|(d, n)| (d.to_uppercase(), n)), Some(("LORD".into(), 2)));
+        assert_eq!(s.top_player, Some(("subcarrier".into(), 55)));
+        assert_eq!((s.minutes, s.plays_today), (75, 2));
+        assert_eq!(s.marathon.unwrap().door, "BRE");
+        assert_eq!(s.last_by_door["LORD"], at(2));
+        assert_eq!((s.my_plays, s.my_last.unwrap().door), (2, "Tarot".to_string()));
+        assert_eq!(s.my_favorite, Some(("Tarot".into(), 1)));
+        assert!(s.my_doors.contains("LORD") && !s.my_doors.contains("BRE"));
     }
 }

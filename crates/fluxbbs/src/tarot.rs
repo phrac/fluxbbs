@@ -205,7 +205,8 @@ impl Session {
         v.split_once(' ').filter(|(day, _)| *day == today).and_then(|(_, n)| n.parse().ok()).unwrap_or(0)
     }
 
-    fn tarot_use(&self, kind: &str) {
+    fn tarot_use(&mut self, kind: &str) {
+        self.record_play("Tarot", crate::clock::now().naive_local());
         let today = crate::clock::now().date_naive().to_string();
         let n = self.tarot_used(kind) + 1;
         if let Err(e) = self.state.sys.script_set("tarot", &format!("{}:{kind}", self.user.id), Some(&format!("{today} {n}"))) {

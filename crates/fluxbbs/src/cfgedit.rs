@@ -41,6 +41,8 @@ pub struct Form {
     info_len: usize,
     /// Value column for [`Form::item`] (`cfgCol`).
     col: u16,
+    /// Show the highlighted item's info on the bottom bar.
+    hints: bool,
 }
 
 /// What a text field accepts.
@@ -70,7 +72,12 @@ impl Field {
 
 impl Form {
     pub fn new(title: &str) -> Self {
-        Self { title: title.to_string(), items: Vec::new(), bar: 0, rows: 0, info_len: 0, col: VALUE_COL }
+        Self { title: title.to_string(), items: Vec::new(), bar: 0, rows: 0, info_len: 0, col: VALUE_COL, hints: false }
+    }
+
+    /// New: the bottom bar says what the highlighted item is.
+    pub fn hints(&mut self) {
+        self.hints = true;
     }
 
     /// Column where later [`Form::item`] values start.
@@ -131,6 +138,13 @@ impl Form {
         }
     }
 
+    /// Highlight the item with `key`.
+    pub fn select(&mut self, key: char) {
+        if let Some(i) = self.find(key) {
+            self.bar = i;
+        }
+    }
+
     fn find(&self, key: char) -> Option<usize> {
         self.items.iter().position(|i| i.key == Some(key))
     }
@@ -187,6 +201,11 @@ impl Session {
         self.write_with_controls("|U5▀■|U4[");
         self.screen.move_right(73);
         self.write_with_controls("]|U5■▀");
+        if let Some(it) = f.items.get(f.bar).filter(|_| f.hints) {
+            self.screen.goto(4, f.bar_row());
+            self.set_slot(Slot::InfoHi);
+            self.write(&format!("{:<72.72}", it.info));
+        }
     }
 
     /// `cfgBarOn` / `cfgBarOff`, or `---` for a label line.
@@ -246,7 +265,9 @@ impl Session {
         let len = text.chars().count();
         self.screen.goto(4, f.bar_row());
         self.set_slot(Slot::InfoHi);
-        self.write(&format!("{text:<width$}", width = f.info_len.max(len).min(72)));
+        // Hints vary in length: blank the whole bar.
+        let width = if f.hints { 72 } else { f.info_len.max(len).min(72) };
+        self.write(&format!("{text:<width$.72}"));
         f.info_len = len;
     }
 
@@ -257,6 +278,10 @@ impl Session {
         let old = std::mem::replace(&mut f.bar, to);
         self.cfg_draw_key(f, old);
         self.cfg_draw_key(f, to);
+        if f.hints {
+            let info = f.items[to].info.clone();
+            self.cfg_info(f, &info);
+        }
     }
 
     /// `cfgPromptCommand`: wait for an item's key (or Enter on the bar).

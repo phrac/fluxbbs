@@ -474,6 +474,13 @@ conference 0. `QU` posts the replies. The settings are `[qwk]` in
 Doors can be native programs, or DOS programs run in the built-in DOS
 machine. See [DOORS.md](DOORS.md).
 
+Every play is logged: who, which door, when and for how long. The doors
+menu's screen can show what's in it with the `%G?` codes
+([CODES](CODES.md#door-games-new)): the last door played and by whom,
+the most played, who has spent the most time in doors, the longest
+single play, who's in one now, the door gathering dust, and the
+caller's own favorite, last and one they haven't tried.
+
 | Command | Drop file |
 |---|---|
 | `D1` | DORINFO1.DEF |
@@ -490,7 +497,7 @@ The `*` commands on the SysOp menu:
 
 | Command | Does |
 |---|---|
-| `*C` | system configuration, written back to `fluxbbs.toml` keeping its comments |
+| `*C` | system configuration, written back to `fluxbbs.toml` keeping its comments; its sections in groups, with what's on and the board's state |
 | `*E` | prompt strings |
 | `*#` | menus |
 | `*L` | access levels |
