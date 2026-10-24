@@ -647,7 +647,6 @@ TarotReversed = "reversed"
 TarotWait = "|U2the cards are speaking..."
 TarotNothing = "|U4The cards are silent today|U5."
 TarotLimit = "|U4That's |U3%S1|U4 for today, readings and AI chat together|U5; |U4come back tomorrow|U5."
-TarotLucky = "|U1Lucky numbers|U2: |U3%S1"
 
 # File links in messages (`file:AREA/NAME`): `g` in the reader lists them,
 # `/L` in the editor picks one. MsgReaderFiles: %S1 how many.
@@ -715,3 +714,11 @@ RetractedYouSee = "|U2(retracted: only you and the moderators see what it said)"
 MsgQuoteHead = "%S1 wrote:"
 # A post left without a title (nothing is posted).
 MsgNoTitle = "|U1No title|U2, |U1so nothing was posted|U2."
+# The tarot door's daily limits (%S1 the limit), and what's left (%S1
+# readings, %S2 fortunes).
+TarotDailyLimit = "|U4The cards rest after |U3%S1|U4 readings a day|U5. |U4Come back tomorrow|U5."
+FortuneDailyLimit = "|U4The crystal ball clouds over after |U3%S1|U4 fortunes a day|U5. |U4Come back tomorrow|U5."
+TarotLeft = "|U2left today|U5: |U3%S1|U2 readings|U5, |U3%S2|U2 fortunes"
+FortuneWait = "|U2the mists in the ball are parting..."
+# On the fortune slip (plain): %S1 the numbers.
+FortuneLucky = "lucky numbers   %S1"

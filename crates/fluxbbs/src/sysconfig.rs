@@ -290,6 +290,8 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('M', "Timeout (secs)", 4, "How long to wait for the server.", Num(|c| c.ai.timeout_seconds, |c, v| c.ai.timeout_seconds = v, 10, 3600)),
             set('N', "Reasoning effort", 10, "For models that think first: none, low, medium...; blank for the server's default.", Text(|c| &mut c.ai.reasoning_effort, TEXT.max(20))),
             set('O', "Read pages", 3, "Let the AI read web pages it finds (public addresses only)?", Bool(|c| &mut c.ai.read_pages)),
+            set('P', "Tarot a day", 3, "Tarot readings a caller may have a day (0 = no limit; SysOps have none).", Num(|c| c.ai.tarot_daily as u64, |c, v| c.ai.tarot_daily = v as u32, 0, 999)),
+            set('Q', "Fortunes a day", 3, "Fortunes a caller may have a day (0 = no limit; SysOps have none).", Num(|c| c.ai.fortune_daily as u64, |c, v| c.ai.fortune_daily = v as u32, 0, 999)),
         ]),
         ("MeshCore", false, vec![
             set('A', "Enabled", 3, "Bridge a MeshCore companion radio's channels to message areas? Channels: [[meshcore.channel]] in fluxbbs.toml.", Bool(|c| &mut c.meshcore.enabled)),

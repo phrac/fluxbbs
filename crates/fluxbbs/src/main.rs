@@ -12,6 +12,7 @@ mod aiboard;
 mod aichat;
 mod aimemory;
 mod tarot;
+mod tarotart;
 mod links;
 mod regret;
 mod archview;

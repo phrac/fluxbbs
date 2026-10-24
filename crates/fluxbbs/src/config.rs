@@ -299,6 +299,10 @@ pub struct Ai {
     pub reasoning_effort: String,
     /// Messages a caller may send a day (0 = no limit; SysOps have none).
     pub daily_limit: u32,
+    /// New: tarot readings and fortunes a caller may have a day (0 = no
+    /// limit; SysOps have none).
+    pub tarot_daily: u32,
+    pub fortune_daily: u32,
     /// Let the model search the web...
     pub web_search: bool,
     /// ...and read pages it finds (public addresses only).
@@ -324,6 +328,8 @@ impl Default for Ai {
             max_tokens: 1000,
             reasoning_effort: String::new(),
             daily_limit: 100,
+            tarot_daily: 3,
+            fortune_daily: 3,
             web_search: true,
             read_pages: true,
             search_url: String::new(),

@@ -807,19 +807,31 @@ door menu as `T`.
 |---|---|
 | `d` | the card of the day: one card, the same one all day for you, another tomorrow |
 | `t` | three cards (past, present, future) for a question you type, or a general reading |
-| `f` | a fortune cookie, with six lucky numbers |
+| `f` | a fortune cookie, on a slip with six lucky numbers under a crystal ball |
 | `q` or Esc | back |
 
 - The deck is the 78 cards of the Rider-Waite tarot; each card drawn
   is upright or reversed. Three cards are three different ones from a
   shuffled deck.
-- The cards are drawn on screen as frames with their number (or suit)
-  and name, their place over them. The reading follows, paged.
+- The cards are drawn on screen with pictures, their place over them:
+  each of the major arcana has its own (the Fool at the cliff's edge,
+  the Tower struck...), in a double frame; the numbered cards show
+  their pips, and the court cards a page, knight, queen or king with
+  the suit's pip, in the suit's color. A reversed card is drawn upside
+  down. The reading follows, paged.
+- The pictures are CP437 text in the code (`tarotart.rs`), so they
+  need no screens from the board, and use only the characters every
+  terminal draws (no control bytes such as `○` or `♪`).
 - The AI is told to be warm and a little mysterious but grounded: for
   fun and reflection, never foretelling death, illness or disaster,
   never giving medical, legal or financial advice.
+- A caller has 3 readings (card of the day or three cards) and 3
+  fortunes a day, as stock: `tarot_daily` and `fortune_daily` in `[ai]`
+  (`*C`, AI chat, `P` and `Q`; 0 for no limit). The menu shows what's
+  left; SysOps have no limit. The card of the day's reading is kept, so
+  looking at it again later that day costs nothing.
 - It takes the AI chat's settings and access (`[ai]`, its ACS), and
-  each reading or fortune counts against the same daily limit
+  each reading or fortune counts against the AI chat's daily limit too
   (`TarotLimit` says so).
 - A parameter goes straight to one reading and back: `day`, `three` or
   `fortune` (say, `AT day` on a logon menu for a card of the day).

@@ -231,7 +231,8 @@ All in [FEATURES](FEATURES.md#message-center).
   like `x` then `>` (email and echomail still get a real reply).
   ([FEATURES](FEATURES.md#votes-and-comments))
 - A tarot and fortune door read by the AI (`AT`): card of the day,
-  three cards for a question, fortune cookies.
+  three cards for a question, fortune cookies; cards drawn with
+  pictures, 3 readings and 3 fortunes a day.
   ([FEATURES](FEATURES.md#tarot-and-fortunes))
 
 ### Mentions
