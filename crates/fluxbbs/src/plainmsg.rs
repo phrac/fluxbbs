@@ -26,7 +26,7 @@ const BOARDS_HELP: &[&str] = &[
 
 const BOARD_HELP: &[&str] = &[
     "  l [page]       the threads, latest first (20 a page)",
-    "  r <#>          read message #",
+    "  <#> or r <#>   read message #",
     "  t <#>          the thread message # is in",
     "  n              read what's new here (20 at a time)",
     "  p              start a thread",
@@ -136,9 +136,14 @@ impl Session {
         }
         self.plain_threads(a, 1)?;
         loop {
-            let (cmd, rest) = self.plain_ask(&prompt).await?;
+            let (mut cmd, mut rest) = self.plain_ask(&prompt).await?;
             if self.hangup {
                 return Ok(true);
+            }
+            // A number alone reads that message, as a number opens a board.
+            if cmd.trim_start_matches('#').parse::<u32>().is_ok() {
+                rest = cmd.trim_start_matches('#').to_string();
+                cmd = "r".into();
             }
             let mut words = rest.splitn(2, ' ');
             let num = words.next().and_then(|w| w.trim_start_matches('#').parse::<u32>().ok());
@@ -177,7 +182,7 @@ impl Session {
                     }
                 }
                 "" => {}
-                _ => self.plain_line("What? ? for the commands."),
+                _ => self.plain_line("What? A message number reads it; ? lists the commands."),
             }
         }
     }
@@ -232,6 +237,7 @@ impl Session {
         if page < pages {
             self.plain_line(&format!("More: l {}", page + 1));
         }
+        self.plain_line("A number reads that message; ? lists the commands.");
         Ok(())
     }
 
