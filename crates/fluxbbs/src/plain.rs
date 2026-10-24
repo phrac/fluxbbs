@@ -6,8 +6,10 @@
 
 use std::io;
 
-use crate::editor::{EditCtx, EditResult};
-use crate::input::ReadOpts;
+use crate::editor::{EditCtx, EditResult, strip_colours};
+use crate::filebase::FileRec;
+use crate::files::{FAreaRef, commas};
+use crate::input::{Key, ReadOpts};
 use crate::menu::{FIRST_CMD, Menu};
 use crate::session::{BarPick, BarSpec, Session};
 
@@ -15,6 +17,10 @@ use crate::session::{BarPick, BarSpec, Session};
 const LINE_MAX: usize = 250;
 /// Lines in a message written in plain text.
 const MAX_LINES: usize = 400;
+/// Files a page of the file list.
+const FILE_PAGE: usize = 25;
+/// Description lines shown under each file.
+const DESC_SHOWN: usize = 4;
 
 /// Whether `text_mode` (blank, `plain` or `ansi`) means plain text for a
 /// caller who is (or isn't) a bot.
@@ -29,6 +35,19 @@ pub fn wants_plain(text_mode: &str, bot: bool) -> bool {
 impl Session {
     pub(crate) fn plain(&self) -> bool {
         self.screen.plain()
+    }
+
+    /// A key, or in plain text the first character of a line (Enter
+    /// alone for an empty one): for prompts that take a single key.
+    pub(crate) async fn read_choice(&mut self) -> io::Result<Key> {
+        if !self.plain() {
+            return self.read_key().await;
+        }
+        let s = self.read_string(ReadOpts::new(10)).await?;
+        Ok(match s.trim().bytes().next() {
+            Some(c) => Key::Char(c),
+            None => Key::Enter,
+        })
     }
 
     /// Plain text or not, from the caller's setting.
@@ -86,12 +105,22 @@ impl Session {
     /// picks one, a key letter (with a number after it for a row) runs
     /// that, `<` goes up a level, `q` quits.
     pub(crate) async fn area_bar_plain(&mut self, spec: &BarSpec<'_>) -> io::Result<BarPick> {
-        let row_of = |label: u32| spec.labels.iter().find(|l| l.0 == label).map(|l| l.1);
+        // Rows without numbers of their own are numbered from 1.
+        let numbered = spec.labels.is_empty();
+        let row_of = |label: u32| {
+            if numbered {
+                spec.rows.get((label as usize).checked_sub(1)?).map(|r| r.n)
+            } else {
+                spec.labels.iter().find(|l| l.0 == label).map(|l| l.1)
+            }
+        };
         self.newline();
         self.write(spec.header.trim_end());
         self.newline();
-        for r in spec.rows {
-            self.write(crate::editor::strip_colours(&r.plain).trim_end());
+        for (i, r) in spec.rows.iter().enumerate() {
+            let text = strip_colours(&r.plain);
+            let line = if numbered { format!("{:>4}.{}", i + 1, text.trim_end()) } else { text.trim_end().to_string() };
+            self.write(&line);
             self.newline();
         }
         let mut keys: Vec<String> = spec.keys.chars().map(|c| c.to_ascii_lowercase().to_string()).collect();
@@ -124,6 +153,45 @@ impl Session {
                 _ => self.write("What? "),
             }
         }
+    }
+
+    /// The file lister in plain text: each file on a line with its link
+    /// (`file:AREA/NAME`, for comments and messages), its description
+    /// under it, a page at a time. False if the caller quit.
+    pub(crate) async fn plain_file_list(&mut self, a: &FAreaRef, files: &[FileRec], skip_ok: bool) -> io::Result<bool> {
+        let s = format!("{} file{} in {}:", files.len(), if files.len() == 1 { "" } else { "s" }, strip_colours(&a.area.name));
+        self.write(&s);
+        self.newline();
+        let pages = files.len().div_ceil(FILE_PAGE);
+        for (p, page) in files.chunks(FILE_PAGE).enumerate() {
+            for f in page {
+                let date = crate::user::fmt_date(f.date);
+                let line = format!("{:<18} {:>11} {date}  {:>3} dl  {}", f.name, commas(f.size), f.downloads, crate::links::link_text(&a.area.file, &f.name));
+                self.write(&line);
+                self.newline();
+                for l in f.description.iter().take(DESC_SHOWN) {
+                    let l = format!("    {}", strip_colours(l).trim_end());
+                    self.write(&l);
+                    self.newline();
+                }
+                if !f.valid {
+                    self.write("    (not checked by the SysOp yet)");
+                    self.newline();
+                }
+            }
+            if p + 1 < pages {
+                let ask = if skip_ok { "Enter for more, s skips this area, q stops> " } else { "Enter for more, q stops> " };
+                self.write(ask);
+                let s = self.read_string(ReadOpts::new(5)).await?;
+                self.newline();
+                match s.trim().to_ascii_lowercase().as_str() {
+                    "q" => return Ok(false),
+                    "s" if skip_ok => return Ok(true),
+                    _ => {}
+                }
+            }
+        }
+        Ok(true)
     }
 
     /// The message editor in plain text: lines typed one at a time, `.`

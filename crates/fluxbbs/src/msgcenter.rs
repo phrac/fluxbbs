@@ -1522,7 +1522,7 @@ impl Session {
     /// A request board's thread: its state for `~FL` (`ReqOpen` or
     /// `ReqFilled`) and its title, `ReqFilledTag` in front once filled.
     /// Elsewhere, nothing and the subject.
-    fn request_state(&self, a: &AreaRef, root: &Message, filled: &HashMap<i64, crate::msgbase::Filled>) -> (String, String) {
+    pub(crate) fn request_state(&self, a: &AreaRef, root: &Message, filled: &HashMap<i64, crate::msgbase::Filled>) -> (String, String) {
         if !a.area.requests {
             return (String::new(), root.subject.clone());
         }

@@ -106,7 +106,7 @@ impl Session {
         }
         self.say("XferSelectProtocol").await?;
         loop {
-            match self.read_key().await? {
+            match self.read_choice().await? {
                 Key::Enter | Key::Esc => {
                     self.newline();
                     return Ok(None);

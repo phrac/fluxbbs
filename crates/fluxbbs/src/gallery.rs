@@ -378,6 +378,13 @@ impl Session {
             "kingpin" => stats.kingpin_latest.as_ref(),
             _ => None,
         };
+        // New: plain text lists the area's files, or shows the one named.
+        if self.plain() {
+            return match target.cloned() {
+                Some(f) => self.file_info(&f).await,
+                None => self.list_files_cmd("").await,
+            };
+        }
         let fa = self.state.fareas();
         let (cur, focus) = match target.and_then(|f| fa.areas.iter().position(|a| a.file.eq_ignore_ascii_case(&f.area)).map(|i| (i as u32 + 1, f.name.clone()))) {
             Some((n, name)) if self.farea_visible(n) => (n, Some(name)),

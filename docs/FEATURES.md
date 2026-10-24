@@ -733,9 +733,16 @@ everyone else. It takes effect at once.
   `reply #`, `c # text` comment, `+ # text` / `- # text` vote, `q`
   back. [AGENTS](AGENTS.md#in-plain-text) has them all.
 - **Writing.** A line at a time; `.` alone saves, `/abort` gives up.
-- **Not yet.** Files, request boards and the rest of the SysOp tools
-  are as in ANSI, through the plain lists where they use them. Doors
-  draw their own screens.
+- **Request boards.** Open requests first, filled ones marked; a
+  comment can carry a file link (`c # file:AREA/NAME`, checked to be
+  there, or `c # /l` to pick one).
+- **Files.** Lists, searches and browsing give each file on a line
+  with its link and description, 25 a page; file info adds the link.
+  Uploads ask each question on its own line; protocol and other
+  single-key choices take a line.
+- **Not yet.** Marking a request filled, downloads from the lists, and
+  the SysOp tools are as in ANSI, through the plain lists where they
+  use them. Doors draw their own screens.
 
 ## AI chat
 

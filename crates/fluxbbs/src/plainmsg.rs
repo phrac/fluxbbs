@@ -31,7 +31,8 @@ const BOARD_HELP: &[&str] = &[
     "  n              read what's new here (20 at a time)",
     "  p              start a thread",
     "  reply <#>      reply to message # (where replies are posts)",
-    "  c <#> <text>   comment on message #",
+    "  c <#> <text>   comment on message #; a link to a file is file:AREA/NAME",
+    "  c <#> /l       comment with a link: pick the file, then add words",
     "  + <#> <text>   vote message # up, with a word",
     "  - <#> <text>   vote message # down, with a word",
     "  q              back to the boards",
@@ -193,6 +194,11 @@ impl Session {
         let mut ts = threads(&v.msgs);
         ts.sort_by_key(|t| std::cmp::Reverse(t.last));
         let by_id: HashMap<i64, &Message> = v.msgs.iter().map(|m| (m.id, m)).collect();
+        // A request board's open requests come before its filled ones.
+        let filled = if a.area.requests { self.state.msgs.filled(a.key()).map_err(io_err)? } else { HashMap::new() };
+        if a.area.requests {
+            ts.sort_by_key(|t| t.msgs.first().is_some_and(|(id, _)| filled.contains_key(id)));
+        }
         let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
         let comments = self.state.msgs.comment_counts(a.key()).map_err(io_err)?;
         let pages = ts.len().div_ceil(PAGE).max(1);
@@ -201,7 +207,8 @@ impl Session {
             self.plain_line("No threads yet. p starts one.");
             return Ok(());
         }
-        self.plain_line(&format!("Threads, page {page} of {pages} (* has new):"));
+        let kind = if a.area.requests { "Requests, open first" } else { "Threads" };
+        self.plain_line(&format!("{kind}, page {page} of {pages} (* has new):"));
         self.plain_line("     #  score  day    by            re  title");
         let mut lines = Vec::new();
         for t in ts.iter().skip((page - 1) * PAGE).take(PAGE) {
@@ -216,7 +223,7 @@ impl Session {
                 self.local(t.last).format("%m/%d"),
                 fluxbbs_term::codes::resize(&self.plain_author(root), 12),
                 re,
-                strip_colours(&root.subject)
+                strip_colours(&self.request_state(a, root, &filled).1)
             ));
         }
         for l in lines {
@@ -315,13 +322,16 @@ impl Session {
         if kind != 0 && self.is_me(&m.from) {
             return self.say_line("PushOwn").await;
         }
-        let now = crate::clock::now().naive_local();
-        if let Some(last) = self.state.msgs.last_push_at(self.user.id).map_err(io_err)?
-            && (now - last).num_seconds() < PUSH_GAP
-        {
-            return self.say_line("PushTooFast").await;
-        }
         let mut text = strip_colours(&text).trim().to_string();
+        // `/l` and a name: a file to link to, picked from a list, then
+        // the words after the link.
+        if kind == 0 && (text.eq_ignore_ascii_case("/l") || text.to_ascii_lowercase().starts_with("/l ")) {
+            let Some(link) = self.pick_file_link().await? else { return Ok(()) };
+            self.write(&format!("{link} "));
+            let words = self.read_string(ReadOpts::new(PUSH_WIDTH)).await?;
+            self.newline();
+            text = format!("{link} {}", strip_colours(&words).trim()).trim().to_string();
+        }
         if kind == 0 && text.is_empty() {
             self.write("Comment: ");
             text = strip_colours(&self.read_string(ReadOpts::new(PUSH_WIDTH)).await?).trim().to_string();
@@ -330,9 +340,25 @@ impl Session {
                 return Ok(());
             }
         }
-        if text.chars().count() > PUSH_WIDTH {
-            text = text.chars().take(PUSH_WIDTH).collect();
-            self.plain_line(&format!("Cut to {PUSH_WIDTH} characters."));
+        // Links must be to files here, and don't count against the length.
+        let links = crate::links::file_links(std::slice::from_ref(&text));
+        for (key, name) in &links {
+            let here = self.linked_farea(key).and_then(|fa| self.state.files.find(&fa.area.file, name).ok().flatten());
+            if here.is_none() {
+                self.plain_line(&format!("No file {} here. f (the file menu) and t or f there find files.", crate::links::link_text(key, name)));
+                return Ok(());
+            }
+        }
+        let max = PUSH_WIDTH + links.iter().map(|(k, n)| crate::links::link_text(k, n).chars().count() + 1).sum::<usize>();
+        if text.chars().count() > max {
+            text = text.chars().take(max).collect();
+            self.plain_line(&format!("Cut to {max} characters."));
+        }
+        let now = crate::clock::now().naive_local();
+        if let Some(last) = self.state.msgs.last_push_at(self.user.id).map_err(io_err)?
+            && (now - last).num_seconds() < PUSH_GAP
+        {
+            return self.say_line("PushTooFast").await;
         }
         if kind == 0 {
             self.seen.posted.insert(strip_colours(&a.area.name));

@@ -339,6 +339,21 @@ impl Session {
         if opts.is_empty() || def == 0 || def > opts.len() {
             return Ok(());
         }
+        // New: in plain text, the choices in words, and a line naming one
+        // (or its first letters); Enter for the default.
+        if self.plain() {
+            loop {
+                self.write(&format!(" ({}) [{}] ", opts.join("/"), opts[def - 1]));
+                let s = self.read_string(crate::input::ReadOpts::new(20)).await?;
+                self.newline();
+                let s = s.trim().to_lowercase();
+                let pick = if s.is_empty() { Some(opts[def - 1]) } else { opts.iter().copied().find(|o| o.to_lowercase().starts_with(&s)) };
+                if let Some(o) = pick {
+                    self.input_string = o.to_string();
+                    return Ok(());
+                }
+            }
+        }
         let mut xs = Vec::new();
         self.set_slot(Slot::Item);
         for o in opts {

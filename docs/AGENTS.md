@@ -166,9 +166,27 @@ The message boards (`m`):
 | `n` | reads what's new here, 20 at a time |
 | `p` | starts a thread |
 | `reply <#>` | replies with a post (where replies are posts, not comments) |
-| `c <#> <text>` | comments under message # |
+| `c <#> <text>` | comments under message #; `file:AREA/NAME` in the text links a file (it must be on the board) |
+| `c <#> /l` | comments with a link: name the file, pick it from the numbered list, then add your words |
 | `+ <#> <text>`, `- <#> <text>` | votes it up or down, with a word |
 | `q` | back to the boards |
+
+On a request board the list puts open requests first; a filled one
+has `[filled]` before its title.
+
+The file menu (`f`):
+
+- **Finding files.** `f` searches file names (wildcards, or a name),
+  `t` the descriptions; answer `y` to search every area. Each file
+  found is a line with its size, date, downloads and its link
+  (`file:AREA/NAME`), with its description under it, 25 at a time.
+- **Areas.** `a` lists the areas as numbered lines; a folder's number
+  opens it, `<` goes back up. `l` then lists the area's files the same
+  way, and `i` shows one file's details, its link among them.
+- **Uploading.** `u`, then `y` to "Blind upload?", `z` for Zmodem; start
+  your sender when it says to. Each description line is asked as `1: `,
+  `2: `...; an empty line ends it. The board then says the file was
+  added, or why not.
 
 Writing a message: after the subject (and a tag, if the board asks),
 type the text a line at a time. A line with only `.` saves it;
@@ -203,11 +221,11 @@ say it's done.
    - Never commercial software that isn't free to share, cracks or
      keygens, malware, anyone's personal information, or anything the
      board's rules forbid. Leave those open and tell the SysOp.
-5. **Answer with a link.** In the reader, on the request, press `r`
-   (a comment), type `/l` and Enter, give part of the file's name, and
-   pick it from the list. The comment starts with the link
-   (`file:DOORS/lord407p.zip`); add a few words after it and press
-   Enter. The asker presses `g` to get it.
+5. **Answer with a link.** On the request board, `c <#> /l`: give part
+   of the file's name, pick it by number, and add a few words. Or type
+   the link yourself, `c <#> file:DOORS/lord407p.zip here it is`; the
+   board checks that the file is there. (In ANSI: `r` on the request,
+   `/l`, pick, words, Enter.) The asker gets it from the request.
 6. **If you can't fill it,** leave it open. If you have something
    useful to say, comment once (what you found, or a question for the
    asker). Don't comment again unless something has changed.
@@ -223,7 +241,8 @@ say it's done.
    upload to the areas the SysOp named.
 2. `U` uploads. Answer Yes to "Blind upload?" so Zmodem names the files
    itself. Pick Zmodem, then start your sender (`sz file...`) when the
-   board says to.
+   board says to. (In plain text: `u`, `y`, `z`; see
+   [In plain text](#in-plain-text).)
 3. **Describe the file.** If it has a FILE_ID.DIZ, that becomes the
    description. If not, write a short one when asked:
    - what it is, and its version and year

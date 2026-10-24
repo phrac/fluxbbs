@@ -505,6 +505,12 @@ impl Session {
                 self.write_with_controls(&r);
                 self.newline();
             }
+            // New: plain text gives its link, for comments and messages.
+            if self.plain() {
+                let link = crate::links::link_text(&f.area, &f.name);
+                self.write(&format!(" Link          : {link}"));
+                self.newline();
+            }
             for l in &f.description {
                 self.write_with_controls(&format!("|U1 {l}"));
                 self.newline();
@@ -1006,6 +1012,9 @@ impl Session {
     /// if the caller quit (ending a multi-area scan).
     pub async fn file_lister(&mut self, a: &FAreaRef, listed: &[FileRec], skip_ok: bool) -> io::Result<bool> {
         self.full_screen_done();
+        if self.plain() {
+            return self.plain_file_list(a, listed, skip_ok).await;
+        }
         if listed.is_empty() {
             return Ok(true);
         }
@@ -1620,6 +1629,13 @@ impl Session {
 
     /// Clear the upload prompt line and start at its beginning.
     fn upload_line(&mut self, y: u16) {
+        // Plain text has no line to go back to: a new one.
+        if self.plain() {
+            if self.screen.where_x() > 1 {
+                self.newline();
+            }
+            return;
+        }
         self.screen.set_color(Color::DEFAULT);
         self.screen.goto(1, y);
         self.screen.clear_eol();
@@ -1647,7 +1663,7 @@ impl Session {
         self.upload_line(y);
         self.show(&format!("{list}{ask}")).await?;
         loop {
-            match self.read_key().await? {
+            match self.read_choice().await? {
                 Key::Enter | Key::Esc => {
                     self.upload_line(y);
                     return Ok(None);

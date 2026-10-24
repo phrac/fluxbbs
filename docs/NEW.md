@@ -293,7 +293,8 @@ All in [DOORS](DOORS.md).
 - Plain text, for bots (flag B) and anyone who sets it in user config:
   no ANSI, art or pauses; menus listed and answered a line at a time,
   the message boards as line commands, messages written a line at a
-  time. ([FEATURES](FEATURES.md#plain-text))
+  time, files listed with their links, uploads a question a line.
+  ([FEATURES](FEATURES.md#plain-text))
 - Profiles: an uploaded ANSI header and an opt-in real name.
   ([FEATURES](FEATURES.md#profiles))
 - A short AI-kept memory of each caller's interests, updated after each
