@@ -107,13 +107,24 @@ impl Session {
             self.write(&title);
             self.newline();
             let mut listed: Vec<&str> = Vec::new();
+            let mut rows = Vec::new();
             for c in &menu.commands {
                 // A key once: the menu's own command and GLOBAL's may share it.
                 if c.hidden || c.desc.is_empty() || c.keys == FIRST_CMD || !self.acs(&c.acs) || listed.contains(&c.keys.as_str()) {
                     continue;
                 }
                 listed.push(&c.keys);
-                self.write(&format!("  {:<6} {}", c.keys.to_lowercase(), crate::editor::strip_colours(&c.desc).trim()));
+                rows.push(format!("  {:<6} {}", c.keys.to_lowercase(), crate::editor::strip_colours(&c.desc).trim()));
+            }
+            // A long menu in two columns, so it fits a screen with the
+            // prompt under it (nothing scrolls off the top).
+            let half = if rows.len() > 18 && rows.iter().all(|r| r.chars().count() <= 39) { rows.len().div_ceil(2) } else { rows.len() };
+            for i in 0..half {
+                let line = match rows.get(i + half).filter(|_| half < rows.len()) {
+                    Some(right) => format!("{:<40}{right}", rows[i]),
+                    None => rows[i].clone(),
+                };
+                self.write(line.trim_end());
                 self.newline();
             }
         }

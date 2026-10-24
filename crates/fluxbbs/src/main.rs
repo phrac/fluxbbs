@@ -15,6 +15,8 @@ mod backup;
 mod bbslink;
 mod tarot;
 mod tarotart;
+mod slotart;
+mod slots;
 mod links;
 mod regret;
 mod archview;
@@ -443,6 +445,8 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     tracing::info!("{} users in {}", users.count()?, db.display());
     let areas = MsgAreas::load(&config.resolve(&config.paths.msgareas))?;
     let msgs = MsgBase::open(&db)?;
+    // Deleted email goes for good now; what earlier versions kept goes here.
+    let purged = msgs.purge_deleted(&areas.email.file)?;
     let fareas = FileAreas::load(&config.resolve(&config.paths.fileareas))?;
     for a in &fareas.areas {
         let dir = config.resolve(&a.path);
@@ -460,7 +464,7 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     let files = FileBase::open(&db)?;
     let sys = SysData::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
-    Ok(Arc::new(BbsState {
+    let state = Arc::new(BbsState {
         config: std::sync::RwLock::new(Arc::new(config)),
         config_path: path.to_path_buf(),
         strings: std::sync::RwLock::new(Arc::new(strings)),
@@ -484,7 +488,12 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         mesh: Default::default(),
         doors_in_use: Default::default(),
         started: clock::now().naive_local(),
-    }))
+    });
+    if purged > 0 {
+        attach::remove_orphans(&state)?;
+        tracing::info!("{purged} deleted letters removed");
+    }
+    Ok(state)
 }
 
 #[tokio::main]

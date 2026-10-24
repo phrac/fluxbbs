@@ -212,8 +212,7 @@ record:
 
 Nobody is told, and nothing says who took what back beyond the
 placeholder. A taken-back or burned post leaves a deleted stub
-("[burned by its author ...]") that moderators see until the area is
-packed. On an echomail area, copies already sent to other boards stay
+("[burned by its author ...]") that moderators see. On an echomail area, copies already sent to other boards stay
 there, and it says so. Both settings are in `[messages]`, and in `*C`,
 Caller Boards ("Take-back minutes", "Burn points"). Moderators deleting
 someone else's post still use the usual delete.
@@ -235,7 +234,7 @@ A file can be attached to a message. This follows the manual.
 - The file is uploaded after posting, or a SysOp names one on disk.
 - It's kept under `data/attach`, by the message's row id.
 - It's offered for download when the message is read.
-- It's removed when packing drops the message.
+- It's removed with a deleted letter (email goes for good).
 
 #### Uploading a prepared message
 
@@ -540,7 +539,6 @@ The `*` commands on the SysOp menu:
 | `*%` | local upload |
 | `*K` | pack file areas |
 | `*A` | message areas |
-| `*P` | pack message areas |
 | `*@`, `*!` | conferences |
 | `*R` | all email |
 | `*X` | protocols |
@@ -599,7 +597,7 @@ An event's command goes to the shell, or is one of the built-in jobs:
 
 | Job | Does |
 |---|---|
-| `pack-messages` | packs the message areas |
+| `pack-messages` | removes callers' boards never posted in (`board_empty_days`); messages themselves are never packed away |
 | `pack-files` | packs the file areas |
 | `backup [DAYS] [DIR]` | backs up the database and settings, keeping DAYS days (new; [SYSOP](SYSOP.md#backups)) |
 | `dos COMMAND` | runs a DOS program or batch file in the built-in machine, for a door's maintenance |
@@ -920,6 +918,57 @@ instead.
   one; otherwise the `TarotTitle` line. Keep it to a line or two: the
   cards take 15 rows under it.
 
+## Slot machine
+
+`AL` (the stock door menu's `S`) is a three-reel slot machine. Wins pay
+minutes on today's time and file points.
+
+- **The screen is the machine.** Three big reels fill it, behind glass,
+  in a chrome bezel ringed with bulbs. It's drawn in half-block pixels
+  (`slotart.rs`): 24-bit color, or xterm's 256 colors for a terminal
+  not in `truecolor_terms`. UTF-8 terminals get 24-bit color, as in the
+  gallery. Callers in plain-text mode, or on a screen under 24 rows, get
+  a line per pull.
+- **The reels are cylinders.** They're lit from above, so symbols bend
+  away and darken toward the top and bottom of the window. A spinning
+  reel is blurred by its speed.
+- **A pull spins them like real reels.** The handle kicks them back,
+  they run up to speed, and they stop one after another, each with a
+  jolt. When the first two match, the third holds out and crawls in.
+  Space or Enter again stops them sooner.
+- **Wins light up.** The payline lights, the winning reels glow and the
+  bulbs flash. Bells and bars rain coins; three sevens bring a shower.
+  While waiting, the lights chase, a glint crosses the glass, and the
+  pay table scrolls under the reels.
+- **The odds are set, not left to the reels.** Each pull draws its line
+  first, then the reels stop on it:
+  - three sevens come up one pull in `jackpot_odds`;
+  - otherwise the pull wins at `win_percent`, mostly the small lines;
+  - some losing pulls stop one short of three sevens, bars or bells.
+- **A dropped call keeps what it won.** The pull is counted and the
+  prize paid before the reels move.
+- A caller has `pulls_per_day` pulls (10 to start; 0 for no limit).
+  The bottom row shows what's left and today's winnings. `p` shows the
+  pay table.
+- The last jackpot (who, and when) scrolls by with the pay table.
+
+| Line | Pays (stock) |
+|---|---|
+| 7 7 7 | 60 min, 100 points |
+| BAR BAR BAR | 30 min, 40 points |
+| three bells | 20 min, 25 points |
+| three plums | 15 min, 15 points |
+| three oranges | 10 min, 12 points |
+| three lemons | 8 min, 10 points |
+| three cherries | 10 min, 10 points |
+| cherries on reels 1 and 2 | 5 min, 5 points |
+| a cherry on reel 1 | 2 min, 2 points |
+
+All of it is in `[slots]`, and in `*C`, Slot Machine. That covers pulls
+a day, the win chance (40% to start), jackpot odds, and each line's
+prize as minutes then points. Points are left out of what's shown on a
+board without file points.
+
 ## Message center
 
 `MH` (`r` on the message menu) and `MW Read` (`n` there) replace the
@@ -1168,8 +1217,7 @@ been filled, and the one who filled it gets [points](#points-for-fills).
 - **Bots ask nothing.** A bot (flag [`B`](#bots)) can answer on a
   request board, but can't start a request (`ReqBotNoAsk`).
 
-The marks are in the `filled` table, by the request's row id; packing
-the request away takes its mark with it.
+The marks are in the `filled` table, by the request's row id.
 
 #### Points for fills
 
@@ -1189,8 +1237,7 @@ Topsite-style credit for filling requests, without the drama:
   board has one.
 - A caller's profile shows their fills (`~FI` on FINGER).
 
-The ledger is the `fills` table. It outlasts the requests, so packing
-doesn't change anyone's standing.
+The ledger is the `fills` table, apart from the requests themselves.
 
 ### Pinned threads
 

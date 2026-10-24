@@ -93,8 +93,9 @@ pub struct MsgArea {
     pub requests: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub qwk_name: String,
-    /// `*P` keeps at most this many messages (0: no limit).
-    #[serde(default, skip_serializing_if = "is_zero")]
+    /// The original's message limit, read from old files but not used:
+    /// messages are never packed away.
+    #[serde(default, skip_serializing)]
     pub max_msgs: u32,
 }
 

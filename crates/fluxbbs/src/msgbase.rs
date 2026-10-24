@@ -24,7 +24,7 @@ pub struct Party {
 
 #[derive(Debug, Clone)]
 pub struct Message {
-    /// Row id: stable across packing, which renumbers `num`.
+    /// Row id: never used again, even once the message is gone.
     pub id: i64,
     pub area: String,
     pub num: u32,
@@ -371,7 +371,7 @@ impl MsgBase {
             m.num = db.query_row("SELECT COALESCE(MAX(num), 0) + 1 FROM messages WHERE area = ?1", [&m.area], |r| r.get(0))?;
         }
         // Row ids are never used twice, even after the newest message is
-        // packed away: FTN's MSGIDs, mentions and read marks name rows.
+        // purged: FTN's MSGIDs, mentions and read marks name rows.
         let id: i64 = db.query_row(
             "SELECT MAX(COALESCE((SELECT MAX(id) FROM messages), 0), COALESCE((SELECT value FROM ftn_state WHERE key = 'last_msg_id'), 0)) + 1",
             [],
@@ -475,9 +475,8 @@ impl MsgBase {
         Ok(gone)
     }
 
-    /// Save changes to an existing message (flags, text), by row: a pack
-    /// may have renumbered it since it was read. The reply count is kept
-    /// by `add`.
+    /// Save changes to an existing message (flags, text), by row. The
+    /// reply count is kept by `add`.
     /// An edit: the text, subject and signature only, so flags changed
     /// meanwhile (a delete on another node) stay.
     pub fn update_text(&self, m: &Message) -> anyhow::Result<()> {
@@ -489,8 +488,7 @@ impl MsgBase {
         Ok(())
     }
 
-    /// Where a message is now (its number), if it's still there: a pack
-    /// renumbers.
+    /// Where a message is (its number), if it's still there.
     pub fn num_of(&self, id: i64) -> anyhow::Result<Option<u32>> {
         let db = self.db.lock().unwrap();
         Ok(db.query_row("SELECT num FROM messages WHERE id = ?1", [id], |r| r.get(0)).optional()?)
@@ -629,53 +627,39 @@ impl MsgBase {
         Ok(n as u32)
     }
 
-    /// `maPackArea`: drop deleted messages, and the oldest beyond `max`
-    /// (0: no limit), then number the rest from 1. Each user's lastread
-    /// moves with the messages they had read. Returns how many went.
-    pub fn pack(&self, area: &str, max: u32) -> anyhow::Result<u32> {
+    /// New: a message gone for good (deleted email: nobody moderates
+    /// mail, and there's no undeleting it), with what hangs off it. Its
+    /// attachment's file goes with `attach::remove_orphans`.
+    pub fn purge(&self, id: i64) -> anyhow::Result<()> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        let rows: Vec<(i64, u32, bool)> = {
-            let mut stmt = tx.prepare("SELECT id, num, deleted FROM messages WHERE area = ?1 ORDER BY num")?;
-            stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?
-        };
-        let mut keep: Vec<(i64, u32)> = rows.iter().filter(|r| !r.2).map(|r| (r.0, r.1)).collect();
-        if max > 0 && keep.len() > max as usize {
-            keep.drain(..keep.len() - max as usize);
+        let row: Option<(i64, bool, bool)> =
+            tx.query_row("SELECT reply_to, private, deleted FROM messages WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
+        let Some((parent, private, deleted)) = row else { return Ok(()) };
+        if parent != 0 && !deleted {
+            tx.execute(&format!("UPDATE messages SET replies = MAX(replies - 1, 0) WHERE id = ?1 AND {COUNTS}"), params![parent, private])?;
         }
-        let gone = (rows.len() - keep.len()) as u32;
-        if gone == 0 && keep.iter().enumerate().all(|(i, k)| k.1 == i as u32 + 1) {
-            return Ok(0);
+        tx.execute("DELETE FROM messages WHERE id = ?1", [id])?;
+        for t in ["pins", "filled", "retracted", "seen", "mentions", "pushes"] {
+            tx.execute(&format!("DELETE FROM {t} WHERE msg_id = ?1"), [id])?;
         }
-        // In number order, for the lastreads below.
-        let kept_nums: Vec<u32> = keep.iter().map(|k| k.1).collect();
-        let kept: std::collections::HashSet<i64> = keep.iter().map(|k| k.0).collect();
-        for (id, _, _) in rows.iter().filter(|r| !kept.contains(&r.0)) {
-            tx.prepare_cached("DELETE FROM messages WHERE id = ?1")?.execute([id])?;
-            // `ftn_msgs` stays: it's the dupe history. (SQLite can give the
-            // highest row id out again, so what refers to a row by it goes:
-            // a pin left behind would pin the next post.)
-            tx.prepare_cached("DELETE FROM pins WHERE msg_id = ?1")?.execute([id])?;
-            tx.prepare_cached("DELETE FROM filled WHERE msg_id = ?1")?.execute([id])?;
-            tx.prepare_cached("DELETE FROM retracted WHERE msg_id = ?1")?.execute([id])?;
-            tx.prepare_cached("DELETE FROM seen WHERE msg_id = ?1")?.execute([id])?;
-            tx.prepare_cached("DELETE FROM mentions WHERE msg_id = ?1")?.execute([id])?;
-            tx.prepare_cached("DELETE FROM pushes WHERE msg_id = ?1")?.execute([id])?;
-        }
-        tx.execute("UPDATE messages SET num = -num WHERE area = ?1", [area])?;
-        for (i, (id, _)) in keep.iter().enumerate() {
-            tx.prepare_cached("UPDATE messages SET num = ?2 WHERE id = ?1")?.execute(params![id, i as u32 + 1])?;
-        }
-        let reads: Vec<(u32, u32)> = {
-            let mut stmt = tx.prepare("SELECT user_id, num FROM lastread WHERE area = ?1")?;
-            stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?
-        };
-        for (user, last) in reads {
-            let now = kept_nums.partition_point(|&n| n <= last) as u32;
-            tx.execute("UPDATE lastread SET num = ?3 WHERE user_id = ?1 AND area = ?2", params![user, area, now])?;
-        }
+        tx.execute("UPDATE messages SET reply_to = 0 WHERE reply_to = ?1", [id])?;
         tx.commit()?;
-        Ok(gone)
+        Ok(())
+    }
+
+    /// Purge an area's deleted messages (email earlier versions kept
+    /// until a pack). Returns how many went.
+    pub fn purge_deleted(&self, area: &str) -> anyhow::Result<u32> {
+        let ids: Vec<i64> = {
+            let db = self.db.lock().unwrap();
+            let mut stmt = db.prepare("SELECT id FROM messages WHERE area = ?1 AND deleted")?;
+            stmt.query_map([area], |r| r.get(0))?.collect::<Result<_, _>>()?
+        };
+        for id in &ids {
+            self.purge(*id)?;
+        }
+        Ok(ids.len() as u32)
     }
 
     /// Highest message read in an area by a user.
@@ -1053,8 +1037,7 @@ impl MsgBase {
 
     /// New: an author takes a message back or burns it: its text (and any
     /// kept by a retraction), what's under it and its marks are gone for
-    /// good; a stub (`subject`, `body`) stays, deleted, for moderators
-    /// until a pack. Returns the attachment it had, if any, to remove.
+    /// good; a stub (`subject`, `body`) stays, deleted, for moderators. Returns the attachment it had, if any, to remove.
     pub fn burn(&self, msg_id: i64, subject: &str, body: &str) -> anyhow::Result<Option<String>> {
         let attached = {
             let mut db = self.db.lock().unwrap();
@@ -1280,7 +1263,7 @@ mod tests {
     }
 
     #[test]
-    fn attachments_follow_their_message_through_packing() {
+    fn attachments_outlive_only_their_message() {
         let mb = MsgBase::open_memory().unwrap();
         let mut a = msg("GEN", "All", "first");
         a.deleted = true;
@@ -1291,9 +1274,9 @@ mod tests {
         let file = Attachment { name: "X.ZIP".into(), desc: "x".into(), size: 5, uploaded: chrono::NaiveDate::from_ymd_opt(2026, 10, 17).unwrap() };
         mb.set_attachment(a.id, &file).unwrap();
         mb.set_attachment(b.id, &file).unwrap();
-        mb.pack("GEN", 0).unwrap();
-        let kept = mb.get("GEN", 1).unwrap().unwrap();
-        assert_eq!((kept.id, kept.lines[0].as_str()), (b.id, "second"), "renumbered, same row");
+        mb.purge(a.id).unwrap();
+        let kept = mb.get("GEN", 2).unwrap().unwrap();
+        assert_eq!((kept.id, kept.lines[0].as_str()), (b.id, "second"), "not renumbered");
         assert_eq!(mb.attachment(kept.id).unwrap(), Some(file.clone()));
         assert_eq!(mb.orphan_attachments().unwrap(), [(a.id, "X.ZIP".to_string())]);
         assert!(mb.orphan_attachments().unwrap().is_empty());
@@ -1310,10 +1293,10 @@ mod tests {
         b.deleted = true;
         mb.add(&mut b).unwrap();
         mb.ftn_record(b.id, "21:1/999 00000001", "GEN", true).unwrap();
-        mb.pack("GEN", 0).unwrap();
+        mb.purge(b.id).unwrap();
         assert_eq!(mb.ftn_find("GEN", "21:1/999 00000001").unwrap(), None, "nothing to reply to");
         assert!(mb.ftn_known("GEN", "21:1/999 00000001").unwrap(), "still a dupe");
-        let mut c = msg("GEN", "All", "after packing");
+        let mut c = msg("GEN", "All", "after purging");
         mb.add(&mut c).unwrap();
         assert!(c.id > b.id);
     }
@@ -1328,13 +1311,13 @@ mod tests {
         mb.add(&mut b).unwrap();
         let mut c = msg("GEN", "All", "third");
         mb.add(&mut c).unwrap();
-        // A reader has #2 open; a pack makes it #1 and #3 becomes #2.
+        // A reader has #2 open while #1 goes.
         let mut open = mb.get("GEN", 2).unwrap().unwrap();
-        mb.pack("GEN", 0).unwrap();
+        mb.purge(a.id).unwrap();
         open.deleted = true;
         mb.update(&open).unwrap();
         assert!(mb.by_id(b.id).unwrap().unwrap().deleted);
-        assert!(!mb.by_id(c.id).unwrap().unwrap().deleted, "not the message now numbered 2");
+        assert!(!mb.by_id(c.id).unwrap().unwrap().deleted, "only that row");
         let mut r = msg("GEN", "All", "a reply");
         r.reply_to = c.id;
         mb.add(&mut r).unwrap();
@@ -1420,25 +1403,23 @@ mod tests {
     }
 
     #[test]
-    fn packing() {
+    fn purging() {
         let mb = MsgBase::open_memory().unwrap();
-        for i in 1..=6 {
-            let mut m = msg("GEN", "All", &format!("#{i}"));
-            m.deleted = i == 2 || i == 5;
-            mb.add(&mut m).unwrap();
-        }
-        mb.set_lastread(7, "GEN", 4).unwrap();
-        mb.set_lastread(8, "GEN", 6).unwrap();
-        // 2 and 5 are deleted; a max of 3 drops #1 as well.
-        assert_eq!(mb.pack("GEN", 3).unwrap(), 3);
-        let left: Vec<(u32, String)> = mb.all("GEN").unwrap().into_iter().map(|m| (m.num, m.lines[0].clone())).collect();
-        assert_eq!(left, [(1, "#3".to_string()), (2, "#4".into()), (3, "#6".into())]);
-        assert_eq!(mb.lastread(7, "GEN").unwrap(), 2, "had read up to #4");
-        assert_eq!(mb.lastread(8, "GEN").unwrap(), 3);
-        assert_eq!(mb.pack("GEN", 3).unwrap(), 0, "nothing more to do");
-        mb.rename_area("GEN", "TALK").unwrap();
-        assert_eq!(mb.lastread(8, "TALK").unwrap(), 3);
-        assert_eq!(mb.delete_area("TALK").unwrap(), 3);
+        let mut a = msg("EMAIL", "Fiend", "hi");
+        mb.add(&mut a).unwrap();
+        let mut b = msg("EMAIL", "Fiend", "re: hi");
+        b.reply_to = a.id;
+        mb.add(&mut b).unwrap();
+        let mut c = msg("EMAIL", "Fiend", "later");
+        mb.add(&mut c).unwrap();
+        assert_eq!(mb.by_id(a.id).unwrap().unwrap().replies, 1);
+        mb.purge(b.id).unwrap();
+        assert!(mb.by_id(b.id).unwrap().is_none());
+        assert_eq!(mb.by_id(a.id).unwrap().unwrap().replies, 0, "the reply no longer counts");
+        mb.set_deleted(c.id, true).unwrap();
+        assert_eq!(mb.purge_deleted("EMAIL").unwrap(), 1);
+        let left: Vec<String> = mb.all("EMAIL").unwrap().into_iter().map(|m| m.lines[0].clone()).collect();
+        assert_eq!(left, ["hi"]);
     }
 
     #[test]
@@ -1504,7 +1485,7 @@ mod tests {
         assert_eq!(mb.remove_pushes(a.id, 2).unwrap(), 3);
         mb.set_deleted(b.id, true).unwrap();
         assert!(mb.recent_pushes(at(0)).unwrap().iter().all(|p| p.0 == a.id));
-        mb.pack("GENERAL", 0).unwrap();
+        mb.purge(b.id).unwrap();
         assert!(mb.pushes(b.id).unwrap().is_empty());
         assert_eq!(mb.pushes(a.id).unwrap().len(), 1);
     }

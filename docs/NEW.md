@@ -174,7 +174,10 @@ All in [FEATURES](FEATURES.md#message-center).
 
 - `MH`: areas with what's new and the latest post; threads; a reader
   with the header fixed and the text scrolling.
-- Threads are kept across packing, and through QWK.
+- Threads are kept through QWK.
+- Messages are never packed away (`*P`, and areas' message limits, are
+  gone): deleting a post marks it, and moderators can undelete it.
+  Deleted email goes for good, at once. Packing was for DOS-era disks.
 - Read tracking beyond the last-read pointer.
 - `MW` says how many posts are new at logon and offers to read them.
 - `MX newest`, `hot`, `dig`, `mouth`, `loud`, `unread`: straight to a
@@ -238,6 +241,11 @@ All in [FEATURES](FEATURES.md#message-center).
   pictures, 3 readings and 3 fortunes a day; its own menu (TAROT) and
   `%TR`/`%TF` for what's left.
   ([FEATURES](FEATURES.md#tarot-and-fortunes))
+- A slot machine (`AL`): three big reels drawn in 24-bit half-block
+  pixels, lit as cylinders, blurred as they spin, stopping one by one
+  with a jolt; wins glow and rain coins. Pulls a day, how loose it is
+  and what each line pays (minutes and file points) are in `*C`.
+  ([FEATURES](FEATURES.md#slot-machine))
 
 ### Mentions
 
@@ -364,6 +372,9 @@ All in [DOORS](DOORS.md).
 |---|---|
 | `AG` | art gallery |
 | `AI` | AI chat |
+| `AT` (+ `day` `three` `fortune`) | tarot and fortunes |
+| `AL` | the slot machine |
+| `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |
 | `MH` | message center |
 | `MW` (+ `Read`) | new posts at logon |

@@ -36,7 +36,7 @@ const SCREEN: &[u8; 4000] = include_bytes!("../assets/wfc.bin");
 /// `WFCCom`: six pages of eight commands (F1-F8).
 const WFC_COM: [[&str; 8]; 6] = [
     ["local logon", "exit flux/bbs", "jump to shell", "---", "---", "---", "---", "---"],
-    ["system config", "---", "string editor", "menu editor", "---", "msgarea editor", "pack msgareas", "level editor"],
+    ["system config", "---", "string editor", "menu editor", "---", "msgarea editor", "---", "level editor"],
     ["protocol cfg", "user editor", "launch menu", "read email", "view mailbox", "enter email", "filearea edit", "edit textfile"],
     ["archiver setup", "file conf edit", "msg conf edit", "sort all files", "stat editor", "bbslist editor", "event editor", "textfile libs"],
     ["edit infoforms", "---", "---", "---", "---", "---", "---", "---"],
@@ -78,7 +78,6 @@ fn action(page: usize, item: usize) -> Act {
         (2, 3) => Command("*E", ""),
         (2, 4) => Command("*#", ""),
         (2, 6) => Command("*A", ""),
-        (2, 7) => Command("*P", "A"),
         (2, 8) => Command("*L", ""),
         (3, 1) => Command("*X", ""),
         (3, 2) => Command("*U", ""),
@@ -763,8 +762,8 @@ impl Session {
             LocalJob::Logon => {}
             LocalJob::Command(code, param) => {
                 self.run_command(code, param).await?;
-                // The packers and sorter report and return.
-                if matches!(code, "*P" | "*S") {
+                // The sorter reports and returns.
+                if code == "*S" {
                     self.newline();
                     self.pause().await?;
                 }

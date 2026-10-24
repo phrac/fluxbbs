@@ -35,6 +35,7 @@ pub struct Config {
     pub meshcore: MeshCore,
     pub ftn: Ftn,
     pub bbslink: BbsLink,
+    pub slots: Slots,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -336,6 +337,56 @@ impl Default for Ai {
             search_url: String::new(),
             search_key_env: String::new(),
             timeout_seconds: 120,
+        }
+    }
+}
+
+/// The slot machine (new, `slots.rs`): pulls a day, how often a pull
+/// wins, and what each line pays.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Slots {
+    /// 0: no limit.
+    pub pulls_per_day: u32,
+    /// The chance, in percent, that a pull wins something.
+    pub win_percent: u32,
+    /// Three sevens come up one pull in this many (0: never).
+    pub jackpot_odds: u32,
+    pub jackpot: Prize,
+    pub bars: Prize,
+    pub bells: Prize,
+    pub plums: Prize,
+    pub oranges: Prize,
+    pub lemons: Prize,
+    pub cherries: Prize,
+    pub two_cherries: Prize,
+    pub one_cherry: Prize,
+}
+
+/// What a win pays: minutes on today's time, and file points.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Prize {
+    pub minutes: u32,
+    pub points: u32,
+}
+
+impl Default for Slots {
+    fn default() -> Self {
+        let p = |minutes, points| Prize { minutes, points };
+        Self {
+            pulls_per_day: 10,
+            win_percent: 40,
+            jackpot_odds: 200,
+            jackpot: p(60, 100),
+            bars: p(30, 40),
+            bells: p(20, 25),
+            plums: p(15, 15),
+            oranges: p(10, 12),
+            lemons: p(8, 10),
+            cherries: p(10, 10),
+            two_cherries: p(5, 5),
+            one_cherry: p(2, 2),
         }
     }
 }

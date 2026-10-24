@@ -180,6 +180,15 @@ on = "|B1Tarot & fortunes"
 off = "|B0Tarot & fortunes"
 
 [[command]]
+keys = "S"
+command = "AL"
+acs = "s50"
+desc = "Slots"
+help = "The slot machine: pull for minutes and file points"
+on = "|B1Slots"
+off = "|B0Slots"
+
+[[command]]
 keys = "Q"
 command = '-\'
 param = "main"

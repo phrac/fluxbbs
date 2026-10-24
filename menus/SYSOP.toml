@@ -154,15 +154,6 @@ on = "|B1Logon sequence"
 off = "|B0Logon sequence"
 
 [[command]]
-keys = "P"
-command = "*P"
-acs = "s250"
-desc = "Pack msg areas"
-help = "[sysop] Remove excessive/deleted messages from areas"
-on = "|B1Pack msg areas"
-off = "|B0Pack msg areas"
-
-[[command]]
 keys = "G"
 command = "*G"
 acs = "s250"

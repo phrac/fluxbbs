@@ -143,15 +143,10 @@ pub async fn run(state: Arc<BbsState>, e: Event) {
 async fn run_command(state: &Arc<BbsState>, cmd: &str) -> anyhow::Result<()> {
     match cmd.trim() {
         "" => Ok(()),
+        // Messages are never packed away now; what's left of the job is
+        // callers' boards that were never used.
         "pack-messages" => {
-            let mut total = 0;
-            // Email too: deleted mail would otherwise stay for ever.
-            let areas = state.areas();
-            for a in areas.areas.iter().chain([&areas.email]) {
-                total += state.msgs.pack(&a.file, a.max_msgs)?;
-            }
             crate::attach::remove_orphans(state)?;
-            tracing::info!("event: packed message areas, {total} messages removed");
             crate::boards::remove_empty_boards(state)?;
             Ok(())
         }

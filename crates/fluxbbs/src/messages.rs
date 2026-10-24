@@ -533,6 +533,15 @@ impl Session {
         Ok(None)
     }
 
+    /// New: deleted email goes for good, attachment and all.
+    pub(crate) fn purge_mail(&mut self, id: i64) -> io::Result<()> {
+        self.state.msgs.purge(id).map_err(io_err)?;
+        if let Err(e) = crate::attach::remove_orphans(&self.state) {
+            tracing::error!("removing a deleted letter's attachment: {e}");
+        }
+        Ok(())
+    }
+
     /// `maReadMessages`. `start` 0 asks where to begin. Returns false if
     /// the caller quit (which ends a global newscan). A scan (`!show_empty`)
     /// passes over messages already read in the message centre.
@@ -579,7 +588,7 @@ impl Session {
             self.menu_msg = cur;
             if show {
                 self.show_message(a, &m, cur, total).await?;
-                // By row: a pack meanwhile may have renumbered it.
+                // By row.
                 self.state.msgs.set_lastread_id(self.user.id, a.key(), m.id).map_err(io_err)?;
                 // Read, so not offered again as a mention.
                 self.state.msgs.mention_seen(self.user.id, m.id).map_err(io_err)?;
@@ -588,7 +597,7 @@ impl Session {
             let s = self.strings().fmt("MsgReadPrompt", &[&cur.to_string(), &total.to_string()]);
             self.show(&s).await?;
             let (key, typed) = self.read_command_or_number(total, "QPA?RDEHLISXUZ-").await?;
-            // Where this message is now, should another node have packed.
+            // Where this message is now (it may have gone meanwhile).
             if let Some(n) = self.state.msgs.num_of(m.id).map_err(io_err)? {
                 cur = n;
             }
@@ -666,6 +675,19 @@ impl Session {
                         m = now;
                     }
                     show = true;
+                }
+                'D' if a.is_email() && self.ok_to_delete(a, &m) => {
+                    self.purge_mail(m.id)?;
+                    self.say_line("MsgDeleted").await?;
+                    tracing::info!("{}: letter {} deleted", self.user.handle, cur);
+                    match self.readable(a, cur + 1, true, total, &seen)? {
+                        Some(next) => {
+                            m = next;
+                            cur = m.num;
+                            show = true;
+                        }
+                        None => return Ok(true),
+                    }
                 }
                 'D' if self.ok_to_delete(a, &m) => {
                     m.deleted = !m.deleted;
@@ -1400,7 +1422,7 @@ impl Session {
                             self.say("EmailKillOriginal").await?;
                             if self.yes_no(true).await? {
                                 mail[idx].deleted = true;
-                                self.state.msgs.set_deleted(mail[idx].id, true).map_err(io_err)?;
+                                self.purge_mail(mail[idx].id)?;
                             }
                             self.newline();
                         }
@@ -1416,12 +1438,11 @@ impl Session {
                     self.user_editor(&who).await?;
                     show = true;
                 }
-                'D' => {
-                    let m = &mut mail[idx];
-                    m.deleted = !m.deleted;
-                    let deleted = m.deleted;
-                    self.state.msgs.set_deleted(m.id, deleted).map_err(io_err)?;
-                    self.say_line(if deleted { "MsgDeleted" } else { "MsgUndeleted" }).await?;
+                // New: for good (the original kept deleted mail until a pack).
+                'D' if !mail[idx].deleted => {
+                    mail[idx].deleted = true;
+                    self.purge_mail(mail[idx].id)?;
+                    self.say_line("MsgDeleted").await?;
                     show = true;
                 }
                 'E' if all => {
@@ -1432,7 +1453,7 @@ impl Session {
                 }
                 _ => {}
             }
-            if !all && mail[cur as usize - 1].deleted {
+            if mail[cur as usize - 1].deleted {
                 if cur < total {
                     cur += 1;
                     show = true;
@@ -1450,7 +1471,7 @@ impl Session {
                 if self.yes_no(false).await? {
                     for i in left {
                         mail[i].deleted = true;
-                        self.state.msgs.set_deleted(mail[i].id, true).map_err(io_err)?;
+                        self.purge_mail(mail[i].id)?;
                     }
                 }
             }

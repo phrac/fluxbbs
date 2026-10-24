@@ -134,7 +134,7 @@ pub fn load(data: &[u8], cols: usize, rows: usize, lim: Limits) -> Result<Pictur
 }
 
 /// The nearest of xterm's 256 colours (its 6x6x6 cube or grey ramp).
-fn xterm256([r, g, b]: [u8; 3]) -> u8 {
+pub(crate) fn xterm256([r, g, b]: [u8; 3]) -> u8 {
     const LEVELS: [u8; 6] = [0, 95, 135, 175, 215, 255];
     let q = |v: u8| LEVELS.iter().enumerate().min_by_key(|(_, l)| (**l as i32 - v as i32).abs()).map_or(0, |(i, _)| i);
     let (qr, qg, qb) = (q(r), q(g), q(b));

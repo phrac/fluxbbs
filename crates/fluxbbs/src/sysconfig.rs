@@ -28,6 +28,18 @@ enum Kind {
     Letter(fn(&mut Config) -> &mut char),
     /// Getter, setter, labels.
     Choice(fn(&Config) -> usize, fn(&mut Config, usize), &'static [&'static str]),
+    /// Minutes and file points.
+    Prize(fn(&mut Config) -> &mut crate::config::Prize),
+}
+
+fn prize_shown(p: &crate::config::Prize) -> String {
+    format!("{} min, {} points", p.minutes, p.points)
+}
+
+/// "30 40", "30 min, 40 points": the first two numbers.
+fn prize_typed(s: &str) -> Option<crate::config::Prize> {
+    let mut n = s.split(|c: char| !c.is_ascii_digit()).filter(|w| !w.is_empty()).map(|w| w.parse::<u32>().ok().map(|v| v.min(9999)));
+    Some(crate::config::Prize { minutes: n.next()??, points: n.next().flatten().unwrap_or(0) })
 }
 
 struct Setting {
@@ -59,6 +71,7 @@ fn shown(kind: &Kind, c: &mut Config) -> String {
         Kind::Path(get) => get(c).display().to_string(),
         Kind::Char(get) | Kind::Letter(get) => get(c).to_string(),
         Kind::Choice(get, _, labels) => labels.get(get(c)).copied().unwrap_or("?").into(),
+        Kind::Prize(get) => prize_shown(get(c)),
     }
 }
 
@@ -340,6 +353,20 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('D', "Auth code", 20, "This board's authorization code from BBSLink. Keep it secret.", Text(|c| &mut c.bbslink.auth_code, TEXT.max(40))),
             set('E', "Scheme code", 20, "This board's scheme code from BBSLink.", Text(|c| &mut c.bbslink.scheme_code, TEXT.max(40))),
         ]),
+        ("Slot Machine", false, vec![
+            set('A', "Pulls a day", 4, "Pulls a caller gets a day (0 = no limit).", Num(|c| c.slots.pulls_per_day as u64, |c, v| c.slots.pulls_per_day = v as u32, 0, 9999)),
+            set('B', "Win chance %", 3, "How loose: the chance, in percent, that a pull wins something.", Num(|c| c.slots.win_percent as u64, |c, v| c.slots.win_percent = v as u32, 0, 100)),
+            set('C', "Jackpot 1 in", 6, "Three sevens come up once in this many pulls (0 = never).", Num(|c| c.slots.jackpot_odds as u64, |c, v| c.slots.jackpot_odds = v as u32, 0, 1_000_000)),
+            set('D', "7 7 7", 20, "The jackpot: minutes on today's time, then file points (e.g. 60 100).", Prize(|c| &mut c.slots.jackpot)),
+            set('E', "BAR BAR BAR", 20, "Three bars pay: minutes, then file points.", Prize(|c| &mut c.slots.bars)),
+            set('F', "Three bells", 20, "Three bells pay: minutes, then file points.", Prize(|c| &mut c.slots.bells)),
+            set('G', "Three plums", 20, "Three plums pay: minutes, then file points.", Prize(|c| &mut c.slots.plums)),
+            set('H', "Three oranges", 20, "Three oranges pay: minutes, then file points.", Prize(|c| &mut c.slots.oranges)),
+            set('I', "Three lemons", 20, "Three lemons pay: minutes, then file points.", Prize(|c| &mut c.slots.lemons)),
+            set('J', "Three cherries", 20, "Three cherries pay: minutes, then file points.", Prize(|c| &mut c.slots.cherries)),
+            set('K', "Two cherries", 20, "Cherries on the first two reels pay: minutes, then file points.", Prize(|c| &mut c.slots.two_cherries)),
+            set('L', "One cherry", 20, "A cherry on the first reel pays: minutes, then file points.", Prize(|c| &mut c.slots.one_cherry)),
+        ]),
     ]
 }
 
@@ -408,7 +435,7 @@ const GROUPS: &[Group] = &[
         ('E', "Prompts", "Yes/no prompts and bars, password echo, pauses"),
         ('H', "Website Feed", "The status feed for a website: who's on, last callers, new files"),
         ('R', "Wait-For-Call", "The local wait-for-call screen"),
-        ('X', "Default Colors", "The color scheme new callers start with"),
+        ('Y', "Default Colors", "The color scheme new callers start with"),
     ]),
     ("callers", &[
         ('C', "Access and Logon", "SysOp access, the matrix, logon tries, system password, time per call"),
@@ -433,6 +460,7 @@ const GROUPS: &[Group] = &[
         ('T', "MeshCore", "The MeshCore radio bridge"),
         ('U', "FTN Echomail", "Echomail networks: addresses, hub, passwords, polling"),
         ('W', "BBSLink", "Door games on bbslink.net's server: on or off, the board's codes"),
+        ('X', "Slot Machine", "Pulls a day, how loose it is, what each line pays"),
     ]),
 ];
 
@@ -602,6 +630,15 @@ impl Session {
                     let pick = self.cfg_option(&mut f, key, labels, get(cfg)).await?;
                     put(cfg, pick);
                 }
+                Kind::Prize(get) => {
+                    // Edited as two numbers, shown in words.
+                    let p = *get(cfg);
+                    f.set(key, format!("{} {}", p.minutes, p.points));
+                    if let Some(p) = self.cfg_text(&mut f, key, TEXT.max(20)).await?.as_deref().and_then(prize_typed) {
+                        *get(cfg) = p;
+                    }
+                    self.cfg_set(&mut f, key, prize_shown(get(cfg)));
+                }
             }
         }
         Ok(())
@@ -640,6 +677,14 @@ mod tests {
         let want: Vec<char> = (0..=sections().len() as u8).map(|i| (b'A' + i) as char).collect();
         assert_eq!(keys, want);
         assert!(GROUPS.iter().all(|(t, items)| t.len() <= 20 && items.iter().all(|i| i.1.len() <= 21 && i.2.len() <= 72)));
+    }
+
+    #[test]
+    fn prizes_are_typed_as_two_numbers() {
+        assert_eq!(prize_typed("30 40"), Some(crate::config::Prize { minutes: 30, points: 40 }));
+        assert_eq!(prize_typed(&prize_shown(&crate::config::Prize { minutes: 5, points: 7 })), Some(crate::config::Prize { minutes: 5, points: 7 }));
+        assert_eq!(prize_typed("12"), Some(crate::config::Prize { minutes: 12, points: 0 }));
+        assert_eq!(prize_typed("none"), None);
     }
 
     #[test]

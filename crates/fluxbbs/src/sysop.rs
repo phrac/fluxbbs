@@ -301,7 +301,7 @@ impl Session {
             let mut areas = (*self.state.areas()).clone();
             self.clear_screen();
             self.set_slot(Slot::Text);
-            self.write(" Num  Description                Key       ACS    Post   Msgs   Max");
+            self.write(" Num  Description                Key       ACS    Post   Msgs");
             self.newline();
             self.rule().await?;
             let mut lines = 3;
@@ -309,14 +309,13 @@ impl Session {
                 let count = self.state.msgs.count(&a.file).map_err(io_err)?;
                 self.set_slot(Slot::Info);
                 self.write(&format!(
-                    " {} {} {} {} {} {} {}",
+                    " {} {} {} {} {} {}",
                     resize(&(i + 1).to_string(), 4),
                     resize(&a.name, 26),
                     resize(&a.file, 9),
                     resize(&a.acs, 6),
                     resize(&a.post_acs, 6),
-                    resize(&count.to_string(), 6),
-                    if a.max_msgs == 0 { "-".to_string() } else { a.max_msgs.to_string() }
+                    count,
                 ));
                 self.newline();
                 lines += 1;
@@ -406,7 +405,6 @@ impl Session {
             f.item('G', "Area sponsor", 36, &a.sponsor, "Creator or manager of this message area (usually the SysOp).");
             f.item('H', "Access ACS", 20, &a.acs, "ACS required to access or read messages in this area.");
             f.item('I', "Post ACS", 20, &a.post_acs, "ACS required to post messages in this area.");
-            f.item('J', "Max messages", 5, a.max_msgs.to_string(), "Most messages *P keeps in this area (0 = unlimited).");
             f.item('K', "Password", 20, &a.password, "Password required to access or read messages in this area.");
             f.item('L', "QWK name", 16, &a.qwk_name, "Shortened message area name (max 16 characters) for QWK indexing.");
             f.label("Messages", 6, msgs.to_string());
@@ -513,11 +511,6 @@ impl Session {
                             *if key == 'H' { &mut a.acs } else { &mut a.post_acs } = v;
                         }
                     }
-                    'J' => {
-                        if let Some(v) = self.cfg_number(&mut f, key, 0, 99_999).await? {
-                            a.max_msgs = v as u32;
-                        }
-                    }
                     'K' => {
                         if let Some(v) = self.cfg_text(&mut f, key, Field::UPPER).await? {
                             a.password = v;
@@ -555,47 +548,6 @@ impl Session {
             }
             num = ((num as i64 - 1 + step).rem_euclid(n as i64) + 1) as u32;
         }
-    }
-
-    /// `maPackAreaAsk` (`*P`): pack one area, or all (`A` as the
-    /// parameter, or answering yes).
-    pub async fn pack_msg_areas(&mut self, param: &str) -> io::Result<()> {
-        self.newline();
-        let param = param.trim().to_ascii_uppercase();
-        let areas = self.state.areas();
-        let which: Vec<u32> = if param.starts_with('A') || param == "PACK" {
-            (1..=areas.areas.len() as u32).collect()
-        } else if let Ok(n) = param.parse::<u32>() {
-            vec![n]
-        } else {
-            self.say("MsgPackAskAll").await?;
-            let all = self.yes_no(true).await?;
-            self.newline();
-            if all { (1..=areas.areas.len() as u32).collect() } else { vec![self.user.cur_msg_area] }
-        };
-        let every = which.len() == areas.areas.len();
-        let mut total = 0;
-        for n in which {
-            let Some(a) = areas.get(n).cloned() else { continue };
-            let count = self.state.msgs.count(&a.file).map_err(io_err)?;
-            let s = self.strings().fmt("MsgPackStart", &[&a.name, &count.to_string()]);
-            self.show(&s).await?;
-            self.flush().await?;
-            total += self.state.msgs.pack(&a.file, a.max_msgs).map_err(io_err)?;
-            let s = self.strings().fmt("MsgPackEnd", &[&a.name, &count.to_string()]);
-            self.show_line(&s).await?;
-        }
-        // All of them: deleted email goes too.
-        if every {
-            total += self.state.msgs.pack(&areas.email.file, areas.email.max_msgs).map_err(io_err)?;
-        }
-        match crate::attach::remove_orphans(&self.state) {
-            Ok(n) if n > 0 => tracing::info!("{}: {n} orphaned attachment(s) removed", self.user.handle),
-            Err(e) => tracing::error!("removing orphaned attachments: {e}"),
-            _ => {}
-        }
-        tracing::info!("{}: packed message areas, {total} messages removed", self.user.handle);
-        Ok(())
     }
 
     /// `*K` (FILEPACK): forget files that are gone from one area's

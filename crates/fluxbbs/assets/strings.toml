@@ -72,9 +72,6 @@ MsgNewScanDone = "|15⌐|07-|08- |11G|03l|08obal |11n|03e|08wscan |11c|03o|08mpl
 MsgNewScanStart = "|12⌐|04-|08- |12A|04r|08ea |12%S1 |08- |04[|12%S2 m|04s|08gs] - |12s|04c|08anning ..."
 MsgNewScanEnd = "|12⌐|04-|08- |12A|04r|08ea |12%S1 |08- |04[|12%S2 m|04s|08gs] - |12c|04o|08mplete ...|LF"
 MsgNewScanAskAll = "|15⌐|07-|08- |13N|05e|08wScan |13a|05l|08l |13m|05e|08ssage |13a|05r|08eas? "
-MsgPackStart = "|12⌐|04-|08- |12P|04a|08cking |12a|04r|08ea: |12%S1 |04[|12%S2 |04msgs|08] ..."
-MsgPackEnd = " |12c|04o|08mplete."
-MsgPackAskAll = "|10⌐|02-|08- |10P|02a|08ck |10a|02l|08l |10m|02e|08ssage |10a|02r|08eas? "
 Anonymous = "|AS|12An|04onym|08ous|AL"
 NoAutoMsg = "|12⌐|04-|08- |12T|04h|08e |12a|04u|08tomessage |12i|04s |12e|04m|08pty |12-|04-|08-"
 MsgAskAnonymous = "|11P|03o|08st |11a|03n|08onymously? "
@@ -732,3 +729,14 @@ MNCbar = "|U5[ |U3/help |U5]─[ |U3/who |U5]─[ |U3/me |U5]─[ |U3/msg |U5]�
 BbsLinkOff = "|U0BBSLink isn't set up on this board yet."
 BbsLinkConnecting = "|U1Connecting to |U3BBSLink|U1..."
 BbsLinkFailed = "|U0BBSLink didn't let us in|U2: |U1%S1"
+# New: the slot machine (`AL`). On the reels' screen these are shown in
+# the game's own colors, so their color codes are dropped there.
+# SlotsNone: %S1 the pulls a day. SlotsLastJackpot: %S1 who, %S2 the day.
+SlotsNone = "|U4You've had your |U3%S1|U4 pulls today|U5. |U4Come back tomorrow|U5."
+SlotsLose = "no win this time"
+SlotsNear = "so close!"
+SlotsKeys = "|U5[|U3space|U5]|U1pull |U5[|U3p|U5]|U1pays |U5[|U3q|U5]|U1quit "
+SlotsLastJackpot = "last jackpot: %S1, %S2"
+SlotsPaysHead = "what each line pays"
+SlotsPaysKey = "any key goes back to the reels"
+SlotsPlainPrompt = "|U1slots|U2: |U3%S1|U1 pulls left|U2. |U1enter pulls, p pays, q quits|U2> |U3"

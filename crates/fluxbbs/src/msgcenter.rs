@@ -18,7 +18,7 @@ use crate::session::{BarPick, BarRow, BarSpec, Session, waves};
 /// A conversation: a message and the replies under it.
 pub struct Thread {
     /// (message row id, depth) in reading order; the first is the root.
-    /// Ids, not numbers: a pack renumbers while a list is open.
+    /// Ids, not numbers: they name a row for good.
     pub msgs: Vec<(i64, usize)>,
     pub last: NaiveDateTime,
 }
@@ -183,7 +183,7 @@ impl Session {
     pub(crate) fn mark_read(&self, a: &AreaRef, m: &Message) -> io::Result<()> {
         let key = a.key();
         let last = self.state.msgs.lastread(self.user.id, key).map_err(io_err)?;
-        // Its number now (a pack renumbers), if it's still there.
+        // Its number, if it's still there.
         let Some(num) = self.state.msgs.num_of(m.id).map_err(io_err)? else { return Ok(()) };
         if num <= last {
             return Ok(());
@@ -1234,7 +1234,7 @@ impl Session {
                         scroll = 0;
                         redraw = true;
                     }
-                    // Gone (deleted, or packed away) since the list was made.
+                    // Gone (deleted) since the list was made.
                     None => {
                         let next = if forward { i + 1 } else { i.wrapping_sub(1) };
                         if next >= seq.len() {
@@ -1441,6 +1441,10 @@ impl Session {
                         self.regret(a, &m).await?;
                         cur = None;
                         redraw = true;
+                    }
+                    Some('D') if a.is_email() && self.ok_to_delete(a, &m) => {
+                        self.purge_mail(m.id)?;
+                        cur = None;
                     }
                     Some('D') if self.ok_to_delete(a, &m) => {
                         let mut x = m.clone();
