@@ -1,5 +1,5 @@
 //! `*C`: the system configuration editor (CONFIG1/CONFIG2). Each section
-//! of iniquity.toml gets a screen; on leaving, only the settings that
+//! of fluxbbs.toml gets a screen; on leaving, only the settings that
 //! changed are written back, so the file's comments and layout survive.
 //! Most changes apply at once; SSH settings and paths need a restart.
 
@@ -289,13 +289,13 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('O', "Read pages", 3, "Let the AI read web pages it finds (public addresses only)?", Bool(|c| &mut c.ai.read_pages)),
         ]),
         ("MeshCore", false, vec![
-            set('A', "Enabled", 3, "Bridge a MeshCore companion radio's channels to message areas? Channels: [[meshcore.channel]] in iniquity.toml.", Bool(|c| &mut c.meshcore.enabled)),
+            set('A', "Enabled", 3, "Bridge a MeshCore companion radio's channels to message areas? Channels: [[meshcore.channel]] in fluxbbs.toml.", Bool(|c| &mut c.meshcore.enabled)),
             set('B', "Radio address", 40, "host:port of the radio (WiFi companion firmware: port 5000; a USB radio via ser2net).", Text(|c| &mut c.meshcore.address, TEXT.max(100))),
             set('C', "Reconnect (secs)", 4, "How long to wait between tries while the radio can't be reached.", Num(|c| c.meshcore.reconnect_seconds, |c, v| c.meshcore.reconnect_seconds = v, 5, 3600)),
             set('D', "Parts per post", 2, "Messages a long post may be split into on the mesh (each about 140 characters).", Num(|c| c.meshcore.max_parts as u64, |c, v| c.meshcore.max_parts = v as u8, 1, 10)),
         ]),
         ("FTN Echomail", false, vec![
-            set('A', "Enabled", 3, "Be a node of an FTN network (fsxNet...), polling the hub over binkp? Echoes: [[ftn.area]] in iniquity.toml.", Bool(|c| &mut c.ftn.enabled)),
+            set('A', "Enabled", 3, "Be a node of an FTN network (fsxNet...), polling the hub over binkp? Echoes: [[ftn.area]] in fluxbbs.toml.", Bool(|c| &mut c.ftn.enabled)),
             set('B', "Our address", 30, "This board's address with the network's domain, e.g. 21:1/999@fsxnet.", Text(|c| &mut c.ftn.address, TEXT.max(40))),
             set('C', "Hub address", 30, "The hub's FTN address, e.g. 21:1/100.", Text(|c| &mut c.ftn.hub, TEXT.max(40))),
             set('D', "Hub host", 40, "Where the hub's binkp mailer listens: host or host:port (24554 if none).", Text(|c| &mut c.ftn.hub_host, TEXT.max(100))),

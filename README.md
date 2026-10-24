@@ -1,19 +1,23 @@
 # flux/bbs
 
-A BBS for today's internet, written in Rust and based on **Iniquity**
-(Mike Fricker and the Iniquity Development Team, 1995–97, Turbo Pascal,
-1.00a26r5): a port of it first, and much more since (a DOS machine for
-doors, FTN mail, a message center after PTT, AI chat, an art gallery).
-`fluxbbs` is the name wherever a slash can't go (the program, crates,
-files, container).
-
-SSH and telnet replace the modems, SQLite and TOML replace the `.DAT`
-files, and it all runs in one process. The stock screens, menus and
-prompts are kept, so an old Iniquity board imports and looks the same.
+flux/bbs is a bulletin board system for today's internet. Callers reach
+it over SSH or telnet, with SyncTERM or any terminal. It is written in
+Rust, began as a port of the Iniquity BBS (1.00a26r5), and has grown a
+lot since: a DOS machine for doors, FTN mail, a message center after
+PTT, AI chat and an art gallery.
 
 ![The art gallery](docs/screenshots/gallery.png)
 
+The whole board runs in one process. SQLite and TOML files hold its
+data and settings. Iniquity's stock screens, menus and prompts are
+kept, so an old Iniquity board imports and looks the same. The program,
+crates, files and container are named `fluxbbs`, since a slash can't go
+there.
+
 ## Quick start
+
+You need `cargo` and `unzip`. Showing PDFs also needs Poppler
+(`poppler-utils`).
 
     tools/setup_host.sh                      # first time: stock data, build
     cargo run --release                      # serves fluxbbs.toml
@@ -21,91 +25,103 @@ prompts are kept, so an old Iniquity board imports and looks the same.
     syncterm ssh://anyname@localhost:2222    # CP437 BBS terminal
     syncterm telnet://localhost:2323         # plain telnet
 
-Log in as `SysOp` / `SYSOP` (system password `SYSTEM`), and change both.
-New callers pick "apply as new" or type `new` at the login prompt.
-
-`--wfc` adds the waiting-for-caller screen on the console. The database
-is `data/fluxbbs.db` and uploads live in `files/`; neither is in git.
+- Log in as `SysOp` / `SYSOP`, with system password `SYSTEM`. Change both.
+- New callers pick "apply as new", or type `new` at the login prompt.
+- `--wfc` adds the waiting-for-caller screen on the console.
+- The database is `data/fluxbbs.db` and uploads live in `files/`.
+  Neither is in git.
+- Boards from before the rename keep `iniquity.toml` and
+  `data/iniquity.db`, and still work.
 
 ## In a container
 
     docker compose -f deploy/docker-compose.yml up -d --build
 
-The image holds the server and the stock files; your board directory
+The image holds the server and the stock files. Your board directory
 (`BOARD`, default `~/code/disflux_bbs`) is mounted beside them. SSH is
-on port 2222, telnet on 23, logs in `docker logs fluxbbs`.
+on port 2222 and telnet on 23. Logs are in `docker logs fluxbbs`.
+[SYSOP.md](docs/SYSOP.md#running-in-a-container) has the details.
 
-## What's done
-
-**Connections:** SSH and telnet, CP437 and UTF-8 terminals, 24-bit
-color, nodes, node messages, multinode chat, paging the SysOp.
-
-**Keeping bots out:** a picture bot check (characters drawn in color, not text), per-address limits,
-escalating bans, password rules and sign-up limits.
-
-**The board**
-- The display and menu engines: MCI codes, lightbars, ACS, stacked
-  commands
-- Logon, the matrix, new-user applications, access levels
-- Messages: areas, conferences, the full-screen editor, newscans,
-  email, attachments
-- Files: areas and sub-areas, the lister, batch downloads, Zmodem,
-  upload screening
-- The art gallery, with ANSI playback and animated GIFs
-- Oneliners, automessage, last callers, BBS list, statistics
-- Infoforms and new user voting
-- The time bank
-- Screen themes
-- Lua scripting
-- QWK offline mail
-- Doors, native and DOS (a built-in DOS machine)
-- AI chat that can search the web and knows its way around the board
-- A JSON feed for the board's website
-- A MeshCore radio bridge: mesh channels as message areas
-- The textfiles.com archive as file areas, the site's tree and
-  descriptions kept (`fluxbbs textfiles`)
-- From 2.0/2.20: the voting booth, newscan selections, message search,
-  invisible logons, chat commands, door names in the status, web file
-  lists ([details](docs/FEATURES.md#from-20-and-220))
-
-**SysOp tools:** an editor for everything (`*C`, `*U`, `*F`, `*A`,
-`*#`...), the waiting-for-caller screen, the security log, scheduled
-events.
-
-**Importing:** users, messages, files, areas, menus, strings, screens
-and statistics from an existing install.
-
-All of it in detail: [docs/FEATURES.md](docs/FEATURES.md).
+## What it does
 
 ![The AI giving the keys to download a file](docs/screenshots/ai-howto.png)
 
-## What's left to port
+### Connecting and security
 
-| Feature | Original | Notes |
-|---|---|---|
-| Netmail from callers | echomail.pas, INIQMAIL.PAS | Echomail and netmail to the board work natively now (binkp, [FTN](docs/FEATURES.md#ftn-echomail)); callers can't yet write netmail to an FTN address. |
+- SSH and telnet; CP437 and UTF-8 terminals; 24-bit color
+- Nodes, node messages, multinode chat, paging the SysOp
+- A picture bot check: characters drawn in color, not text
+- Per-address limits, escalating bans, password rules and sign-up
+  limits ([details](docs/SYSOP.md#keeping-bots-out))
 
-**Not planned:** Tetris (its source isn't in this release), modem
-setup, MicroDOS, the local status bar, and the Oblivion/Renegade
-converters.
+### Messages
+
+- Areas, conferences, the full-screen editor, newscans, email and attachments
+- A [message center](docs/FEATURES.md#message-center) after PTT
+- [QWK](docs/FEATURES.md#qwk-offline-mail) offline mail
+- [FTN echomail](docs/FEATURES.md#ftn-echomail) over binkp
+- A [MeshCore](docs/FEATURES.md#meshcore) radio bridge: mesh channels as message areas
+
+### Files
+
+- Areas and [sub-areas](docs/FILES.md#sub-areas), the lister, batch downloads, Zmodem
+- [Upload screening](docs/FILES.md#screening-uploads)
+- The [art gallery](docs/FILES.md#art-gallery), with ANSI playback and animated GIFs
+- The [textfiles.com archive](docs/FILES.md#the-textfilescom-archive) as file
+  areas, with the site's tree and descriptions (`fluxbbs textfiles`)
+
+### The rest of the board
+
+- Display and menu engines: MCI codes, lightbars, ACS, stacked commands
+- Logon, the matrix, new-user applications, access levels
+- Oneliners, automessage, last callers, BBS list, statistics
+- [Infoforms and new user voting](docs/FEATURES.md#infoforms-and-new-user-voting)
+- The time bank and screen themes
+- [Lua scripting](docs/SCRIPTING.md)
+- [Doors](docs/DOORS.md), native and DOS (a built-in DOS machine)
+- [AI chat](docs/FEATURES.md#ai-chat) that can search the web and knows its way around the board
+- A [JSON feed](docs/SYSOP.md#website-feed) for the board's website
+- From Iniquity 2.0 and 2.20: the voting booth, newscan selections,
+  message search, invisible logons, chat commands, door names in the
+  status, web file lists ([details](docs/FEATURES.md#from-20-and-220))
+
+### For the SysOp
+
+- An editor for everything (`*C`, `*U`, `*F`, `*A`, `*#`...)
+- The waiting-for-caller screen, the security log, scheduled events
+- [Importing](docs/SYSOP.md#importing-an-existing-iniquity-install)
+  users, messages, files, areas, menus, strings, screens and statistics
+  from an existing Iniquity install
+
+Everything in detail: [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Documentation
 
-| | |
+| Doc | What's in it |
 |---|---|
-| [FEATURES.md](docs/FEATURES.md) | Everything the port does, QWK, infoforms, AI chat, MeshCore, FTN echomail |
-| [NEW.md](docs/NEW.md) | What's new over the original, and what changed on purpose |
+| [FEATURES.md](docs/FEATURES.md) | Every feature in detail: QWK, infoforms, AI chat, MeshCore, FTN echomail |
+| [NEW.md](docs/NEW.md) | What's new over Iniquity, and what changed on purpose |
 | [SYSOP.md](docs/SYSOP.md) | Configuration, importing, security, the website feed, themes |
 | [FILES.md](docs/FILES.md) | Sub-areas, transfers, upload screening, the art gallery |
 | [DOORS.md](docs/DOORS.md) | Native doors and the built-in DOS machine |
 | [SCRIPTING.md](docs/SCRIPTING.md) | Lua scripts |
 | [CODES.md](docs/CODES.md) | Display codes |
 | [ARTWORK.md](docs/ARTWORK.md) | Screens to replace with your own art |
+| [AGENTS.md](docs/AGENTS.md) | AI agents that call in: setting one up as the SysOp's assistant, and how it should behave |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Code layout and tests |
+
+## Status
+
+**Not done yet: netmail from callers.** Echomail, and netmail to the
+board, work over binkp ([FTN](docs/FEATURES.md#ftn-echomail)). Callers
+can't yet write netmail to an FTN address.
+
+**Not planned:** Tetris (its source isn't in this release), modem
+setup, MicroDOS, the local status bar, and the Oblivion/Renegade
+converters.
 
 ## Credits
 
 Iniquity BBS © 1995–97 Mike Fricker and the Iniquity Development Team.
-flux/bbs began as a port of it and reimplements its behavior in Rust;
-the stock screens, menus and strings are the original's. Boards from
-before the rename keep their `iniquity.toml` and `data/iniquity.db`.
+flux/bbs began as a port of it and reimplements its behavior in Rust.
+The stock screens, menus and strings are Iniquity's.

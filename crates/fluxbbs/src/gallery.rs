@@ -612,6 +612,7 @@ impl Session {
                 None => gallery_info(items.get(cur), *speed),
             };
             self.lister_info(&l, &info).await?;
+            self.lister_park(&l);
             let key = self.read_key().await?;
             let prev = cur;
             let height = (l.bot - l.top + 1) as usize;
@@ -809,7 +810,7 @@ impl Session {
             return self.archive_note(&s).await.map(|_| None);
         }
         let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
-        let grid = crate::pager::render(text, utf8);
+        let grid = crate::pager::trimmed(crate::pager::render(text, utf8));
         self.page_grid_keys(name, &grid, "GalleryViewHelp", &['D', 'Q']).await
     }
 

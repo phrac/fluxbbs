@@ -1,395 +1,1103 @@
 # Features
 
-Everything the port does, in detail. The [README](../README.md) has the short list.
+What flux/bbs does, area by area, and how to use and set up each part.
+The [README](../README.md) has the short list, and [NEW.md](NEW.md)
+says what's new over Iniquity.
+
+**Contents**
+
+- [In detail](#in-detail): connections, keeping bots out, logon, menus
+  and screens, messages, files, profiles, doors, SysOp tools, importing
+- [QWK offline mail](#qwk-offline-mail)
+- [Infoforms and new user voting](#infoforms-and-new-user-voting)
+- [AI chat](#ai-chat)
+- [Message center](#message-center)
+- [MeshCore](#meshcore)
+- [FTN echomail](#ftn-echomail)
+- [From 2.0 and 2.20](#from-20-and-220)
+- [Not planned](#not-planned)
 
 ## In detail
 
-**Connections**
-- SSH (russh), including the older algorithms SyncTERM's cryptlib needs.
-  New: log in with an SSH key kept on the account (`UK`, `k` in user
-  config), or the account's password as the SSH password (a terminal's
-  stored login), with no bot check or login prompts (SYSOP.md).
-- Telnet: binary, server echo, window size (NAWS) and terminal type;
-  Zmodem works over it.
-- CP437 for BBS terminals, UTF-8 (with DOS wrap and clear behavior)
-  for everything else; aixterm bright colors and iCE backgrounds; 256
-  and 24-bit color art passes through.
-- Nodes, with who's online, node messages, broadcasts and multinode chat.
-- Paging the SysOp (`CP`, `>C` from the matrix): the page goes to a node
-  where a SysOp is logged in, who is asked, wherever they are, whether
-  to chat; the two then chat on the split screen (CHATMODE.ANS), each
-  keystroke sent as it's typed. `/q` ends it, `/bye` from the SysOp
-  hangs the caller up, `/cls` clears the windows, `/?` shows CHATHELP. Chat hours, the
-  override ACS and password, pages per call and how long a page lasts
-  are `[chat]` in `fluxbbs.toml`; outside the hours, or with no SysOp
-  online, the caller is offered email instead.
+### Connections
 
-**Keeping bots out**
-- Bot check before anything else, on SSH and telnet (new): three big
-  characters drawn with background color in a field of noise, to be
-  typed; a person reads them, a script reading the text sees noise
-  (SYSOP.md). The key-combination check is still there as an option.
-- Per-address connection limits, bans for repeated failures (doubling,
-  up to a day), allow and deny lists, a short idle limit before login.
-- Bans and failures are kept in the database: bans survive a restart,
-  SysOps are told at logon how many failures and bans there have been
-  since their last call, `*G` lists them and lifts bans, and
-  `fluxbbs unban ADDRESS|all` does so from the shell for a SysOp
-  locked out of their own board.
+#### SSH
 
-**The board**
-- Display engine: `|XX` colors and controls, `%XX` MCI codes, `@`/`&`
-  positioning, `{`/`}` limits and padding, `~XX` fields, repeat screens
-  (TOP/MID/HIL/BOT), random and day-of-week screen variants.
-- Menu engine: hot keys, `/` and `//` commands, `#` (an area number
-  typed at the prompt, for `M#`/`F#`), FIRSTCMD, stacked
-  commands, gosub/return, generic and lightbar menus, ACS expressions,
-  passwords, fallbacks, command help. Lightbar menus (new) also take
-  their commands' keys (hot keys, `/X`, and digits for `#`, typed on the
-  help line), the arrows go by where options are on screen so a grid of
-  them works, and they hold up to 29 options (the original took 24).
-- Logon: the matrix menu, login, system password, new-user application
-  (each personal question can be switched off; handles kept as typed;
-  the NEWCFG screen to check the entries afterwards), access levels and
-  daily limits. Every N calls the caller is asked their birth date or
-  the last four digits of their phone number again (`*C`, Access and
-  Logon; the manual's "calls before check" options, whose code isn't in
-  the surviving source).
-- Messages: areas and conferences, the reader, posting and replying,
-  quoting, the full-screen editor, newscans and mandatory messages,
-  email, auto-signatures. A file can be attached to a message (ACS per
-  public/email in `*C`; nothing in this release's source called
-  ATTACH.PAS, so this follows the manual): uploaded after posting, or
-  named on disk by a SysOp, kept under `data/attach` by the message's
-  row id, offered for download when the message is read, and removed
-  when packing drops the message. A prepared message can be uploaded
-  instead of typed (ACS and "ask" toggles in `*C`); it lands in the
-  editor to look over. Email tags: `E/ n` tags the email written
-  this call, `E\ n` with `E+` shows only email tagged `n` (`E-` shows
-  it all), e.g. for a separate support mailbox; this release kept the
-  tag on messages but never used it, so this follows the manual.
-- Files: areas and conferences, the lightbar file lister, downloads
-  (single and batch, with points, ratios and daily limits), uploads
-  (blind or named, with FILE_ID.DIZ import, or for a single piece of
-  art, alone or alone in a ZIP, a description from its SAUCE: title,
-  artist/group and date, comments), search and newscan, local upload.
-  Browsing (`FW`, L on the file menu; new) works like the art gallery
-  over the file areas: areas are folders (with their file counts and
-  newest upload), archives (ZIP, tar, tar.gz) open as folders in place,
-  and Enter shows a file: text and ANSI in the viewer, pictures as ANSI
-  (animated GIFs play); D downloads, with the area's usual checks. `FV`
-  opens an archive the same way. Names are shown whole, sizes as
-  "4.5 KB", and typed names keep their case. Q leaves the browser from
-  anywhere; back goes up a level. Screens can show what's in the file
-  base (new, `%FT`...`%FV` in `CODES.md`): totals, the newest upload, the
-  most downloaded and biggest files, the top uploader, and a file at
-  random with a line of its description. `FW newest` (`hot`, `heavy`,
-  `dig`, `kingpin`) opens the browser on that file, so a lightbar
-  option on a menu can take the caller straight to it. Zmodem built in; other protocols and archivers
-  (RAR, 7Z, LHA via bsdtar/7-Zip) are external programs. Before a
-  download the caller can ask to be logged off when it's done (a
-  countdown afterwards; `*C`, Transfers).
-  Uploads are tested on the FILETEST screen (`*C`, Upload Tests): ZIPs
-  are read through (a CRC failure refuses the file) and can be held to
-  an age limit; an outside command can be run on every upload in place
-  of the DOS virus scanner (`clamscan --no-summary %F`, say); files on
-  the delete list (BBS ads) are stripped from ZIPs and the archive
-  comment added.
-- Profiles (new): finger (`UF`, `f` on a message in the reader, or a
-  name after the user list) shows a caller's location and note, since
-  when and when last on (or on now, unless invisible), calls, posts,
-  uploads and downloads, their latest post and uploads, and their plan:
-  up to six lines they write in user config (`p`). Real name, phone,
-  address and birth date stay private. A FINGER screen can dress it
-  (`~UN` `~LO` `~UO` `~FC` `~LS` `~CA` `~PO` `~UL` `~DL` `~LP` `~LU`,
-  `~KA` karma, `~P1`-`~P6`).
-- Oneliners, the automessage, last callers, history and statistics, the
-  BBS list, user configuration, user listing. BBS list entries have a
-  telnet and an SSH address (`host:port`) in place of the original's
-  phone number and baud rate (screens: `~TN` telnet, `~SS` SSH, `~SH`
-  SSH shortened to `:port` on the telnet host, for lists; older screens'
-  `~PN` shows the telnet address).
-- Infoforms (questionnaires, mandatory or not) and new user voting.
-- The time bank (`!D`/`!W` minutes, `!E`/`!I` download kilobytes, `!V`
-  the account), with per-level limits on what's kept and moved each
-  day (`*L`). The stock TIMEBANK menu's withdraw entry had no command;
-  it's `!W` now.
-- Screen themes (the original's text libraries): directories of screens
-  that replace the stock ones; callers pick theirs with `UT`.
-- Scripting in Lua, in place of IPL: `-X name` and `%!name` run
-  `scripts/name.lua`, with a `bbs` API for output, input, the user
-  record, menu commands and stored values. See
-  [SCRIPTING.md](SCRIPTING.md).
-- QWK offline mail: `QD` packs new messages (email as conference 0)
-  for an offline reader, `QU` posts the replies (`[qwk]` in
-  `fluxbbs.toml`). See [QWK offline mail](#qwk-offline-mail).
-- Doors, native and DOS (in the built-in DOS machine): `D1` DORINFO1.DEF, `D2` DOOR.SYS,
-  `D3` CHAIN.TXT, `D4` DOOR32.SYS, `DZ` DOOR.SYS and DORINFO1.DEF, `D0`
-  none, `D7` DOOR.SYS read back afterwards (2.0). See [DOORS.md](DOORS.md).
+flux/bbs speaks SSH (through russh), including the older algorithms
+that SyncTERM's cryptlib needs.
 
-**SysOp tools** (the `*` commands on the SysOp menu)
-- `*C` system configuration, written back to `fluxbbs.toml` keeping its
-  comments; `*E` prompt strings; `*#` menus; `*L` access levels.
-- `*U` users (with colors, preferences, auto-signature, infoforms).
-  New: in the flags field (`=`), the info line says what the flag under
-  the cursor is for and which menus, areas and settings test it; `?`
-  describes it (kept in `[flags]` in `fluxbbs.toml`).
-- `*F` file areas (new: a bar list in tree order with `/` to search it;
-  Enter edits the area under the bar, `I` adds one before it, under the
-  same parent, and edits it, `D` deletes it, `M` moves it and `S` sorts
-  a level by name: the sub-areas of the area under the bar, or the
-  areas beside it if it has none), `*Y` files (validate, move, extract/apply DIZ), `*S`
-  sort areas, `*>` download any file, `*%` local upload (add files
-  copied into the area's directory; `fluxbbs add-files` does every
-  area from the shell, for a mirror, say: a ZIP without a FILE_ID.DIZ
-  is described by what's in it), `*K` pack file areas (forget files
-  missing from their directories; also `fluxbbs pack-files` from the
-  shell, as FILEPACK.EXE was). `fluxbbs textfiles` (new) puts the
-  textfiles.com archive on the board as a tree of areas
-  ([FILES](FILES.md#the-textfilescom-archive)).
-- `*A` message areas, `*P` pack them, `*@`/`*!` conferences, `*R` all
-  email.
-- `*X` protocols, `*Z` archivers, `*B` BBS list, `*H` statistics, `*I`
-  infoforms, `*T` themes.
-- The waiting-for-caller screen (WAIT4CAL, ANSIWFCS), with `--wfc`:
-  the original's screen on the console while the server runs. F1-F8
-  (or 1-8) and the arrow keys pick from six pages of commands: local
-  logon, a shell, the SysOp editors (run as user #1, the SysOp), launch
-  a menu, read or view email, edit a text file, and stats pages (system,
-  totals, today, last callers). The node and event fields show callers
-  on and the next event; the window that echoed the modem shows the log
-  (all of it goes to `data/fluxbbs.log`). ESC exits unless `[wfc]
-  esc_to_exit` is off; `*C` has the settings. Modem commands, modem setup
-  and MicroDOS are left out. WAIT4CAL.PAS is damaged, so the stats pages
-  are rebuilt from their titles and fragments.
-- `*G` security: current bans and recent failed logins and bot checks;
-  lift a ban.
-- `*V` events: jobs run once a day at a set time, by one scheduler in
-  the server (no per-node events or modem off-hook any more). A command
-  goes to the shell, or is one of the built-in jobs `pack-messages`,
-  `pack-files` and `dos COMMAND` (a DOS program or batch file in the
-  built-in machine, for a door's maintenance); `force` disconnects callers first (with the stock
-  "event initiating NOW" string), `run_missed` catches up after
-  downtime the same day. "Run it now" in the editor starts one by hand.
-- `*O` logon sequence (new): the steps after logging in (mail,
-  mandatory messages, new posts, last callers, who's online, the
-  automessage, your stats, oneliners, pauses, any screen of your own),
-  in the order you put them, each on or off. It's kept in `logon.toml`
-  with the board and the start menu (STARTUP) is built from it; without
-  the file STARTUP runs as written. The oneliners run in place, so they
-  needn't come last. "New users stop here" sends callers who aren't
-  validated to NEWUSER: steps above it are seen by them too. "Fast
-  logon" asks validated callers (`s50`) whether to go straight on to
-  the main menu (STARTUP's fallback), skipping the steps after it; put
-  it first for a quick way in, or after the steps everyone must see.
+A caller can log in without the bot check or login prompts in two ways:
 
-**Importing** an existing install: users (passwords re-hashed with
-argon2), message bases, file records and descriptions, areas,
-conferences, levels, strings, menus, text files, statistics, history,
-callers, BBS list, infoforms and their answers, new user votes, text
-libraries (unpacked into themes).
+- With an SSH key kept on their account (`UK`, or `k` in user config).
+- With the account's password as the SSH password (a terminal's stored
+  login).
+
+[SYSOP.md](SYSOP.md) has the details.
+
+#### Telnet
+
+Telnet supports binary mode, server echo, window size (NAWS) and
+terminal type. Zmodem works over it.
+
+#### Character sets and color
+
+- CP437 for BBS terminals.
+- UTF-8 for everything else, with DOS's wrap and clear behavior.
+- aixterm bright colors and iCE backgrounds.
+- 256-color and 24-bit color art passes through.
+
+#### Nodes
+
+Each caller is on a node. Nodes give you who's online, node messages,
+broadcasts and multinode chat.
+
+#### Paging the SysOp
+
+`CP` (or `>C` from the matrix) pages the SysOp. The page goes to a node
+where a SysOp is logged in, and they're asked, wherever they are,
+whether to chat. The two then chat on a split screen (CHATMODE.ANS),
+each keystroke sent as it's typed.
+
+| Type | To |
+|---|---|
+| `/q` | end the chat |
+| `/bye` | (SysOp) hang the caller up |
+| `/cls` | clear the windows |
+| `/?` | show CHATHELP |
+
+`[chat]` in `fluxbbs.toml` sets the chat hours, the override ACS and
+password, the pages per call and how long a page lasts. Outside the
+hours, or with no SysOp online, the caller is offered email instead.
+
+### Keeping bots out
+
+#### The bot check
+
+Every caller passes a bot check before anything else, on SSH and
+telnet. Three big characters are drawn with background color in a
+field of noise, and the caller types them. A person reads them; a
+script reading the text sees only noise. The key-combination check is
+still there as an option. See [SYSOP.md](SYSOP.md).
+
+#### Limits and bans
+
+- Connection limits per address.
+- Bans for repeated failures, doubling each time, up to a day.
+- Allow and deny lists.
+- A short idle limit before login.
+
+Bans and failures are kept in the database, so bans survive a restart.
+At logon, SysOps are told how many failures and bans there have been
+since their last call. `*G` lists them and lifts bans.
+
+A SysOp locked out of their own board can run `fluxbbs unban
+ADDRESS|all` from the shell.
+
+### Logon
+
+- The matrix menu, login and system password.
+- The new-user application. Each personal question can be switched
+  off, handles are kept as typed, and the NEWCFG screen lets the caller
+  check their entries afterwards.
+- Access levels and daily limits.
+- A recheck every N calls: the caller is asked their birth date, or the
+  last four digits of their phone number, again. Set it in `*C`, Access
+  and Logon. These are the manual's "calls before check" options,
+  rebuilt from the manual.
+
+What happens after login is set with `*O`; see
+[Logon sequence](#logon-sequence-o).
+
+### Menus and screens
+
+#### The display engine
+
+| Code | Does |
+|---|---|
+| `\|XX` | colors and controls |
+| `%XX` | MCI codes |
+| `@`, `&` | positioning |
+| `{`, `}` | limits and padding |
+| `~XX` | fields |
+
+The engine also shows repeat screens (TOP/MID/HIL/BOT) and picks random
+and day-of-week variants of a screen. [CODES.md](CODES.md) lists the
+codes.
+
+#### The menu engine
+
+- Hot keys, and `/` and `//` commands.
+- `#`: an area number typed at the prompt, for `M#` and `F#`.
+- FIRSTCMD, stacked commands, and gosub/return.
+- Generic and lightbar menus.
+- ACS expressions, passwords, fallbacks and command help.
+
+#### Lightbar menus
+
+- They take their commands' keys too: hot keys, `/X`, and digits for
+  `#`, typed on the help line.
+- The arrows go by where options sit on screen, so a grid of options
+  works.
+- They hold up to 29 options.
+
+#### Screen themes
+
+A theme is a directory of screens that replaces the stock ones (the
+original's text libraries). Callers pick theirs with `UT`.
+
+#### Scripting
+
+Lua takes the place of IPL. `-X name` and `%!name` run
+`scripts/name.lua`, which has a `bbs` API for output, input, the user
+record, menu commands and stored values. See
+[SCRIPTING.md](SCRIPTING.md).
+
+### Messages
+
+The classic message system has areas and conferences, the reader,
+posting and replying, quoting, the full-screen editor, newscans and
+mandatory messages, email and auto-signatures. The
+[message center](#message-center) is the newer way to read.
+
+#### Attachments
+
+A file can be attached to a message. This follows the manual.
+
+- Who may attach is an ACS each for public messages and email, in `*C`.
+- The file is uploaded after posting, or a SysOp names one on disk.
+- It's kept under `data/attach`, by the message's row id.
+- It's offered for download when the message is read.
+- It's removed when packing drops the message.
+
+#### Uploading a prepared message
+
+A caller can upload a message instead of typing it. It lands in the
+editor to look over. `*C` has an ACS and "ask" toggles for it.
+
+#### Email tags
+
+Tags split email up, for a separate support mailbox, say. This follows
+the manual.
+
+| Command | Does |
+|---|---|
+| `E/ n` | tag the email written this call with `n` |
+| `E\ n` | pick tag `n` for reading |
+| `E+` | show only email tagged with it |
+| `E-` | show all email again |
+
+### Files
+
+File areas have conferences, the lightbar file lister, search and
+newscan, and local upload. [FILES.md](FILES.md) has more.
+
+#### Downloads
+
+- Single or batch, with points, ratios and daily limits.
+- Before a download the caller can ask to be logged off when it's done.
+  A countdown follows the download. Set in `*C`, Transfers.
+
+#### Uploads
+
+- Blind or named.
+- Descriptions come from FILE_ID.DIZ.
+- A single piece of art, alone or alone in a ZIP, is described from its
+  SAUCE: title, artist/group and date, and comments.
+
+#### Upload tests
+
+Uploads are tested on the FILETEST screen. The settings are in `*C`,
+Upload Tests.
+
+- ZIPs are read through, and a CRC failure refuses the file.
+- ZIPs can be held to an age limit.
+- An outside command can be run on every upload, in place of the DOS
+  virus scanner: `clamscan --no-summary %F`, say.
+- Files on the delete list (BBS ads) are stripped from ZIPs, and the
+  archive comment is added.
+
+#### Protocols and archivers
+
+Zmodem is built in. Other protocols and archivers are external
+programs (RAR, 7Z and LHA through bsdtar or 7-Zip).
+
+#### Browsing files
+
+`FW` (L on the file menu) works like the art gallery, over the file
+areas. `FV` opens an archive the same way.
+
+- Areas are folders, with their file counts and newest upload.
+- Archives (ZIP, tar, tar.gz) open as folders in place.
+- Names are shown whole, and sizes as "4.5 KB".
+- Typed names keep their case.
+
+| Key | Does |
+|---|---|
+| Enter | show a file: text and ANSI in the viewer, pictures as ANSI (animated GIFs play) |
+| `D` | download, with the area's usual checks |
+| back | go up a level |
+| `Q` | leave the browser, from anywhere |
+
+#### The file base on screens
+
+Screens can show what's in the file base, with `%FT`...`%FV` (see
+[CODES.md](CODES.md)):
+
+- totals
+- the newest upload
+- the most downloaded and the biggest files
+- the top uploader
+- a file at random, with a line of its description
+
+`FW newest` (or `hot`, `heavy`, `dig`, `kingpin`) opens the browser on
+that file. That way a lightbar option on a menu can take the caller
+straight to it.
+
+### Profiles
+
+Finger shows a caller's profile. Open it with `UF`, with `f` on a
+message in the reader, or by giving a name after the user list.
+
+It shows:
+
+- location and note
+- since when, and when last on (or on now, unless invisible)
+- calls, posts, uploads and downloads
+- their latest post and uploads
+- their plan: up to six lines they write in their profile
+- their ANSI header, if they've uploaded one
+- their real name, only if they choose to show it
+
+Phone, address and birth date stay private, and so does the real name
+unless its owner turns it on.
+
+#### Your profile
+
+In user config, the profile item (`Q`; on a board's own USERCFG screen,
+wherever it puts it) opens a short list:
+
+| Key | Does |
+|---|---|
+| `p` | write your plan |
+| `r` | show your real name on your profile, or not |
+| `u` | upload an ANSI header: up to 8 lines; only colors and cursor-right moves are kept |
+| `c` | clear the header |
+| `m` | see what the board remembers about you (below), and clear it |
+| `v` | see your profile as others do |
+
+#### What the board remembers
+
+After each call, the AI chat's model updates a short memory of the
+caller's interests here: the boards they read and post in, the file
+areas they take files from, the doors they play, and what they asked
+the AI about. It runs in the background after they've gone. It's told
+to keep it coarse and friendly: no personal details, message text,
+times or habits, and nothing about other people. It's at most a few
+lines.
+
+The AI chat is given it, so it can suit itself to the caller next time.
+The caller can read it and clear it from their profile (`m`). Nothing
+is kept without `[ai] enabled`.
+
+#### Caller notes
+
+SysOps keep private notes on a caller: "regular, always asks for phrack
+files", "new, seems fine, vouch for more access". Open them with `*N`
+(name the caller, or be asked), or `:` in the user editor. Each note is
+dated, with who wrote it; `-N` removes note N.
+
+Notes are for SysOps only. A SysOp sees the latest few under a
+caller's profile. The AI chat is given them too, to suit how it treats
+the caller, and is told never to reveal, quote or hint at them.
+
+#### Bots
+
+Flag `B` marks an account as a bot (an agent that calls in, say). A
+bot gets the board as it comes: no memory is kept, the AI chat isn't
+given notes or memory, and menus show no hints. A bot can't start a
+request on a [request board](#request-boards). [AGENTS.md](AGENTS.md)
+covers setting one up as the SysOp's assistant.
+
+#### Menu hints
+
+When a lightbar menu opens, its help line can show a hint about what's
+waiting for the caller instead of the first option's help: unread
+email, mentions, new posts in their boards, or new files since their
+last scan (when that's under a thousand). It names the menu's key for
+it when the menu has one, picks one at random when several apply, and
+gives way to the usual help once they move the bar. A request of
+theirs that someone [filled](#request-boards) comes first, and is
+shown once.
+
+A FINGER screen can dress the profile up with these markers:
+
+| Marker | Is |
+|---|---|
+| `~UN` | handle |
+| `~RN` | real name, if they show it (else blank) |
+| `~LO` | location |
+| `~UO` | note |
+| `~FC` | first call |
+| `~LS` | last seen |
+| `~CA` | calls |
+| `~PO` | posts |
+| `~UL` | uploads |
+| `~DL` | downloads |
+| `~LP` | latest post |
+| `~LU` | latest uploads |
+| `~KA` | karma |
+| `~P1`-`~P6` | the plan's lines |
+
+### Around the board
+
+#### Lists and other features
+
+Oneliners, the automessage, last callers, history and statistics, the
+BBS list, user configuration and the user listing.
+
+#### The BBS list
+
+Each entry has a telnet and an SSH address (`host:port`). Screens show
+them with:
+
+| Marker | Is |
+|---|---|
+| `~TN` | the telnet address |
+| `~SS` | the SSH address |
+| `~SH` | the SSH address shortened to `:port` on the telnet host, for lists |
+| `~PN` | the telnet address (for older screens) |
+| `~IN` | the description ("other info"): its first line |
+| `~I2`-`~I9` | its later lines, in SHOWBBS |
+
+The description can be several lines, up to 10. Adding a board, it
+takes lines until a blank one, so a pasted description comes in whole;
+in `*B` it's edited in the full-screen editor. Lists show its first
+line. SHOWBBS shows the rest at `~I2`-`~I9`, or, on a screen without
+them, on the rows after the screen's last field, lined up under the
+first.
+
+#### Infoforms and voting
+
+Infoforms (questionnaires, mandatory or not) and new user voting; see
+[Infoforms and new user voting](#infoforms-and-new-user-voting).
+
+#### The time bank
+
+| Command | Does |
+|---|---|
+| `!D` | deposit minutes |
+| `!W` | withdraw minutes |
+| `!E` | deposit download kilobytes |
+| `!I` | withdraw download kilobytes |
+| `!V` | show the account |
+
+Each level has limits on what's kept and moved each day (`*L`). The
+stock TIMEBANK menu's withdraw entry runs `!W`.
+
+#### Offline mail
+
+`QD` packs new messages for an offline reader, with email as
+conference 0. `QU` posts the replies. The settings are `[qwk]` in
+`fluxbbs.toml`. See [QWK offline mail](#qwk-offline-mail).
+
+### Doors
+
+Doors can be native programs, or DOS programs run in the built-in DOS
+machine. See [DOORS.md](DOORS.md).
+
+| Command | Drop file |
+|---|---|
+| `D1` | DORINFO1.DEF |
+| `D2` | DOOR.SYS |
+| `D3` | CHAIN.TXT |
+| `D4` | DOOR32.SYS |
+| `DZ` | DOOR.SYS and DORINFO1.DEF |
+| `D0` | none |
+| `D7` | DOOR.SYS, read back afterwards (from 2.0) |
+
+### SysOp tools
+
+The `*` commands on the SysOp menu:
+
+| Command | Does |
+|---|---|
+| `*C` | system configuration, written back to `fluxbbs.toml` keeping its comments |
+| `*E` | prompt strings |
+| `*#` | menus |
+| `*L` | access levels |
+| `*U` | users, with colors, preferences, auto-signature and infoforms |
+| `*F` | file areas |
+| `*Y` | files: validate, move, extract or apply DIZ |
+| `*S` | sort areas |
+| `*>` | download any file |
+| `*%` | local upload |
+| `*K` | pack file areas |
+| `*A` | message areas |
+| `*P` | pack message areas |
+| `*@`, `*!` | conferences |
+| `*R` | all email |
+| `*X` | protocols |
+| `*Z` | archivers |
+| `*B` | BBS list |
+| `*H` | statistics |
+| `*I` | infoforms |
+| `*T` | themes |
+| `*G` | security |
+| `*V` | events |
+| `*O` | logon sequence |
+
+#### User flags (`*U`)
+
+In the user editor's flags field (`=`), the info line says what the
+flag under the cursor is for, and which menus, areas and settings test
+it. `?` describes it. The descriptions are kept in `[flags]` in
+`fluxbbs.toml`.
+
+#### File areas (`*F`)
+
+`*F` is a bar list of the file areas in tree order.
+
+| Key | Does |
+|---|---|
+| `/` | search the list |
+| Enter | edit the area under the bar |
+| `I` | add an area before it, under the same parent, and edit it |
+| `D` | delete it |
+| `M` | move it |
+| `S` | sort a level by name: the sub-areas of the area under the bar, or the areas beside it if it has none |
+
+#### Adding and packing files
+
+- `*%` adds files copied into an area's directory.
+- `fluxbbs add-files` does the same for every area from the shell (for
+  a mirror, say). A ZIP without a FILE_ID.DIZ is described by what's in
+  it.
+- `*K` packs file areas: it forgets files missing from their
+  directories. `fluxbbs pack-files` does it from the shell, as
+  FILEPACK.EXE did.
+- `fluxbbs textfiles` puts the textfiles.com archive on the board as a
+  tree of areas ([FILES](FILES.md#the-textfilescom-archive)).
+
+#### Security (`*G`)
+
+`*G` shows the current bans and recent failed logins and bot checks,
+and lifts a ban.
+
+#### Events (`*V`)
+
+Events are jobs run once a day at a set time. One scheduler in the
+server runs them all (no per-node events, and no modem off-hook).
+
+An event's command goes to the shell, or is one of the built-in jobs:
+
+| Job | Does |
+|---|---|
+| `pack-messages` | packs the message areas |
+| `pack-files` | packs the file areas |
+| `dos COMMAND` | runs a DOS program or batch file in the built-in machine, for a door's maintenance |
+
+Options:
+
+- `force` disconnects callers first, with the stock "event initiating
+  NOW" string.
+- `run_missed` catches up after downtime the same day.
+- "Run it now" in the editor starts an event by hand.
+
+#### Logon sequence (`*O`)
+
+`*O` sets the steps after logging in, in the order you put them, each
+on or off. The steps are mail, mandatory messages, new posts, last
+callers, who's online, the automessage, your stats, oneliners, pauses,
+and any screen of your own. The oneliners run in place, so they needn't
+come last.
+
+The sequence is kept in `logon.toml` with the board, and the start menu
+(STARTUP) is built from it. Without the file, STARTUP runs as written.
+
+Two special steps:
+
+- **New users stop here** sends callers who aren't validated to
+  NEWUSER. They see the steps above it too.
+- **Fast logon** asks validated callers (`s50`) whether to go straight
+  on to the main menu (STARTUP's fallback), skipping the steps after
+  it. Put it first for a quick way in, or after the steps everyone must
+  see.
+
+#### The waiting-for-caller screen
+
+`fluxbbs --wfc` shows the original's waiting-for-caller screen
+(WAIT4CAL, ANSIWFCS) on the console while the server runs.
+
+- F1-F8 (or 1-8) and the arrow keys pick from six pages of commands:
+  local logon, a shell, the SysOp editors (run as user #1, the SysOp),
+  launch a menu, read or view email, edit a text file, and stats pages
+  (system, totals, today, last callers).
+- The node and event fields show the callers on and the next event.
+- The window that echoed the modem shows the log. All of the log goes
+  to `data/fluxbbs.log`.
+- ESC exits, unless `[wfc] esc_to_exit` is off. `*C` has the settings.
+
+Modem commands, modem setup and MicroDOS are left out. WAIT4CAL.PAS is
+damaged, so the stats pages are rebuilt from their titles and
+fragments.
+
+#### Shell commands
+
+| Command | Does |
+|---|---|
+| `fluxbbs unban ADDRESS\|all` | lift bans |
+| `fluxbbs add-files` | add files copied into every area's directory |
+| `fluxbbs pack-files` | pack the file areas |
+| `fluxbbs textfiles` | the textfiles.com archive as file areas |
+| `fluxbbs ftn ...` | FTN jobs; see [FTN echomail](#ftn-echomail) |
+| `fluxbbs --wfc` | the waiting-for-caller screen |
+
+### Importing
+
+flux/bbs can import an existing install:
+
+- users (passwords re-hashed with argon2)
+- message bases
+- file records and descriptions
+- areas and conferences
+- levels, strings and menus
+- text files
+- statistics, history and callers
+- the BBS list
+- infoforms and their answers
+- new user votes
+- text libraries (unpacked into themes)
 
 ## QWK offline mail
 
-`QD` builds NAME.QWK (`[qwk] packet`) from the new messages in the
-caller's areas (the current conference's, or every conference's) and
-their new email, and sends it; once it's down, the newscan pointers can
-move past what was packed. `QU` takes NAME.REP back (a SysOp can give a
-local file instead) and posts the replies where the caller may post;
-the same packet won't post twice.
+### Downloading a packet
 
-Changes from the original: email goes in as conference 0, with
-PERSONAL.NDX; "include your own messages?" does what it says (the
-original's test was the wrong way round); four-digit years; areas with
-a password are left out; pointers move to the newest message packed
-rather than to the time of the download; long reply lines are wrapped
-rather than cut at 79 columns; and replies to unknown users are refused
-in email (posted to the name in public areas, as before).
+`QD` builds NAME.QWK (`[qwk] packet`) and sends it. It holds the new
+messages in the caller's areas, from the current conference or every
+conference, and their new email.
+
+- Email goes in as conference 0, with PERSONAL.NDX.
+- Years are four digits.
+- "Include your own messages?" does what it says.
+- Areas with a password are left out.
+- Once the packet is down, the newscan pointers can move past what was
+  packed: to the newest message packed, not to the time of the
+  download.
+
+### Uploading replies
+
+`QU` takes NAME.REP back (a SysOp can give a local file instead). It
+posts the replies where the caller may post.
+
+- The same packet won't post twice.
+- Long reply lines are wrapped, not cut at 79 columns.
+- Replies to unknown users are refused in email. In public areas they
+  are posted to the name.
 
 ## Infoforms and new user voting
 
-An infoform is a text file in `text/` with input points in it (see
-`text/EXAMPLE.INF`): `~SN` reads text (`~SU` upper case, `~SM` mixed,
-`~SC` first letter up, and the r5 `~SE ~SW ~SI` styles), `~BD` a date,
-`~PN` a phone number, `~NM` digits, `~FN` a filename, and a bare `*` is
-plain text too. `~NN` (two digits) sets how long answers may be, `~**`
-puts it back to 254, and `~*=` / `~*-` make them required or optional.
-Mandatory forms are filled in at logon (`IM` on the stock STARTUP menu);
-callers see and redo theirs with `IN`.
+### Infoforms
 
-With new user voting (`[nuv]`), users who pass the voter ACS vote on the
-users who match the candidate ACS, at logon or from the main menu.
-Voters can read the candidate's NUV infoforms and leave comments; enough
-yes votes give the candidate the validated level, enough no votes delete
-them.
+An infoform is a text file in `text/` with input points in it (see
+`text/EXAMPLE.INF`).
+
+| Code | Reads |
+|---|---|
+| `~SN` | text |
+| `~SU` | text, upper case |
+| `~SM` | text, mixed case |
+| `~SC` | text, first letter up |
+| `~SE` `~SW` `~SI` | text, in the r5 styles |
+| `*` (bare) | plain text |
+| `~BD` | a date |
+| `~PN` | a phone number |
+| `~NM` | digits |
+| `~FN` | a filename |
+
+| Code | Sets |
+|---|---|
+| `~NN` (two digits) | how long answers may be |
+| `~**` | puts the length back to 254 |
+| `~*=` | answers required |
+| `~*-` | answers optional |
+
+Mandatory forms are filled in at logon (`IM` on the stock STARTUP
+menu). Callers see and redo theirs with `IN`.
+
+### New user voting
+
+With new user voting (`[nuv]`), users who pass the voter ACS vote on
+the users who match the candidate ACS. They vote at logon or from the
+main menu.
+
+- Voters can read the candidate's NUV infoforms and leave comments.
+- Enough yes votes give the candidate the validated level.
+- Enough no votes delete them.
 
 ## AI chat
 
-New: `AI` (J on the main menu) is a chat with a language model, for
-callers the SysOp lets in. `[ai] acs` is `s250|fI` as stock: SysOps,
-and anyone given flag I in the user editor (`*U`). It talks to any
-OpenAI-style chat completions server (`base_url` up to `/v1`, `model`,
-and `api_key_env` naming an environment variable with a key, if the
-server needs one), streams replies as they're written, word-wrapped and
-without markdown or the model's thinking, and keeps the conversation for
-as long as the caller stays (`/new` starts over, `/quit` or ESC leaves).
+`AI` (J on the main menu) is a chat with a language model, for callers
+the SysOp lets in.
+
+### Using it
+
+- Replies stream in as they're written, word-wrapped, without markdown
+  or the model's thinking.
+- The conversation is kept for as long as the caller stays; the AI is
+  given its latest 40 messages each time, so a long one forgets its start.
+- `/new` starts over; `/quit` or ESC leaves.
+
+### Who may use it
+
+`[ai] acs` is `s250|fI` as stock: SysOps, and anyone given flag I in
+the user editor (`*U`). `daily_limit` caps a caller's messages a day
+(not the SysOp's).
+
+### Settings
+
+All of these are under "AI Chat" in `*C`, and `[ai]` in
+`fluxbbs.toml`.
+
+| Setting | Is |
+|---|---|
+| `enabled` | turns it on |
+| `acs` | who may use it |
+| `base_url` | the server, up to `/v1`: any OpenAI-style chat completions server |
+| `model` | the model |
+| `api_key_env` | the environment variable holding a key, if the server needs one |
+| `daily_limit` | a caller's messages a day |
+| `web_search` | lets the model search the web |
+| `search_url` | a SearXNG instance to search with |
+| `search_key_env` | the environment variable holding a Brave Search API key |
+| `read_pages` | lets the model read pages it found |
+| `name`, `system_prompt`, `max_tokens`, `reasoning_effort`, `timeout_seconds` | what they say |
+
+### Searching the web
+
 With `web_search` on, the model may search the web, up to four times a
-reply: through a SearXNG instance (`search_url`), else the Brave Search
-API (`search_key_env`), else DuckDuckGo's HTML page, which turns away
-bots now and then. With `read_pages` on too, it may read a page it
-found (as text, at most 8000 characters), but only from public
-addresses: never the board itself, the LAN or the tailnet. It can always
-look at the board itself (`aiboard.rs`): the menus with their keys and
-where they lead, the file and message areas, and the files in them
-(listed or searched), all as the caller's own access allows, so it can
-say what's here and which keys to press. `daily_limit` caps a caller's messages a day (not
-the SysOp's); `name`, `system_prompt`, `max_tokens`, `reasoning_effort`
-and `timeout_seconds` do what they say. All of it is under "AI Chat" in
-`*C`.
+reply. It uses, in order of preference:
 
-After each reply a line says what it took (`AiStats`: tokens written,
-of those the thinking, and tokens a second), and the bottom bar shows
-how much of the model's context the conversation fills (`AiContext`,
-the length from the server's `/models`), when the server reports usage
-(`stream_options.include_usage`). Blank `AiStats` in `*E` to hide the
-line.
+1. a SearXNG instance (`search_url`)
+2. the Brave Search API (`search_key_env`)
+3. DuckDuckGo's HTML page, which turns away bots now and then
 
-Under AICHAT.ANS the conversation scrolls between the header and the
-bar, which both stay put: the board keeps the lines it has shown and
-draws the rows again one higher (terminal scroll regions left old text
-showing through in SyncTERM). A reply that fills the rows pauses
-(`AiMore`, for callers who pause): any key goes on, Esc lets the rest
-run. The reply keeps coming in during a pause. Up/Down, PgUp/PgDn and
-Home look back over the last 1000 lines (`AiBack`), at the prompt or a
-pause; End, or typing, comes back.
+With `read_pages` on too, it may read a page it found, as text, at most
+8000 characters. It reads only from public addresses: never the board
+itself, the LAN or the tailnet.
+
+### Looking at the board
+
+The model can always look at the board itself (`aiboard.rs`), as the
+caller's own access allows:
+
+- the menus, with their keys and where they lead
+- the file and message areas
+- the files in them, listed or searched
+
+So it can say what's here and which keys to press.
 
 ![The AI finding files on the board](screenshots/ai-files.png)
 
 ![The AI giving the keys to download a file](screenshots/ai-howto.png)
 
+### Stats and context
+
+When the server reports usage (`stream_options.include_usage`):
+
+- After each reply, a line (`AiStats`) says what it took: tokens
+  written, how many of those were thinking, and tokens a second. Blank
+  `AiStats` in `*E` to hide the line.
+- The bottom bar shows how much of the model's context the conversation
+  fills (`AiContext`). The context length comes from the server's
+  `/models`.
+
+### The screen
+
+Under AICHAT.ANS, the conversation scrolls between the header and the
+bar, which both stay put. The board keeps the lines it has shown and
+draws the rows again one higher (terminal scroll regions left old text
+showing through in SyncTERM).
+
+A reply that fills the rows pauses (`AiMore`), for callers who pause.
+The reply keeps coming in during a pause.
+
+| Key | Does |
+|---|---|
+| any key | at a pause, go on |
+| Esc | at a pause, let the rest run |
+| Up/Down, PgUp/PgDn, Home | look back over the last 1000 lines (`AiBack`), at the prompt or a pause |
+| End, or typing | come back |
+
 ## Message center
 
-New: `MH` (`r` on the message menu) and `MW Read` (`n` there, and the
-newscan prompt `SCANMSG` asks on the way in) replace the classic reader
-and newscan (`MR`, `MN`, still there for menus that want them).
+`MH` (`r` on the message menu) and `MW Read` (`n` there) replace the
+classic reader and newscan. The newscan prompt `SCANMSG` asks on the
+way in. `MR` and `MN` are still there for menus that want them.
 
 Callers see areas as "boards", laid out after Taiwan's PTT but in a
-forum's words: boards, then threads, then the reader, with arrows and
-Enter to go in, Esc (or left) to go back, and the keys for each level
-on its bottom line. A board can point its main menu's message key
-straight at `MH` (disflux does), leaving the message menu behind `m`.
+forum's words: boards, then threads, then the reader. At every level:
 
-- The boards: number, name, what it's for (the area's `about`, set in
-  `*A`), how many callers are reading it now (PTT's popularity), new
-  posts, moderator (the sponsor) and the latest post's date. Enter opens
-  one, `n` reads everything new, `p` posts, `f` searches (`MO`), `s`
-  puts the busiest first (readers now, then posts this week; kept for
-  the caller), `h` shows MSGGUIDE (or the reader's help), `m` goes to
-  the message menu. While anything has been voted on in the last two
-  days, "Hot right now" (`!`, from anywhere in the boards) heads the list: the threads being voted on in
-  every board you read, hottest first (screens `MHOT` TOP/MID/HIL/BOT:
-  `~AT` board, `~MK` `*` if new, `~MT` title, `~SN` author, `~SC`
-  score, `~NW` new, `~DS`/`~DT` latest day and date). Screens: `MHUB`
-  with `~AN` `~AT` `~DE` (about) `~RD` (reading now) `~NW` `~NM` `~LP`
-  `~LD` `~SP`.
-- My boards (new, PTT's favorites): `a` in the board list adds the
-  board (or folder) under the bar to the caller's "my boards", or takes
-  it off; "my boards/" stays second in the top-level list, a folder of
-  them with their figures added up (`MyBoardsName`, `MyBoardsAbout`);
-  `*` goes to it from anywhere in the boards.
-  They're kept with the caller (`fav_boards`); a board they can no
-  longer read drops out of it.
-- Sub-boards (new, as file areas have, and PTT's board classes): a
-  message area can sit under another (`parent`, the other's storage
-  key; "Sub-area of" in `*A`), to any depth. In the board list a parent
-  is a folder, its name ending `/` (`MsgGroupSuffix`), its figures those
-  of everything under it; Enter opens it, Esc or left goes back up. A
-  parent with posts of its own lists them first in its folder ("name
-  (own posts)"). A sub-board needs the access of every area above it.
-  Elsewhere (the classic lists, scans, QWK) sub-boards are areas like
-  any other.
-- Callers' boards (new, PTT's personal boards): a caller who passes
-  `[messages] board_create_acs` gets `c` in the board list to make a
-  board: a name, a line on what it's for, and it's made, under
-  `board_folder` if that's set (`boards_per_caller` each). They're its
-  moderator (its sponsor): they can delete and edit posts there and take
-  votes off, and `o` in its thread list changes its about line, bans
-  callers from posting and voting there (they can still read), lifts
-  bans, sets its tags, pins or unpins the thread under the bar, or
-  deletes the board with its posts. `pack-messages` removes a
-  caller's board that still has no posts `board_empty_days` after it
-  was made. The board is an area in `msgareas.toml` like any other
-  (`created` and `banned` say whose it is), so the SysOp edits it with
-  `*A` as usual. Settings: `*C`, "Caller Boards".
-- A board is a list of threads, a line each in PTT's order: number,
-  score, date, author, replies and title, `*` before the title if
-  anything in it is new. The latest activity comes first; `s` sorts by
-  latest, hot (votes in the last 48 hours, newer counting more) or top
-  (score), kept for the caller. Enter reads a thread from its first new
-  message, `n` reads what's new in the board, `p` starts a thread, `h`
-  help. Screens: `MTHRD` with `~MN` `~MK` `~MT` `~SN` `~RP` `~SC` `~NW`
-  `~DS` `~DT` `~TI`.
-- Pinned threads (new, PTT's marked posts): the moderator pins a thread
-  from `o`; pinned threads stay at the top of the list whatever the
-  sort, with `pin` (`PinLabel`) where the number goes (`~MN` too).
-- Tags (new, PTT's categories): a board's `tags` (in `*A`, "Post tags",
-  or its moderator's `o`) are offered when a thread is started there,
-  and the one picked heads the title, `[question] How do I...`. `t` in
-  the thread list shows only threads with one of the tags (Esc shows
-  them all again).
-- The reader keeps the header (MSGHEAD) at the top and scrolls the text
-  under it, with the keys on the bottom line: left and right for the
-  previous and next message, up and down to scroll, `r` reply, `p` post,
-  `x` vote, `t` the whole thread, `u` up to the message this one
-  answers, `f` finger the author, `l` or Esc back, `q` stop, `?` or `h`
-  help, a number to go to that message.
-- Votes and comments (pushes, new, after PTT): `x` then `+` (up), `-` (down) or `>`
-  (a comment) leaves a line of up to 50 characters under the message,
-  with your handle and the time; a vote's words are optional, a
-  comment's aren't. Each caller has one vote on a message (voting again
-  replaces it, line and all) and can't vote on their own; comments may
-  repeat, one push every five seconds. The score is ups less downs:
-  `+4`, `X2` when negative, `HOT` from 25. Only where you may post, and
-  not on private mail. The area's sponsor and co-SysOps get `d` at the
-  push prompt, to take a caller's pushes off. The classic reader shows
-  pushes too. They stay on this board: FTN and QWK don't carry them,
-  and packing a message takes its pushes with it. Karma, on a caller's
-  profile, is the votes on their public posts (not anonymous ones).
-- Threads: a message keeps the row id of the one it answers
-  (`reply_to`), so threads survive packing. QWK replies join their
-  thread by the header's reference number, and packets carry it, so
-  offline readers thread too.
-- What's read: besides each area's last-read pointer (everything up to
-  it is read; QWK and the classic reader use it), messages read beyond
-  it are remembered, and the pointer moves up once everything before
-  them is read too. Your own posts are read.
-- `MW` (in STARTUP, after the mandatory scan) says how many new posts
-  there are and offers to read them, a thread at a time; `MW Read` reads
-  them without asking.
-- The website feed lists the newest public posts (`new_posts`).
-- @mentions (new): `@handle` in a public post (typed, by QWK or from
-  MeshCore; not in quoted lines, and not yourself) tells that caller, at
-  once with a node message if they're on ("mentioned you in General:
-  subject", `MentionNotice`), and at their next logon, where `MW` first
-  offers the posts that mention them. `M@` reads the unseen ones any
-  time (`M@ All`: the last hundred). Handles with spaces work
-  (`@Dark Angel`); punctuation ends a name. Only callers who could read
-  the area are told, and `@5` isn't user number 5.
-- Screens can show what's in the message base (`%MG`...`%MJ` in
-  `CODES.md`): the newest post, the most replied to, the loudest area
-  of the month, the top poster, a message at random, and what's new for
-  the caller. `MX newest` (`hot`, `dig`, `mouth`) opens that message in
-  its thread, `MX loud` that area's threads, `MX unread` reads
-  everything new, so lightbar options on a menu can go straight there.
+- arrows and Enter go in
+- Esc (or left) goes back
+- the bottom line shows that level's keys
+
+A board can point its main menu's message key straight at `MH` (disflux
+does), leaving the message menu behind `m`.
+
+### The board list
+
+Each board shows its number, name, what it's for (the area's `about`,
+set in `*A`), how many callers are reading it now (PTT's popularity),
+new posts, moderator (the sponsor) and the latest post's date.
+
+| Key | Does |
+|---|---|
+| Enter | open the board, or folder |
+| `n` | read everything new |
+| `p` | post |
+| `f` | search (`MO`) |
+| `s` | put the busiest first: readers now, then posts this week (kept for the caller) |
+| `h` | show MSGGUIDE, or the reader's help |
+| `m` | go to the message menu |
+| `a` | add the board or folder under the bar to "my boards", or take it off |
+| `*` | go to "my boards" (from anywhere in the boards) |
+| `!` | go to "Hot right now" (from anywhere in the boards) |
+| `c` | make a board (callers who may; see [Callers' boards](#callers-boards)) |
+
+The MHUB screens (TOP/MID/HIL/BOT) draw the list:
+
+| Marker | Is |
+|---|---|
+| `~AN` | number |
+| `~AT` | name |
+| `~DE` | about |
+| `~RD` | reading now |
+| `~NW` | new posts |
+| `~NM` | messages |
+| `~LP` | latest post's author |
+| `~LD` | latest post's date |
+| `~SP` | moderator |
+
+### Hot right now
+
+While anything has been voted on in the last two days, "Hot right now"
+heads the board list. It holds the threads being voted on in every
+board you read, hottest first. `!` goes to it from anywhere in the
+boards.
+
+The MHOT screens (TOP/MID/HIL/BOT) draw it:
+
+| Marker | Is |
+|---|---|
+| `~AT` | board |
+| `~MK` | `*` if new |
+| `~MT` | title |
+| `~SN` | author |
+| `~SC` | score |
+| `~NW` | new |
+| `~DS`, `~DT` | latest day and date |
+
+### My boards
+
+"My boards" is PTT's favorites. `a` in the board list adds the board
+(or folder) under the bar, or takes it off.
+
+- "my boards/" stays second in the top-level list.
+- It's a folder of them, with their figures added up (strings
+  `MyBoardsName` and `MyBoardsAbout`).
+- `*` goes to it from anywhere in the boards.
+- It's kept with the caller (`fav_boards`). A board they can no longer
+  read drops out of it.
+
+### Sub-boards
+
+A message area can sit under another, to any depth, as file areas can
+(PTT's board classes). Set `parent` to the other area's storage key
+("Sub-area of" in `*A`).
+
+- In the board list, a parent is a folder. Its name ends in `/`
+  (`MsgGroupSuffix`), and its figures are those of everything under it.
+- Enter opens a folder; Esc or left goes back up.
+- A parent with posts of its own lists them first in its folder, as
+  "name (own posts)".
+- A sub-board needs the access of every area above it.
+
+Elsewhere (the classic lists, scans, QWK) sub-boards are areas like any
+other.
+
+### Callers' boards
+
+Callers can make boards of their own (PTT's personal boards). A caller
+who passes `[messages] board_create_acs` gets `c` in the board list.
+They give a name and a line on what it's for, and the board is made.
+
+The creator is its moderator (its sponsor). They can delete and edit
+posts there and take votes off. `o` in its thread list lets them:
+
+- change its about line
+- ban callers from posting and voting there (they can still read)
+- lift bans
+- set its tags
+- pin or unpin the thread under the bar
+- delete the board with its posts
+
+A caller's board is an area in `msgareas.toml` like any other
+(`created` and `banned` say whose it is), so the SysOp edits it with
+`*A` as usual.
+
+| Setting (`[messages]`) | Does |
+|---|---|
+| `board_create_acs` | who may make boards |
+| `board_folder` | if set, new boards go under it |
+| `boards_per_caller` | how many each caller may make |
+| `board_empty_days` | `pack-messages` removes a caller's board that still has no posts this many days after it was made |
+
+These are in `*C`, "Caller Boards".
+
+### A board's threads
+
+A board is a list of threads, a line each in PTT's order: number,
+score, date, author, replies and title. A `*` before the title means
+something in it is new. The latest activity comes first.
+
+| Key | Does |
+|---|---|
+| Enter | read the thread, from its first new message |
+| `n` | read what's new in the board |
+| `p` | start a thread |
+| `s` | sort by latest, hot (votes in the last 48 hours, newer counting more) or top (score); kept for the caller |
+| `t` | show only threads with one of the board's tags (Esc shows them all again) |
+| `v` | the thread as a tree ([below](#the-thread-tree)) |
+| `f` | on a [request board](#request-boards): mark the request filled, or open again |
+| `o` | the moderator's options |
+| `h` | help |
+
+The help line fills the bottom row; when there's no room, the keys at
+its end (moderation, then tags) are left off, and `h` lists them all.
+
+The MTHRD screens (TOP/MID/HIL/BOT) draw it:
+
+| Marker | Is |
+|---|---|
+| `~MN` | number (`pin` for a pinned thread) |
+| `~MK` | `*` if new |
+| `~MT` | title (`[filled] ` in front on a request board, once filled) |
+| `~FL` | on a request board, `open` or `filled` (`ReqOpen`, `ReqFilled`) |
+| `~SN` | author |
+| `~RP` | replies |
+| `~SC` | score |
+| `~NW` | new |
+| `~DS` | day |
+| `~DT` | date |
+| `~TI` | time |
+
+### The thread tree
+
+`v` in the thread list, or in the reader, shows a thread as a tree:
+a line a message, in reading order, each reply under the one it
+answers, so you can see who answered whom.
+
+```
+  1    +2   10/19  sysop                    new board is up
+  2         10/24  ├─ansifan                works for me, nice board
+  3         10/24  │ └─sysop                thanks! try the art gallery too
+  4         10/24 *│   └─zinekid            gallery
+  5         10/24 *└─zinekid                first time here, hello all
+  6         10/24 *  └─sysop                welcome aboard, grab a door game
+```
+
+The last column is a reply's subject where it changes, and its first
+words where it's still "Re:" the same thing. From the reader, the bar
+starts on the message you were reading; from the list, on the first
+new one.
+
+| Key | Does |
+|---|---|
+| Enter | read on from the message under the bar |
+| `r` | reply to it |
+| a number | move to that message |
+| Esc | back |
+| `q` | out of the boards |
+
+The MTREE screens (TOP/MID/HIL/BOT) draw it; without them it's a plain
+list. Their markers:
+
+| Marker | Is |
+|---|---|
+| `~MN` | number |
+| `~MK` | `*` if new |
+| `~TR` | the tree's lines in front of the message (`├─`, `└─`, `│ `) |
+| `~SN` | author |
+| `~TS` | the tree's lines and the author together (fits a fixed column) |
+| `~RT` | who it answers |
+| `~MT` | subject (`[filled] ` in front of a filled request) |
+| `~FL` | the first message's `open` or `filled`, on a request board |
+| `~BL` | its first words |
+| `~TX` | the subject where it changes, else the first words |
+| `~SC` | score |
+| `~DS` | day (mm/dd) |
+| `~DT`, `~TI` | date and time |
+
+Only the innermost ten levels of a very deep thread are drawn.
+
+### Request boards
+
+A request board is a message area with "Requests" set in `*A` (item 6).
+Each thread on it asks for something: a file, a door, a fix. Once
+it's been found, it's marked filled.
+
+- **Marking.** `f` on the thread in the list, or `m` in the reader (on
+  any message of the thread), marks it filled. It asks how it was
+  filled, e.g. "in DOORS: lord407p.zip". Pressing it again on a filled
+  request asks whether to mark it open again.
+- **Who may mark.** Whoever asked, the board's moderator (its sponsor),
+  and co-SysOps.
+- **The list.** Open requests come first (after pinned threads), then
+  filled ones, which have `[filled]` in front of their title.
+- **The reader** shows "Filled 10/24/26 by hermes: in DOORS:
+  lord407p.zip" above the request.
+- **Telling the asker.** If someone else filled it, the asker's next
+  menu shows "Your request ... was filled" in its help line, once,
+  ahead of any other hint. Reading the request counts as told too.
+- **Bots ask nothing.** A bot (flag [`B`](#bots)) can reply on a
+  request board, but can't start a request (`ReqBotNoAsk`).
+
+The marks are in the `filled` table, by the request's row id. Packing
+the request away takes its mark with it.
+
+### Pinned threads
+
+The moderator pins a thread from `o` (PTT's marked posts). Pinned
+threads stay at the top of the list whatever the sort, with `pin`
+(`PinLabel`) where the number goes (in `~MN` too).
+
+### Tags
+
+A board's `tags` are set in `*A` ("Post tags") or with its moderator's
+`o` (PTT's categories). They're offered when a thread is started
+there, and the one picked heads the title: `[question] How do I...`.
+`t` in the thread list filters by them.
+
+### The reader
+
+The reader keeps the header (MSGHEAD) at the top and scrolls the text
+under it. The keys are on the bottom line.
+
+| Key | Does |
+|---|---|
+| Left, Right | previous, next message |
+| Up, Down | scroll |
+| `r` | reply |
+| `p` | post |
+| `x` | vote or comment |
+| `t` | the whole thread |
+| `v` | the [thread tree](#the-thread-tree) |
+| `u` | up to the message this one answers |
+| `m` | on a [request board](#request-boards): mark the request filled, or open again |
+| `f` | finger the author |
+| `l` or Esc | back |
+| `q` | stop |
+| `?` or `h` | help |
+| a number | go to that message |
+
+### Votes and comments
+
+Votes and comments are PTT's pushes. `x`, then one of these, leaves a
+line of up to 50 characters under the message, with your handle and the
+time:
+
+| Key | Leaves |
+|---|---|
+| `+` | an up vote (words optional) |
+| `-` | a down vote (words optional) |
+| `>` | a comment (words required) |
+| `d` | (the area's sponsor and co-SysOps) takes a caller's pushes off |
+
+Rules:
+
+- Each caller has one vote on a message. Voting again replaces it, line
+  and all.
+- You can't vote on your own message.
+- Comments may repeat, one push every five seconds.
+- Pushes are only allowed where you may post, and not on private mail.
+
+The score is ups less downs. It shows as `+4`, as `X2` when negative,
+and as `HOT` from 25.
+
+- The classic reader shows pushes too.
+- Pushes stay on this board: FTN and QWK don't carry them.
+- Packing a message takes its pushes with it.
+- Karma, on a caller's profile, is the votes on their public posts (not
+  anonymous ones).
+
+### Threads and what's read
+
+A message keeps the row id of the one it answers (`reply_to`), so
+threads survive packing. QWK replies join their thread by the header's
+reference number, and packets carry it, so offline readers thread too.
+
+Each area has a last-read pointer: everything up to it is read, and QWK
+and the classic reader use it. Messages read beyond it are remembered
+too, and the pointer moves up once everything before them is read.
+Your own posts count as read.
+
+### New posts at logon
+
+`MW` (in STARTUP, after the mandatory scan) says how many new posts
+there are and offers to read them, a thread at a time. `MW Read` reads
+them without asking.
+
+The website feed lists the newest public posts (`new_posts`).
+
+### @mentions
+
+`@handle` in a public post tells that caller. It works in posts typed
+here, sent by QWK or from MeshCore, but not in quoted lines, and not
+for yourself.
+
+- If they're on, they get a node message at once ("mentioned you in
+  General: subject", `MentionNotice`).
+- At their next logon, `MW` first offers the posts that mention them.
+- `M@` reads the unseen ones any time; `M@ All` reads the last hundred.
+
+Handles with spaces work (`@Dark Angel`); punctuation ends a name. Only
+callers who could read the area are told, and `@5` isn't user number 5.
+
+### The message base on screens
+
+Screens can show what's in the message base, with `%MG`...`%MJ` (see
+[CODES.md](CODES.md)):
+
+- the newest post
+- the most replied to
+- the loudest area of the month
+- the top poster
+- a message at random
+- what's new for the caller
+
+`MX` jumps there, so lightbar options on a menu can go straight to
+them:
+
+| Command | Opens |
+|---|---|
+| `MX newest`, `MX hot`, `MX dig`, `MX mouth` | that message, in its thread |
+| `MX loud` | that area's threads |
+| `MX unread` | everything new, to read |
 
 ## MeshCore
 
-New: a [MeshCore](https://meshcore.co.uk) companion radio's channels
-bridged to message areas (`meshcore.rs`). What's said on a channel is
-posted in its area, from the sender's name; what a caller posts there
-(in the editor or by QWK) goes out on the channel as `handle: text`,
-without the signature or quoted lines, split into at most `max_parts`
-messages of the radio's 160 bytes. Private mail stays on the board.
+A [MeshCore](https://meshcore.co.uk) companion radio's channels can be
+bridged to message areas (`meshcore.rs`).
+
+- What's said on a channel is posted in its area, from the sender's
+  name.
+- What a caller posts there (in the editor or by QWK) goes out on the
+  channel as `handle: text`, without the signature or quoted lines.
+- A long post is split into at most `max_parts` messages of the radio's
+  160 bytes.
+- Private mail stays on the board.
+
+### Setting it up
 
     [meshcore]
     enabled = true
@@ -400,80 +1108,27 @@ messages of the radio's 160 bytes. Private mail stays on the board.
     area = "MESH"                   # the message area's storage key
     # from_mesh / to_mesh: one way only, if wanted
 
-The board speaks MeshCore's companion protocol over TCP (the WiFi
-companion firmware's port 5000; a USB radio can be put on the network
-with ser2net), reconnects when the link drops, and picks up changed
-settings within a minute. `*C`, MeshCore, has the switch, the address,
-the reconnect delay and the parts; channels are listed in the file.
+The board speaks MeshCore's companion protocol over TCP: the WiFi
+companion firmware's port 5000, or a USB radio put on the network with
+ser2net. It reconnects when the link drops, and picks up changed
+settings within a minute.
+
+`*C`, MeshCore, has the switch, the address, the reconnect delay and
+the parts. Channels are listed in the file.
+
 `tools/fake_meshcore.py` is a pretend radio for trying it out.
 
 ## FTN echomail
 
-New: the board can be a node of FidoNet-style networks such as fsxNet,
-with its own mailer and tosser (the original handed packets to outside
-programs). It polls its hub over binkp (`binkp.rs`, FTS-1026; the
-session password goes as CRAM-MD5 when the hub offers it), sends what's
-been posted here and tosses what came (`ftntoss.rs`).
+The board can be a node of FidoNet-style networks such as fsxNet, with
+its own mailer and tosser (the original handed packets to outside
+programs). It polls its hub over binkp (`binkp.rs`, FTS-1026), sends
+what's been posted here, and tosses what came (`ftntoss.rs`). The
+session password goes as CRAM-MD5 when the hub offers it.
 
-- Echoes are message areas: `[[ftn.area]]` maps a network tag to an
-  area's storage key. Messages come in with their kludges read (MSGID
-  for duplicates, or who/when/subject for one without; REPLY for
-  threads, even when the reply comes first; CHRS for UTF-8, Latin-1,
-  CP1252 or CP437, the names and subject too; TZUTC, so times are the
-  board's), long lines wrapped, and
-  the sender's address (from the origin line) as their note; the tear
-  and origin lines count as the signature, so quotes leave them out.
-  Escape sequences from the network are cut down to colors and
-  cursor-right (ANSI art's spacing): nothing from elsewhere can clear a
-  reader's screen or talk to their terminal. @mentions of local callers
-  work. ZIP bundles and plain packets are both read (a ZIP without
-  packets, a nodelist say, is left alone); only packets from the hub,
-  to this node, with the packet password (its first 8 characters, all
-  the header holds) are taken. Anything that can't be tossed goes to
-  `data/ftn/bad` (under a new name if one's taken), from where it can be
-  moved back to `inbound` to try again; so does a packet with mail for
-  an echo that isn't mapped to an area, or netmail for another address,
-  so nothing is lost while it's seen to (what was tossed from it comes
-  in again as dupes). The other packets in a bundle are tossed all the
-  same, and a bundle that isn't a ZIP (ARC, ARJ) goes to bad too. If
-  the board's side fails (the database busy), the packet stays in
-  inbound for the next toss. Dupes are remembered after their
-  messages are packed away. Renaming an area's key in `*M` moves its
-  mapping with it.
-- What callers post in those areas goes out at the next poll with
-  MSGID, REPLY (a reply to a network message threads there too), PID,
-  TZUTC and CHRS, a tear and origin line, SEEN-BY and PATH; color codes
-  are taken out. An area starts from what's in it when it's first
-  scanned, so old posts aren't sent; posts that came from the network
-  (or from MeshCore) aren't sent back. A post is marked sent only once
-  its packet is written, and one packed again after a failed write
-  keeps its MSGID, so the network can tell a resend. A line of text
-  starting `SEEN-BY:` goes out as `SEEN+BY:`, and control characters
-  are left out, so nothing typed can pass for a control line; coming
-  in, only the SEEN-BY lines at the end of a message count.
-- Netmail for the node goes to the named caller's email (else the
-  SysOp's), from `name@address`. `fluxbbs ftn areafix +FSX_GEN -FSX_X`
-  (or `%LIST`) asks the hub's AreaFix to link and unlink echoes.
-- The hub can call the board too, to deliver mail as it arrives
-  ("crash" rather than "hold"): with `[ftn] listen` set (`0.0.0.0:24554`,
-  published by the Docker compose file) the board answers binkp, offers
-  CRAM-MD5, and lets in only its hub with the session password; a wrong
-  one counts as a failed login (security log, bans), and connections
-  are held to the same per-address limits as callers. One session runs
-  at a time, and one toss or scan, across processes too (lock files in
-  `data/ftn`, so `fluxbbs ftn` beside the running board is safe): a
-  call during a poll is told to try again. A hub that has part of a
-  file from a broken session can ask for the rest (M_GET). A poll the
-  hub answers as non-secure (it doesn't have the session password yet)
-  sends nothing, so mail isn't left in its unsecure inbound; the log
-  says why. Files over 256 MB are skipped, names are made safe, and a
-  session quiet both ways for five minutes is ended. A hub calling with
-  the wrong password is turned away and logged, but not banned, so a
-  password changed at its end can't cut the board off.
-- `[ftn]` (or "FTN Echomail" in `*C`): the node's address with its
-  domain (`21:1/999@fsxnet`), the hub's address and binkp host, the
-  session, packet and AreaFix passwords, the origin line, how often
-  to poll, and where to answer. `fluxbbs ftn poll`, `toss` and `scan` run the jobs by hand.
+### Setting it up
+
+`[ftn]` in `fluxbbs.toml`, or "FTN Echomail" in `*C`:
 
     [ftn]
     enabled = true
@@ -488,108 +1143,310 @@ been posted here and tosses what came (`ftntoss.rs`).
     tag = "FSX_GEN"
     area = "FSXGEN"
 
-- More than one network: `[ftn]`'s address, hub and passwords are the
-  first network's (named `[ftn] name`, else by its address's domain,
-  `fsxnet`); each
-  `[[ftn.network]]` adds another, with its own `name`, `address`,
-  `hub`, `hub_host`, passwords and (optionally) `origin`. An echo says
-  which network it's on with `network` (none: the first). Every network
-  polls its own hub (one session each at a time, its own outbound in
-  `data/ftn/outbound/NAME`); a hub calling in is shown all the board's
-  addresses and taken as the network its own address is on, with that
-  network's password, and gets only that network's mail (a system that's
-  the hub of several gets each whose password it gave). What a hub
-  sends goes to `data/ftn/inbound/NAME` and is tossed only as mail of
-  the network(s) its session proved it was, so one network's hub can't
-  post into another's echoes; packets put in `inbound` itself by hand
-  (from `bad`, say) are taken as whichever network they're addressed
-  on, and a zoneless one that could be on two goes to bad. A name may
-  only have letters, digits, `-` and `_`; a network with a bad or
-  repeated name or address is left out, and that and echoes on no
-  network (or on two) are logged at each poll, without stopping the
-  other networks. The first network also sends what's left in
-  `data/ftn/outbound` from before there were several. A network with no
-  `hub_host` isn't polled (its hub calls in). `fluxbbs ftn poll agoranet` polls one;
-  `fluxbbs ftn areafix agoranet +AGN_GEN` sends to a given network's
-  AreaFix (without a name, the network of the first tag's echo). `*C`
-  edits the first network; the others are edited in the file.
+| Setting | Is |
+|---|---|
+| `address` | the node's address, with its domain (`21:1/999@fsxnet`) |
+| `hub`, `hub_host` | the hub's address, and its binkp host |
+| `session_password`, `packet_password`, `areafix_password` | the passwords |
+| `origin` | the origin line |
+| `poll_minutes` | how often to poll |
+| `listen` | where to answer the hub's calls |
+| `name` | the first network's name (else its address's domain) |
 
-      [[ftn.network]]
-      name = "agoranet"
-      address = "46:1/200@agoranet"
-      hub = "46:1/100"
-      hub_host = "binkp.pharcyde.org"
-      session_password = "..."
+Echoes are message areas: each `[[ftn.area]]` maps a network tag to an
+area's storage key. Renaming an area's key in `*A` moves its mapping
+with it.
 
-      [[ftn.area]]
-      tag = "AGN_GEN"
-      area = "AGNGEN"
-      network = "agoranet"
+| Command | Does |
+|---|---|
+| `fluxbbs ftn poll` | poll the hub now |
+| `fluxbbs ftn toss` | toss what came in |
+| `fluxbbs ftn scan` | scan for posts to send |
+| `fluxbbs ftn areafix +FSX_GEN -FSX_X` | ask the hub's AreaFix to link and unlink echoes (or `%LIST`) |
 
-Not yet: callers writing netmail to an FTN address, and file echoes
-(TIC).
+### Mail coming in
+
+Messages come in with their kludges read:
+
+| Kludge | Used for |
+|---|---|
+| MSGID | duplicates (or who, when and subject for a message without one) |
+| REPLY | threads, even when the reply comes first |
+| CHRS | UTF-8, Latin-1, CP1252 or CP437, for the names and subject too |
+| TZUTC | times shown in the board's zone |
+
+- Long lines are wrapped.
+- The sender's address (from the origin line) becomes their note.
+- The tear and origin lines count as the signature, so quotes leave
+  them out.
+- Escape sequences from the network are cut down to colors and
+  cursor-right (ANSI art's spacing). Nothing from elsewhere can clear a
+  reader's screen or talk to their terminal.
+- @mentions of local callers work.
+- Dupes are remembered after their messages are packed away.
+
+#### Which packets are taken
+
+- ZIP bundles and plain packets are both read. A ZIP without packets (a
+  nodelist, say) is left alone.
+- Only packets from the hub, to this node, with the packet password are
+  taken. Only the password's first 8 characters count, as that's all
+  the header holds.
+- If the board's side fails (the database busy), the packet stays in
+  inbound for the next toss.
+
+#### The bad directory
+
+Anything that can't be tossed goes to `data/ftn/bad`, under a new name
+if one's taken. Move it back to `inbound` to try again. So does:
+
+- a packet with mail for an echo that isn't mapped to an area
+- a packet with netmail for another address
+- a bundle that isn't a ZIP (ARC, ARJ)
+
+So nothing is lost while it's seen to. What was tossed from such a
+packet comes in again as dupes. The other packets in a bundle are
+tossed all the same.
+
+### Mail going out
+
+What callers post in echo areas goes out at the next poll. It carries
+MSGID, REPLY (a reply to a network message threads there too), PID,
+TZUTC and CHRS, a tear and origin line, SEEN-BY and PATH. Color codes
+are taken out.
+
+- An area starts from what's in it when it's first scanned, so old
+  posts aren't sent.
+- Posts that came from the network (or from MeshCore) aren't sent back.
+- A post is marked sent only once its packet is written. One packed
+  again after a failed write keeps its MSGID, so the network can tell a
+  resend.
+- A line of text starting `SEEN-BY:` goes out as `SEEN+BY:`, and
+  control characters are left out, so nothing typed can pass for a
+  control line. Coming in, only the SEEN-BY lines at the end of a
+  message count.
+
+### Netmail and AreaFix
+
+Netmail for the node goes to the named caller's email (else the
+SysOp's), from `name@address`. `fluxbbs ftn areafix` talks to the
+hub's AreaFix (see the commands above).
+
+### The hub calling in
+
+The hub can call the board too, to deliver mail as it arrives ("crash"
+rather than "hold"). Set `[ftn] listen` (`0.0.0.0:24554`, published by
+the Docker compose file) and the board answers binkp.
+
+- It offers CRAM-MD5 and lets in only its hub, with the session
+  password.
+- A wrong password counts as a failed login (security log, bans).
+- Connections are held to the same per-address limits as callers.
+- A hub calling with the wrong password is turned away and logged, but
+  not banned, so a password changed at its end can't cut the board off.
+
+### Sessions and limits
+
+- One session runs at a time, and one toss or scan, across processes
+  too. Lock files in `data/ftn` make `fluxbbs ftn` safe to run beside
+  the running board. A call during a poll is told to try again.
+- A hub that has part of a file from a broken session can ask for the
+  rest (M_GET).
+- A poll the hub answers as non-secure (it doesn't have the session
+  password yet) sends nothing, so mail isn't left in its unsecure
+  inbound. The log says why.
+- Files over 256 MB are skipped, and names are made safe.
+- A session quiet both ways for five minutes is ended.
+
+### More than one network
+
+`[ftn]`'s address, hub and passwords are the first network's. It's
+named by `[ftn] name`, else by its address's domain (`fsxnet`). Each
+`[[ftn.network]]` adds another network, with its own `name`,
+`address`, `hub`, `hub_host`, passwords and (optionally) `origin`.
+
+An echo says which network it's on with `network`; with none, it's on
+the first.
+
+    [[ftn.network]]
+    name = "agoranet"
+    address = "46:1/200@agoranet"
+    hub = "46:1/100"
+    hub_host = "binkp.pharcyde.org"
+    session_password = "..."
+
+    [[ftn.area]]
+    tag = "AGN_GEN"
+    area = "AGNGEN"
+    network = "agoranet"
+
+#### Polling
+
+- Every network polls its own hub, one session each at a time, with
+  its own outbound in `data/ftn/outbound/NAME`.
+- A network with no `hub_host` isn't polled (its hub calls in).
+- `fluxbbs ftn poll agoranet` polls one network.
+- `fluxbbs ftn areafix agoranet +AGN_GEN` sends to a given network's
+  AreaFix. Without a name, it goes to the network of the first tag's
+  echo.
+- The first network also sends what's left in `data/ftn/outbound` from
+  before there were several.
+
+#### Hubs calling in
+
+- A hub calling in is shown all the board's addresses. It's taken as
+  the network its own address is on, with that network's password, and
+  gets only that network's mail.
+- A system that's the hub of several networks gets each one whose
+  password it gave.
+
+#### Keeping networks apart
+
+- What a hub sends goes to `data/ftn/inbound/NAME`. It's tossed only
+  as mail of the network(s) its session proved it was, so one
+  network's hub can't post into another's echoes.
+- Packets put in `inbound` itself by hand (from `bad`, say) are taken
+  as whichever network they're addressed on. A zoneless one that could
+  be on two goes to bad.
+
+#### Names and errors
+
+- A name may only have letters, digits, `-` and `_`.
+- A network with a bad or repeated name or address is left out.
+- That, and echoes on no network (or on two), are logged at each poll,
+  without stopping the other networks.
+
+`*C` edits the first network; the others are edited in the file.
+
+### Not yet
+
+Callers writing netmail to an FTN address, and file echoes (TIC).
 
 ## From 2.0 and 2.20
 
 Iniquity 2.0 (IDT, 1998) and jack phlash's 2.20A (2001) came after the
-release this ports. Their source isn't here; these follow 2.0's manual,
-WHATSNEW.IQ2, menus, screens and 2.20's string table and notes.
+release flux/bbs ports. Their source isn't here. These features follow
+2.0's manual, WHATSNEW.IQ2, menus and screens, and 2.20's string table
+and notes.
 
-- Voting booth (`VV` vote on what's new, `VA` one question, `VR`
-  results, `VN` add a question, `VD` delete one), the stock VOTING menu
-  (`V` on the main menu). Questions can let callers add answers.
-  Screens: VQTOP/MID/BOT (`~QN` `~QD`), VATOP/MID/BOT (`~VQ`, `~AN`
-  `~AD`), VRTOP/MID/BOT (`~VQ`, `~AP` `~AD` `~VN` `~VR`); without them,
-  plain lists with a bar per answer.
-- Newscan selections: `ME`/`FE` (`E` on the message and file menus)
-  turn areas in and out of newscans with a bar list (MSCAN/FSCAN
-  screens, `~AN` `~AT` `~SC`); "all areas" scans, reading everything new,
-  the logon new-posts check and QWK packets leave the others out. `US`
-  puts every area back for everyone.
-- Message search (`MO`, `B` on the message menu): all areas or one;
-  from, to, subject, all text or your own; new or all messages. Matches
-  open in the reader. 2.0's MSGSRCH screen is shown first if there.
-- Multinode chat: `/who`, `/me`, `/msg user text` (someone in chat),
-  `/page user text` (anyone on), `/help`, and Enter alone for who's in
-  chat.
-- Invisible (`XI`): after `>L` in the matrix, a hidden logon (asks
-  `LogonInvisible` unless given `Y`): out of the callers list and other
-  callers' who's-online, node messages and the website feed. Elsewhere
-  it hides or shows the caller (`I` on the multinode menu). SysOps
-  still see everyone.
+### Voting booth
+
+The stock VOTING menu is `V` on the main menu. Questions can let
+callers add answers.
+
+| Command | Does |
+|---|---|
+| `VV` | vote on what's new |
+| `VA` | vote on one question |
+| `VR` | results |
+| `VN` | add a question |
+| `VD` | delete a question |
+
+| Screens | Markers |
+|---|---|
+| VQTOP/MID/BOT | `~QN` `~QD` |
+| VATOP/MID/BOT | `~VQ`, `~AN` `~AD` |
+| VRTOP/MID/BOT | `~VQ`, `~AP` `~AD` `~VN` `~VR` |
+
+Without the screens, the booth shows plain lists with a bar per answer.
+
+### Newscan selections
+
+`ME` and `FE` (`E` on the message and file menus) turn areas in and out
+of newscans with a bar list. The MSCAN and FSCAN screens draw it (`~AN`
+`~AT` `~SC`).
+
+These leave the other areas out: "all areas" scans, reading everything
+new, the logon new-posts check, and QWK packets. `US` puts every area
+back for everyone.
+
+### Message search
+
+`MO` (`B` on the message menu) searches:
+
+- all areas or one
+- from, to, subject, all text, or your own
+- new or all messages
+
+Matches open in the reader. 2.0's MSGSRCH screen is shown first, if
+it's there.
+
+### Multinode chat
+
+| Type | Does |
+|---|---|
+| `/who` | who's on, and what they're doing |
+| `/me` | an action |
+| `/msg user text` | a message to someone in chat |
+| `/page user text` | a page to anyone on |
+| `/help` | help |
+| Enter alone | who's in chat |
+
+### Invisible
+
+`XI` after `>L` in the matrix is a hidden logon. It asks
+`LogonInvisible` unless given `Y`. An invisible caller is out of the
+callers list and other callers' who's-online, node messages and the
+website feed.
+
+Elsewhere, `XI` hides or shows the caller (`I` on the multinode menu).
+SysOps still see everyone.
+
+### Smaller things
+
 - ACS `n#`: on node #.
 - A door's name in the caller's status: the part after `;` in its
   command (`LORD.BAT;Legend of the Red Dragon`), or the menu item's
-  description; the website feed says "in LORD".
-- Tab completes a handle at "To:" and in `?I` with `/AC` (and
+  description. The website feed says "in LORD".
+- Tab completes a handle at "To:", and in `?I` with `/AC` (and
   `bbs.input{complete = true}`).
-- `|ZA`...`|ZB` shows text as it is. 2.20's `%DN` (new users today),
-  `%TB` (time in the bank), `|PO`/`|PE`/`|PD` (accepted; screens don't
-  pause here). "Set newscan date" starts at the date the pointer is at.
+- `|ZA`...`|ZB` shows text as it is.
+- 2.20's `%DN` (new users today) and `%TB` (time in the bank).
+- 2.20's `|PO`, `|PE` and `|PD` are accepted; screens don't pause here.
+- "Set newscan date" starts at the date the pointer is at.
 - File lists for the web: `/files.txt` and `/files.html` (2.0's
-  `fluxbbs fltxt`/`flhtml`), only areas a new caller could open.
+  `fltxt` and `flhtml`), with only the areas a new caller could open.
 - A cap on imported description lines (`*C`, Files: DIZ lines).
-- `bbs.inmenu(keys)` for scripts (IPL's `isincurmenu`); the rest of
-  2.0's new IPL functions have Lua equivalents (see SCRIPTING.md).
-- 2.0's bug "'|XX' would kill multinode chat" has its equivalent here,
-  fixed: what callers type (chat, oneliners, handles, file
-  descriptions, message headers, BBS list entries...) keeps its color
-  codes and nothing else. Typed into `?I` or `bbs.input`, other codes
-  are wrapped in `|ZA`...`|ZB` so they show but don't act where the
-  text ends up (the stock oneliners append to a screen); handles with
-  codes in them are refused. Caller numbers no longer repeat when two
-  nodes log on at once ("caller list numbering with multinode").
+- `bbs.inmenu(keys)` for scripts (IPL's `isincurmenu`). The rest of
+  2.0's new IPL functions have Lua equivalents (see
+  [SCRIPTING.md](SCRIPTING.md)).
+- `D7` runs a door with DOOR.SYS, read back afterwards (see
+  [Doors](#doors)).
 
-Left out: the modem and NetModem/32 items, MicroDOS, WFC changes, 8+
-COM ports, phone formats, SETUP.SR/CALINFO.BBS/SFDOORS.DAT drop files
-(no door here needs them yet), the local-console keys alt-L and alt-V
-(alt-D, down a level, is `<` in the user editor), and 2.20's paging of
-long screens.
+### Typed text and codes
+
+2.0 fixed a bug where "'|XX' would kill multinode chat". Its equivalent
+here is fixed too:
+
+- What callers type (chat, oneliners, handles, file descriptions,
+  message headers, BBS list entries...) keeps its color codes and
+  nothing else.
+- Typed into `?I` or `bbs.input`, other codes are wrapped in
+  `|ZA`...`|ZB`, so they show but don't act where the text ends up (the
+  stock oneliners append to a screen).
+- Handles with codes in them are refused.
+
+Caller numbers no longer repeat when two nodes log on at once (2.0's
+"caller list numbering with multinode").
+
+### Left out
+
+- the modem and NetModem/32 items
+- MicroDOS
+- WFC changes
+- 8+ COM ports
+- phone formats
+- the SETUP.SR, CALINFO.BBS and SFDOORS.DAT drop files (no door here
+  needs them yet)
+- the local-console keys alt-L and alt-V (alt-D, down a level, is `<`
+  in the user editor)
+- 2.20's paging of long screens
 
 ## Not planned
 
-Tetris (`TP`, `TS`; the game's source isn't in this
-release, `tetris.pas` being a misnamed terminal unit), modem setup
-(`*M`), MicroDOS (`*D`, a shell on the host),
-the local console's status bar (STATBAR), and the Oblivion/Renegade
-converters (OBV2INIQ, REN2INIQ).
+- Tetris (`TP`, `TS`): the game's source isn't in this release;
+  `tetris.pas` is a misnamed terminal unit.
+- Modem setup (`*M`).
+- MicroDOS (`*D`, a shell on the host).
+- The local console's status bar (STATBAR).
+- The Oblivion and Renegade converters (OBV2INIQ, REN2INIQ).

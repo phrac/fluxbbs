@@ -6,8 +6,8 @@ Pascal, 1.00a26r5); credit Iniquity, but it's no longer called that.
 The checkout folder is still `inq/iniquity`, and the image keeps the
 stock files at `/srv/inq/iniquity`, which boards' configs point at.
 `README.md` is
-the source of truth for what's done and **what's left to port** (the table
-under "What's left to port"); keep it current when features land.
+the source of truth for what's done and what isn't (its "Status"
+section); keep it current when features land.
 `docs/NEW.md` tracks what's new over the original (and what changed on
 purpose): add a line there for every feature the original didn't have.
 

@@ -59,6 +59,22 @@ pub struct Push {
     pub at: NaiveDateTime,
 }
 
+/// New: a request board's request marked filled: who said so, when, and
+/// how (where to find it, say). `told`: its asker has heard.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Filled {
+    pub msg_id: i64,
+    pub user_id: u32,
+    pub handle: String,
+    pub note: String,
+    pub at: NaiveDateTime,
+    pub told: bool,
+}
+
+fn filled_row(r: &Row) -> rusqlite::Result<Filled> {
+    Ok(Filled { msg_id: r.get(0)?, user_id: r.get(1)?, handle: r.get(2)?, note: r.get(3)?, at: r.get(4)?, told: r.get(5)? })
+}
+
 /// A file attached to a message (`tAttachRec`).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Attachment {
@@ -165,6 +181,14 @@ CREATE INDEX IF NOT EXISTS pushes_msg ON pushes(msg_id);
 CREATE INDEX IF NOT EXISTS pushes_at ON pushes(at);
 CREATE TABLE IF NOT EXISTS pins (
     msg_id INTEGER PRIMARY KEY
+);
+CREATE TABLE IF NOT EXISTS filled (
+    msg_id  INTEGER PRIMARY KEY,
+    user_id INTEGER NOT NULL,
+    handle  TEXT NOT NULL,
+    note    TEXT NOT NULL,
+    at      TEXT NOT NULL,
+    told    INTEGER NOT NULL DEFAULT 0
 );
 ";
 
@@ -534,7 +558,7 @@ impl MsgBase {
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
         let mut db = self.db.lock().unwrap();
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        for t in ["seen", "mentions", "pushes", "pins"] {
+        for t in ["seen", "mentions", "pushes", "pins", "filled"] {
             tx.execute(&format!("DELETE FROM {t} WHERE msg_id IN (SELECT id FROM messages WHERE area = ?1)"), [area])?;
         }
         let n = tx.execute("DELETE FROM messages WHERE area = ?1", [area])?;
@@ -573,6 +597,7 @@ impl MsgBase {
             // highest row id out again, so what refers to a row by it goes:
             // a pin left behind would pin the next post.)
             tx.prepare_cached("DELETE FROM pins WHERE msg_id = ?1")?.execute([id])?;
+            tx.prepare_cached("DELETE FROM filled WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM seen WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM mentions WHERE msg_id = ?1")?.execute([id])?;
             tx.prepare_cached("DELETE FROM pushes WHERE msg_id = ?1")?.execute([id])?;
@@ -849,6 +874,56 @@ impl MsgBase {
         } else {
             db.execute("DELETE FROM pins WHERE msg_id = ?1", [msg_id])?;
         }
+        Ok(())
+    }
+
+    /// New: an area's filled requests, by the request's row id.
+    pub fn filled(&self, area: &str) -> anyhow::Result<std::collections::HashMap<i64, Filled>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT f.msg_id, f.user_id, f.handle, f.note, f.at, f.told FROM filled f JOIN messages m ON m.id = f.msg_id WHERE m.area = ?1")?;
+        let rows = stmt.query_map([area], |r| filled_row(r).map(|f| (f.msg_id, f)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn filled_one(&self, msg_id: i64) -> anyhow::Result<Option<Filled>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT msg_id, user_id, handle, note, at, told FROM filled WHERE msg_id = ?1", [msg_id], filled_row).optional()?)
+    }
+
+    /// Mark a request filled (by, handle, note), or open again (None).
+    /// Filled by its own asker, there's nobody to tell.
+    pub fn set_filled(&self, msg_id: i64, by: Option<(u32, &str, &str)>, at: NaiveDateTime) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        match by {
+            Some((user_id, handle, note)) => {
+                db.execute(
+                    "INSERT OR REPLACE INTO filled (msg_id, user_id, handle, note, at, told)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?2 = (SELECT from_id FROM messages WHERE id = ?1))",
+                    rusqlite::params![msg_id, user_id, handle, note, at],
+                )?;
+            }
+            None => {
+                db.execute("DELETE FROM filled WHERE msg_id = ?1", [msg_id])?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Requests `user` asked that were filled and they haven't heard:
+    /// (row id, area, subject).
+    pub fn filled_untold(&self, user: u32) -> anyhow::Result<Vec<(i64, String, String)>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare(
+            "SELECT m.id, m.area, m.subject FROM filled f JOIN messages m ON m.id = f.msg_id
+             WHERE m.from_id = ?1 AND NOT f.told AND NOT m.deleted ORDER BY f.at",
+        )?;
+        let rows = stmt.query_map([user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn filled_told(&self, msg_id: i64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("UPDATE filled SET told = 1 WHERE msg_id = ?1", [msg_id])?;
         Ok(())
     }
 

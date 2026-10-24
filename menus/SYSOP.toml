@@ -225,6 +225,15 @@ on = "|B1User editor"
 off = "|B0User editor"
 
 [[command]]
+keys = "N"
+command = "*N"
+acs = "s255"
+desc = "Caller notes"
+help = "[sysop] Private notes on a caller (the AI chat suits itself to them)"
+on = "|B1Caller notes"
+off = "|B0Caller notes"
+
+[[command]]
 keys = "V"
 command = "*V"
 acs = "s250"

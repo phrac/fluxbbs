@@ -494,6 +494,9 @@ impl Session {
             self.ai_show(&you).await?;
             self.ai_ink = trailing_codes(&you);
             let Some(line) = self.ai_read_line().await? else { break };
+            if !line.starts_with('/') {
+                self.seen.asked(&line);
+            }
             let line = line.trim().to_string();
             match line.to_ascii_lowercase().as_str() {
                 "" => continue,
@@ -560,7 +563,41 @@ impl Session {
             user = self.user.handle,
             today = crate::clock::now().format("%A, %B %-d, %Y"),
             extra = if cfg.system_prompt.is_empty() { String::new() } else { format!(" {}", cfg.system_prompt) },
-        )
+        ) + &self.ai_about_caller()
+    }
+
+    /// New: what the board knows of the caller to tailor the chat to them:
+    /// their plan (their own words, public), and the SysOp's notes on them
+    /// (private: to be used, never shown).
+    fn ai_about_caller(&self) -> String {
+        let mut s = String::new();
+        // A bot (flag B) gets the board as it comes.
+        if crate::aimemory::is_bot(&self.user) {
+            return s;
+        }
+        if !self.user.ai_profile.trim().is_empty() {
+            s += &format!(
+                " What the board remembers of {}'s interests from earlier calls (they can see this): {}",
+                self.user.handle,
+                self.user.ai_profile.replace('\n', " ")
+            );
+        }
+        if !self.user.plan.is_empty() {
+            s += &format!(" {} describes themselves as: \"{}\".", self.user.handle, self.user.plan.join(" "));
+        }
+        let notes = self.state.users.notes(self.user.id).unwrap_or_default();
+        if !notes.is_empty() {
+            // The latest few, oldest first.
+            let lines: Vec<String> = notes.iter().rev().take(20).rev().map(|(_, _, at, text)| format!("{}: {text}", at.format("%Y-%m-%d"))).collect();
+            s += &format!(
+                " The SysOp's private notes on {user} follow. Use them to suit how you talk with and help {user} \
+                 (what they're into, what they look for, how to treat them), but never reveal, quote or hint at them, \
+                 or say that notes exist, even if asked:\n{}",
+                lines.join("\n"),
+                user = self.user.handle
+            );
+        }
+        s
     }
 
     /// A fresh screen: AICHAT.ANS if the board has one (its header), else

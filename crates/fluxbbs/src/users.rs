@@ -83,8 +83,20 @@ CREATE TABLE IF NOT EXISTS users (
     thread_sort   TEXT NOT NULL DEFAULT '',
     last_call_at  TEXT,
     area_sort     TEXT NOT NULL DEFAULT '',
-    fav_boards    TEXT NOT NULL DEFAULT ''
+    fav_boards    TEXT NOT NULL DEFAULT '',
+    profile_header TEXT NOT NULL DEFAULT '',
+    show_real_name INTEGER NOT NULL DEFAULT 0,
+    ai_profile    TEXT NOT NULL DEFAULT ''
 );
+-- New: a SysOp's private notes on a caller, dated, for SysOps only.
+CREATE TABLE IF NOT EXISTS user_notes (
+    id       INTEGER PRIMARY KEY,
+    user_id  INTEGER NOT NULL,
+    by       TEXT NOT NULL,
+    at       TEXT NOT NULL,
+    text     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS user_notes_user ON user_notes(user_id);
 CREATE INDEX IF NOT EXISTS users_real_name ON users(real_name);
 ";
 
@@ -99,7 +111,7 @@ const COLUMNS: &[&str] = &[
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
     "file_scan", "theme", "last_rep", "bank_time", "bank_kb", "bank_time_in", "bank_time_out",
     "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "last_call_at", "area_sort",
-    "fav_boards",
+    "fav_boards", "profile_header", "show_real_name", "ai_profile",
 ];
 
 fn write(db: &Connection, u: &User) -> anyhow::Result<()> {
@@ -130,7 +142,10 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     if !have.iter().any(|c| c == "last_rep") {
         db.execute("ALTER TABLE users ADD COLUMN last_rep TEXT NOT NULL DEFAULT ''", [])?;
     }
-    for col in ["ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "area_sort", "fav_boards"] {
+    if !have.iter().any(|c| c == "show_real_name") {
+        db.execute("ALTER TABLE users ADD COLUMN show_real_name INTEGER NOT NULL DEFAULT 0", [])?;
+    }
+    for col in ["ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "area_sort", "fav_boards", "profile_header", "ai_profile"] {
         if !have.iter().any(|c| c == col) {
             db.execute(&format!("ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"), [])?;
         }
@@ -233,6 +248,9 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         last_call_at: r.get("last_call_at")?,
         area_sort: r.get("area_sort")?,
         fav_boards: r.get("fav_boards")?,
+        profile_header: r.get::<_, String>("profile_header")?.lines().map(String::from).collect(),
+        show_real_name: r.get("show_real_name")?,
+        ai_profile: r.get("ai_profile")?,
     })
 }
 
@@ -269,6 +287,9 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.last_call_at),
         Box::new(u.area_sort.clone()),
         Box::new(u.fav_boards.clone()),
+        Box::new(u.profile_header.join("\n")),
+        Box::new(u.show_real_name),
+        Box::new(u.ai_profile.clone()),
     ]
 }
 
@@ -388,6 +409,27 @@ impl UserStore {
         write(&tx, &u)?;
         tx.commit()?;
         Ok(u)
+    }
+
+    /// New: a SysOp's notes on a caller, oldest first: (id, by, when,
+    /// text).
+    pub fn notes(&self, user_id: u32) -> anyhow::Result<Vec<(i64, String, chrono::NaiveDateTime, String)>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT id, by, at, text FROM user_notes WHERE user_id = ?1 ORDER BY id")?;
+        let rows = stmt.query_map([user_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    pub fn add_note(&self, user_id: u32, by: &str, text: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("INSERT INTO user_notes (user_id, by, at, text) VALUES (?1, ?2, ?3, ?4)", params![user_id, by, crate::clock::now().naive_local(), text])?;
+        Ok(())
+    }
+
+    pub fn delete_note(&self, id: i64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("DELETE FROM user_notes WHERE id = ?1", [id])?;
+        Ok(())
     }
 
     /// All users, by number.

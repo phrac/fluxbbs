@@ -129,7 +129,7 @@ impl Session {
         };
         match text {
             Ok(t) if !t.trim().is_empty() => {
-                let grid = crate::pager::render(t.as_bytes(), true);
+                let grid = crate::pager::trimmed(crate::pager::render(t.as_bytes(), true));
                 self.page_grid_keys(name, &grid, "PdfViewHelp", &['P', 'D']).await
             }
             // A scan with no text in it: straight to the pages.

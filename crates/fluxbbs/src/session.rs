@@ -185,11 +185,14 @@ pub struct Session {
     pub(crate) ai_ctx: String,
     /// The chat's rows under the header, kept to redraw them (new).
     pub(crate) ai_win: Option<crate::aichat::AiWindow>,
+    /// New: what this call did, for the board's memory of the caller.
+    pub(crate) seen: crate::aimemory::Seen,
 }
 
 /// Run a caller from connect to disconnect.
-/// Display state carried from token to token: a pending `{NN`/`}NN`
-/// limit and a `|**` return position.
+/// Display state carried from token to token: the `{NN`/`}NN` limit in
+/// force (as the original's `mciLimit`, it holds for every value after it
+/// in the string or screen) and a `|**` return position.
 #[derive(Default)]
 pub(crate) struct DisplayState {
     limit: Option<(usize, bool)>,
@@ -350,6 +353,7 @@ impl Session {
             ai_ink: String::new(),
             ai_ctx: String::new(),
             ai_win: None,
+            seen: Default::default(),
         }
     }
 
@@ -437,6 +441,8 @@ impl Session {
         if let Err(e) = self.save_own_user() {
             tracing::error!("saving user {}: {e}", self.user.handle);
         }
+        // Folded into what the board remembers of them, after they've gone.
+        crate::aimemory::remember(self.state.clone(), self.user.clone(), std::mem::take(&mut self.seen));
     }
 
     // ---- output -------------------------------------------------------
@@ -660,7 +666,10 @@ impl Session {
             Token::SavePos => st.return_to = Some(self.here()),
             Token::Ext(code) => match waves.and_then(|w| w.get(&code)) {
                 // sfWrite: limit/pad apply, |XX codes in the value work.
+                // Where it went is kept too (new), for what's drawn after.
                 Some(v) => {
+                    let here = self.here();
+                    self.positions.insert(code, here);
                     let v = match st.limit {
                         Some((n, true)) => resize(v, n),
                         Some((n, false)) => squish(v, n),

@@ -114,7 +114,7 @@ impl Session {
             ('D', "SSH", 40, "Its SSH address, host:port (e.g. bbs.example.com:2222).", |b| &mut b.ssh),
             ('E', "Software", 20, "Name of the bulletin board software this system is running.", |b| &mut b.software),
             ('F', "Storage", 20, "File area storage.", |b| &mut b.storage),
-            ('G', "Other info", 58, "Any other information about this board (affiliations etc).", |b| &mut b.info),
+            ('G', "Other info", 58, "Any other information about this board (affiliations etc); several lines, in the editor.", |b| &mut b.info),
             ('H', "Who added", 36, "The name of the user that added this BBS to the list.", |b| &mut b.who_added),
         ];
         loop {
@@ -129,7 +129,9 @@ impl Session {
             f.value_col(20);
             f.label("Current", 12, format!("{num} of {n}"));
             for (key, label, len, info, get) in &texts {
-                f.item(*key, label, *len, get(&mut b).clone(), info);
+                // A description of several lines shows its first here.
+                let v = get(&mut b).lines().next().unwrap_or("").to_string();
+                f.item(*key, label, *len, v, info);
             }
             f.item('[', "Previous BBS", 0, "", "");
             f.item(']', "Next BBS", 0, "", "");
@@ -140,6 +142,30 @@ impl Session {
                 match key {
                     '[' => break -1,
                     ']' => break 1,
+                    // New: the description may be several lines: the
+                    // full-screen editor.
+                    'G' => {
+                        let ctx = crate::editor::EditCtx {
+                            subject: format!("{}: other info", b.name),
+                            from: self.user.handle.clone(),
+                            to: b.name.clone(),
+                            date: crate::clock::now().naive_local(),
+                            anonymous: false,
+                            can_anonymous: false,
+                            can_autosig: false,
+                            autosig: false,
+                            reply: None,
+                            auto_quote: false,
+                            text: b.info.lines().map(String::from).collect(),
+                        };
+                        if let Some(done) = self.edit_message(ctx).await? {
+                            let lines: Vec<String> = done.lines.iter().map(|l| l.trim_end().to_string()).collect();
+                            let n = lines.iter().rposition(|l| !l.trim().is_empty()).map_or(0, |i| i + 1).min(crate::extras::BBS_INFO_LINES);
+                            b.info = lines[..n].join("\n");
+                        }
+                        f.set('G', b.info.lines().next().unwrap_or("").to_string());
+                        self.cfg_draw(&f);
+                    }
                     k => {
                         let Some((_, _, len, _, get)) = texts.iter().find(|t| t.0 == k) else { continue };
                         if let Some(v) = self.cfg_text(&mut f, k, Field::TEXT.max(*len)).await? {

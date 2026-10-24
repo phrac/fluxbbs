@@ -87,6 +87,10 @@ pub struct MsgArea {
     /// Anonymous messages allowed.
     #[serde(default, skip_serializing_if = "is_false")]
     pub anonymous: bool,
+    /// New: a request board: each thread asks for something (a file, a
+    /// door, a fix), and is marked filled once it's been found.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub requests: bool,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub qwk_name: String,
     /// `*P` keeps at most this many messages (0: no limit).
@@ -120,6 +124,7 @@ impl MsgArea {
             private: true,
             mandatory: false,
             anonymous: true,
+            requests: false,
             qwk_name: String::new(),
             max_msgs: 0,
         }

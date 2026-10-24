@@ -12,7 +12,7 @@ upper_input = true
 [[command]]
 keys = "1"
 command = "DZ"
-param = "LORD.BAT"
+param = "LORD.BAT %ND"
 acs = "s50"
 desc = "LORD"
 help = "Legend of the Red Dragon"

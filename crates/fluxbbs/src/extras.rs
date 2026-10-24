@@ -51,6 +51,9 @@ fn io_err(e: anyhow::Error) -> io::Error {
     io::Error::other(e)
 }
 
+/// Lines a BBS list entry's description may have.
+pub(crate) const BBS_INFO_LINES: usize = 10;
+
 /// The SSH address for a list: just `:port` when it's on the telnet
 /// address's host.
 fn ssh_short(b: &Bbs) -> String {
@@ -449,8 +452,12 @@ impl Session {
 
     // ---- the BBS list --------------------------------------------------------
 
-    fn bbs_waves(b: &Bbs, n: usize) -> Waves {
-        waves([
+    /// `full`: the whole description (several lines, for SHOWBBS); a
+    /// list's row gets its first line.
+    fn bbs_waves(b: &Bbs, n: usize, full: bool) -> Waves {
+        let mut lines = b.info.lines();
+        let info = lines.next().unwrap_or("").to_string();
+        let mut w = waves([
             ("BN", b.name.clone()),
             // TN/SS (new) telnet and SSH; PN, the original's phone
             // number, is the telnet address on older screens.
@@ -461,10 +468,17 @@ impl Session {
             ("SN", b.sysop.clone()),
             ("SF", b.software.clone()),
             ("ST", b.storage.clone()),
-            ("IN", b.info.clone()),
+            ("IN", info),
             ("NM", n.to_string()),
             ("OT", b.who_added.clone()),
-        ])
+        ]);
+        // New: the description's later lines, `~I2`..`~I9`.
+        if full {
+            for (k, l) in lines.take(BBS_INFO_LINES - 1).enumerate() {
+                w.insert([b'I', b'2' + k as u8], l.to_string());
+            }
+        }
+        w
     }
 
     /// `bbsListShowAll` (`BL`). Returns how many there are.
@@ -485,7 +499,7 @@ impl Session {
         let mut lines = 3;
         for (i, b) in list.iter().enumerate() {
             let more = match rep.as_mut() {
-                Some(r) => self.repeat_row(r, &Self::bbs_waves(b, i + 1), false).await?,
+                Some(r) => self.repeat_row(r, &Self::bbs_waves(b, i + 1, false), false).await?,
                 None => {
                     let line = format!(
                         "|U1 {} {} {} {} {}",
@@ -537,7 +551,24 @@ impl Session {
     /// `bbsListShowOne` (`BS`).
     pub async fn bbs_show(&mut self, param: &str) -> io::Result<()> {
         let Some((n, b)) = self.pick_bbs(param, "BBSshowOne").await? else { return Ok(()) };
-        if !self.show_file_with("SHOWBBS", &Self::bbs_waves(&b, n)).await? {
+        let w = Self::bbs_waves(&b, n, true);
+        if self.show_file_with("SHOWBBS", &w).await? {
+            // A screen with no `~I2`: the rest of a long description goes
+            // under it, lined up with its first line.
+            let rest: Vec<&str> = b.info.lines().skip(1).collect();
+            if !rest.is_empty() && !self.positions.contains_key(b"I2") {
+                let (x, _, color) = self.positions.get(b"IN").copied().unwrap_or((1, 1, fluxbbs_term::Color::DEFAULT));
+                // On the rows after the screen's last field.
+                let y = self.positions.values().map(|p| p.1).max().unwrap_or(1) + 1;
+                for (k, l) in rest.iter().enumerate() {
+                    self.screen.goto(x, y + k as u16);
+                    self.screen.set_color(color);
+                    self.write(l);
+                }
+                self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                self.screen.goto(1, y + rest.len() as u16);
+            }
+        } else {
             self.newline();
             for (k, v) in [
                 ("List Number", n.to_string()),
@@ -549,7 +580,11 @@ impl Session {
                 ("Storage", b.storage.clone()),
                 ("Other Info", b.info.clone()),
             ] {
-                self.show_line(&format!("|U1{}|U2: |U3{}", resize(k, 17), lit(&v))).await?;
+                // A description of several lines, each under the first.
+                for (i, line) in v.lines().chain(v.is_empty().then_some("")).enumerate() {
+                    let label = if i == 0 { format!("|U1{}|U2:", resize(k, 17)) } else { " ".repeat(18) };
+                    self.show_line(&format!("{label} |U3{}", lit(line))).await?;
+                }
             }
         }
         Ok(())
@@ -575,12 +610,34 @@ impl Session {
         ];
         let mut values: Vec<String> = Vec::new();
         for (i, (code, old, ask, len)) in fields.into_iter().enumerate() {
-            if !self.goto_pos(*code) && !self.goto_pos(*old) {
+            let placed = self.goto_pos(*code) || self.goto_pos(*old);
+            if !placed {
                 self.say(ask).await?;
             }
-            let v = self.read_string(ReadOpts::new(len)).await?.trim().to_string();
+            let at = (self.screen.where_x(), self.screen.where_y());
+            let mut v = self.read_string(ReadOpts::new(len)).await?.trim().to_string();
             if !screen {
                 self.newline();
+            }
+            // New: the description takes more lines (a pasted one comes in
+            // whole), to a blank line, under the first.
+            if *code == *b"IN" && !v.is_empty() {
+                for k in 1..BBS_INFO_LINES {
+                    if placed {
+                        self.screen.goto(at.0, at.1 + k as u16);
+                    } else {
+                        self.say("BBSaskInfoMore").await?;
+                    }
+                    let more = self.read_string(ReadOpts::new(len)).await?.trim_end().to_string();
+                    if !screen {
+                        self.newline();
+                    }
+                    if more.trim().is_empty() {
+                        break;
+                    }
+                    v.push('\n');
+                    v.push_str(&more);
+                }
             }
             if i == 0 && v.is_empty() {
                 return Ok(());
@@ -737,11 +794,12 @@ impl Session {
             'M' => self.emulation_name().into(),
             'N' => self.current_theme().map(|t| t.desc).unwrap_or_else(|| "n/a".into()),
             'O' => u.zip_code.clone(),
-            // New: the plan, for finger.
-            'Q' => match u.plan.len() {
-                0 => "none".into(),
-                1 => "1 line".into(),
-                n => format!("{n} lines"),
+            // New: the profile (plan, header), for finger.
+            'Q' => match (u.plan.len(), u.profile_header.is_empty()) {
+                (0, true) => "none".into(),
+                (n, true) => format!("plan, {n} line{}", if n == 1 { "" } else { "s" }),
+                (0, false) => "header".into(),
+                (n, false) => format!("plan ({n}), header"),
             },
             // New: SSH keys on file.
             'P' => match u.ssh_keys.len() {
@@ -771,7 +829,7 @@ impl Session {
                 self.user.page_length = s.parse::<u16>().unwrap_or(self.user.page_length).clamp(5, 200);
             }
             'P' => self.ssh_keys_edit().await?,
-            'Q' => self.plan_edit().await?,
+            'Q' => self.profile_edit().await?,
             'R' => self.time_zone_edit().await?,
             'H' => self.user.yes_no_bars = !self.user.yes_no_bars,
             'I' => self.user.expert = !self.user.expert,

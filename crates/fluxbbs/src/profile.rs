@@ -18,6 +18,29 @@ use crate::messages::io_err;
 use crate::session::Session;
 use crate::user::{User, fmt_date};
 
+/// Lines a profile's ANSI header may have.
+pub const HEADER_LINES: usize = 8;
+
+/// An uploaded header: the text before SAUCE, lines (CP437, ESC kept as
+/// itself), less blank ones at the ends, at most `HEADER_LINES`. Shown
+/// through `editor::ansi_bytes`, so only colours and cursor-rights reach
+/// a screen.
+pub fn parse_header(data: &[u8]) -> Vec<String> {
+    let data = data.split(|&b| b == 0x1A).next().unwrap_or_default();
+    let mut lines: Vec<String> = data
+        .split(|&b| b == b'\n')
+        .map(|l| fluxbbs_term::cp437::decode(l.strip_suffix(b"\r").unwrap_or(l)).replace('\u{2190}', "\x1b").trim_end().to_string())
+        .collect();
+    let blank = |l: &String| crate::editor::strip_colours(l).trim().is_empty();
+    while lines.last().is_some_and(blank) {
+        lines.pop();
+    }
+    let top = lines.iter().take_while(|l| blank(l)).count();
+    lines.drain(..top);
+    lines.truncate(HEADER_LINES);
+    lines
+}
+
 /// Lines in a plan, and their width.
 pub const PLAN_LINES: usize = 6;
 const PLAN_WIDTH: usize = 70;
@@ -73,7 +96,10 @@ impl Session {
             uploads.iter().map(|f| f.name.clone()).collect::<Vec<_>>().join(", ")
         };
         let karma = self.karma_text(u.id)?;
+        // New: their real name, if they show it.
+        let real = if u.show_real_name { u.real_name.clone() } else { String::new() };
         let mut w = vec![
+            ("RN", real.clone()),
             ("UN", u.handle.clone()),
             ("LO", u.location.clone()),
             ("UO", u.note.clone()),
@@ -95,11 +121,18 @@ impl Session {
         self.clear_screen();
         let w: crate::session::Waves = w.into_iter().map(|(k, v)| (k.as_bytes().try_into().expect("two-letter code"), v)).collect();
         if self.show_file_with("FINGER", &w).await? {
+            self.finger_notes(u).await?;
             return self.prompt_key().await;
         }
-        // The plain one.
+        // The plain one, under their header if they've one.
+        for l in &u.profile_header {
+            self.screen.write_bytes(&crate::editor::ansi_bytes(l));
+            self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+            self.newline();
+        }
         self.newline();
-        self.show_line(&format!("|U4 {}", lit(&u.handle))).await?;
+        let name = if real.is_empty() { lit(&u.handle) } else { format!("{} |U2({}|U2)", lit(&u.handle), lit(&real)) };
+        self.show_line(&format!("|U4 {name}")).await?;
         self.rule().await?;
         let pair = |a: &str, b: &str, c: &str, d: &str| format!("|U1 {} |U3{}|U1{} |U3{}", resize(a, 11), lit(&resize(b, 26)), resize(c, 12), lit(&squish(d, 26)));
         let s = self.strings();
@@ -126,6 +159,140 @@ impl Session {
             self.newline();
         }
         self.rule().await?;
+        self.finger_notes(u).await?;
+        self.prompt_key().await
+    }
+
+    /// For a SysOp: their private notes on `u`, under the profile.
+    async fn finger_notes(&mut self, u: &User) -> io::Result<()> {
+        if !self.is_sysop() {
+            return Ok(());
+        }
+        let notes = self.state.users.notes(u.id).map_err(io_err)?;
+        if notes.is_empty() {
+            return Ok(());
+        }
+        self.say_line("FingerNotes").await?;
+        for (_, by, at, text) in notes.iter().rev().take(5).rev() {
+            let line = format!("|U2 {} {} |U3{}", self.local(*at).format("%m/%d/%y"), lit(&resize(by, 10)), lit(&squish(text, 56)));
+            self.show_line(&line).await?;
+        }
+        Ok(())
+    }
+
+    /// `Q` in user config (new): your profile: your plan, whether your
+    /// real name shows, and an ANSI header you upload.
+    pub async fn profile_edit(&mut self) -> io::Result<()> {
+        loop {
+            self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+            self.clear_screen();
+            self.say_line("ProfileHead").await?;
+            self.rule().await?;
+            let yn = |b: bool| if b { "yes" } else { "no" }.to_string();
+            let lines = |n: usize| match n {
+                0 => "none".to_string(),
+                1 => "1 line".to_string(),
+                n => format!("{n} lines"),
+            };
+            let items = [
+                ("p", "ProfilePlan", lines(self.user.plan.len())),
+                ("r", "ProfileRealName", yn(self.user.show_real_name)),
+                ("u", "ProfileUpload", lines(self.user.profile_header.len())),
+                ("c", "ProfileClear", String::new()),
+                ("m", "ProfileMemory", if self.user.ai_profile.trim().is_empty() { "nothing yet".into() } else { String::new() }),
+                ("v", "ProfileView", String::new()),
+            ];
+            for (k, name, v) in &items {
+                let label = self.strings().get(name).to_string();
+                let s = self.strings().fmt("ProfileItem", &[k, &label, v]);
+                self.show_line(&s).await?;
+            }
+            self.rule().await?;
+            self.say("ProfileAsk").await?;
+            let k = self.read_key().await?;
+            self.newline();
+            match k.upper() {
+                Some('P') => self.plan_edit().await?,
+                Some('R') => {
+                    self.user.show_real_name = !self.user.show_real_name;
+                    self.save_own_user().map_err(io_err)?;
+                }
+                Some('U') => self.upload_profile_header().await?,
+                Some('C') => {
+                    self.user.profile_header.clear();
+                    self.save_own_user().map_err(io_err)?;
+                }
+                Some('V') => {
+                    let me = self.user.clone();
+                    self.finger_user(&me).await?;
+                }
+                Some('M') => self.memory_view().await?,
+                _ => return Ok(()),
+            }
+        }
+    }
+
+    /// What the board remembers of your interests (`aimemory.rs`), and
+    /// clearing it.
+    async fn memory_view(&mut self) -> io::Result<()> {
+        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+        self.clear_screen();
+        self.say_line("MemoryHead").await?;
+        self.rule().await?;
+        // Saved by the board after the last call: read it as it is now.
+        if let Some(u) = self.state.users.get(self.user.id).map_err(io_err)? {
+            self.user.ai_profile = u.ai_profile;
+        }
+        if self.user.ai_profile.trim().is_empty() {
+            self.say_line("MemoryNone").await?;
+        }
+        for l in self.user.ai_profile.clone().lines() {
+            self.show_line(&format!("|U3 {}", lit(l))).await?;
+        }
+        self.rule().await?;
+        if crate::aimemory::is_bot(&self.user) {
+            self.say_line("MemoryBot").await?;
+            return self.prompt_key().await;
+        }
+        if self.user.ai_profile.trim().is_empty() {
+            return self.prompt_key().await;
+        }
+        self.say("MemoryAskClear").await?;
+        if self.yes_no(false).await? {
+            let before = self.user.clone();
+            self.user.ai_profile.clear();
+            self.state.users.merge(&before, &self.user).map_err(io_err)?;
+            *self.user_base.borrow_mut() = Some(self.user.clone());
+            tracing::info!("{}: cleared what the board remembers", self.user.handle);
+        }
+        Ok(())
+    }
+
+    /// Upload an ANSI header for your profile (a file, as an
+    /// auto-signature is): colours and cursor moves only, at most
+    /// `HEADER_LINES` lines.
+    async fn upload_profile_header(&mut self) -> io::Result<()> {
+        self.newline();
+        let Some(proto) = self.select_protocol(false).await? else { return Ok(()) };
+        let temp = self.state.config().resolve(&self.state.config().paths.temp).join(format!("node{}", self.node.number()));
+        let _ = std::fs::remove_dir_all(&temp);
+        let got = self.receive_files(&proto, &temp).await?;
+        let data = match got.first() {
+            Some(p) => std::fs::read(p).map(|mut d| {
+                d.truncate(64 * 1024);
+                d
+            })?,
+            None => Vec::new(),
+        };
+        let _ = std::fs::remove_dir_all(&temp);
+        let header = parse_header(&data);
+        if header.is_empty() {
+            return self.say_line("ProfileHeaderNone").await;
+        }
+        self.user.profile_header = header;
+        self.save_own_user().map_err(io_err)?;
+        tracing::info!("{}: uploaded a profile header", self.user.handle);
+        self.say_line("ProfileHeaderSaved").await?;
         self.prompt_key().await
     }
 
@@ -151,5 +318,65 @@ impl Session {
         self.user.plan = plan;
         self.save_own_user().map_err(io_err)?;
         Ok(())
+    }
+
+    /// `*N` (new): a SysOp's private notes on a caller, `param` naming
+    /// them (or asked).
+    pub async fn user_notes_cmd(&mut self, param: &str) -> io::Result<()> {
+        let mut who = param.trim().to_string();
+        if who.is_empty() {
+            self.newline();
+            self.say("NotesWho").await?;
+            let mut opts = ReadOpts::new(36);
+            opts.complete_users = true;
+            who = self.read_string(opts).await?;
+            self.newline();
+            if who.is_empty() {
+                return Ok(());
+            }
+        }
+        match self.state.users.find(&who, true).map_err(io_err)? {
+            Some(u) => self.user_notes(&u).await,
+            None => self.say_line("FingerUnknown").await,
+        }
+    }
+
+    /// A caller's notes, oldest first, numbered; type one to add it, or
+    /// `-N` to remove note N. Only for SysOps: callers never see them (the
+    /// AI chat is given them to suit itself to the caller, and told never
+    /// to show them).
+    pub async fn user_notes(&mut self, u: &User) -> io::Result<()> {
+        loop {
+            self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+            self.clear_screen();
+            let s = self.strings().fmt("NotesHead", &[&lit(&u.handle)]);
+            self.show_line(&s).await?;
+            self.rule().await?;
+            let notes = self.state.users.notes(u.id).map_err(io_err)?;
+            if notes.is_empty() {
+                self.say_line("NotesNone").await?;
+            }
+            for (i, (_, by, at, text)) in notes.iter().enumerate() {
+                let line = format!("|U2{:>3}. |U1{} {} |U3{}", i + 1, self.local(*at).format("%m/%d/%y"), lit(&resize(by, 12)), lit(text));
+                self.show_line(&line).await?;
+            }
+            self.rule().await?;
+            self.say("NotesAsk").await?;
+            let v = self.read_string(ReadOpts::new(70)).await?;
+            self.newline();
+            let v = crate::editor::strip_colours(v.trim());
+            if v.is_empty() {
+                return Ok(());
+            }
+            if let Some(n) = v.strip_prefix('-').and_then(|n| n.trim().parse::<usize>().ok()) {
+                if let Some((id, ..)) = notes.get(n.wrapping_sub(1)) {
+                    self.state.users.delete_note(*id).map_err(io_err)?;
+                    tracing::info!("{}: removed a note on {}", self.user.handle, u.handle);
+                }
+                continue;
+            }
+            self.state.users.add_note(u.id, &self.user.handle, &v).map_err(io_err)?;
+            tracing::info!("{}: noted on {}", self.user.handle, u.handle);
+        }
     }
 }

@@ -586,6 +586,7 @@ fn convert_area(a: &LegacyMsgArea) -> MsgArea {
         private: a.has(flag::PRIVATE),
         mandatory: a.has(flag::MANDATORY),
         anonymous: a.has(flag::ANONYMOUS),
+        requests: false,
         qwk_name: a.qwk_name.clone(),
         max_msgs: a.max_msgs as u32,
     }
@@ -738,6 +739,9 @@ fn convert_user(l: &LegacyUser) -> User {
         thread_sort: String::new(),
         area_sort: String::new(),
         fav_boards: String::new(),
+        profile_header: Vec::new(),
+        show_real_name: false,
+        ai_profile: String::new(),
         last_call_at: None,
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.

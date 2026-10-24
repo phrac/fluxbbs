@@ -53,6 +53,31 @@ pub fn threads(msgs: &[Message]) -> Vec<Thread> {
         .collect()
 }
 
+/// The tree's lines in front of each of a thread's messages, from their
+/// depths in reading order: `├─` for a reply with more after it, `└─` for
+/// the last, `│ ` carrying a line down past a deeper branch. Only the
+/// innermost `TREE_LEVELS` levels are drawn.
+pub fn branches(depths: &[usize]) -> Vec<String> {
+    const TREE_LEVELS: usize = 10;
+    // Does level k still have a reply to come?
+    let mut open: Vec<bool> = Vec::new();
+    let mut out = Vec::with_capacity(depths.len());
+    for (i, &d) in depths.iter().enumerate() {
+        let last = depths[i + 1..].iter().find(|&&x| x <= d).is_none_or(|&x| x < d);
+        let mut s = String::new();
+        for k in (d.saturating_sub(TREE_LEVELS - 1)).max(1)..d {
+            s += if open.get(k).copied().unwrap_or(false) { "│ " } else { "  " };
+        }
+        if d > 0 {
+            s += if last { "└─" } else { "├─" };
+        }
+        open.resize(d + 1, false);
+        open[d] = !last;
+        out.push(s);
+    }
+    out
+}
+
 /// One area as a caller sees it: the messages they may read, and what
 /// they've read.
 struct AreaView {
@@ -594,7 +619,9 @@ impl Session {
                 _ => {}
             }
             let pinned = self.state.msgs.pinned(a.key()).map_err(io_err)?;
-            ts.sort_by_key(|t| !pinned.contains(&t.msgs[0].0));
+            // A request board's open requests come before its filled ones.
+            let filled = if a.area.requests { self.state.msgs.filled(a.key()).map_err(io_err)? } else { HashMap::new() };
+            ts.sort_by_key(|t| (!pinned.contains(&t.msgs[0].0), filled.contains_key(&t.msgs[0].0)));
             if let Some(want) = &tag {
                 ts.retain(|t| tag_of(&by_id[&t.msgs[0].0].subject).is_some_and(|x| x.eq_ignore_ascii_case(want)));
             }
@@ -614,10 +641,12 @@ impl Session {
                 let mark = if new > 0 { "*" } else { " " };
                 let day = self.local(t.last).format("%m/%d").to_string();
                 let num = if pinned.contains(&root.id) { pin_label.clone() } else { root.num.to_string() };
+                let (state, title) = self.request_state(a, root, &filled);
                 let w = waves([
                     ("MN", num.clone()),
                     ("MK", mark.into()),
-                    ("MT", root.subject.clone()),
+                    ("MT", title.clone()),
+                    ("FL", state),
                     ("SN", root.from.name.clone()),
                     ("RP", replies.clone()),
                     ("SC", score.clone()),
@@ -626,7 +655,7 @@ impl Session {
                     ("DT", self.local(t.last).format("%m/%d/%y").to_string()),
                     ("TI", self.local(t.last).format("%H:%M").to_string()),
                 ]);
-                let plain = post_line(mark, &num, &score, &day, &root.from.name, &replies, &root.subject);
+                let plain = post_line(mark, &num, &score, &day, &root.from.name, &replies, &title);
                 rows.push(BarRow { n: i as u32, waves: w, plain });
                 labels.push((root.num, i as u32));
             }
@@ -638,19 +667,26 @@ impl Session {
             }).to_string();
             let moderator = self.is_sponsor(a) || self.is_cosysop();
             let tagged = !a.area.tags.is_empty();
-            // Room for the board's name (and the tag shown) on one line.
-            let room = 16 - if moderator && tagged { 6 } else { 0 };
-            let mut name = fluxbbs_term::codes::squish(&a.area.name, room);
-            if let Some(t) = &tag {
-                name = fluxbbs_term::codes::squish(&format!("[{t}]"), room);
+            // What there's no room for falls off the end: least needed last.
+            let mut more = String::new();
+            if a.area.requests {
+                more += self.strings().get("ReqFillKey");
             }
-            let mut help = self.strings().fmt("MsgThreadKeys", &[&fluxbbs_term::lit(&name), &v.new_count().to_string(), &sort]);
             if tagged {
-                help += self.strings().get("ThreadTagKey");
+                more += self.strings().get("ThreadTagKey");
             }
             if moderator {
-                help += self.strings().get("MsgThreadModerate");
+                more += self.strings().get("MsgThreadModerate");
             }
+            let new_count = v.new_count().to_string();
+            // Room for the board's name (or the tag shown) on one line.
+            let rest = crate::editor::strip_colours(&(self.strings().fmt("MsgThreadKeys", &["", &new_count, &sort]) + &more)).chars().count();
+            let room = 74usize.saturating_sub(rest).clamp(8, 16);
+            let name = match &tag {
+                Some(t) => format!("[{t}]"),
+                None => a.area.name.clone(),
+            };
+            let help = self.strings().fmt("MsgThreadKeys", &[&fluxbbs_term::lit(&fluxbbs_term::codes::squish(&name, room)), &new_count, &sort]) + &more;
             let header = post_line(" ", "#", "+/-", "Date", "Author", "Re", "Title");
             let spec = BarSpec {
                 prefix: "MTHRD",
@@ -661,11 +697,15 @@ impl Session {
                 help: &help,
                 ask: "",
                 can_go_up: true,
-                keys: match (moderator, tagged) {
-                    (true, true) => "NPSHOT",
-                    (true, false) => "NPSHO",
-                    (false, true) => "NPSHT",
-                    (false, false) => "NPSH",
+                keys: match (moderator, tagged, a.area.requests) {
+                    (true, true, false) => "NPSHOTV",
+                    (true, false, false) => "NPSHOV",
+                    (false, true, false) => "NPSHTV",
+                    (false, false, false) => "NPSHV",
+                    (true, true, true) => "NPSHOTVF",
+                    (true, false, true) => "NPSHOVF",
+                    (false, true, true) => "NPSHTVF",
+                    (false, false, true) => "NPSHVF",
                 },
             };
             match self.area_bar(&spec).await? {
@@ -690,7 +730,23 @@ impl Session {
                 BarPick::Key('P', _) => {
                     self.post(a, "All", "", None).await?;
                 }
+                BarPick::Key('V', n) => {
+                    if let Some(t) = ts.get(n as usize) {
+                        on_root = Some(t.msgs[0].0);
+                        if self.thread_tree(a, t.msgs[0].0, None).await? {
+                            return Ok(true);
+                        }
+                    }
+                }
                 BarPick::Key('H', _) => self.msg_help().await?,
+                BarPick::Key('F', n) => {
+                    if let Some(root) = ts.get(n as usize).map(|t| by_id[&t.msgs[0].0]) {
+                        on_root = Some(root.id);
+                        let root = root.clone();
+                        self.reader_prompt_area();
+                        self.fill_request(a, &root).await?;
+                    }
+                }
                 BarPick::Key('O', n) => {
                     let root = ts.get(n as usize).map(|t| t.msgs[0].0);
                     on_root = root;
@@ -714,6 +770,97 @@ impl Session {
                     }
                     .into();
                     self.save_own_user().map_err(io_err)?;
+                }
+                BarPick::Quit => return Ok(true),
+                _ => return Ok(false),
+            }
+            if self.hangup {
+                return Ok(false);
+            }
+        }
+    }
+
+    /// New: a thread as a tree, who answered whom, a line a message in
+    /// reading order. MTREETOP, MTREEMID, MTREEHIL and MTREEBOT dress it
+    /// (`~MN` number, `~MK` `*` if new, `~TR` the branches, `~SN` author,
+    /// `~TS` both, `~RT` who it answers, `~MT` subject, `~BL` its first
+    /// words, `~TX` the subject where it changes and the first words
+    /// otherwise, `~SC` score, `~DS` day (mm/dd), `~DT` and `~TI` date and
+    /// time). Enter reads on from the bar; `r` replies. The bar starts on
+    /// `on`, or the first new message. True if the caller quit (`q`).
+    async fn thread_tree(&mut self, a: &AreaRef, root: i64, on: Option<i64>) -> io::Result<bool> {
+        // Its screens name the area (`%MA`): this one, from a scan of all.
+        let was = std::mem::replace(&mut self.user.cur_msg_area, a.num);
+        let r = self.thread_tree_in(a, root, on).await;
+        if self.user.cur_msg_area == a.num {
+            self.user.cur_msg_area = was;
+        }
+        r
+    }
+
+    async fn thread_tree_in(&mut self, a: &AreaRef, root: i64, mut on: Option<i64>) -> io::Result<bool> {
+        loop {
+            let v = self.area_view(a)?;
+            let by_id = v.by_id();
+            let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs[0].0 == root) else { return Ok(false) };
+            let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
+            let filled = if a.area.requests { self.state.msgs.filled(a.key()).map_err(io_err)? } else { HashMap::new() };
+            let seq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
+            let lines = branches(&t.msgs.iter().map(|&(_, d)| d).collect::<Vec<_>>());
+            let first = by_id[&root];
+            let topic = |s: &str| s.trim_start_matches("Re:").trim_start_matches("RE:").trim().to_lowercase();
+            let mut rows = Vec::new();
+            let mut labels = Vec::new();
+            for (i, (&id, branch)) in seq.iter().zip(&lines).enumerate() {
+                let m = by_id[&id];
+                let new = v.is_new(m);
+                let mark = if new { "*" } else { " " };
+                let words = crate::mci::blurb(m.body());
+                let (state, subject) = if i == 0 { self.request_state(a, m, &filled) } else { (String::new(), m.subject.clone()) };
+                let text = if i == 0 || topic(&m.subject) != topic(&first.subject) || words.is_empty() { subject.clone() } else { words.clone() };
+                let to = match by_id.get(&m.reply_to) {
+                    Some(p) => p.from.name.clone(),
+                    None => m.to.name.clone(),
+                };
+                let score = score_label(scores.get(&id).copied());
+                let day = self.local(m.posted).format("%m/%d").to_string();
+                let who = format!("{branch}{}", m.from.name);
+                let w = waves([
+                    ("MN", m.num.to_string()),
+                    ("MK", mark.into()),
+                    ("TR", branch.clone()),
+                    ("SN", m.from.name.clone()),
+                    ("TS", who.clone()),
+                    ("RT", to),
+                    ("MT", subject),
+                    ("FL", state),
+                    ("BL", words),
+                    ("TX", text.clone()),
+                    ("SC", score.clone()),
+                    ("DS", day.clone()),
+                    ("DT", self.local(m.posted).format("%m/%d/%y").to_string()),
+                    ("TI", self.local(m.posted).format("%H:%M").to_string()),
+                ]);
+                rows.push(BarRow { n: i as u32, waves: w, plain: tree_line(mark, &m.num.to_string(), &score, &day, &who, &text) });
+                labels.push((m.num, i as u32));
+            }
+            let start = on.and_then(|o| seq.iter().position(|&n| n == o)).or_else(|| seq.iter().position(|&n| self_new(&v, &by_id, n))).unwrap_or(0);
+            let help = self.strings().fmt("MsgTreeKeys", &[&fluxbbs_term::lit(&fluxbbs_term::codes::squish(&first.subject, 30))]);
+            let header = tree_line(" ", "#", "+/-", "Date", "Who", "What");
+            let spec = BarSpec { prefix: "MTREE", header: &header, rows: &rows, labels: &labels, start, help: &help, ask: "", can_go_up: true, keys: "R" };
+            match self.area_bar(&spec).await? {
+                BarPick::Area(i) => {
+                    on = seq.get(i as usize).copied();
+                    if self.read_seq(a, &seq, i as usize).await? == ReadEnd::Quit {
+                        return Ok(true);
+                    }
+                }
+                BarPick::Key('R', i) => {
+                    if let Some(m) = seq.get(i as usize).and_then(|id| by_id.get(id)) {
+                        on = Some(m.id);
+                        let m = (*m).clone();
+                        self.post(a, "", "", Some(&m)).await?;
+                    }
                 }
                 BarPick::Quit => return Ok(true),
                 _ => return Ok(false),
@@ -1002,6 +1149,9 @@ impl Session {
     /// (MSGHEAD) at the top, the text scrolling under it, and a line of
     /// keys at the bottom (`MsgReaderBar`).
     async fn read_seq(&mut self, a: &AreaRef, seq: &[i64], at: usize) -> io::Result<ReadEnd> {
+        if !a.is_email() {
+            self.seen.read.insert(crate::editor::strip_colours(&a.area.name));
+        }
         let was = self.reading(a.key());
         let r = self.read_seq_in(a, seq, at).await;
         self.reading(&was);
@@ -1025,6 +1175,9 @@ impl Session {
                 match self.state.msgs.by_id(seq[i]).map_err(io_err)?.filter(|m| m.area.eq_ignore_ascii_case(a.key()) && self.ok_to_read(a, m)) {
                     Some(m) => {
                         self.mark_read(a, &m)?;
+                        if a.area.requests && m.from.user_id == self.user.id && self.user.id != 0 {
+                            self.state.msgs.filled_told(m.id).map_err(io_err)?;
+                        }
                         self.menu_msg = m.num;
                         let lines = self.reader_lines(a, &m);
                         let attached = self.state.msgs.attachment(m.id).map_err(io_err)?.is_some();
@@ -1176,6 +1329,29 @@ impl Session {
                             }
                         }
                     }
+                    // New: mark the request this thread makes filled (or open).
+                    Some('M') if a.area.requests => {
+                        let v = self.area_view(a)?;
+                        let root = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.id)).map(|t| t.msgs[0].0);
+                        if let Some(r) = root.and_then(|r| v.msgs.iter().find(|x| x.id == r).cloned()) {
+                            self.reader_prompt_area();
+                            self.fill_request(a, &r).await?;
+                        }
+                        cur = None;
+                        redraw = true;
+                    }
+                    // New: the conversation as a tree.
+                    Some('V') => {
+                        let v = self.area_view(a)?;
+                        let root = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.id)).map(|t| t.msgs[0].0);
+                        if let Some(r) = root
+                            && Box::pin(self.thread_tree(a, r, Some(m.id))).await?
+                        {
+                            return Ok(ReadEnd::Quit);
+                        }
+                        cur = None;
+                        redraw = true;
+                    }
                     Some('D') if self.ok_to_delete(a, &m) => {
                         let mut x = m.clone();
                         x.deleted = !x.deleted;
@@ -1237,6 +1413,50 @@ impl Session {
     }
 
     /// Before a prompt from the reader: a clear screen to write on.
+    /// A request board's thread: its state for `~FL` (`ReqOpen` or
+    /// `ReqFilled`) and its title, `ReqFilledTag` in front once filled.
+    /// Elsewhere, nothing and the subject.
+    fn request_state(&self, a: &AreaRef, root: &Message, filled: &HashMap<i64, crate::msgbase::Filled>) -> (String, String) {
+        if !a.area.requests {
+            return (String::new(), root.subject.clone());
+        }
+        if filled.contains_key(&root.id) {
+            (self.strings().get("ReqFilled").to_string(), format!("{}{}", self.strings().get("ReqFilledTag"), root.subject))
+        } else {
+            (self.strings().get("ReqOpen").to_string(), root.subject.clone())
+        }
+    }
+
+    /// New: mark a request filled, with a note on where to find it, or
+    /// open again. Its asker, the board's moderator and co-SysOps may.
+    async fn fill_request(&mut self, a: &AreaRef, root: &Message) -> io::Result<()> {
+        if !(self.is_me(&root.from) || self.is_sponsor(a) || self.is_cosysop()) {
+            self.say_line("ReqNotYours").await?;
+            return self.prompt_key().await;
+        }
+        let s = self.strings().fmt("ReqHead", &[&fluxbbs_term::lit(&fluxbbs_term::codes::squish(&root.subject, 60))]);
+        self.show_line(&s).await?;
+        let now = crate::clock::now().naive_local();
+        if self.state.msgs.filled_one(root.id).map_err(io_err)?.is_some() {
+            self.say("ReqAskReopen").await?;
+            if self.yes_no(false).await? {
+                self.state.msgs.set_filled(root.id, None, now).map_err(io_err)?;
+                tracing::info!("{}: request {} in {} open again", self.user.handle, root.num, a.area.name);
+            }
+            return Ok(());
+        }
+        self.say("ReqAskNote").await?;
+        let note = self.read_string(ReadOpts::new(60)).await?;
+        self.newline();
+        if self.hangup {
+            return Ok(());
+        }
+        let handle = self.user.handle.clone();
+        self.state.msgs.set_filled(root.id, Some((self.user.id, &handle, note.trim())), now).map_err(io_err)?;
+        tracing::info!("{}: request {} in {} filled", self.user.handle, root.num, a.area.name);
+        Ok(())
+    }
+
     fn reader_prompt_area(&mut self) {
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
         self.clear_screen();
@@ -1245,7 +1465,13 @@ impl Session {
     /// `h` in the message center: MSGGUIDE, or the reader's help.
     async fn msg_help(&mut self) -> io::Result<()> {
         self.reader_prompt_area();
+        // It's shown from a menu too, which pauses after it: a screen
+        // without its own pause (`|PA`) gets one here.
+        let paused = self.find_text_file("MSGGUIDE").and_then(|p| std::fs::read(p).ok()).is_some_and(|d| d.windows(3).any(|w| w.eq_ignore_ascii_case(b"|PA")));
         if self.show_file("MSGGUIDE").await? {
+            if !paused {
+                self.prompt_key().await?;
+            }
             return Ok(());
         }
         self.reader_help().await
@@ -1275,6 +1501,14 @@ impl Session {
         let mut out = Vec::new();
         if m.anonymous && (self.is_sponsor(a) || self.is_cosysop()) {
             out.push(format!("|U5Anonymous message by: |U4{} |U5[{}]", m.from.alias, m.from.real_name));
+        }
+        if a.area.requests
+            && let Ok(Some(f)) = self.state.msgs.filled_one(m.id)
+        {
+            let day = self.local(f.at).format("%m/%d/%y").to_string();
+            let note = if f.note.is_empty() { String::new() } else { self.strings().fmt("ReqFilledNote", &[&fluxbbs_term::lit(&f.note)]) };
+            out.push(self.strings().fmt("ReqFilledLine", &[&day, &fluxbbs_term::lit(&f.handle), &note]));
+            out.push(String::new());
         }
         for line in &m.lines {
             if line.contains('\x1b') {
@@ -1319,6 +1553,11 @@ fn post_line(mark: &str, num: &str, score: &str, day: &str, author: &str, replie
         resize(replies, 3),
         resize(title, 41)
     )
+}
+
+/// A line of a thread's tree.
+fn tree_line(mark: &str, num: &str, score: &str, day: &str, who: &str, text: &str) -> String {
+    format!("  {} {} {} {mark}{} {}", resize(num, 4), resize(score, 4), resize(day, 5), resize(who, 24), resize(text, 35))
 }
 
 /// A line of the Hot list: the post list's, with the board in front.
@@ -1420,6 +1659,15 @@ mod tests {
         assert!(mb.pinned("GEN").unwrap().is_empty());
         mb.delete_area("OTHER").unwrap();
         assert!(mb.pinned("OTHER").unwrap().is_empty());
+    }
+
+    #[test]
+    fn a_thread_drawn_as_a_tree() {
+        // 1, replies 2 (with 3 under it, and 4 under 3) and 5.
+        let b = branches(&[0, 1, 2, 3, 1, 2]);
+        assert_eq!(b, vec!["", "├─", "│ └─", "│   └─", "└─", "  └─"]);
+        assert_eq!(branches(&[0, 1, 1]), vec!["", "├─", "└─"]);
+        assert_eq!(branches(&[0, 1, 2, 2]), vec!["", "└─", "  ├─", "  └─"]);
     }
 
     #[test]

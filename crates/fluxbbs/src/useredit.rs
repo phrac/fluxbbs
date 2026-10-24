@@ -310,6 +310,8 @@ impl Session {
                 f.item_xy(20, 19, 1, '~', "Clear infoforms", 0, "", "");
                 f.item_xy(40, 19, 1, '*', if u.deleted { "Undelete user" } else { "Delete user" }, 0, "", "");
                 f.item_xy(60, 19, 1, '<', "Lower access", 0, "", "");
+                let notes = self.state.users.notes(u.id).map_err(io_err)?.len();
+                f.item_xy(1, 20, 1, ':', &format!("SysOp notes ({notes})"), 0, "", "Private notes on this caller (the AI chat suits itself to them).");
                 self.cfg_draw(&f);
                 if !note.is_empty() {
                     let n = std::mem::take(&mut note);
@@ -438,6 +440,12 @@ impl Session {
                         }
                         '-' => {
                             self.palette_editor(&mut u.palette).await?;
+                            break;
+                        }
+                        // New: private notes on the caller (their own
+                        // screen; the form is drawn again after).
+                        ':' => {
+                            self.user_notes(&u.clone()).await?;
                             break;
                         }
                         '&' | '~' => {

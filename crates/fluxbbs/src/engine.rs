@@ -428,6 +428,17 @@ impl Session {
         let has_number = allowed("#");
         let mut cur = 1;
         self.lightbar_item(menu, &items, cur, true, has_help, &mut help_len).await?;
+        // New: a hint for this caller in the help line, till they move.
+        if has_help && let Some(hint) = self.caller_hint(menu) {
+            self.goto_pos(LIGHTBAR_HELP);
+            self.write(&" ".repeat(help_len));
+            self.goto_pos(LIGHTBAR_HELP);
+            let room = 80usize.saturating_sub(self.screen.where_x() as usize);
+            let hint = squish(&hint, room);
+            help_len = self.visible_len(&fluxbbs_term::cp437::encode(&hint)).min(room);
+            self.show(&hint).await?;
+            self.goto_pos(LIGHTBAR_CURSOR);
+        }
         let picked = loop {
             let key = self.read_key().await?;
             if let Some(c) = key.upper().filter(|c| c.is_ascii_graphic()) {
@@ -532,6 +543,54 @@ impl Session {
             self.goto_pos(LIGHTBAR_CURSOR);
         }
         Ok(())
+    }
+
+    /// New: a hint for the caller from what's waiting for them here
+    /// (email, mentions, new posts, new files), with the key this menu
+    /// has for it; one at random of those that apply. None for a bot, or
+    /// with nothing to say.
+    fn caller_hint(&self, menu: &Menu) -> Option<String> {
+        if !self.logged_in || self.user.id == 0 || crate::aimemory::is_bot(&self.user) {
+            return None;
+        }
+        let key = |codes: &[&str], to_menu: &str| {
+            menu.commands
+                .iter()
+                .filter(|c| !c.hidden && c.keys != FIRST_CMD && self.acs(&c.acs))
+                .find(|c| codes.contains(&c.command.as_str()) || (c.command.starts_with('-') && c.param.eq_ignore_ascii_case(to_menu)))
+                .map(|c| self.strings().fmt("HintKey", &[&c.keys.to_ascii_lowercase()]))
+                .unwrap_or_default()
+        };
+        let s = |n: usize| if n == 1 { "" } else { "s" };
+        // A request of theirs filled comes first, and once.
+        if let Some((id, _, subject)) = self.state.msgs.filled_untold(self.user.id).ok().and_then(|v| v.into_iter().next()) {
+            let _ = self.state.msgs.filled_told(id);
+            let subject = fluxbbs_term::codes::squish(&subject, 30);
+            return Some(self.strings().fmt("HintFilled", &[&fluxbbs_term::lit(&subject), &key(&["MH"], "MESSAGE")]));
+        }
+        let mut hints = Vec::new();
+        let mail = self.mail_waiting() as usize;
+        if mail > 0 {
+            hints.push(self.strings().fmt("HintMail", &[&mail.to_string(), s(mail), &key(&["ER"], "EMAIL")]));
+        }
+        let mentions = self.state.msgs.mentions(self.user.id, true).map(|m| m.len()).unwrap_or(0);
+        if mentions > 0 {
+            hints.push(self.strings().fmt("HintMentions", &[&mentions.to_string(), s(mentions), &key(&["M@"], "")]));
+        }
+        let posts = self.msg_stats(false).unread;
+        if posts > 0 {
+            hints.push(self.strings().fmt("HintPosts", &[&posts.to_string(), s(posts), &key(&["MH", "MN"], "MESSAGE")]));
+        }
+        // Only a count worth reading: not every file there is, for a caller
+        // who's never scanned, nor a whole archive brought in at once.
+        let files = self.file_stats(false).since as usize;
+        if self.user.file_scan.is_some() && (1..1000).contains(&files) {
+            hints.push(self.strings().fmt("HintFiles", &[&files.to_string(), s(files), &key(&["FN"], "FILE")]));
+        }
+        if hints.is_empty() {
+            return None;
+        }
+        Some(hints.swap_remove(rand::random::<u32>() as usize % hints.len()))
     }
 
     /// `menuExecute`: run every command bound to `keys` the user may use,

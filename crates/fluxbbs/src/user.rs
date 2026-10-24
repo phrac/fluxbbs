@@ -89,6 +89,13 @@ pub struct User {
     pub ssh_user: String,
     /// New: a few lines about themselves, shown by finger (`UF`).
     pub plan: Vec<String>,
+    /// New: their profile's ANSI header (uploaded), a few lines.
+    pub profile_header: Vec<String>,
+    /// New: their real name is shown on their profile.
+    pub show_real_name: bool,
+    /// New: what the board remembers of their interests, for the AI chat
+    /// (`aimemory.rs`); theirs to see and clear.
+    pub ai_profile: String,
     /// New: the time zone times are shown to them in (an IANA name or
     /// an offset, as `clock::Zone::parse` reads it); blank for the board's.
     pub time_zone: String,
@@ -173,6 +180,9 @@ impl Default for User {
             ssh_keys: Vec::new(),
             ssh_user: String::new(),
             plan: Vec::new(),
+            profile_header: Vec::new(),
+            show_real_name: false,
+            ai_profile: String::new(),
             time_zone: String::new(),
             thread_sort: String::new(),
             area_sort: String::new(),
@@ -275,6 +285,9 @@ impl User {
                 area_sort,
                 fav_boards,
                 last_call_at,
+                profile_header,
+                show_real_name,
+                ai_profile,
             ],
             [
                 total_calls,
@@ -358,6 +371,9 @@ impl User {
                 area_sort,
                 fav_boards,
                 last_call_at,
+                profile_header,
+                show_real_name,
+                ai_profile,
                             total_calls,
                 calls_today,
                 time_today,

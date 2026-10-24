@@ -3,8 +3,8 @@
 //! `/status.json` (or `/api/status.json`). It answers GET and nothing
 //! else, never shows what a caller isn't meant to, and is rebuilt at most
 //! every few seconds however often it's asked for. `/files.txt` and
-//! `/files.html` are the file list (2.0 made these with `fluxbbs fltxt`
-//! and `flhtml`): the areas a new caller could open.
+//! `/files.html` are the file list (Iniquity 2.0 made these with its
+//! `fltxt` and `flhtml`): the areas a new caller could open.
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};

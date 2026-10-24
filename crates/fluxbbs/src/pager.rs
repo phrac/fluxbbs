@@ -43,6 +43,22 @@ fn ansi(dos: u8) -> u8 {
     [0, 4, 2, 6, 1, 5, 3, 7][(dos & 7) as usize]
 }
 
+/// A text file's grid less the blank rows at its top and bottom (a file
+/// that starts with a screenful of empty lines would look empty). Only
+/// spaces on black count as blank; the file itself is left alone.
+pub fn trimmed(mut grid: Vec<Vec<Cell>>) -> Vec<Vec<Cell>> {
+    let blank = |row: &Vec<Cell>| row.iter().all(|c| matches!(c.ch, b' ' | 0) && c.attr.back == 0 && !c.attr.bright_back);
+    while grid.last().is_some_and(blank) {
+        grid.pop();
+    }
+    let top = grid.iter().take_while(|r| blank(r)).count();
+    grid.drain(..top);
+    if grid.is_empty() {
+        grid.push(Vec::new());
+    }
+    grid
+}
+
 /// Draw a file into rows of cells. `utf8`: the text is UTF-8, not CP437.
 pub fn render(text: &[u8], utf8: bool) -> Vec<Vec<Cell>> {
     let chars: Vec<u8> = if utf8 { cp437::encode(&String::from_utf8_lossy(text)) } else { text.to_vec() };
@@ -273,5 +289,14 @@ mod tests {
         let g = render("caf\u{e9} \u{2591}".as_bytes(), true);
         assert_eq!(g[0][3].ch, 0x82);
         assert_eq!(g[0][5].ch, 0xb0);
+    }
+
+    #[test]
+    fn blank_rows_at_the_ends_go() {
+        let g = trimmed(render(b"\n\r\n\r   \n\r  Title\n\r\n\rbody\n\r\n\r\n\r", false));
+        let text: Vec<String> = g.iter().map(|r| r.iter().map(|c| c.ch as char).collect::<String>().trim_end().to_string()).collect();
+        assert_eq!(text, ["  Title", "", "body"]);
+        // A coloured background isn't blank.
+        assert_eq!(trimmed(render(b"\x1b[44m   \x1b[0m\r\nx", false)).len(), 2);
     }
 }

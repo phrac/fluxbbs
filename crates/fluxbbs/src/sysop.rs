@@ -376,12 +376,13 @@ impl Session {
     /// `cfgEditMsgArea`.
     async fn msg_area_edit(&mut self, mut num: u32) -> io::Result<()> {
         type Flag = (char, &'static str, &'static str, fn(&mut MsgArea) -> &mut bool);
-        let flags: [Flag; 5] = [
+        let flags: [Flag; 6] = [
             ('1', "Unhidden", "Display this area under any circumstances?", |a| &mut a.unhidden),
             ('2', "Real names", "Force use of user's REAL name when posting in this area?", |a| &mut a.real_names),
             ('3', "Private", "Allow private messages to be posted in this area?", |a| &mut a.private),
             ('4', "Mandatory", "Force user to read all new messages in this area?", |a| &mut a.mandatory),
             ('5', "Anonymous", "Allow anonymous messages to be posted in this area?", |a| &mut a.anonymous),
+            ('6', "Requests", "New: a request board? Each thread asks for something and can be marked filled.", |a| &mut a.requests),
         ];
         loop {
             let mut areas = (*self.state.areas()).clone();
@@ -407,8 +408,8 @@ impl Session {
             f.item('K', "Password", 20, &a.password, "Password required to access or read messages in this area.");
             f.item('L', "QWK name", 16, &a.qwk_name, "Shortened message area name (max 16 characters) for QWK indexing.");
             f.label("Messages", 6, msgs.to_string());
-            // Two columns: 1 2 3 down the left, 4 and 5 beside 1 and 2.
-            for i in [0, 3, 1, 4, 2] {
+            // Two columns: 1 2 3 down the left, 4 5 6 beside them.
+            for i in [0, 3, 1, 4, 2, 5] {
                 let (key, label, info, get) = flags[i];
                 let v = yes_no(*get(&mut a));
                 if i < 3 { f.item(key, label, 3, v, info) } else { f.item_beside(40, key, label, 3, v, info) }
@@ -708,7 +709,9 @@ impl Session {
                 resize(&count.to_string(), 6),
                 squish(&access, 18)
             );
-            rows.push(BarRow { n, waves: Waves::new(), plain });
+            // For a CFGFAREA screen's rows.
+            let w = crate::session::waves([("AN", n.to_string()), ("AT", name), ("FK", a.file.clone()), ("NF", count.to_string()), ("AC", access)]);
+            rows.push(BarRow { n, waves: w, plain });
         }
         Ok(rows)
     }

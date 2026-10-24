@@ -1,34 +1,69 @@
 # Running a board
 
-Configuration, security and the SysOp's side of things.
+Setting up, configuring and securing a flux/bbs board.
 
 ## Setting up
 
-Every caller first passes a short bot check (type the three characters
-shown). The
-stock SysOp account is `SysOp` / `SYSOP`, with system password `SYSTEM`
-(asked of SL 250+). New callers pick "apply as new" on the matrix menu
-or type `new` at the login prompt.
+### Logging in the first time
 
-SSH host keys (Ed25519, ECDSA and RSA) are made in `data/` on first run.
-The database is `data/fluxbbs.db`; uploaded files live under `files/`.
-Neither is in git.
+| What | Value |
+|---|---|
+| SysOp account | `SysOp` / `SYSOP` |
+| System password | `SYSTEM`, asked of SL 250 and up |
+| New callers | pick "apply as new" on the matrix menu, or type `new` at the login prompt |
+
+Change the stock passwords before going public. Every caller first
+passes a short bot check: type the three characters shown.
+
+### What's on disk
+
+| Path | What |
+|---|---|
+| `data/` | SSH host keys (Ed25519, ECDSA and RSA), made on first run |
+| `data/fluxbbs.db` | the database |
+| `files/` | uploaded files |
+
+Neither the database nor the uploads are in git. Boards from before the
+rename keep `iniquity.toml` and `data/iniquity.db`, and still work.
+
+## The command line
+
+| Command | What it does |
+|---|---|
+| `fluxbbs [CONFIG]` | runs the board; CONFIG defaults to `fluxbbs.toml` (or `iniquity.toml`) in the current directory |
+| `fluxbbs --wfc [CONFIG]` | the same, with the waiting-for-caller screen on the console |
+| `fluxbbs import OLD [DEST] [--force]` | imports an Iniquity install ([below](#importing-an-existing-iniquity-install)) |
+| `fluxbbs unban ADDRESS\|all [CONFIG]` | lifts a ban, for a SysOp locked out of their own board; takes effect when the server (re)starts, or at once if it isn't running |
+| `fluxbbs add-files [CONFIG]` | adds files put into area directories by hand (a mirror, say), with their descriptions, as uploaded by the SysOp |
+| `fluxbbs pack-files [CONFIG]` | forgets files that are gone from their area's directory |
+| `fluxbbs textfiles fetch DIR`, `import CONFIG` | the textfiles.com archive as file areas ([FILES.md](FILES.md#the-textfilescom-archive)) |
+| `fluxbbs ftn poll [NET]\|toss\|scan\|areafix ...` | FTN mail jobs by hand ([FEATURES.md](FEATURES.md#ftn-echomail)) |
 
 ## Running in a container
 
-`Dockerfile` builds an image with the server and the stock screens,
-menus, themes and scripts at `/srv/inq/iniquity`; a board directory
-(its `fluxbbs.toml`, `data/`, `files/`, own screens) is mounted at
-`/srv/board`, so a board whose config points at `../inq/iniquity/...`
-works the same inside. `deploy/docker-compose.yml` runs one board,
-SSH on the host's 2222 and telnet on 23:
+`deploy/docker-compose.yml` runs one board:
 
     docker compose -f deploy/docker-compose.yml up -d --build
 
-`BOARD` is the board directory (default `~/code/disflux_bbs` for a
-checkout at `~/code/inq/iniquity`), `BBS_UID`/`BBS_GID` who the server
-runs as (default 1000, which must own the board directory). Logs go to
-`docker logs fluxbbs`.
+The image (from `Dockerfile`) holds the server and the stock screens,
+menus, themes and scripts at `/srv/inq/iniquity`. The board directory
+is mounted at `/srv/board`: its `fluxbbs.toml`, `data/`, `files/` and
+own screens. So a board whose config points at `../inq/iniquity/...`
+works the same inside the container as beside a checkout.
+
+| Setting | What | Default |
+|---|---|---|
+| `BOARD` | the board directory | `~/code/disflux_bbs`, for a checkout at `~/code/inq/iniquity` |
+| `BBS_UID`, `BBS_GID` | who the server runs as; must own the board directory | 1000 |
+
+| Host port | What |
+|---|---|
+| 2222 | SSH |
+| 23 | telnet |
+| 24554 | binkp (FTN mail), if `[ftn] listen` is set |
+| 127.0.0.1:8099 | the [website feed](#website-feed), for a web server on the host to pass through |
+
+Logs go to `docker logs fluxbbs`.
 
 ## Configuration
 
@@ -50,16 +85,18 @@ runs as (default 1000, which must own the board directory). Logs go to
 | `logon.toml` | the logon sequence | `*O` |
 
 Files that don't exist yet use built-in defaults; the editors create
-them. Most changes apply at once; SSH, telnet and path settings need a
+them. Most changes apply at once. SSH, telnet and path settings need a
 restart.
 
 ### Running a board outside the repo
 
-Paths in `fluxbbs.toml` are relative to that file, so a board can live
-in its own directory, apart from the code, and be started with
-`fluxbbs /path/to/board/fluxbbs.toml`. Copy `fluxbbs.toml`,
-`msgareas.toml` and `fileareas.toml` there, and point the shared parts back
-at the repo:
+Paths in `fluxbbs.toml` are relative to that file. So a board can live
+in its own directory, apart from the code, and start with
+`fluxbbs /path/to/board/fluxbbs.toml`.
+
+Copy `fluxbbs.toml`, `msgareas.toml` and `fileareas.toml` there. Then
+point the shared parts back at the repo (here, a board directory beside
+the checkout):
 
     [paths]
     text = "text"                          # the board's own screens
@@ -68,18 +105,18 @@ at the repo:
     stock_menus = "../iniquity/menus"      # stock menus, for the rest
     scripts = "../iniquity/scripts"
 
-A screen in the board's `text/` replaces the stock one of the same name;
-anything it doesn't have comes from `stock_text`. Menus work the same way
-(new): one in the board's `menus/` replaces the stock one, and `*#` saves
-a changed stock menu there, so deleting it brings the stock one back.
-`data/`, `files/` and whatever the editors create then stay with the
-board, and the repo stays stock.
+- A screen in the board's `text/` replaces the stock one of the same
+  name. Anything it doesn't have comes from `stock_text`.
+- Menus work the same way. `*#` saves a changed stock menu into the
+  board's `menus/`, so deleting it there brings the stock one back.
+- `data/`, `files/` and whatever the editors create stay with the
+  board, and the repo stays stock.
 
 ## Importing an existing Iniquity install
 
     fluxbbs import /path/to/old/INIQUITY [dest-dir] [--force]
 
-| from | to |
+| From | To |
 |---|---|
 | INIQUITY.DAT | fluxbbs.toml |
 | DATA\LEVELS.DAT | levels.toml |
@@ -95,136 +132,202 @@ board, and the repo stays stock.
 | MENU\*.MNU | menus/*.toml |
 | TEXT\* | text/ |
 
-Passwords stay case-insensitive, as in the original. File records are
-imported, but the files themselves must be copied into each area's new
-directory (the importer says where).
+- The destination must not hold a board already. `--force` replaces
+  `fluxbbs.toml` and `data/fluxbbs.db`; a pre-rename `iniquity.toml` or
+  `data/iniquity.db` there is never replaced, so import somewhere else.
+- Imported passwords stay case-insensitive until changed (see
+  [Passwords and sign-ups](#passwords-and-sign-ups)).
+- File records are imported, but you copy the files themselves into
+  each area's new directory. The importer says where.
 
 ## Keeping bots out
 
-`[security]` in `fluxbbs.toml`, or the Security section of `*C`:
+These settings are `[security]` in `fluxbbs.toml`, or the Security
+section of `*C`.
 
-- **Bot check**: every caller first types three big characters drawn
-  on screen (30 seconds, 3 goes by default). They're drawn with
-  background color in a field of noise made of the same symbols inside
-  and out, so a script reading the text (even through a terminal
-  emulator) sees only noise; the colors change each time, the
-  characters shift and are speckled, the field is drawn in shuffled
-  pieces, an invisible decoy in the old "press these keys" form comes
-  first, and an answer in under 0.6 seconds is wrong. A `BOTCHECK`
-  screen can frame it: `~BC` marks the field's top left (40x9) and `~BP`
-  the answer; without one there's a plain frame. "Picture check" off
-  (`challenge_visual = false`) goes back to pressing keys written out
-  (`challenge_keys` of them), drawn out of order with cursor moves. The
-  prompts are strings (`BotCheck...`), editable with `*E`.
-- **Limits per address**: 2 connections at once and 6 new ones a minute.
-- **Bans**: 3 failed bot checks or passwords ban the address for 15
-  minutes; each later ban doubles, up to a day. Banned addresses are
-  dropped before the telnet negotiation or SSH login.
-- **Idle callers** get 60 seconds to log in.
-- `allow` and `deny` take addresses, prefixes (`10.0.`) or ranges
-  (`192.168.1.0/24`). Put your own address in `allow` so a mistyped
-  password can't lock you out.
+### The bot check
+
+Every caller first types three big characters drawn on screen. A
+person reads them easily; a script reading the text, even through a
+terminal emulator, sees only noise.
+
+- The characters are drawn with background color, in a field of noise
+  made of the same symbols inside and out.
+- The colors change each time. The characters shift and are speckled.
+- The field is drawn in shuffled pieces.
+- An invisible decoy in the old "press these keys" form comes first.
+- An answer in under 0.6 seconds is wrong.
+
+| Setting | What | Default |
+|---|---|---|
+| `challenge` | ask every caller to pass the check | on |
+| `challenge_seconds` | time allowed | 30 |
+| `challenge_tries` | goes allowed | 3 |
+| `challenge_visual` | "Picture check"; off goes back to pressing keys written out, drawn out of order with cursor moves | on |
+| `challenge_keys` | how many keys, for the key-press check | 3 |
+
+A `BOTCHECK` screen can frame the check: `~BC` marks the field's top
+left (40x9) and `~BP` the answer. Without one there's a plain frame.
+The prompts are strings (`BotCheck...`), editable with `*E`.
+
+### Limits and bans
+
+| Setting | What | Default |
+|---|---|---|
+| `max_per_ip` | connections from one address at once | 2 |
+| `max_per_minute` | new connections from one address a minute | 6 |
+| `fail_limit` | failed bot checks or passwords before a ban | 3 |
+| `ban_minutes` | first ban; each later ban doubles, up to a day | 15 |
+| `prelogin_idle_seconds` | time an idle caller gets to log in | 60 |
+| `allow` | addresses never limited or challenged | none |
+| `deny` | addresses always refused | none |
+
+`allow` and `deny` take addresses, prefixes (`10.0.`) or ranges
+(`192.168.1.0/24`). Banned addresses are dropped before the telnet
+negotiation or SSH login. Put your own address in `allow`, so a mistyped password can't
+lock you out.
 
 New users start at access level A until voted in or validated with `*U`.
 
 ### Passwords and sign-ups
 
-New, in `[passwords]` and `[newuser]`, or "Passwords and Sign-ups" in
-`*C`:
+These are `[passwords]` and `[newuser]`, or "Passwords and Sign-ups" in
+`*C`.
 
-- **Passwords** are case-sensitive and up to 64 characters (Iniquity
-  upper-cased them and stopped at 20). Ones set before this, imported
-  ones included, were stored upper-cased and still work in any case
-  until changed.
-- **Rules**: at least `min_length` characters (8), and with
-  `refuse_common` not on the list of most-used passwords
-  (`assets/common-passwords.txt`, also catching `password1!` and the
-  like), not containing the handle, and not one character repeated.
-  They apply when applying and changing a password; the SysOp setting
-  one in `*U` isn't held to them.
-- **`enforce_at_login`**: a caller whose password breaks the rules
-  (the stock `SYSOP`, say) has to choose a new one before going on.
-- **Sign-up limits**: `per_address_per_day` (2) new accounts from one
-  address and `per_day` (10) on the whole board, over the last 24 hours;
-  addresses on the `allow` list aren't limited. Refusals go in the
-  security log.
-- **`reserved_handles`**: handles nobody may apply with (sysop, admin,
-  root, guest...). As in the original, a handle can't start with a
-  digit either.
-- **`purge_after_days`** (0 = off): accounts still at level A that never
-  called back are marked deleted after that many days, checked every 10
-  minutes.
+**Passwords** are case-sensitive and up to 64 characters (Iniquity
+upper-cased them and stopped at 20). Ones set before this, imported
+ones included, were stored upper-cased. They still work in any case
+until changed.
+
+| Setting | What | Default |
+|---|---|---|
+| `min_length` | shortest password allowed | 8 |
+| `refuse_common` | refuse common passwords, the handle, and one character repeated | on |
+| `enforce_at_login` | a caller whose password breaks the rules (the stock `SYSOP`, say) must choose a new one before going on | on |
+| `per_address_per_day` | new accounts from one address in 24 hours | 2 |
+| `per_day` | new accounts on the whole board in 24 hours | 10 |
+| `reserved_handles` | handles nobody may apply with | sysop, admin, root, guest... |
+| `purge_after_days` | mark never-validated accounts deleted after this many days (0 = off) | 0 |
+
+- `refuse_common` checks the list of most-used passwords
+  (`assets/common-passwords.txt`), which also catches `password1!` and
+  the like. It also refuses passwords containing the handle (of three
+  characters or more), or one character repeated.
+- The rules apply when applying and when changing a password. The SysOp
+  setting one in `*U` isn't held to them.
+- Addresses on the `allow` list aren't held to the sign-up limits.
+  Refusals go in the security log.
+- A handle can't start with a digit.
+- The purge takes accounts still at level A that never called back. It
+  checks every 10 minutes.
 
 ### SSH keys and stored logins
 
-New: an SSH caller whose SSH user name is an account (the handle, or
-another SSH user name they set; see below) comes straight in after
-PRELOGON, with no bot check or login prompts, when the client brings
-either of:
+An SSH caller can come straight in after PRELOGON, with no bot check or
+login prompts. Their SSH user name must be an account (the handle, or
+another SSH user name they set), and their client must bring one of:
 
-- **A key** kept on the account (`k` in user config, or `UK` on a menu:
-  paste the line from the `.pub` file, up to eight keys; the comment at
-  the end doesn't matter).
-- **The account's own password** as the SSH password: a terminal's
-  stored login, e.g. the Username and Password in a SyncTERM directory
-  entry. A wrong one counts as a failed login (security log, bans).
+- **A key** kept on the account. The caller adds it with `k` in user
+  config, or `UK` on a menu: paste the line from the `.pub` file. Up to
+  eight keys; the comment at the end doesn't matter.
+- **The account's own password** as the SSH password. This is a
+  terminal's stored login, e.g. the Username and Password in a SyncTERM
+  directory entry. A wrong one counts as a failed login (security log,
+  bans).
 
-SysOps are still asked the system password. Without either, the client
-falls back to the usual way in (OpenSSH asks nothing; the board's own
-login follows), so nobody is locked out; names that aren't accounts, as
-bots use, are let in to the login as before.
+SysOps are still asked the system password.
 
-The other SSH user name (`U` on the key screen) lets keys and stored
-logins work under, say, the caller's own login, so plain `ssh
-bbs.example.com -p 2222` works; it can't be someone else's handle or SSH
-user name. The USERCFG screen shows the key count at a `~P` field
-(`~PK`, key `k`).
+Without either, the client falls back to the usual way in, so nobody is
+locked out: OpenSSH asks nothing, and the board's own login follows.
+Names that aren't accounts, as bots use, go to the login as before.
+
+**The other SSH user name** (`U` on the key screen) lets keys and stored
+logins work under, say, the caller's own login. Then plain `ssh
+bbs.example.com -p 2222` works. It can't be someone else's handle or
+SSH user name.
+
+The USERCFG screen shows the key count at a `~P` field (`~PK`, key `k`).
 
 ## Website feed
 
-New: `[web]` (off by default; "Website Feed" in `*C`) serves a read-only
-JSON status at `/status.json` and `/api/status.json` for a board's
-website: who's online (handle, a vague activity such as "browsing
-files", ssh/telnet), the last callers, the newest files (from areas a
-brand-new caller could open; the first description line with words in
-it), the newest posts (`new_posts`, from message areas a brand-new
-caller could read, never private ones: area, subject, author, replies
-and whether it's a reply), totals and today's numbers. It answers GET only, is rebuilt at most
-every 10 seconds, and can hide handles (`show_handles`) or the SysOp
-(`show_sysop`). Keep `listen` private and have the web server pass the
-path through (e.g. Caddy's `reverse_proxy`); `allow_origin` is for a
-site on another address. A page shows it with a few lines of script
-fetching that URL; insert the values as text, not HTML, since handles
+`[web]` serves a read-only JSON status for a board's website, at
+`/status.json` and `/api/status.json`. It's off by default; "Website
+Feed" in `*C` turns it on.
+
+The feed holds:
+
+- **Who's online**: handle, a vague activity such as "browsing files",
+  and ssh or telnet.
+- **The last callers.**
+- **The newest files**, from areas a brand-new caller could open, with
+  the first description line that has words in it.
+- **The newest posts** (`new_posts`), from message areas a brand-new
+  caller could read, never private ones: area, subject, author,
+  replies, and whether it's a reply.
+- **Totals and today's numbers.**
+
+It answers GET only and is rebuilt at most every 10 seconds. The same
+listener serves the web file lists `/files.txt` and `/files.html`
+([FEATURES.md](FEATURES.md#from-20-and-220)).
+
+| Setting | What | Default |
+|---|---|---|
+| `enabled` | serve the feed | off |
+| `listen` | where it listens; keep it private | `127.0.0.1:8099` |
+| `allow_origin` | a site on another address allowed to fetch it | empty |
+| `show_handles` | show handles (otherwise "a caller") | on |
+| `show_sysop` | list the SysOp among who's online | on |
+| `last_callers`, `new_files`, `new_posts` | how many of each | 10, 10, 5 |
+
+Have the web server pass the path through, e.g. Caddy's
+`reverse_proxy`. A page shows the feed with a few lines of script
+fetching that URL. Insert the values as text, not HTML, since handles
 and descriptions are typed by callers.
 
 ## Screen themes
 
-Iniquity's text libraries let a board offer more than one look. Here a
-theme is a directory under `themes/` holding any screens that should
-differ from `text/` (`MAIN.ANS`, `PRELOGON.ANS`, the list screens...);
-everything else still comes from `text/`. `themes.toml` lists them with
-a description and author (`*T` edits it); the first is the default.
-Callers choose with the `UT` command (put it on a menu, e.g.
-`keys = "/T"`, `command = "UT"` in `menus/GLOBAL.toml`), and the SysOp
-can set a user's theme in `*U`. `%LD` and `%LA` show the current theme's
-description and author. Imported `.TFL` libraries are unpacked into
-theme directories.
+A theme lets a board offer more than one look. It is a directory under
+`themes/` holding any screens that should differ from `text/`
+(`MAIN.ANS`, `PRELOGON.ANS`, the list screens...). Everything else
+still comes from `text/`.
 
-The release shipped two libraries it never installed (no TEXTLIB.DAT),
-and they're here, unpacked, as `themes/t10inq1/` ("Menuset #1", ANSI by
-tosh10!acid, 85 screens including the only stock SYSOP and DOOR
-screens) and `themes/ex-iq2/` ("True Blue", 11). Like the stock board,
-the repo doesn't list them in `themes.toml`, so callers see `text/`; add
-one with `*T` (insert, then set its directory to `t10inq1`). Or set
-`[paths] stock_theme` to its directory: then any screen that neither the
-board's `text/` nor the stock screens have (SYSOP, DOOR) comes from the
-library. Screens sharing a header can start
-with `|SA`, which draws `STOCK.ANS` in place, so the header lives in one
-file.
+- `themes.toml` lists the themes with a description and author; `*T`
+  edits it. The first is the default.
+- Callers choose with the `UT` command. Put it on a menu, e.g.
+  `keys = "/T"`, `command = "UT"` in `menus/GLOBAL.toml`.
+- The SysOp can set a user's theme in `*U`.
+- `%LD` and `%LA` show the current theme's description and author.
+- Imported Iniquity text libraries (`.TFL`) are unpacked into theme
+  directories.
+- Screens sharing a header can start with `|SA`, which draws
+  `STOCK.ANS` in place, so the header lives in one file.
+
+### The stock libraries
+
+The Iniquity release shipped two libraries it never installed (no
+TEXTLIB.DAT). They're here, unpacked:
+
+| Directory | Name | What |
+|---|---|---|
+| `themes/t10inq1/` | "Menuset #1" | ANSI by tosh10!acid, 85 screens, including the only stock SYSOP and DOOR screens |
+| `themes/ex-iq2/` | "True Blue" | 11 screens |
+
+Like the stock board, the repo doesn't list them in `themes.toml`, so
+callers see `text/`. To use one:
+
+- **As a theme**: add it with `*T` (insert, then set its directory to
+  `t10inq1`).
+- **As a fallback**: set `[paths] stock_theme` to its directory. Then
+  any screen that neither the board's `text/` nor the stock screens
+  have (SYSOP, DOOR) comes from the library.
 
 ## Terminal handling
 
-Callers whose TERM is a BBS terminal (`syncterm`, `ansi-bbs`, ...) get
-raw CP437; so do telnet clients that don't report a type. Everyone else
-gets UTF-8, with DOS behavior emulated: hard wrap at column 80 and
-`ESC[2J` homing the cursor. Override with `[terminal] charset`.
+| Caller | Gets |
+|---|---|
+| TERM is a BBS terminal (`syncterm`, `ansi-bbs`, ...) | raw CP437 |
+| telnet client that doesn't report a type | raw CP437 |
+| everyone else | UTF-8, with DOS behavior emulated: hard wrap at column 80, and `ESC[2J` homing the cursor |
+
+The BBS terminals are listed in `[terminal] cp437_terms`. Override the
+choice with `[terminal] charset`.

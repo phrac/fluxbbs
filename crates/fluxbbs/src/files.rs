@@ -129,6 +129,11 @@ pub(crate) struct Layout {
     pub(crate) bot: u16,
     pub(crate) menu_y: u16,
     pub(crate) info_y: u16,
+    /// Where the menu and info lines start (their markers' columns).
+    menu_x: u16,
+    info_x: u16,
+    /// New: `~PC`, where the cursor waits (a prompt bar's slot).
+    cursor: Option<(u16, u16)>,
     num_x: Option<u16>,
     pub(crate) name_x: Option<u16>,
     pub(crate) size_x: Option<u16>,
@@ -588,6 +593,8 @@ impl Session {
             u.file_points = u.file_points.saturating_sub(f.points);
         }
         f.downloads += 1;
+        let area = self.state.fareas().areas.iter().find(|a| a.file.eq_ignore_ascii_case(&f.area)).map_or_else(|| f.area.clone(), |a| crate::editor::strip_colours(&a.name));
+        *self.seen.downloads.entry(area).or_default() += 1;
         self.bump(crate::sysdata::Stat::Download { kb: kb as u64 });
         self.state.files.update(f).map_err(io_err)?;
         self.save_own_user().map_err(io_err)?;
@@ -813,6 +820,9 @@ impl Session {
                 bot: 20,
                 menu_y: 22,
                 info_y: 21,
+                menu_x: 1,
+                info_x: 1,
+                cursor: None,
                 num_x: Some(1),
                 name_x: Some(6),
                 size_x: Some(20),
@@ -845,6 +855,9 @@ impl Session {
             bot,
             menu_y: p(b"PM").map_or(bot + 2, |q| q.1),
             info_y: p(b"PI").map_or(bot + 1, |q| q.1),
+            menu_x: p(b"PM").map_or(1, |q| q.0),
+            info_x: p(b"PI").map_or(1, |q| q.0),
+            cursor: p(b"PC").map(|q| (q.0, q.1)),
             num_x: p(b"FI").map(|q| q.0),
             name_x: p(b"FN").map(|q| q.0),
             size_x: p(b"FS").map(|q| q.0),
@@ -870,7 +883,7 @@ impl Session {
     }
 
     pub(crate) fn lister_menu(&mut self, l: &Layout, m: &mut MenuBar) {
-        self.screen.goto(1, l.menu_y);
+        self.screen.goto(l.menu_x, l.menu_y);
         self.screen.set_color(l.cl[0]);
         self.screen.clear_eol();
         self.write("  ");
@@ -901,10 +914,19 @@ impl Session {
     }
 
     pub(crate) async fn lister_info(&mut self, l: &Layout, text: &str) -> io::Result<()> {
-        self.screen.goto(1, l.info_y);
+        self.screen.goto(l.info_x, l.info_y);
         self.screen.set_color(l.cl[0]);
         self.screen.clear_eol();
-        self.show(text).await
+        // Kept to its row: a prompt bar may be under it.
+        let room = 80usize.saturating_sub(l.info_x as usize);
+        self.show(&fluxbbs_term::codes::squish(text, room)).await
+    }
+
+    /// Put the cursor where the screen says it waits (`~PC`), if it does.
+    pub(crate) fn lister_park(&mut self, l: &Layout) {
+        if let Some((x, y)) = l.cursor {
+            self.screen.goto(x, y);
+        }
     }
 
     /// Draw a page of files from `first`; returns the rows shown.
@@ -1041,6 +1063,7 @@ impl Session {
                     self.lister_name(&l, &files[rows[b].idx], rows[b].y, true, self.batch.contains(&(a.num, files[rows[b].idx].num)));
                 }
             }
+            self.lister_park(&l);
             let key = self.read_key().await?;
             if info_dirty {
                 let info = self.strings().get(if bar.is_some() { "FaListInfoBar" } else { "FaListInfo" }).to_string();
@@ -1426,7 +1449,7 @@ impl Session {
         let data = std::fs::read(path)?;
         let text = crate::upscan::text_part(&data);
         let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
-        let grid = crate::pager::render(text, utf8);
+        let grid = crate::pager::trimmed(crate::pager::render(text, utf8));
         self.page_grid(name, &grid).await
     }
 

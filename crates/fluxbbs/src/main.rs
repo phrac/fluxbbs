@@ -10,6 +10,7 @@ mod acs;
 mod clock;
 mod aiboard;
 mod aichat;
+mod aimemory;
 mod archview;
 mod attach;
 mod binkp;

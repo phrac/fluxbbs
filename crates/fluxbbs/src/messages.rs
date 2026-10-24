@@ -847,6 +847,12 @@ impl Session {
             self.newline();
             return Ok(None);
         }
+        // New: on a request board, people ask and bots answer.
+        if !a.is_email() && a.area.requests && reply.is_none() && crate::aimemory::is_bot(&self.user) {
+            self.say_line("ReqBotNoAsk").await?;
+            self.newline();
+            return Ok(None);
+        }
         let mut private = a.is_email();
         let (to_party, default_subject) = match reply {
             // Mail from elsewhere (FTN netmail) has nobody here to answer;
@@ -1023,6 +1029,7 @@ impl Session {
         } else {
             self.user.posts += 1;
             self.bump(crate::sysdata::Stat::Post);
+            self.seen.posted.insert(crate::editor::strip_colours(&a.area.name));
         }
         if let Err(e) = self.save_own_user() {
             tracing::error!("saving {}: {e}", self.user.handle);

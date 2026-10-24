@@ -879,7 +879,7 @@ pub fn description(desc: &[String]) -> Vec<String> {
 // ---- the command --------------------------------------------------------
 
 pub async fn from_args(args: &[String]) -> anyhow::Result<()> {
-    let usage = "usage: fluxbbs textfiles fetch [DIR] [--mirror URL] [--archives URL] [--sections a,b] [--refresh]\n       iniquity textfiles import [CONFIG] [DIR] [--acs ACS] [--download-acs ACS] [--sponsor WHO] [--under KEY] [--put SECTION=KEY,...]";
+    let usage = "usage: fluxbbs textfiles fetch [DIR] [--mirror URL] [--archives URL] [--sections a,b] [--refresh]\n       fluxbbs textfiles import [CONFIG] [DIR] [--acs ACS] [--download-acs ACS] [--sponsor WHO] [--under KEY] [--put SECTION=KEY,...]";
     let mut flags: HashMap<String, String> = HashMap::new();
     let mut positional = Vec::new();
     let mut it = args.iter().skip(1);

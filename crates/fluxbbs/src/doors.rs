@@ -788,6 +788,7 @@ impl Session {
             return Ok(());
         }
         tracing::info!("{}: online door game execution: {cmd}", self.user.handle);
+        self.seen.doors.insert(name.clone());
         let cfg = self.state.config();
         let dos = is_dos(cmd);
         let drive = cfg.resolve(&cfg.dos.drive);
