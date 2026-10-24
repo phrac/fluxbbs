@@ -119,7 +119,7 @@ scheme_code = "..."
 ```
 
 3. Add games to a menu: command `DB`, the door code as the parameter
-   (`lord`, `lord2`, `teos`, `ooii`, `tw2002`, `bre`, `menu`...), and a
+   (`lord`, `lord2`, `teos`, `ooii`, `tw` (TradeWars), `bre`, `menu`...), and a
    description, which is the game's name in the status and the doors
    scoreboard.
 

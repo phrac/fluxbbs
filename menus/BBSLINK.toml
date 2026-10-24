@@ -62,7 +62,7 @@ off = "|B0Operation Overkill II"
 [[command]]
 keys = "5"
 command = "DB"
-param = "tw2002"
+param = "tw"
 acs = "s50"
 desc = "TradeWars 2002"
 help = "TradeWars 2002, against other boards' players"

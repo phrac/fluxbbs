@@ -309,15 +309,14 @@ impl Session {
                     let prelogon = std::mem::replace(&mut self.user, user);
                     *self.user_base.borrow_mut() = Some(self.user.clone());
                     if ok {
-                        self.apply_text_mode();
-                    }
-                    if ok {
                         ok = self.verify_identity().await?;
                     }
                     if ok {
                         ok = self.system_password_ok().await?;
                     }
                     if ok {
+                        // Text mode once they're in, not before every check.
+                        self.apply_text_mode();
                         self.logged_in = true;
                         if let Some(addr) = self.caller.remote {
                             self.state.guard.success(addr.ip());

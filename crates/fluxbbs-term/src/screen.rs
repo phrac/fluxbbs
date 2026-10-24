@@ -125,6 +125,21 @@ impl Screen {
         self.text_lines
     }
 
+    /// A fresh count from here: what's already on the current line
+    /// doesn't count (a menu's prompt). Returns the count now.
+    pub fn mark_lines(&mut self) -> u64 {
+        self.dirty = false;
+        self.text_lines
+    }
+
+    /// Leaving a line (a new line, a wrap, a cursor move to another row)
+    /// counts it if it has text on it.
+    fn leave_line(&mut self) {
+        if std::mem::take(&mut self.dirty) {
+            self.text_lines += 1;
+        }
+    }
+
     pub fn set_rows(&mut self, rows: u16) {
         self.rows = rows.max(1);
         self.y = self.y.min(self.rows);
@@ -219,6 +234,9 @@ impl Screen {
     pub fn goto(&mut self, x: u16, y: u16) {
         let x = x.clamp(1, COLUMNS);
         let y = y.clamp(1, self.rows);
+        if y != self.y {
+            self.leave_line();
+        }
         self.raw(format!("\x1b[{y};{x}H").as_bytes());
         self.x = x;
         self.y = y;
@@ -305,9 +323,6 @@ impl Screen {
                 self.raw(b"\r");
             }
             b'\n' => {
-                if std::mem::take(&mut self.dirty) {
-                    self.text_lines += 1;
-                }
                 self.line_feed();
                 self.raw(b"\n");
             }
@@ -327,6 +342,7 @@ impl Screen {
     }
 
     fn line_feed(&mut self) {
+        self.leave_line();
         // At the bottom of a scroll region the region scrolls instead.
         if self.y < self.rows && Some(self.y) != self.region {
             self.y += 1;
@@ -394,6 +410,9 @@ impl Screen {
                 .collect()
         };
         let n = |i: usize| params.get(i).copied().filter(|&v| v > 0).unwrap_or(1);
+        if matches!(fin, b'A' | b'B' | b'H' | b'f' | b'd') {
+            self.leave_line();
+        }
         match fin {
             b'A' => self.y = self.y.saturating_sub(n(0)).max(1),
             b'B' => self.y = self.y.saturating_add(n(0)).min(self.rows),

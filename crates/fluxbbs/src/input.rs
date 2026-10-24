@@ -368,11 +368,12 @@ impl Session {
             return self.read_masked(opts.mask, opts.required).await;
         }
         let echo = self.state.config().prompts.password_echo;
+        self.escaped = false;
         // New: in plain text the default isn't typed in for editing (a
         // bot's answer would be added to it): it's shown, and Enter takes it.
         let plain_default = self.plain() && !opts.default.is_empty();
         if plain_default {
-            self.screen.write_text(&format!("[{}] ", opts.default));
+            self.screen.write_text(&format!("[{}, - for none] ", opts.default));
         }
         loop {
             let mut s = String::new();
@@ -383,7 +384,10 @@ impl Session {
             loop {
                 match self.read_key().await? {
                     Key::Enter => break,
-                    Key::Esc if opts.esc_cancels => return Ok(String::new()),
+                    Key::Esc if opts.esc_cancels => {
+                        self.escaped = true;
+                        return Ok(String::new());
+                    }
                     Key::Backspace => {
                         if s.pop().is_some() {
                             self.screen.backspace(1);
@@ -418,6 +422,8 @@ impl Session {
             let mut s = s.trim_end().to_string();
             if plain_default && s.is_empty() {
                 s = opts.default.chars().take(opts.max).collect();
+            } else if plain_default && s == "-" {
+                s.clear();
             }
             if !opts.required || !s.is_empty() {
                 return Ok(s);

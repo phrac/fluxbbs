@@ -213,7 +213,7 @@ impl Session {
         } else {
             self.menu_handle().await?
         };
-        self.menu.lines_mark = self.screen.text_lines();
+        self.menu.lines_mark = self.screen.mark_lines();
         while !cmd.is_empty() && !self.hangup {
             self.menu.next_cmd.clear();
             self.menu_execute(&cmd).await?;
@@ -240,9 +240,9 @@ impl Session {
         // New: a lightbar menu is drawn again even in expert mode, over
         // what the last command showed, so that waits for a key first;
         // and only after a command that showed something worth reading
-        // (two lines or more: not a menu change, nor a list or view
-        // the caller has just left).
-        let showed = self.screen.text_lines() >= self.menu.lines_mark + 2;
+        // (a line or more: not a menu change, nor a list or view the
+        // caller has just left).
+        let showed = self.screen.text_lines() > self.menu.lines_mark;
         if menu.pause_before && (self.menu.do_help || lightbar) && self.menu.last_cmd_good && !self.menu.skip_pause && showed {
             self.prompt_key().await?;
         }
@@ -476,7 +476,12 @@ impl Session {
         self.lightbar_item(menu, &items, cur, true, has_help, &mut help_len).await?;
         // New: a note (`Session::note`), else a hint for this caller, in
         // the help line till they move.
-        let hint = self.note.take().or_else(|| self.caller_hint(menu));
+        // No help line: a note goes on the bottom row instead.
+        if !has_help && let Some(n) = self.note.take() {
+            self.screen.goto(1, self.screen.rows());
+            self.show(&n).await?;
+        }
+        let hint = if has_help { self.note.take().or_else(|| self.caller_hint(menu)) } else { None };
         if has_help && let Some(hint) = hint {
             self.goto_pos(LIGHTBAR_HELP);
             self.write(&" ".repeat(help_len));

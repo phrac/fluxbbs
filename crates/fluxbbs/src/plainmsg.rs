@@ -53,7 +53,7 @@ impl Session {
     /// and the rest.
     async fn plain_ask(&mut self, prompt: &str) -> io::Result<(String, String)> {
         self.write(&format!("{prompt}> "));
-        let s = self.read_string(ReadOpts::new(PUSH_WIDTH + 20)).await?;
+        let s = self.read_string(ReadOpts::new(crate::plain::LINE_MAX)).await?;
         self.newline();
         let s = s.trim();
         let (cmd, rest) = s.split_once(' ').unwrap_or((s, ""));

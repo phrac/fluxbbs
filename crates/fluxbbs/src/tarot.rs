@@ -136,8 +136,11 @@ impl Session {
                 None => {
                     self.tarot_screen().await?;
                     self.newline();
-                    if let (Some(t), Some(f)) = (self.tarot_left("tarot", cfg.tarot_daily), self.tarot_left("fortune", cfg.fortune_daily)) {
-                        let s = self.strings().fmt("TarotLeft", &[&t.to_string(), &f.to_string()]);
+                    // What's left of each kind that has a limit (∞ for one that hasn't).
+                    let (t, f) = (self.tarot_left("tarot", cfg.tarot_daily), self.tarot_left("fortune", cfg.fortune_daily));
+                    if t.is_some() || f.is_some() {
+                        let n = |v: Option<u32>| v.map_or("∞".to_string(), |n| n.to_string());
+                        let s = self.strings().fmt("TarotLeft", &[&n(t), &n(f)]);
                         self.show_line(&s).await?;
                     }
                     self.say("TarotMenu").await?;
@@ -150,23 +153,25 @@ impl Session {
             };
             match pick {
                 'D' => self.card_of_the_day(&cfg).await?,
-                'T' => {
-                    if self.tarot_spent("tarot", cfg.tarot_daily, "TarotDailyLimit").await? {
-                        continue;
-                    }
+                // Used up, or Esc at the question: no reading, and a direct
+                // `AT three` ends (the check at the bottom).
+                'T' if !self.tarot_spent("tarot", cfg.tarot_daily, "TarotDailyLimit").await? => {
                     self.tarot_screen().await?;
                     self.newline();
                     self.say("TarotAsk").await?;
-                    let question = self.read_string(crate::input::ReadOpts::new(60)).await?;
+                    let question = self.read_string(crate::input::ReadOpts::new(60).esc_cancels()).await?;
                     if self.hangup {
                         break;
                     }
-                    let places = ["TarotPast", "TarotPresent", "TarotFuture"].map(|s| self.strings().get(s).to_string());
-                    if let Some(text) = self.tarot_reading(&cfg, &draw(3), &places, question.trim()).await? {
-                        self.tarot_use("tarot");
-                        self.tarot_show(&text, None).await?;
+                    if !self.escaped {
+                        let places = ["TarotPast", "TarotPresent", "TarotFuture"].map(|s| self.strings().get(s).to_string());
+                        if let Some(text) = self.tarot_reading(&cfg, &draw(3), &places, question.trim()).await? {
+                            self.tarot_use("tarot");
+                            self.tarot_show(&text, None).await?;
+                        }
                     }
                 }
+                'T' => {}
                 'F' => {
                     if !self.tarot_spent("fortune", cfg.fortune_daily, "FortuneDailyLimit").await? {
                         self.fortune(&cfg).await?;

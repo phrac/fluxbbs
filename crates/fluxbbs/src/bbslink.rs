@@ -70,9 +70,16 @@ async fn connect(cfg: &BbsLink, user: u32, rows: u16, door: &str) -> anyhow::Res
         let mut rng = rand::rng();
         (0..6).map(|_| b"abcdefghijklmnopqrstuvwxyz0123456789"[rng.random_range(0..36)] as char).collect()
     };
-    let answer = |r: reqwest::Response| async move {
-        let body = r.bytes().await?;
-        anyhow::Ok(String::from_utf8_lossy(&body[..body.len().min(ANSWER_MAX)]).trim().to_string())
+    // Read no more than ANSWER_MAX of an answer, whatever comes.
+    let answer = |mut r: reqwest::Response| async move {
+        let mut body = Vec::new();
+        while body.len() < ANSWER_MAX
+            && let Some(chunk) = r.chunk().await?
+        {
+            body.extend_from_slice(&chunk);
+        }
+        body.truncate(ANSWER_MAX);
+        anyhow::Ok(String::from_utf8_lossy(&body).trim().to_string())
     };
     let token = answer(client.get(format!("http://{host}/token.php?key={key}")).send().await?).await?;
     // It goes back as a header: nothing but printable ASCII.
@@ -114,18 +121,23 @@ const NAWS: u8 = 31;
 
 /// The telnet side of the connection: commands taken out of what the
 /// server sends and answered, the rest passed on.
-#[derive(Default)]
 pub struct Telnet {
     state: State,
     sb: Vec<u8>,
-    /// The server sends binary: a CR is a CR.
-    pub binary: bool,
+    /// Options on, each side's (RFC 1143): the server's (it said WILL and
+    /// we DO) and ours (we said WILL and it DOes). A request that would
+    /// change nothing isn't answered, so the two can't loop.
+    theirs: [bool; 256],
+    ours: [bool; 256],
     /// The last byte passed on was a CR (a NUL after it is padding).
     after_cr: bool,
-    /// Options already answered, so a server that repeats itself doesn't
-    /// start a loop: (command, option).
-    answered: Vec<(u8, u8)>,
     rows: u16,
+}
+
+impl Default for Telnet {
+    fn default() -> Self {
+        Self { state: State::Data, sb: Vec::new(), theirs: [false; 256], ours: [false; 256], after_cr: false, rows: 24 }
+    }
 }
 
 #[derive(Default, Clone, Copy, PartialEq)]
@@ -144,10 +156,17 @@ impl Telnet {
     }
 
     /// What to send first: an 8-bit session both ways, as BBSLink's own
-    /// clients ask for (`telnet -8`). Their answers aren't answered again.
+    /// clients ask for (`telnet -8`). Taken as agreed; a refusal turns
+    /// it off again.
     pub fn start(&mut self) -> Vec<u8> {
-        self.answered.extend([(WILL, BINARY), (DO, BINARY)]);
+        self.theirs[BINARY as usize] = true;
+        self.ours[BINARY as usize] = true;
         vec![IAC, DO, BINARY, IAC, WILL, BINARY]
+    }
+
+    /// We send binary: a CR is a CR (else CR NUL).
+    pub fn binary(&self) -> bool {
+        self.ours[BINARY as usize]
     }
 
     /// What the server sent: (for the caller, answers for the server).
@@ -157,7 +176,8 @@ impl Telnet {
             match self.state {
                 State::Data if b == IAC => self.state = State::Iac,
                 State::Data => {
-                    if !(self.after_cr && b == 0) {
+                    // A NUL after a CR is padding, outside binary.
+                    if !(self.after_cr && b == 0 && !self.theirs[BINARY as usize]) {
                         out.push(b);
                     }
                     self.after_cr = b == b'\r';
@@ -205,31 +225,50 @@ impl Telnet {
     }
 
     fn answer(&mut self, verb: u8, opt: u8, reply: &mut Vec<u8>) {
-        // The server sends binary once it says so, asked or not.
-        match (verb, opt) {
-            (WILL, BINARY) => self.binary = true,
-            (WONT, BINARY) => self.binary = false,
-            _ => {}
-        }
-        if self.answered.contains(&(verb, opt)) {
-            return;
-        }
-        self.answered.push((verb, opt));
+        let i = opt as usize;
         match verb {
-            WILL => {
-                let yes = matches!(opt, BINARY | ECHO | SGA);
-                reply.extend([IAC, if yes { DO } else { DONT }, opt]);
-            }
-            DO => {
-                let yes = matches!(opt, BINARY | SGA | TTYPE | NAWS);
-                reply.extend([IAC, if yes { WILL } else { WONT }, opt]);
-                if opt == NAWS {
-                    let [rh, rl] = self.rows.max(1).to_be_bytes();
-                    reply.extend([IAC, SB, NAWS, 0, 80, rh, rl, IAC, SE]);
+            // The server offers: take what we use, once; refuse the rest.
+            WILL if matches!(opt, BINARY | ECHO | SGA) => {
+                if !self.theirs[i] {
+                    self.theirs[i] = true;
+                    reply.extend([IAC, DO, opt]);
                 }
             }
+            WILL => reply.extend([IAC, DONT, opt]),
+            WONT if self.theirs[i] => {
+                self.theirs[i] = false;
+                reply.extend([IAC, DONT, opt]);
+            }
+            // The server asks: do what we can, once; refuse the rest.
+            DO if matches!(opt, BINARY | SGA | TTYPE | NAWS) => {
+                if !self.ours[i] {
+                    self.ours[i] = true;
+                    reply.extend([IAC, WILL, opt]);
+                    if opt == NAWS {
+                        reply.extend(self.naws());
+                    }
+                }
+            }
+            DO => reply.extend([IAC, WONT, opt]),
+            DONT if self.ours[i] => {
+                self.ours[i] = false;
+                reply.extend([IAC, WONT, opt]);
+            }
             _ => {}
         }
+    }
+
+    /// The window size, 80 by the caller's rows (an IAC in it doubled).
+    fn naws(&self) -> Vec<u8> {
+        let mut out = vec![IAC, SB, NAWS];
+        for b in [0, 80].into_iter().chain(self.rows.max(1).to_be_bytes()) {
+            out.push(b);
+            if b == IAC {
+                out.push(IAC);
+            }
+        }
+        out.extend([IAC, SE]);
+        out
     }
 
     /// What the caller typed, for the server: IAC doubled, and outside
@@ -239,7 +278,7 @@ impl Telnet {
         for &b in bytes {
             match b {
                 IAC => out.extend([IAC, IAC]),
-                b'\r' if !self.binary => out.extend([b'\r', 0]),
+                b'\r' if !self.binary() => out.extend([b'\r', 0]),
                 _ => out.push(b),
             }
         }
@@ -307,11 +346,19 @@ impl Session {
     /// The caller and the game, until one of them goes or time's up.
     async fn bbslink_run(&mut self, mut stream: TcpStream, rows: u16) -> io::Result<End> {
         let mut telnet = Telnet::new(rows);
-        stream.write_all(&telnet.start()).await?;
+        // A server that stops reading mustn't hold the caller (or their
+        // time limit) up: a write that can't go in a while ends it.
+        async fn send(stream: &mut TcpStream, bytes: &[u8]) -> io::Result<()> {
+            match tokio::time::timeout(Duration::from_secs(30), stream.write_all(bytes)).await {
+                Ok(r) => r,
+                Err(_) => Err(io::ErrorKind::TimedOut.into()),
+            }
+        }
+        send(&mut stream, &telnet.start()).await?;
         let mut input = DoorInput::new(self.screen.charset() == fluxbbs_term::Charset::Utf8);
         let pending = self.take_pending_input();
         if !pending.is_empty() {
-            stream.write_all(&telnet.to_server(&input.feed(&pending))).await?;
+            send(&mut stream, &telnet.to_server(&input.feed(&pending))).await?;
         }
         let mut tick = tokio::time::interval(Duration::from_secs(5));
         let mut sbuf = [0u8; 4096];
@@ -324,15 +371,19 @@ impl Session {
                         return Ok(End::Closed);
                     }
                     let (out, reply) = telnet.server_sent(&sbuf[..n]);
-                    if !reply.is_empty() {
-                        stream.write_all(&reply).await?;
+                    if !reply.is_empty() && send(&mut stream, &reply).await.is_err() {
+                        return Ok(End::Closed);
                     }
                     self.screen.write_bytes(&out);
                     self.flush().await?;
                 }
                 r = self.io.read(&mut cbuf) => {
                     match r {
-                        Ok(n) if n > 0 => stream.write_all(&telnet.to_server(&input.feed(&cbuf[..n]))).await?,
+                        Ok(n) if n > 0 => {
+                            if send(&mut stream, &telnet.to_server(&input.feed(&cbuf[..n]))).await.is_err() {
+                                return Ok(End::Closed);
+                            }
+                        }
                         _ => return Ok(End::Hangup),
                     }
                 }
@@ -369,8 +420,9 @@ mod tests {
         let (out, reply) = t.server_sent(&[b'h', IAC, WILL, ECHO, b'i', IAC, DO, NAWS, IAC, DO, 99, b'\r', 0, IAC, IAC]);
         assert_eq!(out, [b'h', b'i', b'\r', IAC]);
         assert_eq!(reply, [IAC, DO, ECHO, IAC, WILL, NAWS, IAC, SB, NAWS, 0, 80, 0, 24, IAC, SE, IAC, WONT, 99]);
-        // Asked again: not answered again.
+        // Asked again: not answered again; turned off and on, answered.
         assert!(t.server_sent(&[IAC, WILL, ECHO]).1.is_empty());
+        assert_eq!(t.server_sent(&[IAC, WONT, ECHO, IAC, WILL, ECHO]).1, [IAC, DONT, ECHO, IAC, DO, ECHO]);
         let (_, reply) = t.server_sent(&[IAC, SB, TTYPE, 1, IAC, SE]);
         assert_eq!(reply, [IAC, SB, TTYPE, 0, b'A', b'N', b'S', b'I', IAC, SE]);
         assert_eq!(t.to_server(b"a\r\xff"), [b'a', b'\r', 0, IAC, IAC]);
@@ -379,6 +431,12 @@ mod tests {
         assert_eq!(t.start(), [IAC, DO, BINARY, IAC, WILL, BINARY]);
         assert!(t.server_sent(&[IAC, WILL, BINARY, IAC, DO, BINARY]).1.is_empty());
         assert_eq!(t.to_server(b"\r"), [b'\r']);
+        // It won't take ours: CR NUL again, and the refusal acknowledged.
+        assert_eq!(t.server_sent(&[IAC, DONT, BINARY]).1, [IAC, WONT, BINARY]);
+        assert_eq!(t.to_server(b"\r"), [b'\r', 0]);
+        // A window size byte of 255 goes doubled.
+        let big = Telnet::new(255);
+        assert_eq!(big.naws(), [IAC, SB, NAWS, 0, 80, 0, IAC, IAC, IAC, SE]);
     }
 
     /// The real handshake, with codes from the environment (BBSLINK_SYSTEM,

@@ -617,8 +617,9 @@ struct Inline {
     bold: bool,
     italic: bool,
     code: bool,
-    /// `*`s seen and not yet decided on.
+    /// `*`s seen and not yet decided on, and the character before them.
     stars: usize,
+    before: Option<char>,
 }
 
 impl Inline {
@@ -634,20 +635,43 @@ impl Inline {
         }
     }
 
-    /// Decide on pending stars, given the character after them.
-    fn settle(&mut self, next: Option<char>) {
-        while self.stars >= 2 {
-            self.stars -= 2;
+    /// Decide on pending stars, given the character after them and
+    /// whether the same stars come again later on the line (`closes`;
+    /// true when that can't be known, streaming). Emphasis opens only at
+    /// a word's start (`2*3`, `*.ZIP` stay as they are) and closes what
+    /// is open. Returns the stars left over, which are just stars.
+    fn settle(&mut self, next: Option<char>, closes: impl Fn(usize) -> bool) -> usize {
+        let opens = |me: &Self, n: usize| {
+            me.before.is_none_or(|p| !p.is_alphanumeric()) && next.is_some_and(|c| c.is_alphanumeric() || "\"'([".contains(c)) && closes(n)
+        };
+        let mut n = std::mem::take(&mut self.stars);
+        while n >= 2 && (self.bold || opens(self, 2)) {
+            n -= 2;
             self.bold = !self.bold;
         }
-        if self.stars == 1 {
-            self.stars = 0;
-            // A lone star opens italic only before a word, and closes it.
-            if self.italic || next.is_some_and(|c| !c.is_whitespace()) {
-                self.italic = !self.italic;
+        if n == 1 && (self.italic || opens(self, 1)) {
+            n = 0;
+            self.italic = !self.italic;
+        }
+        n
+    }
+}
+
+/// Whether `delim` stars come again in `rest` (closing what they'd open).
+fn star_run_ahead(rest: &[char], delim: usize) -> bool {
+    let mut i = 0;
+    while i < rest.len() {
+        if rest[i] == '*' {
+            let run = rest[i..].iter().take_while(|c| **c == '*').count();
+            if run >= delim && i > 0 && !rest[i - 1].is_whitespace() {
+                return true;
             }
+            i += run;
+        } else {
+            i += 1;
         }
     }
+    false
 }
 
 /// Styled characters of one line's text.
@@ -655,11 +679,20 @@ fn inline_chars(text: &str, base: Ink, st: &mut Inline) -> Vec<(char, Ink, bool)
     let chars: Vec<char> = text.chars().collect();
     let mut out = Vec::new();
     let mut i = 0;
+    let literal = |st: &Inline, out: &mut Vec<(char, Ink, bool)>, n: usize| {
+        let (ink, sh) = st.ink(base);
+        out.extend(std::iter::repeat_n(('*', ink, sh), n));
+    };
     while i < chars.len() {
         let c = chars[i];
-        if c == '`' {
-            st.settle(Some(c));
+        if st.stars > 0 && c != '*' {
+            let n = st.settle(Some(c), |d| star_run_ahead(&chars[i..], d));
+            literal(st, &mut out, n);
+        }
+        // A backtick opens code only if another closes it on the line.
+        if c == '`' && (st.code || chars[i + 1..].contains(&'`')) {
             st.code = !st.code;
+            st.before = Some(c);
             i += 1;
             continue;
         }
@@ -669,19 +702,12 @@ fn inline_chars(text: &str, base: Ink, st: &mut Inline) -> Vec<(char, Ink, bool)
             continue;
         }
         if c == '*' {
+            if st.stars == 0 {
+                st.before = i.checked_sub(1).map(|k| chars[k]);
+            }
             st.stars += 1;
             i += 1;
             continue;
-        }
-        if st.stars > 0 {
-            if st.stars == 1 && !st.italic && c.is_whitespace() {
-                // "2 * 3": a star on its own.
-                st.stars = 0;
-                let (ink, sh) = st.ink(base);
-                out.push(('*', ink, sh));
-            } else {
-                st.settle(Some(c));
-            }
         }
         // [text](url): the text, then the address dimmed.
         if c == '[' || (c == '!' && chars.get(i + 1) == Some(&'[')) {
@@ -706,7 +732,8 @@ fn inline_chars(text: &str, base: Ink, st: &mut Inline) -> Vec<(char, Ink, bool)
         out.push((c, ink, sh));
         i += 1;
     }
-    st.settle(None);
+    let n = st.settle(None, |_| false);
+    literal(st, &mut out, n);
     out
 }
 
@@ -908,6 +935,12 @@ impl MdStream {
         }
         if self.fence.is_some() && !self.code_line.is_empty() {
             let line = std::mem::take(&mut self.code_line);
+            // The closing fence, without a newline after it.
+            if matches!(block_of(&line).0, Block::Fence(_)) {
+                self.fence = None;
+                self.emit_line(block_line(Vec::new(), self.width), &mut out);
+                return out;
+            }
             let l = code_line(self.fence.unwrap_or(None), &line, &mut self.code, self.width);
             self.emit_line(l, &mut out);
         } else {
@@ -1018,23 +1051,25 @@ impl MdStream {
     fn text_char(&mut self, c: char, out: &mut Vec<Piece>) {
         let base = self.base();
         let st = &mut self.inline;
+        // Stars waiting: decided now (what's ahead can't be seen, so a
+        // closing pair is assumed); those left over are just stars.
+        if st.stars > 0 && c != '*' {
+            let n = st.settle(Some(c), |_| true);
+            let (ink, sh) = st.ink(base);
+            self.word.extend(std::iter::repeat_n(('*', ink, sh), n));
+        }
+        let st = &mut self.inline;
         if c == '`' {
-            st.settle(Some(c));
             st.code = !st.code;
+            st.before = Some(c);
             return;
         }
         if !st.code && c == '*' {
+            if st.stars == 0 {
+                st.before = self.word.last().map(|w| w.0).or(Some(' '));
+            }
             st.stars += 1;
             return;
-        }
-        if st.stars > 0 {
-            if st.stars == 1 && !st.italic && c.is_whitespace() {
-                st.stars = 0;
-                let (ink, sh) = st.ink(base);
-                self.word.push(('*', ink, sh));
-            } else {
-                st.settle(Some(c));
-            }
         }
         let (ink, sh) = self.inline.ink(base);
         if c == ' ' && !sh {
@@ -1098,7 +1133,9 @@ impl MdStream {
     }
 
     fn end_line(&mut self, out: &mut Vec<Piece>) {
-        self.inline.settle(None);
+        let n = self.inline.settle(None, |_| false);
+        let (ink, sh) = self.inline.ink(self.base());
+        self.word.extend(std::iter::repeat_n(('*', ink, sh), n));
         self.flush_word(out);
         if self.col > 0 || self.head.is_none() {
             out.push(Piece::Newline);
@@ -1216,8 +1253,13 @@ mod tests {
         assert!(!lines[7][0].shade && lines[7][1].shade);
         assert!(text[9].starts_with("───"));
         assert_eq!(text[10], "site <http://x.y>");
-        // Stars that aren't emphasis stay.
-        assert_eq!(render_markdown("2 * 3 = 6", 40)[0].iter().map(|s| s.text.as_str()).collect::<String>(), "2 * 3 = 6");
+        // Stars that aren't emphasis stay, and style nothing.
+        let flat = |s: &str| render_markdown(s, 60)[0].iter().map(|s| s.text.as_str()).collect::<String>();
+        for s in ["2 * 3 = 6", "2*3 = 6", "*.ZIP files", "*nix rocks", "a ** b c", "end*", "a `tick"] {
+            assert_eq!(flat(s), s);
+            assert!(render_markdown(s, 60)[0].iter().all(|sp| matches!(sp.ink, Ink::Text) && !sp.shade), "{s}");
+        }
+        assert!(render_markdown("an *it* and **bo**", 60)[0].iter().any(|s| s.text == "it" && s.ink == Ink::Italic));
     }
 
     #[test]
@@ -1254,6 +1296,10 @@ mod tests {
         assert_eq!(lines[4].trim_end(), "   int x;");
         assert_eq!(lines[4].chars().count(), 38);
         assert_eq!(lines.last().unwrap().trim(), "After.");
+        // A reply that ends on its closing fence, no newline after it.
+        let s = streamed(&["Here:\n```py\nprint(1)\n```"]);
+        assert!(!s.contains("```"), "{s:?}");
+        assert_eq!(streamed(&["2*3 and *.ZIP"]).trim_end(), "2*3 and *.ZIP");
         let long = streamed(&[&"word ".repeat(30)]);
         assert!(long.lines().all(|l| l.chars().count() <= 40), "{long:?}");
     }

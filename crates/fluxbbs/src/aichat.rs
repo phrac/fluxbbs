@@ -269,11 +269,6 @@ async fn read_page(client: &reqwest::Client, url: &str) -> Result<String, String
     Ok(squeezed.chars().take(8000).collect())
 }
 
-/// Whether pieces of a reply have anything to read.
-fn has_words(pieces: &[crate::markup::Piece]) -> bool {
-    pieces.iter().any(|p| matches!(p, crate::markup::Piece::Text(t, _, _) if !t.trim().is_empty()))
-}
-
 /// Streamed text without any `<think>` section or tool call written as
 /// text; `markup::MdStream` then lays it out.
 #[derive(Default)]
@@ -760,6 +755,7 @@ impl Session {
             // New: the reply's Markdown drawn as it comes (`markup.rs`).
             let mut md = crate::markup::MdStream::new(WIDTH, indent);
             self.ai_style = None;
+            let mut begun = false;
             let mut named = false;
             'stream: while let Some(chunk) = rx.recv().await {
                 buf.extend_from_slice(&chunk.map_err(io_err)?);
@@ -785,11 +781,17 @@ impl Session {
                     let delta = &v["choices"][0]["delta"];
                     if let Some(t) = delta["content"].as_str() {
                         content.push_str(t);
-                        let shown = wrap.feed(t);
+                        let mut shown = wrap.feed(t);
+                        // Nothing before the reply's first words: they go
+                        // beside the name (where the stream starts counting).
+                        if !named && !begun {
+                            shown = shown.trim_start().to_string();
+                            begun = !shown.is_empty();
+                        }
                         let out = md.feed(&shown);
                         // The name goes up with the first words, not before
                         // a search.
-                        if has_words(&out) && !named {
+                        if !out.is_empty() && !named {
                             self.ai_show(&name).await?;
                             self.ai_ink = trailing_codes(&name);
                             named = true;
@@ -817,7 +819,7 @@ impl Session {
             }
             let rest = md.finish();
             // A reply too short to wrap hasn't put the name up yet.
-            if has_words(&rest) && !named {
+            if !rest.is_empty() && !named {
                 self.ai_show(&name).await?;
                 self.ai_ink = trailing_codes(&name);
                 named = true;
@@ -1107,8 +1109,8 @@ impl Session {
             match p {
                 Piece::Newline => {
                     self.ai_nl().await?;
-                    // A new line starts in the AI's color (ai_nl puts it back).
-                    style = Some((Ink::Text, false));
+                    // The next piece sets its color, whatever ai_nl did.
+                    style = None;
                 }
                 Piece::Text(t, ink, sh) => {
                     if style != Some((*ink, *sh)) {
@@ -1170,7 +1172,6 @@ mod tests {
         assert!(text.starts_with("Hello there, world."), "{text:?}");
         assert!(!text.contains("think") && !text.contains('*') && !text.contains("web_search"));
         assert!(text.split('\n').enumerate().all(|(i, l)| l.chars().count() + if i == 0 { 6 } else { 0 } <= WIDTH));
-        assert!(has_words(&out));
         assert!(out.iter().any(|p| matches!(p, crate::markup::Piece::Text(t, crate::markup::Ink::Bold, _) if t == "Hello")));
     }
 

@@ -188,6 +188,9 @@ pub struct Session {
     /// New: a one-line note for the help line of the next list or menu
     /// (`Session::note`).
     pub(crate) note: Option<String>,
+    /// New: the last `read_string` with `esc_cancels` ended with Esc (its
+    /// empty answer isn't an Enter).
+    pub(crate) escaped: bool,
     /// The context the AI conversation has used, for the bar (`AiContext`).
     pub(crate) ai_ctx: String,
     /// The chat's rows under the header, kept to redraw them (new).
@@ -363,6 +366,7 @@ impl Session {
             ai_ink: String::new(),
             ai_style: None,
             note: None,
+            escaped: false,
             ai_ctx: String::new(),
             ai_win: None,
             editor_note: None,
@@ -793,9 +797,10 @@ impl Session {
         match c {
             Control::Delay(ms) => self.delay(ms as u64).await?,
             Control::PromptKey => self.prompt_key().await?,
-            Control::ReadKey => {
+            Control::ReadKey if !self.plain() => {
                 self.read_key().await?;
             }
+            Control::ReadKey => {}
             Control::Pause => self.pause().await?,
             Control::StockArt => self.include_stock().await?,
             _ => {}
@@ -899,7 +904,8 @@ impl Session {
     /// [`Self::repeat_begin`] with values for TOP's `~XX` codes.
     pub async fn repeat_begin_with(&mut self, prefix: &str, highlight: bool, top_waves: &Waves) -> io::Result<Option<Repeat>> {
         let has = |s: &Self, part: &str| s.text_file_exists(&format!("{prefix}{part}"));
-        if !(has(self, "TOP") && has(self, "MID") && has(self, "BOT")) {
+        // Plain text: the built-in layout (art's columns are cursor moves).
+        if self.plain() || !(has(self, "TOP") && has(self, "MID") && has(self, "BOT")) {
             return Ok(None);
         }
         let mid = self.read_text_file(&format!("{prefix}MID")).await?.unwrap_or_default();

@@ -117,6 +117,10 @@ impl Session {
                         self.newline();
                         return Ok(Some(found.1.clone()));
                     }
+                    // Plain text asks again (a bot waits for a prompt).
+                    if self.plain() {
+                        self.say("XferSelectProtocol").await?;
+                    }
                 }
             }
         }

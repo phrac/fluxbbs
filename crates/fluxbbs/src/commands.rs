@@ -170,10 +170,18 @@ impl Session {
                 self.msg_center().await?;
                 self.full_screen_done();
             }
-            "MX" => self.msg_jump(param).await?,
-            "M@" => self.read_mentions(param).await?,
+            // These end in the reader or a list the caller has left.
+            "MX" => {
+                self.msg_jump(param).await?;
+                self.full_screen_done();
+            }
+            "M@" => {
+                self.read_mentions(param).await?;
+                self.full_screen_done();
+            }
             "MW" if param.eq_ignore_ascii_case("read") => {
                 self.read_all_new().await?;
+                self.full_screen_done();
             }
             "MW" => self.logon_new_check().await?,
 

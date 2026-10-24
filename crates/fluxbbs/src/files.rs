@@ -250,10 +250,10 @@ impl Session {
             if self.change_farea(n).await? {
                 let name = self.farea(n).map(|a| a.area.name).unwrap_or_default();
                 let s = self.strings().fmt("FaChangedAreas", &[&name]);
-                return self.show_line(&s).await;
+                return self.note(s).await;
             }
         }
-        self.say_line(if forward { "FaHighestArea" } else { "FaLowestArea" }).await
+        self.note_say(if forward { "FaHighestArea" } else { "FaLowestArea" }).await
     }
 
     /// The file areas the caller can use, as (number, depth) in tree
@@ -401,7 +401,7 @@ impl Session {
     async fn announce_farea(&mut self) -> io::Result<()> {
         let name = self.current_farea().map(|a| a.area.name).unwrap_or_default();
         let s = self.strings().fmt("FaChangedAreas", &[&name]);
-        self.show_line(&s).await
+        self.note(s).await
     }
 
     // ---- finding files --------------------------------------------------
@@ -1675,6 +1675,10 @@ impl Session {
                         self.write(&found.0.to_string());
                         self.newline();
                         return Ok(Some(found.1.clone()));
+                    }
+                    // Plain text asks again (a bot waits for a prompt).
+                    if self.plain() {
+                        self.show(&format!("{list}{ask}")).await?;
                     }
                 }
             }

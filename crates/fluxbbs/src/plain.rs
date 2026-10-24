@@ -13,8 +13,9 @@ use crate::input::{Key, ReadOpts};
 use crate::menu::{FIRST_CMD, Menu};
 use crate::session::{BarPick, BarSpec, Session};
 
-/// Longest line typed into a message; longer ones are wrapped at 79.
-const LINE_MAX: usize = 250;
+/// Longest line taken from a plain-text caller (a paragraph); messages
+/// wrap it at 79.
+pub(crate) const LINE_MAX: usize = 4000;
 /// Lines in a message written in plain text.
 const MAX_LINES: usize = 400;
 /// Files a page of the file list.
@@ -166,7 +167,7 @@ impl Session {
             self.newline();
             let mut words = s.split_whitespace();
             let first = words.next().unwrap_or("").to_ascii_uppercase();
-            let then = words.next().and_then(|w| w.parse::<u32>().ok());
+            let then = words.next();
             if let Ok(label) = first.parse::<u32>() {
                 match row_of(label) {
                     Some(n) => return Ok(BarPick::Area(n)),
@@ -177,9 +178,17 @@ impl Session {
                 "Q" => return Ok(BarPick::Quit),
                 "<" if spec.can_go_up => return Ok(BarPick::Up),
                 "" => return Ok(BarPick::Stay),
+                // The row named, else the current one; a number that names
+                // no row is asked again.
                 k if k.chars().count() == 1 && spec.keys.contains(k) => {
-                    let row = then.and_then(row_of).unwrap_or(cur);
-                    return Ok(BarPick::Key(k.chars().next().unwrap_or(' '), row));
+                    let row = match then {
+                        None => Some(cur),
+                        Some(w) => w.parse::<u32>().ok().and_then(row_of),
+                    };
+                    match row {
+                        Some(row) => return Ok(BarPick::Key(k.chars().next().unwrap_or(' '), row)),
+                        None => self.write("No such row. "),
+                    }
                 }
                 _ => self.write("What? "),
             }

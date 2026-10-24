@@ -50,9 +50,12 @@ impl Session {
         })
     }
 
-    /// Log a play (not on a hidden call: it would show who was on).
+    /// Log a play (not on a hidden call, nor while invisible: it would
+    /// show who was on).
     pub(crate) fn record_play(&mut self, door: &str, started: NaiveDateTime) {
-        if self.user.id == 0 || self.hidden_call {
+        let me = self.node.number();
+        let invisible = self.state.nodes.online().iter().any(|(n, i)| *n == me && i.invisible);
+        if self.user.id == 0 || self.hidden_call || invisible {
             return;
         }
         let minutes = (crate::clock::now().naive_local() - started).num_minutes().max(0) as u32;
@@ -126,7 +129,7 @@ impl Session {
             b'O' => self.now_playing(),
             b'D' | b'G' => {
                 let doors = self.menu_doors();
-                let when = |d: &String| s.last_by_door.get(&d.to_uppercase()).copied();
+                let when = |d: &String| s.last_by_door.get(&d.to_ascii_uppercase()).copied();
                 let never: Vec<&String> = doors.iter().filter(|d| when(d).is_none()).collect();
                 let dusty = pick(&never).map(|d| (d, None)).or_else(|| doors.iter().min_by_key(|d| when(d)).map(|d| (d.clone(), when(d))));
                 match (c, dusty) {
@@ -138,7 +141,7 @@ impl Session {
             }
             b'E' => {
                 let doors = self.menu_doors();
-                let untried: Vec<&String> = doors.iter().filter(|d| !s.my_doors.contains(&d.to_uppercase())).collect();
+                let untried: Vec<&String> = doors.iter().filter(|d| !s.my_doors.contains(&d.to_ascii_uppercase())).collect();
                 pick(&untried).unwrap_or_else(|| "nothing left".into())
             }
             b'F' => s.my_favorite.as_ref().map_or_else(nothing, |p| p.0.clone()),

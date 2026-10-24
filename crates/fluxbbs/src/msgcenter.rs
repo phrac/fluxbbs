@@ -254,10 +254,8 @@ impl Session {
         let f = self.msg_stats(true);
         let what = param.trim().to_ascii_lowercase();
         if what == "unread" {
-            if self.read_all_new().await? == 0 {
-                self.newline();
-                self.say_line("MsgNothingNew").await?;
-            }
+            // Nothing new says so itself (a note).
+            self.read_all_new().await?;
             return Ok(());
         }
         let areas: Vec<AreaRef> = self.readable_areas().into_iter().map(|(_, a)| a).collect();

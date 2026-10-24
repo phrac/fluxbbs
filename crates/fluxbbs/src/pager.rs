@@ -248,6 +248,20 @@ impl Session {
     /// case) and `help` naming the status line's string.
     pub(crate) async fn page_grid_keys(&mut self, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char]) -> io::Result<Option<char>> {
         self.full_screen_done();
+        // New: plain text gets the lines, one after another.
+        if self.plain() {
+            self.newline();
+            self.write(&format!("--- {title}"));
+            self.newline();
+            for row in grid {
+                let text: Vec<u8> = row.iter().map(|c| c.ch).collect();
+                self.write(cp437::decode(&text).trim_end());
+                self.newline();
+            }
+            self.write("--- end");
+            self.newline();
+            return Ok(None);
+        }
         let rows = self.screen.rows().max(5) as usize;
         let height = rows - 2;
         let total = grid.len();
@@ -260,7 +274,9 @@ impl Session {
                 self.clear_screen();
                 let range = format!("{}-{} of {}", top + 1, (top + height).min(total), total);
                 // One line: a long name and SAUCE title mustn't wrap.
-                let title: String = title.chars().take(50).collect();
+                // Kept to one line with the rest of it.
+                let room = 79usize.saturating_sub(22 + range.chars().count());
+                let title: String = title.chars().take(room).collect();
                 let s = self.strings().fmt("ViewerTitle", &[&title, &range]);
                 self.show(&s).await?;
                 for (k, line) in grid.iter().skip(top).take(height).enumerate() {

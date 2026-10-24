@@ -1064,10 +1064,10 @@ impl Session {
                         match want.parse::<u32>() {
                             Ok(n) if (1..=total).contains(&n) => cur = n,
                             _ => {
-                                let found = self.files_named(&want)?;
+                                let (found, total) = self.files_named(&want, &a.file)?;
                                 if found.is_empty() {
                                     note = format!("No file matching {want}.");
-                                } else if let Some((to, r)) = self.pick_file_to_edit(&found, &a.file).await? {
+                                } else if let Some((to, r)) = self.pick_file_to_edit(&found, total, &a.file).await? {
                                     area = to;
                                     cur = r.num;
                                 }
@@ -1197,22 +1197,27 @@ impl Session {
 
     /// Files in any area whose names match (wildcards, or any part of
     /// one), with their areas.
-    fn files_named(&self, want: &str) -> io::Result<Vec<(FAreaRef, FileRec)>> {
+    /// Files whose names match, those in area `here` first; at most
+    /// FIND_MAX of them, and how many matched in all.
+    fn files_named(&self, want: &str, here: &str) -> io::Result<(Vec<(FAreaRef, FileRec)>, usize)> {
         let areas: Vec<FAreaRef> = (1..=self.state.fareas().areas.len() as u32).filter_map(|n| self.farea(n)).collect();
         let keys: Vec<String> = areas.iter().map(|a| a.area.file.clone()).collect();
         let spec = if want.contains(['*', '?']) { want.to_string() } else { format!("*{want}*") };
         let mut found = self.state.files.search(&keys, Some(&spec), None).map_err(io_err)?;
+        let total = found.len();
+        found.sort_by_key(|f| !f.area.eq_ignore_ascii_case(here));
         found.truncate(FIND_MAX);
-        Ok(found
+        let found = found
             .into_iter()
             .filter_map(|f| areas.iter().find(|a| a.area.file.eq_ignore_ascii_case(&f.area)).map(|a| (a.clone(), f)))
-            .collect())
+            .collect();
+        Ok((found, total))
     }
 
     /// One of the files `/` found: the only one, or picked from a
     /// lightbar (CFGFILE TOP/MID/HIL/BOT, else plain), starting on the
     /// first in the area being edited.
-    async fn pick_file_to_edit(&mut self, found: &[(FAreaRef, FileRec)], here: &str) -> io::Result<Option<(FAreaRef, FileRec)>> {
+    async fn pick_file_to_edit(&mut self, found: &[(FAreaRef, FileRec)], total: usize, here: &str) -> io::Result<Option<(FAreaRef, FileRec)>> {
         if let [one] = found {
             return Ok(Some(one.clone()));
         }
@@ -1227,7 +1232,8 @@ impl Session {
             .collect();
         let start = found.iter().position(|(_, f)| f.area.eq_ignore_ascii_case(here)).unwrap_or(0);
         let header = line("File", "Size", "Area");
-        let help = format!("|U1 {} found. Arrows move, |U3enter|U1 edits, |U3esc|U1 cancels.", found.len());
+        let shown = if total > found.len() { format!("first {} of {total}", found.len()) } else { total.to_string() };
+        let help = format!("|U1 {shown} found: |U3enter|U1 edits, |U3/|U1 finds, |U3esc|U1 cancels");
         let spec = BarSpec { prefix: "CFGFILE", header: &header, rows: &rows, labels: &[], start, help: &help, ask: "", can_go_up: false, keys: "" };
         Ok(match self.area_bar(&spec).await? {
             BarPick::Area(i) => found.get(i as usize).cloned(),

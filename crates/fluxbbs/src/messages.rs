@@ -159,12 +159,12 @@ impl Session {
         loop {
             n = if forward { n + 1 } else { n.saturating_sub(1) };
             if n == 0 || n > total {
-                return self.say_line(if forward { "MsgHighestArea" } else { "MsgLowestArea" }).await;
+                return self.note_say(if forward { "MsgHighestArea" } else { "MsgLowestArea" }).await;
             }
             if self.change_area(n).await? {
                 let name = self.msg_area(n).map(|a| a.area.name).unwrap_or_default();
                 let s = self.strings().fmt("MsgChangedAreas", &[&name]);
-                return self.show_line(&s).await;
+                return self.note(s).await;
             }
         }
     }
@@ -211,7 +211,7 @@ impl Session {
             (self.current_farea().map(|a| a.area.name).unwrap_or_default(), "FaChangedAreas")
         };
         let s = self.strings().fmt(key, &[&name]);
-        self.show_line(&s).await
+        self.note(s).await
     }
 
     /// `maListAreas` (`MA`, and `MC` without a number). `MC` picks with a
@@ -238,7 +238,7 @@ impl Session {
             {
                 let name = self.msg_area(n).map(|a| a.area.name).unwrap_or_default();
                 let s = self.strings().fmt("MsgChangedAreas", &[&name]);
-                self.show_line(&s).await?;
+                self.note(s).await?;
             }
             return Ok(());
         }
@@ -740,6 +740,22 @@ impl Session {
     /// Read a reader command, or a message number (digits, then Enter or
     /// enough digits). Returns the command key (Enter = '\r', Esc = 'Q').
     async fn read_command_or_number(&mut self, total: u32, keys: &str) -> io::Result<(char, Option<u32>)> {
+        // New: plain text answers with a line: a number, a command key,
+        // or nothing (Enter).
+        if self.plain() {
+            let s = self.read_string(ReadOpts::new(10)).await?;
+            self.newline();
+            let s = s.trim();
+            if let Ok(n) = s.parse::<u32>() {
+                return Ok(('\r', Some(n)));
+            }
+            let c = s.chars().next().map(|c| c.to_ascii_uppercase());
+            return Ok(match c {
+                None => ('\r', None),
+                Some(c) if keys.contains(c) => (c, None),
+                Some(_) => ('?', None),
+            });
+        }
         let width = total.to_string().len();
         let mut digits = String::new();
         loop {
@@ -929,7 +945,10 @@ impl Session {
         // New: said, rather than going back to the list as if nothing
         // had happened.
         if subject.is_empty() {
-            self.note_say("MsgNoTitle").await?;
+            // Said here and waited on: a reader that asked redraws its
+            // message straight after, where a note wouldn't show.
+            self.say_line("MsgNoTitle").await?;
+            self.prompt_key().await?;
             return Ok(None);
         }
         // New: a new thread in an area with tags picks one (PTT's categories).
