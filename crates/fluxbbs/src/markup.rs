@@ -349,10 +349,14 @@ pub fn highlight(lang: Lang, line: &str, st: &mut CodeState, shade: bool) -> Lin
     out
 }
 
-/// A whole source file, a line each (none wrapped).
-pub fn render_code(lang: Lang, text: &str) -> Vec<Line> {
+/// A whole source file as one code block, `width` wide: a shaded line
+/// above and below, each line in from the margin (long ones cut).
+pub fn render_code(lang: Lang, text: &str, width: usize) -> Vec<Line> {
     let mut st = CodeState::default();
-    text.lines().map(|l| highlight(lang, l.trim_end_matches('\r'), &mut st, false)).collect()
+    let mut out = vec![block_line(Vec::new(), width)];
+    out.extend(text.lines().map(|l| code_line(Some(lang), l.trim_end_matches('\r'), &mut st, width)));
+    out.push(block_line(Vec::new(), width));
+    out
 }
 
 /// Cut or pad a line to `width` (a code block's shade goes edge to edge).

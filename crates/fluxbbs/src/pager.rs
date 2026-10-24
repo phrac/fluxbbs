@@ -71,7 +71,7 @@ pub fn render_named(text: &[u8], utf8: bool, name: &str) -> Vec<Vec<Cell>> {
     }
     // Source code with ANSI codes in it is art, not code.
     if let Some(lang) = crate::markup::lang_for_name(name).filter(|_| !text.contains(&0x1b)) {
-        return from_lines(&crate::markup::render_code(lang, &plain()));
+        return from_lines(&crate::markup::render_code(lang, &plain(), WIDTH));
     }
     render(text, utf8)
 }
