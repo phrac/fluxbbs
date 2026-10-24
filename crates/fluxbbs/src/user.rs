@@ -96,6 +96,9 @@ pub struct User {
     /// New: what the board remembers of their interests, for the AI chat
     /// (`aimemory.rs`); theirs to see and clear.
     pub ai_profile: String,
+    /// New: `plain` for plain text (no ANSI), `ansi`, or blank: plain for
+    /// bots (flag B).
+    pub text_mode: String,
     /// New: the time zone times are shown to them in (an IANA name or
     /// an offset, as `clock::Zone::parse` reads it); blank for the board's.
     pub time_zone: String,
@@ -183,6 +186,7 @@ impl Default for User {
             profile_header: Vec::new(),
             show_real_name: false,
             ai_profile: String::new(),
+            text_mode: String::new(),
             time_zone: String::new(),
             thread_sort: String::new(),
             area_sort: String::new(),
@@ -288,6 +292,7 @@ impl User {
                 profile_header,
                 show_real_name,
                 ai_profile,
+                text_mode,
             ],
             [
                 total_calls,
@@ -374,6 +379,7 @@ impl User {
                 profile_header,
                 show_real_name,
                 ai_profile,
+                text_mode,
                             total_calls,
                 calls_today,
                 time_today,

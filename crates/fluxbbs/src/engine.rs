@@ -69,6 +69,8 @@ pub struct MenuState {
     pub(crate) reload: bool,
     /// The running command's description (a door's name in the status).
     pub(crate) cmd_desc: String,
+    /// New: the menu last listed in plain text.
+    pub(crate) plain_listed: String,
 }
 
 impl MenuState {
@@ -213,12 +215,27 @@ impl Session {
         };
         self.nonstop = false;
         self.check_expert();
-        if menu.pause_before && self.menu.do_help && self.menu.last_cmd_good && !self.menu.skip_pause {
+        let lightbar = menu.menu_type == MenuType::Lightbar && self.text_file_exists(&menu.help_file);
+        // New: a lightbar menu is drawn again even in expert mode, over
+        // what the last command showed, so that waits for a key first.
+        if menu.pause_before && (self.menu.do_help || lightbar) && self.menu.last_cmd_good && !self.menu.skip_pause {
             self.prompt_key().await?;
         }
         self.menu.last_cmd_good = false;
         self.menu.skip_pause = false;
-        let lightbar = menu.menu_type == MenuType::Lightbar && self.text_file_exists(&menu.help_file);
+        // New: plain text lists a menu when it's entered or asked for.
+        if self.plain() {
+            let list = self.menu.plain_listed != self.menu.current;
+            if list {
+                self.menu.plain_listed = self.menu.current.clone();
+            }
+            let cmd = self.plain_menu(&menu, list).await?;
+            if cmd == "?" {
+                self.menu.plain_listed.clear();
+                return Ok(String::new());
+            }
+            return Ok(cmd);
+        }
         if self.menu.do_help && !lightbar {
             self.menu_show(&menu).await?;
         }
@@ -706,7 +723,7 @@ impl Session {
     /// Page-length pausing for listings (`oUpPause`). Returns false if the
     /// user asked to stop.
     pub async fn more(&mut self, lines: &mut u16) -> io::Result<bool> {
-        if self.nonstop || !self.user.pause || *lines < self.user.page_length.saturating_sub(1).max(5) {
+        if self.nonstop || !self.user.pause || self.plain() || *lines < self.user.page_length.saturating_sub(1).max(5) {
             return Ok(true);
         }
         *lines = 0;

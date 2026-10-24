@@ -97,6 +97,19 @@ impl Session {
         } else {
             self.state.config().logon.start_menu.clone()
         };
+        // New: plain text skips the logon sequence (the start menu's
+        // FIRSTCMDs) for a line on what's waiting, and goes to where it
+        // would end up.
+        if self.plain() {
+            let logon = self.state.config().logon.start_menu.clone();
+            if self.menu.current.eq_ignore_ascii_case(&logon)
+                && let Ok(m) = Menu::load(&dir, &logon)
+                && !m.fallback.is_empty()
+            {
+                self.menu.current = m.fallback;
+            }
+            self.plain_logon().await?;
+        }
         self.menu_install().await?;
         self.menu.next_cmd.clear();
         self.queue_first_cmd();
@@ -115,7 +128,12 @@ impl Session {
     /// account is gone, to go the usual way.
     async fn key_logon(&mut self, id: u32) -> io::Result<bool> {
         let Some(user) = self.state.users.get(id).map_err(io::Error::other)?.filter(|u| !u.deleted) else { return Ok(false) };
-        self.logon_init().await?;
+        // New: known from the start, so a bot gets plain text throughout.
+        if crate::plain::wants_plain(&user.text_mode, crate::aimemory::is_bot(&user)) {
+            self.screen.set_plain(true);
+        } else {
+            self.logon_init().await?;
+        }
         let prelogon = std::mem::replace(&mut self.user, user);
         *self.user_base.borrow_mut() = Some(self.user.clone());
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
@@ -290,6 +308,9 @@ impl Session {
                     }
                     let prelogon = std::mem::replace(&mut self.user, user);
                     *self.user_base.borrow_mut() = Some(self.user.clone());
+                    if ok {
+                        self.apply_text_mode();
+                    }
                     if ok {
                         ok = self.verify_identity().await?;
                     }

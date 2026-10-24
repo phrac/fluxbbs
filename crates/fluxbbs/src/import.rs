@@ -742,6 +742,7 @@ fn convert_user(l: &LegacyUser) -> User {
         profile_header: Vec::new(),
         show_real_name: false,
         ai_profile: String::new(),
+        text_mode: String::new(),
         last_call_at: None,
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.

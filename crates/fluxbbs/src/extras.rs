@@ -757,6 +757,7 @@ impl Session {
                     let keys = std::mem::take(&mut self.user.ssh_keys);
                     let plan = std::mem::take(&mut self.user.plan);
                     self.user = original;
+                    self.apply_text_mode();
                     self.user.password_hash = pw;
                     self.user.ssh_keys = keys;
                     self.user.plan = plan;
@@ -809,6 +810,16 @@ impl Session {
             },
             // New: the time zone they see times in.
             'R' => crate::clock::Zone::parse(&u.time_zone).map_or_else(|| "board's".into(), |z| z.short()),
+            // New: plain text, ANSI, or as a bot or not (flag B).
+            'S' => {
+                let on = crate::plain::wants_plain(&u.text_mode, crate::aimemory::is_bot(u));
+                match (u.text_mode.as_str(), on) {
+                    ("", true) => "auto (plain)".into(),
+                    ("", false) => "auto (ANSI)".into(),
+                    (_, true) => "plain".into(),
+                    _ => "ANSI".into(),
+                }
+            }
             _ => String::new(),
         }
     }
@@ -831,6 +842,15 @@ impl Session {
             'P' => self.ssh_keys_edit().await?,
             'Q' => self.profile_edit().await?,
             'R' => self.time_zone_edit().await?,
+            // Plain text or ANSI, the other of what it is now; auto
+            // (plain for bots) when that's what auto would give. It takes
+            // effect at once.
+            'S' => {
+                let bot = crate::aimemory::is_bot(&self.user);
+                let plain = !crate::plain::wants_plain(&self.user.text_mode, bot);
+                self.user.text_mode = if plain == bot { "" } else if plain { "plain" } else { "ansi" }.into();
+                self.apply_text_mode();
+            }
             'H' => self.user.yes_no_bars = !self.user.yes_no_bars,
             'I' => self.user.expert = !self.user.expert,
             'J' => self.user.hot_keys = !self.user.hot_keys,
@@ -913,6 +933,7 @@ impl Session {
             ('M', 'E', "Emulation"),
             ('N', 'T', "Theme"),
             ('R', 'Z', "Time zone"),
+            ('S', 'B', "Text mode"),
         ];
         loop {
             self.newline();
@@ -925,11 +946,17 @@ impl Session {
             }
             self.rule().await?;
             self.show("|U1Change which|U2? |U5[|U6enter|U5=|U4done|U5] |U3").await?;
-            let key = self.read_key().await?;
+            // Plain text answers with a line.
+            let key = if self.plain() {
+                let s = self.read_string(ReadOpts::new(2)).await?;
+                s.chars().next().map_or(Key::Enter, |c| Key::Char(c as u8))
+            } else {
+                self.read_key().await?
+            };
             self.newline();
             let Some(c) = key.upper().filter(|_| !matches!(key, Key::Enter | Key::Esc)) else { return Ok(()) };
             if let Some(&(f, _, name)) = items.iter().find(|(_, k, _)| *k == c) {
-                if !"AHIJKLMNR".contains(f) {
+                if !"AHIJKLMNRS".contains(f) {
                     self.show(&format!("|U1{name}|U2: |U3")).await?;
                 }
                 self.edit_user_field(f).await?;

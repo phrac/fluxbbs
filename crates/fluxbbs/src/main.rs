@@ -61,6 +61,8 @@ mod web;
 mod nodes;
 mod pager;
 mod pdf;
+mod plain;
+mod plainmsg;
 mod profile;
 mod pushes;
 mod picture;

@@ -368,9 +368,15 @@ impl Session {
             return self.read_masked(opts.mask, opts.required).await;
         }
         let echo = self.state.config().prompts.password_echo;
+        // New: in plain text the default isn't typed in for editing (a
+        // bot's answer would be added to it): it's shown, and Enter takes it.
+        let plain_default = self.plain() && !opts.default.is_empty();
+        if plain_default {
+            self.screen.write_text(&format!("[{}] ", opts.default));
+        }
         loop {
             let mut s = String::new();
-            for c in opts.default.chars().take(opts.max) {
+            for c in opts.default.chars().take(if plain_default { 0 } else { opts.max }) {
                 s.push(c);
                 self.screen.write_str(&c.to_string());
             }
@@ -409,7 +415,10 @@ impl Session {
                     _ => {}
                 }
             }
-            let s = s.trim_end().to_string();
+            let mut s = s.trim_end().to_string();
+            if plain_default && s.is_empty() {
+                s = opts.default.chars().take(opts.max).collect();
+            }
             if !opts.required || !s.is_empty() {
                 return Ok(s);
             }
@@ -476,6 +485,9 @@ impl Session {
 
     /// `iYesNo`: a yes/no question, as a lightbar if the user prefers.
     pub async fn yes_no(&mut self, default: bool) -> io::Result<bool> {
+        if self.plain() {
+            return self.yes_no_line(default).await;
+        }
         if self.user.yes_no_bars {
             return self.yes_no_bar(default).await;
         }
@@ -492,6 +504,21 @@ impl Session {
         };
         self.show_line(if answer { &yes } else { &no }).await?;
         Ok(answer)
+    }
+
+    /// New: plain text's yes/no, answered with a line.
+    async fn yes_no_line(&mut self, default: bool) -> io::Result<bool> {
+        loop {
+            self.write(if default { " (Y/n) " } else { " (y/N) " });
+            let s = self.read_string(ReadOpts::new(3)).await?;
+            self.newline();
+            match s.to_ascii_lowercase().as_str() {
+                "" => return Ok(default),
+                "y" | "yes" => return Ok(true),
+                "n" | "no" => return Ok(false),
+                _ => {}
+            }
+        }
     }
 
     async fn yes_no_bar(&mut self, default: bool) -> io::Result<bool> {

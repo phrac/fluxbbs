@@ -804,7 +804,7 @@ impl Session {
 
     /// `oPause`: the "more" prompt, honouring the user's pause setting.
     pub async fn pause(&mut self) -> io::Result<()> {
-        if self.user.pause {
+        if self.user.pause && !self.plain() {
             let s = self.strings().get("Pause").to_string();
             self.prompt_line(&s).await?;
         }
@@ -820,6 +820,10 @@ impl Session {
     /// Show a one-line prompt, wait for a key, then erase the prompt if
     /// the SysOp wants that (`RemovePause`).
     async fn prompt_line(&mut self, prompt: &str) -> io::Result<()> {
+        // New: plain text never waits for a key.
+        if self.plain() {
+            return Ok(());
+        }
         let color = self.screen.color();
         let start = self.screen.where_x();
         // Boxed: prompts are displayed by the same engine that calls us.
@@ -858,6 +862,10 @@ impl Session {
 
     /// Display a screen whose `~XX` codes take values from `waves`.
     pub async fn show_file_with(&mut self, name: &str, waves: &Waves) -> io::Result<bool> {
+        // New: plain text shows no screens; callers fall back to text.
+        if self.plain() {
+            return Ok(false);
+        }
         let Some(data) = self.read_text_file(name).await? else {
             return Ok(false);
         };
@@ -938,6 +946,9 @@ impl Session {
     /// a digit no label goes on with starts a new number. `header` is
     /// for boards without the screens.
     pub async fn area_bar(&mut self, spec: &BarSpec<'_>) -> io::Result<BarPick> {
+        if self.plain() {
+            return self.area_bar_plain(spec).await;
+        }
         let BarSpec { prefix, header, rows, labels, start, help, ask, can_go_up, keys } = *spec;
         let mut cur = start.min(rows.len().saturating_sub(1));
         let (mut first, mut top, mut height) = (0usize, 1u16, 1usize);

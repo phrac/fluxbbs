@@ -86,7 +86,8 @@ CREATE TABLE IF NOT EXISTS users (
     fav_boards    TEXT NOT NULL DEFAULT '',
     profile_header TEXT NOT NULL DEFAULT '',
     show_real_name INTEGER NOT NULL DEFAULT 0,
-    ai_profile    TEXT NOT NULL DEFAULT ''
+    ai_profile    TEXT NOT NULL DEFAULT '',
+    text_mode     TEXT NOT NULL DEFAULT ''
 );
 -- New: a SysOp's private notes on a caller, dated, for SysOps only.
 CREATE TABLE IF NOT EXISTS user_notes (
@@ -111,7 +112,7 @@ const COLUMNS: &[&str] = &[
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
     "file_scan", "theme", "last_rep", "bank_time", "bank_kb", "bank_time_in", "bank_time_out",
     "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "last_call_at", "area_sort",
-    "fav_boards", "profile_header", "show_real_name", "ai_profile",
+    "fav_boards", "profile_header", "show_real_name", "ai_profile", "text_mode",
 ];
 
 fn write(db: &Connection, u: &User) -> anyhow::Result<()> {
@@ -145,7 +146,7 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     if !have.iter().any(|c| c == "show_real_name") {
         db.execute("ALTER TABLE users ADD COLUMN show_real_name INTEGER NOT NULL DEFAULT 0", [])?;
     }
-    for col in ["ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "area_sort", "fav_boards", "profile_header", "ai_profile"] {
+    for col in ["ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "area_sort", "fav_boards", "profile_header", "ai_profile", "text_mode"] {
         if !have.iter().any(|c| c == col) {
             db.execute(&format!("ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"), [])?;
         }
@@ -251,6 +252,7 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         profile_header: r.get::<_, String>("profile_header")?.lines().map(String::from).collect(),
         show_real_name: r.get("show_real_name")?,
         ai_profile: r.get("ai_profile")?,
+        text_mode: r.get("text_mode")?,
     })
 }
 
@@ -290,6 +292,7 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.profile_header.join("\n")),
         Box::new(u.show_real_name),
         Box::new(u.ai_profile.clone()),
+        Box::new(u.text_mode.clone()),
     ]
 }
 

@@ -23,7 +23,7 @@ const HOT_SCORE: i32 = 25;
 /// How far back the hot sort looks.
 pub const HOT_HOURS: i64 = 48;
 /// Seconds between one caller's pushes.
-const PUSH_GAP: i64 = 5;
+pub(crate) const PUSH_GAP: i64 = 5;
 
 /// A score as lists show it: `+4`, `0`, `HOT`, `X2`; blank for none.
 pub fn score_label(score: Option<i32>) -> String {
@@ -54,7 +54,7 @@ pub fn heats(recent: &[(i64, i8, NaiveDateTime)], now: NaiveDateTime) -> HashMap
 }
 
 impl Session {
-    fn may_push(&self, a: &AreaRef, m: &Message) -> bool {
+    pub(crate) fn may_push(&self, a: &AreaRef, m: &Message) -> bool {
         !a.is_email() && !m.private && self.acs(&a.area.post_acs) && !self.banned_from(a)
     }
 

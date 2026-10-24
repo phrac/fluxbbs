@@ -494,6 +494,9 @@ impl Session {
     }
 
     async fn edit_message_inner(&mut self, mut ctx: EditCtx<'_>) -> io::Result<Option<EditResult>> {
+        if self.plain() {
+            return self.plain_edit(&ctx).await;
+        }
         let mut d = Draft::new(&ctx.text);
         if ctx.auto_quote
             && let Some(r) = ctx.reply {

@@ -47,6 +47,9 @@ pub struct Screen {
     /// The text's own blink attribute (`5` until `25` or `0`), which DOS
     /// art means as a bright background.
     ice_blink: bool,
+    /// New: plain text (for bots): no colors, cursor moves or clears go
+    /// out, and a clear screen starts a new line.
+    plain: bool,
 }
 
 impl Screen {
@@ -66,6 +69,7 @@ impl Screen {
             ext_color: false,
             truecolor: false,
             ice_blink: false,
+            plain: false,
         }
         .init()
     }
@@ -101,6 +105,14 @@ impl Screen {
         }
     }
 
+    pub fn set_plain(&mut self, on: bool) {
+        self.plain = on;
+    }
+
+    pub fn plain(&self) -> bool {
+        self.plain
+    }
+
     pub fn set_rows(&mut self, rows: u16) {
         self.rows = rows.max(1);
         self.y = self.y.min(self.rows);
@@ -132,7 +144,8 @@ impl Screen {
 
     /// Bytes ready to send; clears the buffer.
     pub fn take_output(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.out)
+        let out = std::mem::take(&mut self.out);
+        if self.plain { strip_escapes(&out) } else { out }
     }
 
     /// Write CP437 bytes, which may contain ANSI escape sequences.
@@ -375,6 +388,10 @@ impl Screen {
             b'G' => self.x = n(0).min(COLUMNS),
             b'd' => self.y = n(0).min(self.rows),
             b'J' if params.first() == Some(&2) => {
+                // Plain text has no screens: a new one starts a new line.
+                if self.plain && self.x > 1 {
+                    self.raw(b"\r\n");
+                }
                 // ANSI.SYS homes the cursor on clear; VT terminals don't.
                 self.x = 1;
                 self.y = 1;
@@ -515,6 +532,30 @@ const VGA: [[u8; 3]; 16] = [
 ];
 
 /// RGB of an xterm 256-colour palette entry.
+/// Output without escape sequences or bells, for plain text.
+fn strip_escapes(b: &[u8]) -> Vec<u8> {
+    let mut out = Vec::with_capacity(b.len());
+    let mut i = 0;
+    while i < b.len() {
+        match b[i] {
+            0x1B if b.get(i + 1) == Some(&b'[') => {
+                i += 2;
+                while i < b.len() && !(0x40..=0x7E).contains(&b[i]) {
+                    i += 1;
+                }
+                i += 1;
+            }
+            0x1B => i += 2,
+            0x07 => i += 1,
+            c => {
+                out.push(c);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
 fn xterm256(n: u16) -> [u8; 3] {
     match n {
         0..=15 => VGA[([0, 4, 2, 6, 1, 5, 3, 7][(n & 7) as usize] | (n & 8)) as usize],
@@ -672,5 +713,16 @@ mod tests {
         let mut s = Screen::new(Charset::Cp437, 3);
         s.write_bytes(b"\r\n\r\n\r\n\r\n");
         assert_eq!(s.where_y(), 3);
+    }
+
+    #[test]
+    fn plain_text_has_no_escapes() {
+        let mut s = Screen::new(Charset::Utf8, 25);
+        s.set_plain(true);
+        s.set_color(Color { fore: 12, back: 0, blink: false });
+        s.write_bytes(b"\x1b[1;31mhi\x07\x1b[5;10H there");
+        s.goto(3, 4);
+        s.write_bytes(b"\x1b[2Jnext");
+        assert_eq!(s.take_output(), b"hi there\r\nnext");
     }
 }

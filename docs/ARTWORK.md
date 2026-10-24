@@ -311,6 +311,7 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 | `~P?` | how many SSH keys are on file | `~PK` (key `k`) |
 | `~Q?` | the plan's lines | `~QP` |
 | `~R?` | the time zone | `~RZ` |
+| `~S?` | text mode: plain text or ANSI (`auto` follows flag B) | `~SB` |
 
 The second character is the field's key.
 

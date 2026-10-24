@@ -80,23 +80,23 @@ pub fn branches(depths: &[usize]) -> Vec<String> {
 
 /// One area as a caller sees it: the messages they may read, and what
 /// they've read.
-struct AreaView {
-    msgs: Vec<Message>,
+pub(crate) struct AreaView {
+    pub(crate) msgs: Vec<Message>,
     lastread: u32,
     seen: HashSet<i64>,
 }
 
 impl AreaView {
-    fn is_new(&self, m: &Message) -> bool {
+    pub(crate) fn is_new(&self, m: &Message) -> bool {
         m.num > self.lastread && !self.seen.contains(&m.id)
     }
 
-    fn new_count(&self) -> usize {
+    pub(crate) fn new_count(&self) -> usize {
         self.msgs.iter().filter(|m| self.is_new(m)).count()
     }
 
     /// The new messages, a thread at a time.
-    fn new_in_thread_order(&self) -> Vec<i64> {
+    pub(crate) fn new_in_thread_order(&self) -> Vec<i64> {
         let by_id = self.by_id();
         threads(&self.msgs).iter().flat_map(|t| t.msgs.iter().map(|&(n, _)| n)).filter(|&n| self_new(self, &by_id, n)).collect()
     }
@@ -169,7 +169,7 @@ enum ReadEnd {
 }
 
 impl Session {
-    fn area_view(&self, a: &AreaRef) -> io::Result<AreaView> {
+    pub(crate) fn area_view(&self, a: &AreaRef) -> io::Result<AreaView> {
         let msgs = self.state.msgs.all(a.key()).map_err(io_err)?.into_iter().filter(|m| self.ok_to_read(a, m)).collect();
         Ok(AreaView {
             msgs,
@@ -222,7 +222,7 @@ impl Session {
     }
 
     /// [`Self::readable_areas`] less those taken out of newscans (`ME`).
-    fn scanned_areas(&self) -> Vec<(u32, AreaRef)> {
+    pub(crate) fn scanned_areas(&self) -> Vec<(u32, AreaRef)> {
         let off = self.scan_off('M');
         self.readable_areas().into_iter().filter(|(_, a)| !off.contains(a.key())).collect()
     }
@@ -295,6 +295,9 @@ impl Session {
     /// messages, `~LP` and `~LD` the latest post's author and date, `~SP`
     /// sponsor, the SysOp's handle for "SysOp").
     pub async fn msg_center(&mut self) -> io::Result<()> {
+        if self.plain() {
+            return self.plain_boards().await;
+        }
         // New: the folders opened on the way down (areas with sub-areas),
         // and the one just come back up from, for the bar.
         let mut path: Vec<u32> = Vec::new();
@@ -1739,7 +1742,7 @@ impl Session {
 
     /// The text as the reader shows it: quotes and tear lines coloured,
     /// long plain lines wrapped to the screen.
-    fn reader_lines(&self, a: &AreaRef, m: &Message) -> Vec<String> {
+    pub(crate) fn reader_lines(&self, a: &AreaRef, m: &Message) -> Vec<String> {
         let mut out = Vec::new();
         if m.anonymous && (self.is_sponsor(a) || self.is_cosysop()) {
             out.push(format!("|U5Anonymous message by: |U4{} |U5[{}]", m.from.alias, m.from.real_name));
@@ -1798,7 +1801,7 @@ impl Session {
         out
     }
 
-    fn reader_line(&mut self, l: &str) {
+    pub(crate) fn reader_line(&mut self, l: &str) {
         if l.contains('\x1b') {
             self.screen.write_bytes(&crate::editor::ansi_bytes(l));
         } else {
