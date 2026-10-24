@@ -1,9 +1,9 @@
-[0m[24CiNiQUiTY MicroDOS Command Help
+[0m[24Cflux/bbs MicroDOS Command Help
 [30C[1;30m(Temporary Version)[0m
 [1mMicroDOS Commands[30m:[0m
 
 [5C[1mHELP[0m[7CDisplay this help screen
-[5C[1mEXIT[0m[7CExit iNiQUiTY's DOS emulator
+[5C[1mEXIT[0m[7CExit flux/bbs's DOS emulator
 [5C[1mDEL [0mx[6CDelete file(s)
 [5C[1mTYPE [0mx[5CDisplay a text file
 [5C[1mREN [0mx[6CRename a file

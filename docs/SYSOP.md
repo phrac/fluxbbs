@@ -22,6 +22,7 @@ passes a short bot check: type the three characters shown.
 | `data/` | SSH host keys (Ed25519, ECDSA and RSA), made on first run |
 | `data/fluxbbs.db` | the database |
 | `files/` | uploaded files |
+| `backups/` | [backups](#backups), if you make them |
 
 Neither the database nor the uploads are in git. Boards from before the
 rename keep `iniquity.toml` and `data/iniquity.db`, and still work.
@@ -38,6 +39,42 @@ rename keep `iniquity.toml` and `data/iniquity.db`, and still work.
 | `fluxbbs pack-files [CONFIG]` | forgets files that are gone from their area's directory |
 | `fluxbbs textfiles fetch DIR`, `import CONFIG` | the textfiles.com archive as file areas ([FILES.md](FILES.md#the-textfilescom-archive)) |
 | `fluxbbs ftn poll [NET]\|toss\|scan\|areafix ...` | FTN mail jobs by hand ([FEATURES.md](FEATURES.md#ftn-echomail)) |
+| `fluxbbs backup [DAYS] [DIR] [CONFIG]` | a [backup](#backups) now, with the board running or not |
+
+## Backups
+
+A backup is one file, `fluxbbs-YYYY-MM-DD-HHMM.tar.gz`, in `backups/`
+(or DIR). It holds everything in the board's directory a restore needs:
+
+- the database, snapshotted (SQLite's `VACUUM INTO`), so the board
+  needn't stop;
+- the settings (`*.toml`), the board's own screens, menus and themes;
+- door games' data and the SSH host keys (so callers' clients don't
+  warn of a changed key).
+
+Left out: the file areas' folders and the folders holding them (uploads
+are too big to copy nightly; copy `files/` elsewhere yourself), the
+temporary and cache folders, other backups, and `.bak` copies. Backups older than DAYS days (7 if not
+given) are removed.
+
+Make one each night with an event (`*V`):
+
+```toml
+[[event]]
+desc = "Nightly backup"
+time = "03:30"
+run_missed = true
+command = "backup 7"
+```
+
+`backup 30 /mnt/nas/bbs` keeps a month's on another disk. A backup on
+the board's own disk guards against mistakes and a damaged database,
+not against losing the disk: copy `backups/` somewhere else too.
+
+To restore: stop the board, unpack the backup over the board's
+directory (or into an empty one, with `files/` copied in), and start it:
+
+    tar xzf backups/fluxbbs-2026-10-24-0330.tar.gz -C /path/to/board
 
 ## Running in a container
 

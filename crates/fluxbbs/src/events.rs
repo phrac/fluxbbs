@@ -4,10 +4,10 @@
 //! through DOS, and could take the modem off the hook meanwhile. Here one
 //! scheduler in the server runs them (so there's no per-node setting, and
 //! no modem), and what each last ran is kept in the database. A command
-//! is run through the shell, except the built-in jobs `pack-messages`
-//! and `pack-files`, which run inside the server: a second program
-//! packing the same database while the board runs would fight it for
-//! locks; and `dos COMMAND`, which runs a DOS program in the built-in
+//! is run through the shell, except the built-in jobs `pack-messages`,
+//! `pack-files` and `backup` (new, see `backup.rs`), which run inside the
+//! server: a second program packing the same database while the board
+//! runs would fight it for locks; and `dos COMMAND`, which runs a DOS program in the built-in
 //! machine (a door's nightly maintenance). `force` still disconnects everyone first, for jobs that want
 //! the board to themselves.
 
@@ -42,7 +42,8 @@ pub struct Event {
     /// If the BBS was down at the time, run it when it's back (that day).
     #[serde(default)]
     pub run_missed: bool,
-    /// A shell command, `pack-messages` / `pack-files`, or `dos COMMAND`.
+    /// A shell command, `pack-messages` / `pack-files` / `backup [DAYS]
+    /// [DIR]`, or `dos COMMAND`.
     pub command: String,
 }
 
@@ -61,9 +62,9 @@ impl Events {
     pub fn to_toml(&self) -> String {
         format!(
             "# Events: jobs run once a day at `time` (HH:MM). `command` goes to the\n\
-             # shell (in the BBS directory), except the built-in jobs pack-messages\n\
-             # and pack-files, and `dos COMMAND` (a DOS program or batch file in the\n\
-             # built-in machine). `force` disconnects callers first; `run_missed`\n\
+             # shell (in the BBS directory), except the built-in jobs pack-messages,\n\
+             # pack-files and `backup [DAYS] [DIR]`, and `dos COMMAND` (a DOS program\n\
+             # or batch file in the built-in machine). `force` disconnects callers first; `run_missed`\n\
              # runs an event the BBS was down for, when it's back up the same day.\n\n{}",
             toml::to_string_pretty(self).expect("events serialize")
         )
@@ -139,7 +140,7 @@ pub async fn run(state: Arc<BbsState>, e: Event) {
     }
 }
 
-async fn run_command(state: &BbsState, cmd: &str) -> anyhow::Result<()> {
+async fn run_command(state: &Arc<BbsState>, cmd: &str) -> anyhow::Result<()> {
     match cmd.trim() {
         "" => Ok(()),
         "pack-messages" => {
@@ -168,6 +169,13 @@ async fn run_command(state: &BbsState, cmd: &str) -> anyhow::Result<()> {
             Ok(())
         }
         dos if dos.starts_with("dos ") => crate::doors::run_dos_event(state, dos[4..].trim()).await,
+        b if b == "backup" || b.starts_with("backup ") => {
+            let (days, dir) = crate::backup::parse(&b.split_whitespace().skip(1).collect::<Vec<_>>())?;
+            // The snapshot and the archive are file work: off the async threads.
+            let state = state.clone();
+            tokio::task::spawn_blocking(move || crate::backup::run(&state, days, dir.as_deref())).await??;
+            Ok(())
+        }
         shell => {
             let dir = state.config().resolve(Path::new("."));
             let out = tokio::process::Command::new("sh")
@@ -254,7 +262,7 @@ impl Session {
             f.item('C', "Time", 5, &e.time, "When to run it each day [format: HH:MM, 24-hour].");
             f.item('D', "Force callers off", 3, yes_no(e.force), "Disconnect everyone before it runs?");
             f.item('E', "Run if missed", 3, yes_no(e.run_missed), "If the BBS was down at the time, run it when it's back that day?");
-            f.item('F', "Command", 53, &e.command, "Shell command, run in the BBS directory; pack-messages / pack-files; or dos COMMAND.");
+            f.item('F', "Command", 53, &e.command, "Shell command in the BBS directory; pack-messages, pack-files, backup [days] [dir]; dos COMMAND.");
             f.item('!', "Run it now", 0, "", "");
             f.item('[', "Previous event", 0, "", "");
             f.item(']', "Next event", 0, "", "");

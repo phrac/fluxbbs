@@ -570,6 +570,7 @@ An event's command goes to the shell, or is one of the built-in jobs:
 |---|---|
 | `pack-messages` | packs the message areas |
 | `pack-files` | packs the file areas |
+| `backup [DAYS] [DIR]` | backs up the database and settings, keeping DAYS days (new; [SYSOP](SYSOP.md#backups)) |
 | `dos COMMAND` | runs a DOS program or batch file in the built-in machine, for a door's maintenance |
 
 Options:

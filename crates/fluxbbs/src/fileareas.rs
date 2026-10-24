@@ -102,7 +102,7 @@ impl Default for FileAreas {
         Self {
             confs: vec![Conf { key: 'X', desc: "New File Conference".into(), acs: String::new() }],
             areas: vec![FileArea {
-                name: "New Iniquity file area".into(),
+                name: "New file area".into(),
                 file: "NEWAREA".into(),
                 path: "files/newarea".into(),
                 sponsor: "SysOp".into(),

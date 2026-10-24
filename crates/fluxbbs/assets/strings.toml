@@ -1,5 +1,5 @@
-# Iniquity prompt strings (STRINGS.DAT). Names are the original
-# str* constants; r5 additions without one are numbered.
+# flux/bbs prompt strings, from Iniquity's STRINGS.DAT. Names are the
+# original str* constants; r5 additions without one are numbered.
 
 DetectEmu = "|CS( detecting emulation )"
 DetectNone = "|CS( failed detection )"

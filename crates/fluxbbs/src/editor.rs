@@ -604,7 +604,7 @@ impl Session {
         };
         let posted = self.local(ctx.date);
         let date = posted.format("%m/%d/%y").to_string();
-        let time = posted.format("%-I:%M%P").to_string();
+        let time = posted.format("%H:%M").to_string();
         if header {
             for (code, val) in [(*b"MT", &ctx.subject), (*b"SN", &ctx.from), (*b"RN", &ctx.to), (*b"DT", &date), (*b"TI", &time)] {
                 if self.goto_pos(code) {

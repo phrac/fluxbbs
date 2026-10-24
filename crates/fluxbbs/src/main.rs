@@ -11,6 +11,7 @@ mod clock;
 mod aiboard;
 mod aichat;
 mod aimemory;
+mod backup;
 mod tarot;
 mod tarotart;
 mod links;
@@ -516,6 +517,16 @@ async fn main() -> anyhow::Result<()> {
     }
     if args.first().is_some_and(|a| a == "ftn") {
         return ftn_command(&args[1..]).await;
+    }
+    // New: `fluxbbs backup [DAYS] [DIR] [config]`.
+    if args.first().is_some_and(|a| a == "backup") {
+        let (path, rest): (PathBuf, &[String]) = match args[1..].split_last() {
+            Some((last, rest)) if last.ends_with(".toml") => (last.into(), rest),
+            _ => (config::default_path(), &args[1..]),
+        };
+        let (days, dir) = backup::parse(&rest.iter().map(String::as_str).collect::<Vec<_>>())?;
+        println!("{}", backup::run(&*load_state(&path)?, days, dir.as_deref())?.display());
+        return Ok(());
     }
     if args.first().is_some_and(|a| a == "textfiles") {
         return textfiles::from_args(&args[1..]).await;

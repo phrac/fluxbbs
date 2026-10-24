@@ -97,8 +97,8 @@ pub fn substitute(s: &str, args: &[&str]) -> String {
 /// Write a string table as TOML, one `Name = "text"` per line, in order.
 pub fn to_toml(entries: &[(String, String)]) -> String {
     let mut out = String::from(
-        "# Iniquity prompt strings (STRINGS.DAT). Names are the original\n\
-         # str* constants; r5 additions without one are numbered.\n\n",
+        "# flux/bbs prompt strings, from Iniquity's STRINGS.DAT. Names are the\n\
+         # original str* constants; r5 additions without one are numbered.\n\n",
     );
     for (name, text) in entries {
         out.push_str(&format!("{name} = {}\n", toml::Value::String(text.clone())));

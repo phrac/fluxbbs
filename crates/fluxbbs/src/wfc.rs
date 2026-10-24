@@ -35,17 +35,17 @@ const SCREEN: &[u8; 4000] = include_bytes!("../assets/wfc.bin");
 
 /// `WFCCom`: six pages of eight commands (F1-F8).
 const WFC_COM: [[&str; 8]; 6] = [
-    ["local logon", "exit iniquity", "jump to shell", "---", "---", "---", "---", "---"],
+    ["local logon", "exit flux/bbs", "jump to shell", "---", "---", "---", "---", "---"],
     ["system config", "---", "string editor", "menu editor", "---", "msgarea editor", "pack msgareas", "level editor"],
     ["protocol cfg", "user editor", "launch menu", "read email", "view mailbox", "enter email", "filearea edit", "edit textfile"],
     ["archiver setup", "file conf edit", "msg conf edit", "sort all files", "stat editor", "bbslist editor", "event editor", "textfile libs"],
     ["edit infoforms", "---", "---", "---", "---", "---", "---", "---"],
-    ["system info", "---", "system totals", "today's stats", "last callers", "---", "---", "iniquity info"],
+    ["system info", "---", "system totals", "today's stats", "last callers", "---", "---", "flux/bbs info"],
 ];
 
 /// Stats titles (`Ttl`), by page number.
 const STAT_TITLE: [&str; 8] =
-    ["system information", "", "system statistics", "today's statistics", "last four callers", "", "", "iniquity information"];
+    ["system information", "", "system statistics", "today's statistics", "last four callers", "", "", "flux/bbs information"];
 
 // Where things are on the screen (1-based).
 const MENU_X: u16 = 3;
@@ -538,9 +538,9 @@ impl Wfc {
             _ => {
                 let centre = |s: &str| format!("{}{s}", " ".repeat(47usize.saturating_sub(s.chars().count()) / 2));
                 let telnet = if cfg.telnet.enabled { format!(", telnet {}", cfg.telnet.listen) } else { String::new() };
-                self.out.at(sx, sy, &centre("The Iniquity Bulletin Board System"), COL_HI);
-                self.out.at(sx, sy + 1, &centre("(c)Copyright 1994-1997, Mike Fricker"), COL_LO);
-                self.out.at(sx, sy + 2, &centre(&format!("Version: 1.00a26r5 ≡ Rust port {}", env!("CARGO_PKG_VERSION"))), COL_LO);
+                self.out.at(sx, sy, &centre(&format!("flux/bbs {}", env!("CARGO_PKG_VERSION"))), COL_HI);
+                self.out.at(sx, sy + 1, &centre("after Iniquity 1.00a26r5,"), COL_LO);
+                self.out.at(sx, sy + 2, &centre("(c)Copyright 1994-1997, Mike Fricker"), COL_LO);
                 self.out.at(sx, sy + 3, &centre(&squish(&format!("ssh {}{telnet}", cfg.ssh.listen), 47)), COL_LO);
             }
         }
@@ -646,7 +646,7 @@ impl Wfc {
         self.paused.store(true, Ordering::Relaxed);
         tokio::time::sleep(Duration::from_millis(150)).await;
         self.out.0.push_str("\x1b[0m\x1b[2J\x1b[H\x1b[?25h\x1b[?1049l");
-        self.out.0.push_str("Type 'exit' to return to Iniquity.\r\n");
+        self.out.0.push_str("Type 'exit' to return to flux/bbs.\r\n");
         self.out.flush();
         restore_mode(&self.saved);
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/sh".into());

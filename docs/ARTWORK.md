@@ -345,6 +345,23 @@ The stock BBS list screens are relabeled for telnet and SSH.
 
 Older screens' `~PN` shows the telnet address.
 
+### Message editor
+
+`FSEDITOR`, the full-screen editor's frame. Each value is written at
+its marker, in the marker's color.
+
+| Marker | Is |
+|---|---|
+| `~RN` / `~SN` | to / from |
+| `~MT` | the title |
+| `~DT` / `~TI` | date / time (24-hour) |
+| `~AN` / `~AS` | anonymous (`Yes`/`No`) / autosig (`On`/`Off`) |
+| `~TL` | the text's first row; its color is quoted lines' |
+| `~BL` | the text's last row; its color is the typed text's |
+| `~SL` | the row for prompts and hints (else the first text row) |
+| `~CM` | where the command key is typed (else a prompt asks) |
+| `~LN` / `~CN` / `~IN` | line, column, insert mode (`On`/`Off`) |
+
 ### Chat
 
 | Screen | Markers |

@@ -96,7 +96,8 @@ git: copy `data/` and `files/` across if the board should move with you.
   lightbar menus `art/mainmenu-gen.py` writes beside each menu screen). Many of
   its screens are generated from their art by `art/*-gen.py` (menus,
   lists including last callers, USERSTAT, USERCFG, BOTCHECK, PRELOGON, MATRIX,
-  WELCOME, AICHAT;
+  WELCOME, AICHAT, NODECHAT, FSEDITOR and FSHELP (the message editor, in
+  the main menu's pink);
   each says how to run it):
   change the script and rerun it rather than editing the `.ANS`.
   Board settings go there, not in the repo's `fluxbbs.toml`: handles
@@ -211,6 +212,12 @@ Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
   window adjusts ever come from SyncTERM. `flush` now logs "output
   stalled" after 10 s; `RUST_LOG=info,russh=debug docker compose ... up
   -d` shows the packets. Ask the SyncTERM version; try telnet.
+
+Backups (24 Oct 2026): a nightly event (`backup 7`, 03:30) writes
+`~/code/disflux_bbs/backups/fluxbbs-*.tar.gz` (database snapshot,
+settings, screens, door data, host keys; not `files/`), keeping 7 days.
+`fluxbbs backup` makes one by hand; restoring is in docs/SYSOP.md.
+Nothing copies them off rzn yet.
 
 ## textfiles.com, 22 Oct 2026
 

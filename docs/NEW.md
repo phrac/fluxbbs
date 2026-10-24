@@ -330,6 +330,10 @@ All in [DOORS](DOORS.md).
   skip the rest.
 - `*V` events run by the server's own scheduler, with built-in pack
   jobs.
+- Backups: the database (snapshotted while the board runs), settings,
+  screens, door data and host keys in one file, nightly as an event
+  (`backup`) or by hand (`fluxbbs backup`), old ones removed.
+  ([SYSOP](SYSOP.md#backups))
 - `*G` security: bans and recent failures, and lifting a ban.
 - `*F` as a bar list in tree order (see [Files](#files)).
 - `*U`'s flags field explains each flag (see
@@ -536,6 +540,9 @@ Where the original's behavior was a hazard or no longer fits.
 - Caller numbers don't repeat when two nodes log on at once.
 - Events are one scheduler in the server, not per node.
 - No modem off-hook.
+- The stock screens, themes and menus say flux/bbs where they said
+  Iniquity, but for the original's copyright line (PRELOGON.AN2) and
+  the credit on the wait-for-call screen.
 
 ## From 2.0 and 2.20
 

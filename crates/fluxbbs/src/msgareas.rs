@@ -142,7 +142,7 @@ impl Default for MsgAreas {
                 anonymous: false,
                 ..MsgArea::new("Private Mail Message Area", "EMAIL")
             },
-            areas: vec![MsgArea::new("New Iniquity Message Area", "NEWAREA")],
+            areas: vec![MsgArea::new("New Message Area", "NEWAREA")],
         }
     }
 }

@@ -44,7 +44,7 @@ pub(crate) fn unused_key<'a>(used: impl Iterator<Item = &'a str> + Clone, base: 
 fn new_file_area(areas: &FileAreas) -> FileArea {
     let file = unused_key(areas.areas.iter().map(|a| a.file.as_str()), "NEWAREA");
     FileArea {
-        name: "New Iniquity file area".into(),
+        name: "New file area".into(),
         path: format!("files/{}", file.to_ascii_lowercase()).into(),
         file,
         sponsor: "SysOp".into(),
@@ -363,7 +363,7 @@ impl Session {
                 _ => {
                     let fresh = |list: &[MsgArea]| {
                         let used = list.iter().map(|a| a.file.as_str()).chain(std::iter::once(areas.email.file.as_str()));
-                        MsgArea::new("New Iniquity Message Area", &unused_key(used, "NEWAREA"))
+                        MsgArea::new("New Message Area", &unused_key(used, "NEWAREA"))
                     };
                     let mut list = areas.areas.clone();
                     if self.list_change(&mut list, cmd, "message area", fresh).await? {
