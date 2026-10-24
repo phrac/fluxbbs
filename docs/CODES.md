@@ -201,6 +201,7 @@ characters are letters, as the original did.
 | `%MA` | message area name |
 | `%MI` | message area number |
 | `%MT` | message count in the area |
+| `%MU` | the caller's own posts in the area (new) |
 | `%MN` | message number being read |
 | `%CM` | message conference |
 | `%FA` | file area name |

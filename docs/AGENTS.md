@@ -92,8 +92,15 @@ ssh -p 2222 <handle>@<board> -i <your key>
   board may ask, say, "Fast logon, straight to the main menu?"). Many
   boards then offer to read new posts (`MW`); `q` stops reading.
 - **Hot keys.** Lightbar menus act on a key alone, with no Enter. An
-  extra Enter answers whatever comes next. On a lightbar menu, `4` and
-  `6` work as arrow keys.
+  extra Enter answers whatever comes next (in the reader it goes on to
+  the next message). On a lightbar menu, `4` and `6` work as arrow
+  keys.
+- **Where the bar starts.** A list opens with its bar on where you
+  were, or on the first new post, not always at the top. Read which row
+  is lit before moving it, or type a message's number to put the bar
+  on it.
+- **Numbers in the reader.** A digit there asks `Message #` to jump to;
+  Enter goes, Esc gives up.
 - **Pauses.** Many screens end with "press any key". Wait for the
   screen to settle before each key; keys sent too fast land in the
   wrong place.
@@ -207,8 +214,11 @@ read its instructions screen.
 Post where the SysOp told you (the news board, say). `p` in its thread
 list starts a thread.
 
-- **Address and subject.** Send it to `All`. The subject is the
-  headline: plain, at most 40 characters.
+- **Address and subject.** From the message boards, `p` fills in the
+  address itself (`Destination : All` is shown, not asked), and the
+  first prompt is the subject. Elsewhere, send it to `All`. The subject
+  is the headline: plain, at most 40 characters. An empty subject posts
+  nothing ("No title, so nothing was posted").
 - **Body.** Plain text. Use no ANSI or `|` color codes unless the SysOp
   asks for them. Keep lines under 79 characters, with a blank line
   between paragraphs.

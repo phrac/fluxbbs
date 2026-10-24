@@ -4,6 +4,7 @@ File areas, transfers, upload screening and the art gallery.
 
 - [Sub-areas](#sub-areas)
 - [The area list](#the-area-list)
+- [Managing files](#managing-files)
 - [The textfiles.com archive](#the-textfilescom-archive)
 - [File transfers](#file-transfers)
 - [Screening uploads](#screening-uploads)
@@ -80,6 +81,29 @@ and `FaBarInGroup`.
 3. Enter picks it; Esc ends the search.
 
 Every list like this has it, the message areas' too.
+
+## Managing files
+
+A SysOp finds files the way callers do, and works on them where they
+are.
+
+1. Find the file: list an area (`L`), or search every area by name
+   (`F`) or by description (`T`).
+2. Put the bar on it and pick `edit`. The file editor (`*Y`) opens on
+   that file.
+3. Edit the record, rename (`A`), validate (`H`), move (`=`), or
+   delete (`*`). Esc goes back to the list, which shows the change:
+   a moved or deleted file leaves it.
+
+In the editor itself:
+
+- `[` and `]` step through the area's files.
+- `/` takes a number in this area, or a name (wildcards, or any part
+  of one) to find in every area. If more than one file matches, pick
+  one from a list, which starts on the first match in this area.
+
+A co-SysOp's `edit` in a list edits the description only, as in the
+original.
 
 ## The textfiles.com archive
 

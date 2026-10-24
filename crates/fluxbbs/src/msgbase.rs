@@ -919,6 +919,20 @@ impl MsgBase {
         Ok(rows)
     }
 
+    /// New: how many comments each message in an area has.
+    pub fn comment_counts(&self, area: &str) -> anyhow::Result<std::collections::HashMap<i64, u32>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT p.msg_id, COUNT(*) FROM pushes p JOIN messages m ON m.id = p.msg_id WHERE m.area = ?1 AND p.kind = 0 GROUP BY p.msg_id")?;
+        let rows = stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// New: how many messages a caller has in an area.
+    pub fn count_from(&self, area: &str, user_id: u32) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT COUNT(*) FROM messages WHERE area = ?1 AND from_id = ?2 AND deleted = 0", params![area, user_id], |r| r.get(0))?)
+    }
+
     /// New: the messages a moderator has pinned in an area.
     pub fn pinned(&self, area: &str) -> anyhow::Result<std::collections::HashSet<i64>> {
         let db = self.db.lock().unwrap();

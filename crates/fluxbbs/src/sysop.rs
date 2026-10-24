@@ -15,12 +15,14 @@ use crate::fileareas::{FileArea, FileAreas, SortBy, children_of};
 use crate::msgareas::{Conf, MsgArea, MsgAreas};
 use crate::filebase::{FileRec, wildcard};
 use crate::files::{FAreaRef, commas, is_zip};
-use crate::session::{BarPick, BarRow, BarSpec, Session, Waves};
+use crate::session::{BarPick, BarRow, BarSpec, Session, Waves, waves};
 use crate::transfer::safe_name;
 use crate::user::{fmt_date, parse_date};
 
 /// Description lines shown under the file editor (`faLoadDesc` showed 6).
 const DESC_SHOWN: usize = 6;
+/// Most files the file editor's `/` lists.
+const FIND_MAX: usize = 300;
 
 /// The heading over the file areas `fa_rows` lists.
 const FA_HEADER: &str = " Num  Area                                   Key       Files  ACS / ul / dl";
@@ -984,11 +986,20 @@ impl Session {
         if count == 0 {
             return self.show_line(&format!("|U1There are no files in |U3{}|U1.", area.area.name)).await;
         }
+        let cur = param.trim().parse::<u32>().unwrap_or(1);
+        self.file_editor_at(area, cur).await.map(|_| ())
+    }
+
+    /// The file editor on one file (`*Y`, and new: a SysOp's `edit` in
+    /// the file lists). `/` finds a file by name in any area. Returns the
+    /// renames made, as (area, old name, new name), for a list to follow.
+    pub(crate) async fn file_editor_at(&mut self, mut area: FAreaRef, start: u32) -> io::Result<Vec<(String, String, String)>> {
+        let mut renamed = Vec::new();
         if !self.clear_batch_ok().await? {
-            return Ok(());
+            return Ok(renamed);
         }
         tracing::info!("{}: file edit in {}", self.user.handle, area.area.name);
-        let mut cur = param.trim().parse::<u32>().unwrap_or(1).clamp(1, count);
+        let mut cur = start.max(1);
         let mut note = String::new();
         'files: loop {
             let a = area.area.clone();
@@ -1004,8 +1015,8 @@ impl Session {
             f.value_col(25);
             let missing = if exists { "" } else { " |U2(|U1does |U3not|U1 exist|U2)" };
             f.item('/', "Current file #", 30, format!("{cur} of {total}{missing}"), "");
-            f.item_beside(40, '[', "Prev", 0, "", "");
-            f.item_beside(60, ']', "Next", 0, "", "");
+            f.item_beside(58, '[', "Prev", 0, "", "");
+            f.item_beside(69, ']', "Next", 0, "", "");
             f.item('A', "Filename", 40, &fr.name, "Filename; the file itself is renamed too.");
             f.item('B', "Size", 12, fr.size.to_string(), "Size of this file in bytes (should not normally be altered).");
             f.item('C', "Date", 8, fmt_date(fr.date), "File's date [mm/dd/yy].");
@@ -1044,17 +1055,20 @@ impl Session {
                         continue 'files;
                     }
                     '/' => {
-                        let want = self.cfg_read_info(&mut f, "File to edit (name/number): ", 13).await?.to_ascii_uppercase();
+                        let want = self.cfg_read_info(&mut f, "File to edit (number here, or name anywhere): ", 40).await?;
+                        let want = want.trim().to_string();
                         if want.is_empty() {
                             continue;
                         }
                         match want.parse::<u32>() {
                             Ok(n) if (1..=total).contains(&n) => cur = n,
                             _ => {
-                                let list = self.state.files.list(&a.file).map_err(io_err)?;
-                                match list.iter().find(|r| wildcard(&want, &r.name) || r.name.to_ascii_uppercase().contains(&want)) {
-                                    Some(r) => cur = r.num,
-                                    None => note = format!("No file matching {want}."),
+                                let found = self.files_named(&want)?;
+                                if found.is_empty() {
+                                    note = format!("No file matching {want}.");
+                                } else if let Some((to, r)) = self.pick_file_to_edit(&found, &a.file).await? {
+                                    area = to;
+                                    cur = r.num;
                                 }
                             }
                         }
@@ -1075,6 +1089,7 @@ impl Session {
                         if old.is_file() {
                             std::fs::rename(&old, &new)?;
                         }
+                        renamed.push((a.file.clone(), fr.name.clone(), name.clone()));
                         fr.name = name;
                         self.cfg_set(&mut f, key, &fr.name);
                     }
@@ -1176,7 +1191,47 @@ impl Session {
         }
         self.screen.goto(1, self.screen.rows());
         self.newline();
-        Ok(())
+        Ok(renamed)
+    }
+
+    /// Files in any area whose names match (wildcards, or any part of
+    /// one), with their areas.
+    fn files_named(&self, want: &str) -> io::Result<Vec<(FAreaRef, FileRec)>> {
+        let areas: Vec<FAreaRef> = (1..=self.state.fareas().areas.len() as u32).filter_map(|n| self.farea(n)).collect();
+        let keys: Vec<String> = areas.iter().map(|a| a.area.file.clone()).collect();
+        let spec = if want.contains(['*', '?']) { want.to_string() } else { format!("*{want}*") };
+        let mut found = self.state.files.search(&keys, Some(&spec), None).map_err(io_err)?;
+        found.truncate(FIND_MAX);
+        Ok(found
+            .into_iter()
+            .filter_map(|f| areas.iter().find(|a| a.area.file.eq_ignore_ascii_case(&f.area)).map(|a| (a.clone(), f)))
+            .collect())
+    }
+
+    /// One of the files `/` found: the only one, or picked from a
+    /// lightbar (CFGFILE TOP/MID/HIL/BOT, else plain), starting on the
+    /// first in the area being edited.
+    async fn pick_file_to_edit(&mut self, found: &[(FAreaRef, FileRec)], here: &str) -> io::Result<Option<(FAreaRef, FileRec)>> {
+        if let [one] = found {
+            return Ok(Some(one.clone()));
+        }
+        let line = |name: &str, size: &str, area: &str| format!("  {} {} {}", resize(name, 30), resize(size, 13), resize(area, 32));
+        let rows: Vec<BarRow> = found
+            .iter()
+            .enumerate()
+            .map(|(i, (a, f))| {
+                let w = waves([("FN", f.name.clone()), ("SZ", commas(f.size)), ("AT", a.area.name.clone())]);
+                BarRow { n: i as u32, waves: w, plain: line(&f.name, &commas(f.size), &a.area.name) }
+            })
+            .collect();
+        let start = found.iter().position(|(_, f)| f.area.eq_ignore_ascii_case(here)).unwrap_or(0);
+        let header = line("File", "Size", "Area");
+        let help = format!("|U1 {} found. Arrows move, |U3enter|U1 edits, |U3esc|U1 cancels.", found.len());
+        let spec = BarSpec { prefix: "CFGFILE", header: &header, rows: &rows, labels: &[], start, help: &help, ask: "", can_go_up: false, keys: "" };
+        Ok(match self.area_bar(&spec).await? {
+            BarPick::Area(i) => found.get(i as usize).cloned(),
+            _ => None,
+        })
     }
 
     /// `+` for formats other than ZIP: the archiver's add command.

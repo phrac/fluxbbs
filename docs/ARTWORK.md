@@ -297,7 +297,7 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 | Screens | Markers |
 |---|---|
 | `MHUB` (the boards) | `~AN` number, `~AT` board, `~DE` what it's for, `~RD` reading now, `~NW` new, `~NM` messages, `~LP` / `~LD` the latest post's author and date, `~SP` sponsor (moderator) |
-| `MTHRD` (a board's threads) | `~MN` number, `~MK` `*` if new, `~MT` subject (`[filled] ` in front of a filled request), `~FL` `open`/`filled` on a request board, `~SN` started by, `~RP` replies, `~SC` score from votes, `~NW` new, `~DS` day (mm/dd), `~DT` / `~TI` latest post |
+| `MTHRD` (a board's threads) | `~MN` number, `~MK` `*` if new, `~MT` subject (`[filled] ` in front of a filled request), `~FL` `open`/`filled` on a request board, `~SN` started by, `~RP` replies and comments, `~SC` score from votes, `~NW` new, `~DS` day (mm/dd), `~DT` / `~TI` latest post |
 | `MTREE` (a thread's tree) | `~MN` number, `~MK` `*` if new, `~TR` the tree's lines, `~SN` author, `~TS` lines and author together, `~RT` who it answers, `~MT` subject, `~FL` as above, `~BL` first words, `~TX` the subject where it changes, else the first words, `~SC` score, `~DS` day, `~DT` / `~TI` date and time |
 | `MHOT` (the Hot list) | `~AT` board, `~MK` `*` if new, `~MT` subject, `~SN` started by, `~SC` score, `~NW` new, `~DS` / `~DT` latest day and date |
 

@@ -496,7 +496,7 @@ The `*` commands on the SysOp menu:
 | `*L` | access levels |
 | `*U` | users, with colors, preferences, auto-signature and infoforms |
 | `*F` | file areas |
-| `*Y` | files: validate, move, extract or apply DIZ |
+| `*Y` | files: validate, rename, move, delete, extract or apply DIZ; `/` finds a file in any area, and `edit` in a file list opens it ([FILES](FILES.md#managing-files)) |
 | `*S` | sort areas |
 | `*>` | download any file |
 | `*%` | local upload |

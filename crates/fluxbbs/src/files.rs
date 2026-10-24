@@ -1004,11 +1004,13 @@ impl Session {
 
     /// `faListFiles`: browse files with the LISTFILE screen. Returns false
     /// if the caller quit (ending a multi-area scan).
-    pub async fn file_lister(&mut self, a: &FAreaRef, files: &[FileRec], skip_ok: bool) -> io::Result<bool> {
+    pub async fn file_lister(&mut self, a: &FAreaRef, listed: &[FileRec], skip_ok: bool) -> io::Result<bool> {
         self.full_screen_done();
-        if files.is_empty() {
+        if listed.is_empty() {
             return Ok(true);
         }
+        // A SysOp's edits change the files under the list.
+        let mut files = listed.to_vec();
         let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
         let mut list = MenuBar {
             items: &["next", "previous", "flag", "download", "view", "info", "edit", "help", "skip", "quit"],
@@ -1048,7 +1050,7 @@ impl Session {
                     self.write(&"─".repeat(79));
                 }
                 l = self.lister_layout(from_screen);
-                rows = self.lister_page(&l, files, first, a.num);
+                rows = self.lister_page(&l, &files, first, a.num);
                 let last = rows.last().map_or(first, |r| r.idx);
                 self.lister_scroll(&l, first, last, files.len());
                 redraw_screen = false;
@@ -1221,10 +1223,21 @@ impl Session {
                     self.prompt_key().await?;
                     redraw_screen = true;
                 }
+                // New: a SysOp gets the whole file editor (`*Y`) on the
+                // file; a co-SysOp, its description as before.
                 "edit" => {
                     let target = selected.or_else(|| rows.first().map(|r| files[r.idx].clone()));
                     if let Some(f) = target {
-                        self.edit_description(f).await?;
+                        if self.is_sysop() {
+                            let renamed = self.file_editor_at(a.clone(), f.num).await?;
+                            self.relist(&mut files, &renamed);
+                            if files.is_empty() {
+                                return Ok(true);
+                            }
+                            first = first.min(files.len() - 1);
+                        } else {
+                            self.edit_description(f).await?;
+                        }
                     }
                     redraw_screen = true;
                 }
@@ -1244,6 +1257,26 @@ impl Session {
                 _ => {}
             }
         }
+    }
+
+    /// The listed files as they are now: renamed ones under their new
+    /// names, and those moved or deleted gone.
+    fn relist(&self, files: &mut Vec<FileRec>, renamed: &[(String, String, String)]) {
+        files.retain_mut(|f| {
+            let mut name = f.name.clone();
+            for (area, old, new) in renamed {
+                if area.eq_ignore_ascii_case(&f.area) && *old == name {
+                    name = new.clone();
+                }
+            }
+            match self.state.files.find(&f.area, &name) {
+                Ok(Some(now)) => {
+                    *f = now;
+                    true
+                }
+                _ => false,
+            }
+        });
     }
 
     /// `faEditFileDesc` (co-SysOp `edit` in the lister).

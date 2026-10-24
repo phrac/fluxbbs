@@ -209,6 +209,14 @@ All in [FEATURES](FEATURES.md#message-center).
 - Quotes say who wrote them ("phrac wrote:") and mark lines with `> `,
   not the author's initials. ([FEATURES](FEATURES.md#quoting))
 - The reader can have the board's prompt bar (MSGRBAR).
+- A SysOp's `edit` in a file list (and in search results) opens the
+  whole file editor on that file; `*Y`'s `/` finds a file in any area.
+  ([FILES](FILES.md#managing-files))
+- A thread's reply count takes in its comments; `%MU` is the caller's
+  posts in the area.
+- A post left without a title says nothing was posted, rather than
+  going quietly back to the list; Esc gets out of the reader's
+  `Message #` prompt.
 - Editing your own post adds to it, reddit style: the original stays,
   the edit goes under a dated line. ([FEATURES](FEATURES.md#editing-your-posts))
 - Taking back a post you regret (`d` on your own): take it back while

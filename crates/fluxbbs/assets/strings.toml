@@ -713,3 +713,5 @@ BurnedBody = "[burned by its author %S1]"
 RetractedYouSee = "|U2(retracted: only you and the moderators see what it said)"
 # Over a quote in a reply, kept in the message (plain): %S1 who wrote it.
 MsgQuoteHead = "%S1 wrote:"
+# A post left without a title (nothing is posted).
+MsgNoTitle = "|U1No title|U2, |U1so nothing was posted|U2."

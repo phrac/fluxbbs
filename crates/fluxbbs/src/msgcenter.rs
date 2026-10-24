@@ -607,6 +607,7 @@ impl Session {
             let v = self.area_view(a)?;
             let by_id = v.by_id();
             let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
+            let comments = self.state.msgs.comment_counts(a.key()).map_err(io_err)?;
             let mut ts = threads(&v.msgs);
             ts.sort_by(|x, y| y.last.cmp(&x.last));
             match self.user.thread_sort.as_str() {
@@ -636,7 +637,8 @@ impl Session {
                     first_new = Some(i);
                 }
                 let new_s = if new == 0 { String::new() } else { format!("{new} new") };
-                let replies = (t.msgs.len() - 1).to_string();
+                // Replies and comments alike (`r` comments, mostly).
+                let replies = (t.msgs.len() - 1 + t.msgs.iter().map(|(n, _)| comments.get(n).copied().unwrap_or(0) as usize).sum::<usize>()).to_string();
                 let score = score_label(scores.get(&root.id).copied());
                 let mark = if new > 0 { "*" } else { " " };
                 let day = self.local(t.last).format("%m/%d").to_string();
@@ -1287,7 +1289,7 @@ impl Session {
                     self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                     self.screen.clear_eol();
                     self.say("MsgReaderGoto").await?;
-                    let s = self.read_string(ReadOpts::new(6).allowed(DIGITS).prefill((c as char).to_string())).await?;
+                    let s = self.read_string(ReadOpts::new(6).allowed(DIGITS).prefill((c as char).to_string()).esc_cancels()).await?;
                     if let Some(x) = s.parse::<u32>().ok().and_then(|n| self.state.msgs.get(a.key(), n).ok().flatten()).filter(|x| self.ok_to_read(a, x)) {
                         if let Some(p) = seq.iter().position(|&id| id == x.id) {
                             i = p;

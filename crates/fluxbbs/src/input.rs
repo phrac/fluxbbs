@@ -106,6 +106,8 @@ pub struct ReadOpts {
     pub mask: &'static str,
     /// Tab completes a user's handle (2.0's alias completion).
     pub complete_users: bool,
+    /// Esc gives up, answering nothing (new).
+    pub esc_cancels: bool,
 }
 
 impl ReadOpts {
@@ -143,6 +145,11 @@ impl ReadOpts {
 
     pub fn prefill(mut self, s: impl Into<String>) -> Self {
         self.default = s.into();
+        self
+    }
+
+    pub fn esc_cancels(mut self) -> Self {
+        self.esc_cancels = true;
         self
     }
 
@@ -370,6 +377,7 @@ impl Session {
             loop {
                 match self.read_key().await? {
                     Key::Enter => break,
+                    Key::Esc if opts.esc_cancels => return Ok(String::new()),
                     Key::Backspace => {
                         if s.pop().is_some() {
                             self.screen.backspace(1);

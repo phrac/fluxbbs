@@ -166,7 +166,10 @@ impl Session {
             "MS" => self.set_pointer_date().await?,
             "ME" => self.scan_select(true).await?,
             "MO" => self.msg_search(param).await?,
-            "MH" => self.msg_center().await?,
+            "MH" => {
+                self.msg_center().await?;
+                self.full_screen_done();
+            }
             "MX" => self.msg_jump(param).await?,
             "M@" => self.read_mentions(param).await?,
             "MW" if param.eq_ignore_ascii_case("read") => {

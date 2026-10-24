@@ -207,6 +207,8 @@ impl Session {
             b"MA" => self.current_area().map(|a| a.area.name).unwrap_or_default(),
             b"MN" => self.menu_msg.to_string(),
             b"MT" => self.current_area().map_or(0, |a| self.state.msgs.count(&a.area.file).unwrap_or(0)).to_string(),
+            // New: the caller's own posts in the area.
+            b"MU" => self.current_area().map_or(0, |a| self.state.msgs.count_from(&a.area.file, u.id).unwrap_or(0)).to_string(),
             b"CM" => self.state.areas().conf(u.conf_msg).map(|c| c.desc.clone()).unwrap_or_default(),
             b"ND" => self.node.number().to_string(),
             b"PA" => yes_no(u.pause),
