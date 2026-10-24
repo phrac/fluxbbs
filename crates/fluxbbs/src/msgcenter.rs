@@ -1216,7 +1216,8 @@ impl Session {
                 body_top = self.screen.where_y().min(rows.saturating_sub(3)).max(1);
                 redraw = false;
             }
-            let height = rows.saturating_sub(body_top).max(1) as usize;
+            let bar_lines = self.reader_bar_lines();
+            let height = (rows + 1).saturating_sub(body_top + bar_lines).max(1) as usize;
             let last_scroll = lines.len().saturating_sub(height);
             for k in 0..height {
                 self.screen.goto(1, body_top + k as u16);
@@ -1226,9 +1227,12 @@ impl Session {
                     self.reader_line(l);
                 }
             }
-            self.screen.goto(1, rows);
-            self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-            self.screen.clear_eol();
+            for y in rows + 1 - bar_lines..=rows {
+                self.screen.goto(1, y);
+                self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                self.screen.clear_eol();
+            }
+            self.screen.goto(1, rows + 1 - bar_lines);
             let note = if scroll < last_scroll {
                 self.strings().get("MsgReaderMore").to_string()
             } else if attached {
@@ -1239,7 +1243,18 @@ impl Session {
                 String::new()
             };
             let bar = self.strings().fmt("MsgReaderBar", &[&format!("{}/{}", i + 1, seq.len()), &note]);
-            self.show(&bar).await?;
+            // New: the board's prompt bar (MSGRBAR: `~HP` the keys, `~PC`
+            // the cursor), as the lists have; else the keys alone.
+            if bar_lines > 1 || self.text_file_exists("MSGRBAR") {
+                self.show_file("MSGRBAR").await?;
+                if self.goto_pos(*b"HP") {
+                    let room = 80usize.saturating_sub(self.screen.where_x() as usize);
+                    self.show(&fluxbbs_term::codes::squish(&bar, room)).await?;
+                }
+                self.goto_pos(*b"PC");
+            } else {
+                self.show(&bar).await?;
+            }
             let key = self.read_key().await?;
             let next = |i: usize| (i + 1 < seq.len()).then_some(i + 1);
             match key {
@@ -1630,6 +1645,13 @@ impl Session {
         let s = self.strings().fmt("FillYours", &[&fills.to_string(), &pts.to_string()]);
         self.show_line(&s).await?;
         self.prompt_key().await
+    }
+
+    /// Rows the reader's bottom takes: MSGRBAR's, else one.
+    fn reader_bar_lines(&self) -> u16 {
+        let Some(d) = self.find_text_file("MSGRBAR").and_then(|p| std::fs::read(p).ok()) else { return 1 };
+        let breaks = d.iter().filter(|&&b| b == b'\n').count() as u16;
+        (breaks + u16::from(!d.ends_with(b"\n"))).clamp(1, 4)
     }
 
     fn reader_prompt_area(&mut self) {

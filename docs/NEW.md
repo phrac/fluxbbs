@@ -206,6 +206,9 @@ All in [FEATURES](FEATURES.md#message-center).
 - File links in messages and comments (`file:AREA/NAME`): `/L` in the
   editor or `/l` in a comment picks one from a lightbar; `g` in the
   reader lists them to download. ([FEATURES](FEATURES.md#file-links))
+- Quotes say who wrote them ("phrac wrote:") and mark lines with `> `,
+  not the author's initials. ([FEATURES](FEATURES.md#quoting))
+- The reader can have the board's prompt bar (MSGRBAR).
 - Editing your own post adds to it, reddit style: the original stays,
   the edit goes under a dated line. ([FEATURES](FEATURES.md#editing-your-posts))
 - Taking back a post you regret (`d` on your own): take it back while

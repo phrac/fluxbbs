@@ -340,10 +340,6 @@ fn is_quote(line: &str) -> bool {
 }
 
 /// Initials for quote prefixes (`mInitials`).
-fn initials(name: &str) -> String {
-    name.split_whitespace().filter_map(|w| w.chars().next()).collect::<String>().to_uppercase()
-}
-
 /// The lines `fsQuotePos` would quote: the end of the message (before the
 /// signature), up to `max` lines, skipping leading blanks and old quotes.
 pub fn quote_range(m: &Message, max: usize) -> Option<(usize, usize)> {
@@ -357,16 +353,16 @@ pub fn quote_range(m: &Message, max: usize) -> Option<(usize, usize)> {
     Some((first, last))
 }
 
-pub fn quote_lines(m: &Message, first: usize, last: usize) -> Vec<String> {
-    let who = if m.anonymous { "??".to_string() } else { initials(&m.from.name) };
-    m.body()[first..=last.min(m.body().len() - 1)]
-        .iter()
-        .map(|l| {
-            let plain = strip_colours(l);
-            let q = if plain.chars().take(3).any(|c| c == '>') { plain } else { format!("{who}> {plain}") };
-            q.chars().take(WIDTH).collect()
-        })
-        .collect()
+/// Quoted lines under `head` (who wrote them, `MsgQuoteHead`). New: a
+/// plain `> ` in front, a quote of a quote `>>`, where the original put
+/// the author's initials (`MF> `), which said too little.
+pub fn quote_lines(m: &Message, first: usize, last: usize, head: &str) -> Vec<String> {
+    let quoted = m.body()[first..=last.min(m.body().len() - 1)].iter().map(|l| {
+        let plain = strip_colours(l);
+        let q = if plain.trim_start().starts_with('>') { format!(">{}", plain.trim_start()) } else { format!("> {plain}") };
+        q.chars().take(WIDTH).collect()
+    });
+    (!head.is_empty()).then(|| head.to_string()).into_iter().chain(quoted).collect()
 }
 
 /// `NoColor`: remove `|XX` colour codes.
@@ -503,7 +499,8 @@ impl Session {
             && let Some(r) = ctx.reply {
                 let max = self.state.config().messages.max_quote_lines as usize;
                 if let Some((a, b)) = quote_range(r, max) {
-                    d.insert_lines(&quote_lines(r, a, b));
+                    let head = self.quote_head(r);
+                    d.insert_lines(&quote_lines(r, a, b, &head));
                 }
             }
         let mut v = self.fs_draw(&ctx, &d).await?;
@@ -821,6 +818,12 @@ impl Session {
         Ok(true)
     }
 
+    /// The line over a quote: who wrote it.
+    fn quote_head(&self, r: &Message) -> String {
+        let who = if r.anonymous { self.strings().get("Anonymous").to_string() } else { r.from.name.clone() };
+        self.strings().get("MsgQuoteHead").replace("%S1", &who)
+    }
+
     async fn fs_info(&mut self, name: &str, v: &View) -> io::Result<()> {
         self.screen.goto(1, v.info);
         self.set_slot(Slot::Text);
@@ -874,7 +877,8 @@ impl Session {
         let s = self.read_string(ReadOpts::new(3).allowed(crate::input::DIGITS).prefill(pre)).await?;
         let last: usize = if s.is_empty() { first } else { s.parse().unwrap_or(0) };
         if last >= first && last <= body.len() {
-            d.insert_lines(&quote_lines(r, first - 1, last - 1));
+            let head = self.quote_head(r);
+            d.insert_lines(&quote_lines(r, first - 1, last - 1, &head));
         }
         Ok(())
     }
@@ -983,7 +987,7 @@ mod tests {
 
     #[test]
     fn quoting() {
-        let m = Message {
+        let mut m = Message {
             area: "A".into(),
             num: 1,
             from: crate::msgbase::Party { name: "Mike Fricker".into(), ..Default::default() },
@@ -1001,7 +1005,9 @@ mod tests {
             lines: vec!["".into(), "first".into(), "|15second".into(), "".into(), "sig".into()],
         };
         assert_eq!(quote_range(&m, 11), Some((1, 2)));
-        assert_eq!(quote_lines(&m, 1, 2), vec!["MF> first", "MF> second"]);
+        assert_eq!(quote_lines(&m, 1, 2, "Mad Fiend wrote:"), vec!["Mad Fiend wrote:", "> first", "> second"]);
+        m.lines[1] = "> older".into();
+        assert_eq!(quote_lines(&m, 1, 1, ""), vec![">> older"]);
         assert_eq!(quote_range(&m, 1), Some((2, 2)));
     }
 }

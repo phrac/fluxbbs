@@ -159,6 +159,20 @@ posting and replying, quoting, the full-screen editor, newscans and
 mandatory messages, email and auto-signatures. The
 [message center](#message-center) is the newer way to read.
 
+#### Quoting
+
+A quote in a reply opens with who wrote it, then each line with `> `
+(a quote of a quote, `>>`):
+
+```
+phrac wrote:
+> test message - use this area for general chat
+```
+
+The original put the author's initials in front (`P> `), which said too
+little. `MsgQuoteHead` is the opening line; it's kept in the message,
+so it's plain.
+
 #### Editing your posts
 
 Callers can edit what they've posted, as on reddit, but what they
@@ -1095,7 +1109,10 @@ there, and the one picked heads the title: `[question] How do I...`.
 ### The reader
 
 The reader keeps the header (MSGHEAD) at the top and scrolls the text
-under it. The keys are on the bottom line. A reply starts with the
+under it. The keys are on the bottom line, or, if the board has a
+MSGRBAR screen, in its prompt bar: `~HP` takes the keys and `~PC` the
+cursor, as the lists' prompt bars do, and the screen's lines (up to
+four) sit at the bottom. A reply starts with the
 message it answers: "in reply to #1 by phrac: ..." (`MsgReaderReplyTo`,
 its number, author and first words), so it reads on its own.
 

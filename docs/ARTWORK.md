@@ -195,6 +195,8 @@ prompt itself (e.g. `MHUBBOT`).
       a request, to pick the one that filled it (`~SN` who, `~DS` day,
       `~TX` what)
 - [ ] `FILLERS`: heads the top fillers (`MF`)
+- [ ] `MSGRBAR`: the message reader's bottom, a prompt bar (`~HP` the
+      keys, `~PC` the cursor; its last line is the screen's last row)
 - [ ] `TAROT`: heads the tarot and fortune door (`AT`)
 - [ ] `MHOTTOP` / `MHOTMID` / `MHOTHIL` / `MHOTBOT`: the Hot list
       ([markers](#message-center))
