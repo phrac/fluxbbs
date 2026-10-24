@@ -285,6 +285,9 @@ All in [DOORS](DOORS.md).
 - `[dos] emulator` runs a door under DOSBox instead, for one the
   machine can't run.
 - `dosrun` tries a door outside the board.
+- Code and Markdown in the viewer: source code in colors, Markdown laid
+  out, code on a shaded background; the same for code blocks in
+  messages and AI chat replies. ([FEATURES](FEATURES.md#code-and-markdown))
 - BBSLink: games on bbslink.net's server, with players from other
   boards (`DB code`, the stock BBSLINK menu). ([DOORS](DOORS.md#bbslink))
 - A log of every door played (who, which, when, how long), for the

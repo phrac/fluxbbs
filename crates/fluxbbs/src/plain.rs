@@ -37,6 +37,19 @@ impl Session {
         self.screen.plain()
     }
 
+    /// New: the SGR background for code (`markup.rs`): a dark gray in
+    /// 24 bits where the terminal takes them, else dark gray (iCE); none
+    /// in plain text.
+    pub(crate) fn shade_sgr(&self) -> &'static str {
+        if self.plain() {
+            ""
+        } else if self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8 {
+            "48;2;38;38;46"
+        } else {
+            "100"
+        }
+    }
+
     /// A key, or in plain text the first character of a line (Enter
     /// alone for an empty one): for prompts that take a single key.
     pub(crate) async fn read_choice(&mut self) -> io::Result<Key> {
@@ -91,14 +104,24 @@ impl Session {
                     continue;
                 }
                 listed.push(&c.keys);
-                self.write(&format!("  {:<6} {}", c.keys.to_lowercase(), crate::editor::strip_colours(&c.desc)));
+                self.write(&format!("  {:<6} {}", c.keys.to_lowercase(), crate::editor::strip_colours(&c.desc).trim()));
                 self.newline();
             }
         }
-        self.write(&format!("{name}> "));
+        // A lightbar menu's Enter picks what the bar starts on, its first
+        // option, as in ANSI; the prompt says which.
+        let first = (menu.menu_type == crate::menu::MenuType::Lightbar)
+            .then(|| menu.commands.iter().find(|c| !c.hidden && !c.desc.is_empty() && c.keys != FIRST_CMD && self.acs(&c.acs)))
+            .flatten()
+            .map(|c| c.keys.clone());
+        match &first {
+            Some(k) => self.write(&format!("{name} [{}]> ", k.to_lowercase())),
+            None => self.write(&format!("{name}> ")),
+        }
         let s = self.read_string(ReadOpts::new(60)).await?;
         self.newline();
-        Ok(s.trim().to_uppercase())
+        let s = s.trim().to_uppercase();
+        Ok(if s.is_empty() { first.unwrap_or_default().to_uppercase() } else { s })
     }
 
     /// `area_bar` in plain text: the rows numbered, then a line: a number

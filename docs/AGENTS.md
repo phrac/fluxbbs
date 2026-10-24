@@ -140,7 +140,8 @@ menu on screen.
   logon sequence (news, oneliners, polls) is skipped.
 - **Menus.** A menu lists its commands when you enter it (`m
   Message boards`...), then asks `Main> `. Type the command and Enter.
-  `?` lists them again.
+  `?` lists them again. Where the prompt shows a default in brackets
+  (`goodbye [1]> `), Enter alone takes it.
 - **Yes or no.** Answer `y` or `n`; Enter alone takes the one in
   capitals, `(Y/n)` or `(y/N)`.
 - **Prompts with a default** show it in brackets (`[All] `); Enter

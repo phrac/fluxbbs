@@ -670,7 +670,7 @@ impl Session {
                 rows: &rows,
                 labels: &labels,
                 start,
-                help: "|U1 Arrows move, |U3enter|U1 edits, |U3/|U1 searches, |U3i|U1nsert, |U3d|U1elete, |U3m|U1ove, |U3s|U1ort a level, |U3esc|U1 quits.",
+                help: "|U1 |U3enter|U1 edits, |U3/|U1 finds, |U3i|U1nsert, |U3d|U1elete, |U3m|U1ove, |U3s|U1ort a level, |U3esc|U1 quits",
                 ask: "",
                 can_go_up: false,
                 keys: "IDMS",
@@ -727,8 +727,8 @@ impl Session {
         let labels: Vec<(u32, u32)> = rows.iter().map(|r| (r.n, r.n)).collect();
         let at = areas.areas.iter().position(|o| o.file.eq_ignore_ascii_case(cur)).map_or(0, |i| i as u32 + 1);
         let help = format!(
-            "|U1 A sub-area of which area? Arrows move, |U3enter|U1 picks, |U3/|U1 searches, |U3esc|U1 keeps |U3{}|U1.",
-            if cur.is_empty() { "the top level" } else { cur }
+            "|U1 Sub-area of? |U3enter|U1 picks, |U3t|U1 top level, |U3/|U1 finds, |U3esc|U1 keeps |U3{}",
+            if cur.is_empty() { "top level" } else { cur }
         );
         let spec = BarSpec {
             prefix: "CFGFAREA",
@@ -739,10 +739,11 @@ impl Session {
             help: &help,
             ask: "",
             can_go_up: false,
-            keys: "",
+            keys: "T",
         };
         Ok(match self.area_bar(&spec).await? {
-            BarPick::Area(0) => Some(String::new()),
+            // `t`, or the top-level row, clears it.
+            BarPick::Area(0) | BarPick::Key('T', _) => Some(String::new()),
             BarPick::Area(n) => areas.areas.get(n as usize - 1).map(|o| o.file.clone()),
             _ => None,
         })
@@ -1297,7 +1298,7 @@ impl Session {
         // The areas as *F lists them, to pick from.
         let rows = self.fa_rows()?;
         let labels: Vec<(u32, u32)> = rows.iter().map(|r| (r.n, r.n)).collect();
-        let help = format!("|U1 Move |U3{}|U1 to which area? Arrows move, |U3enter|U1 picks, |U3/|U1 searches, |U3esc|U1 cancels.", fr.name);
+        let help = format!("|U1 Move |U3{}|U1 to? |U3enter|U1 picks, |U3/|U1 finds, |U3esc|U1 cancels", fr.name);
         let spec = BarSpec {
             prefix: "CFGFAREA",
             header: FA_HEADER,

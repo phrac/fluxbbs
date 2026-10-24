@@ -38,6 +38,7 @@ mod infoform;
 mod input;
 mod logon;
 mod logonseq;
+mod markup;
 mod mci;
 mod mentions;
 mod menu;

@@ -306,6 +306,25 @@ areas. `FV` opens an archive the same way.
 | back | go up a level |
 | `Q` | leave the browser, from anywhere |
 
+#### Code and Markdown
+
+The viewer (`V` in the lister, `FV`, the browser) draws source code in
+colors and Markdown laid out, and its title names the file area:
+
+- **Code** (`.c`, `.h`, `.cpp`, `.rs`, `.py`, `.js`/`.ts`, `.go`,
+  `.java`, `.sh`, `.pas`, `.asm`, `.lua`, `.bas`...): keywords, types,
+  strings, numbers, comments and preprocessor lines each in a color. A
+  file with ANSI codes in it is shown as art instead.
+- **Markdown** (`.md`): headings with a rule under them, **bold** and
+  *italic*, bullets, numbered lists, quotes with a bar, rules, links
+  with their address dimmed, and code (`` `inline` `` and fenced
+  blocks) on a shaded background, colored when the block names its
+  language.
+
+The shade is a 24-bit dark gray on terminals that take 24-bit color
+(UTF-8 ones, and SyncTERM), dark gray (iCE) otherwise. The same drawing
+is used for code blocks in messages and AI chat.
+
 #### The file base on screens
 
 Screens can show what's in the file base, with `%FT`...`%FV` (see
@@ -723,7 +742,9 @@ everyone else. It takes effect at once.
   start: a line on mail, new posts, callers online and time left, then
   the menu the logon sequence would end on. The sequence is skipped.
 - **Menus.** Listed when entered (key and description), then a prompt
-  (`Main> `) that takes a line. `?` lists them again.
+  (`Main> `) that takes a line. `?` lists them again. On a lightbar
+  menu, Enter alone takes its first option, as the bar would, and the
+  prompt says which (`goodbye [1]> `).
 - **Prompts.** Yes/no takes `y` or `n` (Enter for the default); a
   prompt with a default shows it in brackets, and Enter takes it.
   Nothing waits for a key.
@@ -752,8 +773,11 @@ the SysOp lets in.
 
 ### Using it
 
-- Replies stream in as they're written, word-wrapped, without markdown
-  or the model's thinking.
+- Replies stream in as they're written, word-wrapped, without the
+  model's thinking. Their Markdown is drawn as it comes: headings,
+  bold, lists, quotes, and code shaded, colored when a block names its
+  language (see [Code and Markdown](#code-and-markdown)). The AI is
+  told it may use simple Markdown.
 - The conversation is kept for as long as the caller stays; the AI is
   given its latest 40 messages each time, so a long one forgets its start.
 - `/new` starts over; `/quit` or ESC leaves.
@@ -1173,7 +1197,10 @@ there, and the one picked heads the title: `[question] How do I...`.
 ### The reader
 
 The reader keeps the header (MSGHEAD) at the top and scrolls the text
-under it. The keys are on the bottom line, or, if the board has a
+under it. A fenced code block in a message (a line of ```` ``` ````, or
+```` ```c ```` naming its language, to another ```` ``` ````) is shown
+shaded, and colored when the language is known; the message itself
+stays plain text. The keys are on the bottom line, or, if the board has a
 MSGRBAR screen, in its prompt bar: `~HP` takes the keys and `~PC` the
 cursor, as the lists' prompt bars do, and the screen's lines (up to
 four) sit at the bottom. A reply starts with the

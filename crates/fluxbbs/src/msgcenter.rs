@@ -1780,7 +1780,20 @@ impl Session {
             out.push(self.strings().fmt("ReqFilledLine", &[&day, &fluxbbs_term::lit(by), &note]));
             out.push(String::new());
         }
-        for line in &m.lines {
+        // New: fenced code blocks shaded, and colored when they name their
+        // language (not in plain text, which keeps the fences).
+        let lines: Vec<Result<String, crate::markup::Line>> = match (!self.plain()).then(|| crate::markup::message_code_blocks(&m.lines, 79)).flatten() {
+            Some(l) => l,
+            None => m.lines.iter().cloned().map(Ok).collect(),
+        };
+        for line in &lines {
+            let line = match line {
+                Ok(l) => l,
+                Err(code) => {
+                    out.push(crate::markup::to_ansi(code, self.shade_sgr(), ""));
+                    continue;
+                }
+            };
             if line.contains('\x1b') {
                 out.push(line.clone());
                 continue;

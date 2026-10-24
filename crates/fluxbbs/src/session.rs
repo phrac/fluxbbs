@@ -183,6 +183,8 @@ pub struct Session {
     pub(crate) ai_bar: String,
     /// The colour the AI chat's text is in, to resume after the bar.
     pub(crate) ai_ink: String,
+    /// New: the style AI chat's text is in now (`markup.rs`).
+    pub(crate) ai_style: Option<(crate::markup::Ink, bool)>,
     /// The context the AI conversation has used, for the bar (`AiContext`).
     pub(crate) ai_ctx: String,
     /// The chat's rows under the header, kept to redraw them (new).
@@ -356,6 +358,7 @@ impl Session {
             including: false,
             ai_bar: String::new(),
             ai_ink: String::new(),
+            ai_style: None,
             ai_ctx: String::new(),
             ai_win: None,
             editor_note: None,
@@ -1007,7 +1010,12 @@ impl Session {
                     if self.screen.where_x() != 1 {
                         self.newline();
                     }
-                    self.show_line(help).await?;
+                    // Kept to one line: a help line that wrapped would
+                    // scroll the screen under the list, and every redraw
+                    // after would land a row off.
+                    let fits = self.visible_len(&cp437::encode(help)) <= 79;
+                    let help = if fits { help.to_string() } else { crate::editor::strip_colours(help).chars().take(79).collect() };
+                    self.show_line(&help).await?;
                     if !ask.is_empty() {
                         self.say(ask).await?;
                     }

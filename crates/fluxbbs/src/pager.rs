@@ -24,9 +24,11 @@ pub struct Attr {
     fore: u8,
     back: u8,
     bright_back: bool,
+    /// New: code's shaded background (`Session::shade_sgr`).
+    shade: bool,
 }
 
-const PLAIN: Attr = Attr { fore: 7, back: 0, bright_back: false };
+const PLAIN: Attr = Attr { fore: 7, back: 0, bright_back: false, shade: false };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Cell {
@@ -47,7 +49,7 @@ fn ansi(dos: u8) -> u8 {
 /// that starts with a screenful of empty lines would look empty). Only
 /// spaces on black count as blank; the file itself is left alone.
 pub fn trimmed(mut grid: Vec<Vec<Cell>>) -> Vec<Vec<Cell>> {
-    let blank = |row: &Vec<Cell>| row.iter().all(|c| matches!(c.ch, b' ' | 0) && c.attr.back == 0 && !c.attr.bright_back);
+    let blank = |row: &Vec<Cell>| row.iter().all(|c| matches!(c.ch, b' ' | 0) && c.attr.back == 0 && !c.attr.bright_back && !c.attr.shade);
     while grid.last().is_some_and(blank) {
         grid.pop();
     }
@@ -57,6 +59,40 @@ pub fn trimmed(mut grid: Vec<Vec<Cell>>) -> Vec<Vec<Cell>> {
         grid.push(Vec::new());
     }
     grid
+}
+
+/// New: a file by its name: Markdown drawn, source code in colors, and
+/// anything else as `render` draws it.
+pub fn render_named(text: &[u8], utf8: bool, name: &str) -> Vec<Vec<Cell>> {
+    // CP437 for the upper half only: newlines and tabs stay what they are.
+    let plain = || if utf8 { String::from_utf8_lossy(text).into_owned() } else { text.iter().map(|&b| if b < 0x80 { b as char } else { cp437::TO_UNICODE[b as usize] }).collect() };
+    if crate::markup::is_markdown(name) {
+        return from_lines(&crate::markup::render_markdown(&plain(), WIDTH));
+    }
+    // Source code with ANSI codes in it is art, not code.
+    if let Some(lang) = crate::markup::lang_for_name(name).filter(|_| !text.contains(&0x1b)) {
+        return from_lines(&crate::markup::render_code(lang, &plain()));
+    }
+    render(text, utf8)
+}
+
+/// Styled lines as rows of cells (each cut at the width).
+pub fn from_lines(lines: &[crate::markup::Line]) -> Vec<Vec<Cell>> {
+    lines
+        .iter()
+        .map(|l| {
+            let mut row = Vec::new();
+            for s in l {
+                let attr = Attr { fore: s.ink.color(), back: 0, bright_back: false, shade: s.shade };
+                for ch in cp437::encode(&s.text) {
+                    if row.len() < WIDTH {
+                        row.push(Cell { ch: if ch < 0x20 { b' ' } else { ch }, attr });
+                    }
+                }
+            }
+            row
+        })
+        .collect()
 }
 
 /// Draw a file into rows of cells. `utf8`: the text is UTF-8, not CP437.
@@ -173,14 +209,19 @@ pub fn render(text: &[u8], utf8: bool) -> Vec<Vec<Cell>> {
 
 /// One row as bytes for `Screen::write_bytes`: CP437 characters and
 /// plain colour codes, bright backgrounds as `10x` so the screen turns
-/// them into whatever the caller's terminal shows without blinking.
-fn row_bytes(cells: &[Cell]) -> Vec<u8> {
+/// them into whatever the caller's terminal shows without blinking; the
+/// code shade as `shade`.
+fn row_bytes(cells: &[Cell], shade: &str) -> Vec<u8> {
     let mut out = Vec::new();
     let mut cur: Option<Attr> = None;
     for c in cells {
         if cur != Some(c.attr) {
             let a = c.attr;
-            let back = if a.bright_back { 100 } else { 40 } + ansi(a.back) as u16;
+            let back = if a.shade && !shade.is_empty() {
+                shade.to_string()
+            } else {
+                (if a.bright_back { 100 } else { 40 } + ansi(a.back) as u16).to_string()
+            };
             out.extend_from_slice(format!("\x1b[0;{}3{};{back}m", if a.fore >= 8 { "1;" } else { "" }, ansi(a.fore)).as_bytes());
             cur = Some(a);
         }
@@ -207,17 +248,18 @@ impl Session {
         let last_top = total.saturating_sub(height);
         let mut top = 0usize;
         let mut drawn: Option<usize> = None;
+        let shade = self.shade_sgr();
         loop {
             if drawn != Some(top) {
                 self.clear_screen();
                 let range = format!("{}-{} of {}", top + 1, (top + height).min(total), total);
                 // One line: a long name and SAUCE title mustn't wrap.
-                let title: String = title.chars().take(38).collect();
+                let title: String = title.chars().take(50).collect();
                 let s = self.strings().fmt("ViewerTitle", &[&title, &range]);
                 self.show(&s).await?;
                 for (k, line) in grid.iter().skip(top).take(height).enumerate() {
                     self.screen.goto(1, 2 + k as u16);
-                    self.screen.write_bytes(&row_bytes(line));
+                    self.screen.write_bytes(&row_bytes(line, shade));
                 }
                 self.screen.goto(1, rows as u16);
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
@@ -274,14 +316,14 @@ mod tests {
     #[test]
     fn colours_and_wrapping() {
         let g = render(b"\x1b[1;33;44mA\x1b[5;42mB\x1b[0m", false);
-        assert_eq!(g[0][0].attr, Attr { fore: 14, back: 1, bright_back: false });
-        assert_eq!(g[0][1].attr, Attr { fore: 14, back: 2, bright_back: true });
+        assert_eq!(g[0][0].attr, Attr { fore: 14, back: 1, bright_back: false, shade: false });
+        assert_eq!(g[0][1].attr, Attr { fore: 14, back: 2, bright_back: true, shade: false });
         let long = vec![b'x'; 85];
         assert_eq!(render(&long, false)[1].len(), 5);
         // A title-setting sequence draws nothing and isn't passed on.
         let g = render(b"\x1b]0;evil\x07ok", false);
         assert!(text(&g)[0].ends_with("ok"));
-        assert!(!row_bytes(&g[0]).contains(&0x07));
+        assert!(!row_bytes(&g[0], "").contains(&0x07));
     }
 
     #[test]

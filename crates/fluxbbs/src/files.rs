@@ -1471,7 +1471,7 @@ impl Session {
         // Don't carry the lister's bar colour into a fresh screen.
         self.screen.set_color(Color::DEFAULT);
         match crate::upscan::kind_of(&f.name) {
-            crate::upscan::Kind::Text => self.view_text_file(&path, &f.name).await,
+            crate::upscan::Kind::Text => self.view_text_file(&path, &f.name, &a.area.name).await,
             k @ (crate::upscan::Kind::Zip | crate::upscan::Kind::TarGz | crate::upscan::Kind::Tar | crate::upscan::Kind::Gzip) => {
                 self.browse_archive(&path, &f.name, k).await
             }
@@ -1479,7 +1479,7 @@ impl Session {
             // it's called (a textfile archive has `.ana`, `.hum`, no
             // extension at all).
             _ if self.state.archivers().for_file(&path).is_none() && std::fs::read(&path).is_ok_and(|d| crate::upscan::looks_like_text(&d)) => {
-                self.view_text_file(&path, &f.name).await
+                self.view_text_file(&path, &f.name, &a.area.name).await
             }
             _ => self.view_with_archiver(&path, &f.name).await,
         }
@@ -1487,12 +1487,14 @@ impl Session {
 
     /// Show an uploaded text file (ASCII or ANSI) in the scrolling
     /// viewer: the text before any SAUCE record, CP437 unless it's UTF-8.
-    async fn view_text_file(&mut self, path: &Path, name: &str) -> io::Result<()> {
+    /// New: code and Markdown drawn (`markup.rs`), and the area named.
+    async fn view_text_file(&mut self, path: &Path, name: &str, area: &str) -> io::Result<()> {
         let data = std::fs::read(path)?;
         let text = crate::upscan::text_part(&data);
         let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
-        let grid = crate::pager::trimmed(crate::pager::render(text, utf8));
-        self.page_grid(name, &grid).await
+        let grid = crate::pager::trimmed(crate::pager::render_named(text, utf8, name));
+        let title = format!("{name} in {}", crate::editor::strip_colours(area));
+        self.page_grid(&title, &grid).await
     }
 
     /// A scratch directory of this node's own for archiver work.

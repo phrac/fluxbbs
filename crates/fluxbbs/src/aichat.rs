@@ -269,12 +269,15 @@ async fn read_page(client: &reqwest::Client, url: &str) -> Result<String, String
     Ok(squeezed.chars().take(8000).collect())
 }
 
-/// Writes streamed text word-wrapped, without the markdown models like
-/// to add, and without any `<think>` section or tool call written as text.
+/// Whether pieces of a reply have anything to read.
+fn has_words(pieces: &[crate::markup::Piece]) -> bool {
+    pieces.iter().any(|p| matches!(p, crate::markup::Piece::Text(t, _, _) if !t.trim().is_empty()))
+}
+
+/// Streamed text without any `<think>` section or tool call written as
+/// text; `markup::MdStream` then lays it out.
 #[derive(Default)]
 struct Wrap {
-    col: usize,
-    word: String,
     /// Inside a hidden section, until this closing tag.
     hiding: Option<&'static str>,
     pending: String,
@@ -317,54 +320,6 @@ impl Wrap {
                 }
             }
         }
-    }
-
-    /// Lay out `text`: returns what to print, `\n` meaning a new line.
-    fn lay_out(&mut self, text: &str) -> String {
-        let mut out = String::new();
-        for c in text.chars() {
-            match c {
-                '*' | '`' | '#' if self.col == 0 || c != '#' => {}
-                '\n' => {
-                    self.flush(&mut out);
-                    out.push('\n');
-                    self.col = 0;
-                }
-                c if c.is_whitespace() => {
-                    self.flush(&mut out);
-                    if self.col > 0 && self.col < WIDTH {
-                        out.push(' ');
-                        self.col += 1;
-                    }
-                }
-                c => self.word.push(c),
-            }
-        }
-        out
-    }
-
-    fn flush(&mut self, out: &mut String) {
-        if self.word.is_empty() {
-            return;
-        }
-        let len = self.word.chars().count();
-        if self.col > 0 && self.col + len > WIDTH {
-            // Drop the space that ended the last line.
-            if out.ends_with(' ') {
-                out.pop();
-            }
-            out.push('\n');
-            self.col = 0;
-        }
-        out.push_str(&self.word);
-        self.col += len;
-        self.word.clear();
-    }
-
-    fn finish(&mut self) -> String {
-        let mut out = String::new();
-        self.flush(&mut out);
-        out
     }
 }
 
@@ -555,7 +510,7 @@ impl Session {
         let search = format!(" You can look at this board itself with the board tools (its menus and keys, file areas, files, message areas): use them for questions about the board, and when saying how to do something here, give the exact keys from board_menus, menu by menu.{search}");
         format!(
             "You are {name}, the AI on {board}, a bulletin board system run by {sysop}. You're talking with {user} over a text terminal 80 columns wide. \
-             Write plain text only: no markdown, no emoji, no tables. Keep replies short unless asked for more.{search} \
+             You may use simple Markdown (headings, **bold**, *italic*, lists, `code`, and fenced code blocks that name their language); no tables, no emoji, no HTML. Keep replies short unless asked for more.{search} \
              Today is {today}.{extra}",
             name = cfg.name,
             board = bbs.name,
@@ -801,7 +756,10 @@ impl Session {
             let mut calls: Vec<Call> = Vec::new();
             // Lines start after the name, as wide as it shows.
             let indent = self.visible_len(&strip_escapes(&fluxbbs_term::cp437::encode(&name)));
-            let mut wrap = Wrap { col: indent, ..Wrap::default() };
+            let mut wrap = Wrap::default();
+            // New: the reply's Markdown drawn as it comes (`markup.rs`).
+            let mut md = crate::markup::MdStream::new(WIDTH, indent);
+            self.ai_style = None;
             let mut named = false;
             'stream: while let Some(chunk) = rx.recv().await {
                 buf.extend_from_slice(&chunk.map_err(io_err)?);
@@ -828,15 +786,15 @@ impl Session {
                     if let Some(t) = delta["content"].as_str() {
                         content.push_str(t);
                         let shown = wrap.feed(t);
-                        let out = wrap.lay_out(&shown);
+                        let out = md.feed(&shown);
                         // The name goes up with the first words, not before
                         // a search.
-                        if !out.trim().is_empty() && !named {
+                        if has_words(&out) && !named {
                             self.ai_show(&name).await?;
                             self.ai_ink = trailing_codes(&name);
                             named = true;
                         }
-                        self.ai_write(&out).await?;
+                        self.ai_pieces(&out).await?;
                         self.flush().await?;
                     }
                     for tc in delta["tool_calls"].as_array().into_iter().flatten() {
@@ -857,14 +815,14 @@ impl Session {
                     }
                 }
             }
-            let rest = wrap.finish();
+            let rest = md.finish();
             // A reply too short to wrap hasn't put the name up yet.
-            if !rest.trim().is_empty() && !named {
+            if has_words(&rest) && !named {
                 self.ai_show(&name).await?;
                 self.ai_ink = trailing_codes(&name);
                 named = true;
             }
-            self.ai_write(&rest).await?;
+            self.ai_pieces(&rest).await?;
             if calls.is_empty() {
                 history.push(json!({"role": "assistant", "content": content}));
                 self.ai_nl().await?;
@@ -1139,6 +1097,41 @@ impl Session {
         self.ai_nl().await
     }
 
+    /// New: a reply's pieces (`markup::MdStream`): plain text in the
+    /// AI's own color, the rest in theirs, code shaded.
+    async fn ai_pieces(&mut self, pieces: &[crate::markup::Piece]) -> io::Result<()> {
+        use crate::markup::{Ink, Piece};
+        let shade = self.shade_sgr();
+        let mut style: Option<(Ink, bool)> = self.ai_style;
+        for p in pieces {
+            match p {
+                Piece::Newline => {
+                    self.ai_nl().await?;
+                    // A new line starts in the AI's color (ai_nl puts it back).
+                    style = Some((Ink::Text, false));
+                }
+                Piece::Text(t, ink, sh) => {
+                    if style != Some((*ink, *sh)) {
+                        if *ink == Ink::Text && !*sh {
+                            let ink = self.ai_ink.clone();
+                            self.ai_show(&format!("\x1b[0m{ink}")).await?;
+                        } else {
+                            let line = vec![crate::markup::Span { text: String::new(), ink: *ink, shade: *sh }];
+                            let codes = crate::markup::to_ansi(&line, shade, "");
+                            // Just the color: what comes before the text.
+                            let codes = codes.trim_end_matches("\x1b[0m").to_string();
+                            self.ai_show(&codes).await?;
+                        }
+                        style = Some((*ink, *sh));
+                    }
+                    self.ai_write(t).await?;
+                }
+            }
+        }
+        self.ai_style = style;
+        Ok(())
+    }
+
     async fn ai_write(&mut self, text: &str) -> io::Result<()> {
         // CP437 has no typographic dashes, quotes or ellipsis.
         let text = text
@@ -1162,17 +1155,23 @@ mod tests {
     use super::*;
 
     #[test]
-    fn replies_wrap_and_lose_markdown_and_thinking() {
+    fn replies_lose_thinking_and_keep_markdown() {
         let mut w = Wrap::default();
-        let mut out = String::new();
+        let mut md = crate::markup::MdStream::new(WIDTH, 6);
+        let mut out = Vec::new();
         for chunk in ["<thi", "nk>hmm, let me", " think</th", "ink>**Hello** there, `world`.", "<tool_call>web_search</tool_call>", " ", &"word ".repeat(20)] {
-            let t = w.feed(chunk);
-            out.push_str(&w.lay_out(&t));
+            out.extend(md.feed(&w.feed(chunk)));
         }
-        out.push_str(&w.finish());
-        assert!(out.starts_with("Hello there, world."), "{out:?}");
-        assert!(!out.contains("think") && !out.contains('*') && !out.contains("web_search"));
-        assert!(out.split('\n').all(|l| l.chars().count() <= WIDTH));
+        out.extend(md.finish());
+        let text: String = out.iter().map(|p| match p {
+            crate::markup::Piece::Text(t, _, _) => t.clone(),
+            crate::markup::Piece::Newline => "\n".into(),
+        }).collect();
+        assert!(text.starts_with("Hello there, world."), "{text:?}");
+        assert!(!text.contains("think") && !text.contains('*') && !text.contains("web_search"));
+        assert!(text.split('\n').enumerate().all(|(i, l)| l.chars().count() + if i == 0 { 6 } else { 0 } <= WIDTH));
+        assert!(has_words(&out));
+        assert!(out.iter().any(|p| matches!(p, crate::markup::Piece::Text(t, crate::markup::Ink::Bold, _) if t == "Hello")));
     }
 
     #[test]

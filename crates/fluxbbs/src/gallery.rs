@@ -446,7 +446,7 @@ impl Session {
                             } else if is_art(name) {
                                 self.gallery_view(name, sauce.as_ref(), src).await?
                             } else {
-                                self.gallery_file(name, src).await?
+                                self.gallery_file(name, src, crumbs.last().map_or(title, |c| c.as_str())).await?
                             };
                             match picked {
                                 // Q leaves the gallery from a viewer too.
@@ -806,7 +806,7 @@ impl Session {
 
     /// Any other file: text in the viewer, else a word that it can't be
     /// shown. D is passed back to download it.
-    async fn gallery_file(&mut self, name: &str, src: &Src) -> io::Result<Option<char>> {
+    async fn gallery_file(&mut self, name: &str, src: &Src, area: &str) -> io::Result<Option<char>> {
         let data = match read_piece(src) {
             Ok(d) => d,
             Err(e) => return self.archive_note(&format!("|U6{name}|U5: |U4Couldn't read it ({e})|U5.")).await.map(|_| None),
@@ -817,8 +817,9 @@ impl Session {
             return self.archive_note(&s).await.map(|_| None);
         }
         let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
-        let grid = crate::pager::trimmed(crate::pager::render(text, utf8));
-        self.page_grid_keys(name, &grid, "GalleryViewHelp", &['D', 'Q']).await
+        let grid = crate::pager::trimmed(crate::pager::render_named(text, utf8, name));
+        let title = format!("{name} in {}", crate::editor::strip_colours(area));
+        self.page_grid_keys(&title, &grid, "GalleryViewHelp", &['D', 'Q']).await
     }
 
     /// A piece in the scrolling viewer, titled from its SAUCE.
