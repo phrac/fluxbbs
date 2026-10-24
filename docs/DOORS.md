@@ -91,6 +91,46 @@ the caller's rows and their `TERM`. Curses programs work.
 - If the caller hangs up, or their time runs out, the door's process
   group gets SIGHUP, then SIGKILL.
 
+## BBSLink
+
+[BBSLink](https://www.bbslink.net) runs door games on its own server
+for boards that sign up: LORD, TradeWars and others, with players from
+every board in the same games. The menu command `DB` with a door code
+plays one; `DB menu` shows BBSLink's own list of all its games. The
+stock BBSLINK menu (`L` on the doors menu) has the list and five games.
+
+Setting it up:
+
+1. Sign the board up at <https://www.bbslink.net/apply.php>. BBSLink
+   sends three codes: the system code, the authorization code and the
+   scheme code. Keep the authorization code secret; if it gets out,
+   ask BBSLink for a new one.
+2. Put them in `*C`, BBSLink (or `[bbslink]` in `fluxbbs.toml`) and
+   turn it on:
+
+```toml
+[bbslink]
+enabled = true
+host = "games.bbslink.net"
+system_code = "..."
+auth_code = "..."
+scheme_code = "..."
+```
+
+3. Add games to a menu: command `DB`, the door code as the parameter
+   (`lord`, `lord2`, `teos`, `ooii`, `tw2002`, `menu`...), and a
+   description, which is the game's name in the status and the doors
+   scoreboard.
+
+How a game starts, as BBSLink's own scripts do it: the board gets a
+token from `token.php`, sends `auth.php` the caller's user number,
+their screen rows, the door code and the codes hashed with the token,
+and on `complete` connects the caller to the server's telnet port
+(port 80 and 23 of the same address; one caller's start at a time). The
+telnet session is 8-bit; its option talk is answered by the board and
+kept off the caller's screen. BBSLink learns only the caller's user
+number here. A refusal shows BBSLink's reason, and is logged.
+
 ## DOS doors
 
 A command whose program ends in `.BAT`, `.COM` or `.EXE` (the stock

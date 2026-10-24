@@ -199,6 +199,7 @@ prompt itself (e.g. `MHUBBOT`).
       keys, `~PC` the cursor; its last line is the screen's last row)
 - [ ] `TAROT`: the tarot menu (card of the day, three cards, a fortune);
       `%TR` and `%TF` are the readings and fortunes left today
+- [ ] `BBSLINK`: the BBSLink games menu
 - [ ] `TAROTHDR`: heads each reading and fortune (the cards and the
       reading take 15 rows under it, so keep it to a line or two)
 - [ ] `MHOTTOP` / `MHOTMID` / `MHOTHIL` / `MHOTBOT`: the Hot list

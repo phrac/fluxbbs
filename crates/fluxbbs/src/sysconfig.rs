@@ -333,6 +333,13 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('O', "Advance on flag", 3, "Move the lister's bar down after flagging a file?", Bool(|c| &mut c.files.advance_bar_on_flag)),
             set('P', "DIZ lines", 2, "Most lines of an imported description to keep (0: all).", Num(|c| c.files.max_import_lines as u64, |c, v| c.files.max_import_lines = v as u16, 0, 20)),
         ]),
+        ("BBSLink", false, vec![
+            set('A', "Enabled", 3, "Offer BBSLink's door games (menu command DB with a door code; DB menu lists them all)?", Bool(|c| &mut c.bbslink.enabled)),
+            set('B', "Server", 40, "BBSLink's door server (games.bbslink.net).", Text(|c| &mut c.bbslink.host, TEXT.max(100))),
+            set('C', "System code", 20, "This board's system code, from signing up at bbslink.net.", Text(|c| &mut c.bbslink.system_code, TEXT.max(40))),
+            set('D', "Auth code", 20, "This board's authorization code from BBSLink. Keep it secret.", Text(|c| &mut c.bbslink.auth_code, TEXT.max(40))),
+            set('E', "Scheme code", 20, "This board's scheme code from BBSLink.", Text(|c| &mut c.bbslink.scheme_code, TEXT.max(40))),
+        ]),
     ]
 }
 
@@ -401,7 +408,7 @@ const GROUPS: &[Group] = &[
         ('E', "Prompts", "Yes/no prompts and bars, password echo, pauses"),
         ('H', "Website Feed", "The status feed for a website: who's on, last callers, new files"),
         ('R', "Wait-For-Call", "The local wait-for-call screen"),
-        ('W', "Default Colors", "The color scheme new callers start with"),
+        ('X', "Default Colors", "The color scheme new callers start with"),
     ]),
     ("callers", &[
         ('C', "Access and Logon", "SysOp access, the matrix, logon tries, system password, time per call"),
@@ -425,6 +432,7 @@ const GROUPS: &[Group] = &[
         ('S', "AI Chat", "The AI's server, model, limits, web search, tarot and fortunes"),
         ('T', "MeshCore", "The MeshCore radio bridge"),
         ('U', "FTN Echomail", "Echomail networks: addresses, hub, passwords, polling"),
+        ('W', "BBSLink", "Door games on bbslink.net's server: on or off, the board's codes"),
     ]),
 ];
 
@@ -495,6 +503,7 @@ impl Session {
                         'S' => on_off(cfg.ai.enabled),
                         'T' => on_off(cfg.meshcore.enabled),
                         'U' => on_off(cfg.ftn.enabled),
+                        'W' => on_off(cfg.bbslink.enabled),
                         _ => "",
                     };
                     // Rows count from the form's first (screen row 4).

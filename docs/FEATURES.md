@@ -488,6 +488,7 @@ caller's own favorite, last and one they haven't tried.
 | `D3` | CHAIN.TXT |
 | `D4` | DOOR32.SYS |
 | `DZ` | DOOR.SYS and DORINFO1.DEF |
+| `DB` | a BBSLink game, by its door code (new; [DOORS](DOORS.md#bbslink)) |
 | `D0` | none |
 | `D7` | DOOR.SYS, read back afterwards (from 2.0) |
 

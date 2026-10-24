@@ -34,6 +34,7 @@ pub struct Config {
     pub ai: Ai,
     pub meshcore: MeshCore,
     pub ftn: Ftn,
+    pub bbslink: BbsLink,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -336,6 +337,26 @@ impl Default for Ai {
             search_key_env: String::new(),
             timeout_seconds: 120,
         }
+    }
+}
+
+/// BBSLink (new): door games on bbslink.net's server, played from here
+/// (`bbslink.rs`, menu command `DB`). The three codes come from signing
+/// the board up at bbslink.net.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct BbsLink {
+    pub enabled: bool,
+    /// The door server, for its web handshake (port 80) and telnet (23).
+    pub host: String,
+    pub system_code: String,
+    pub auth_code: String,
+    pub scheme_code: String,
+}
+
+impl Default for BbsLink {
+    fn default() -> Self {
+        Self { enabled: false, host: "games.bbslink.net".into(), system_code: String::new(), auth_code: String::new(), scheme_code: String::new() }
     }
 }
 

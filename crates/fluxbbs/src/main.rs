@@ -12,6 +12,7 @@ mod aiboard;
 mod aichat;
 mod aimemory;
 mod backup;
+mod bbslink;
 mod tarot;
 mod tarotart;
 mod links;

@@ -252,18 +252,18 @@ fn drop_files(kind: char) -> &'static [(&'static str, Writer)] {
 
 /// Caller input on its way to a door: one Enter per `\r` whatever the
 /// client sends, and UTF-8 turned back into CP437 for UTF-8 callers.
-struct DoorInput {
+pub(crate) struct DoorInput {
     utf8: bool,
     last_cr: bool,
     carry: Vec<u8>,
 }
 
 impl DoorInput {
-    fn new(utf8: bool) -> Self {
+    pub(crate) fn new(utf8: bool) -> Self {
         Self { utf8, last_cr: false, carry: Vec::new() }
     }
 
-    fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
+    pub(crate) fn feed(&mut self, bytes: &[u8]) -> Vec<u8> {
         for &b in bytes {
             let after_cr = std::mem::replace(&mut self.last_cr, b == b'\r');
             if !(after_cr && (b == b'\n' || b == 0)) {

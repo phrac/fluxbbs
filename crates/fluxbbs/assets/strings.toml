@@ -728,3 +728,7 @@ FortuneLucky = "lucky numbers   %S1"
 # the board has no NODECHAT screen.
 MNChint = "|U1Type and press |U3enter|U1 to talk. |U3/help|U1 for commands, |U3/quit|U1 or |U3esc|U1 to leave."
 MNCbar = "|U5[ |U3/help |U5]─[ |U3/who |U5]─[ |U3/me |U5]─[ |U3/msg |U5]─[ |U3/page |U5]─[ |U3esc|U1 leaves |U5]"
+# New: BBSLink doors (DB). BbsLinkFailed: %S1 why.
+BbsLinkOff = "|U0BBSLink isn't set up on this board yet."
+BbsLinkConnecting = "|U1Connecting to |U3BBSLink|U1..."
+BbsLinkFailed = "|U0BBSLink didn't let us in|U2: |U1%S1"

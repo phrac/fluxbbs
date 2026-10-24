@@ -31,10 +31,10 @@ pub(crate) fn ago_time(at: NaiveDateTime, now: NaiveDateTime) -> String {
     }
 }
 
-/// A door command (`D0`-`D7`, `DZ`).
+/// A door command (`D0`-`D7`, `DZ`, BBSLink's `DB`).
 fn is_door(cmd: &str) -> bool {
     let c = cmd.as_bytes();
-    c.len() == 2 && c[0].eq_ignore_ascii_case(&b'D') && (c[1].is_ascii_digit() || c[1].eq_ignore_ascii_case(&b'Z'))
+    c.len() == 2 && c[0].eq_ignore_ascii_case(&b'D') && (c[1].is_ascii_digit() || b"ZzBb".contains(&c[1]))
 }
 
 impl Session {

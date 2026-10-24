@@ -285,6 +285,8 @@ All in [DOORS](DOORS.md).
 - `[dos] emulator` runs a door under DOSBox instead, for one the
   machine can't run.
 - `dosrun` tries a door outside the board.
+- BBSLink: games on bbslink.net's server, with players from other
+  boards (`DB code`, the stock BBSLINK menu). ([DOORS](DOORS.md#bbslink))
 - A log of every door played (who, which, when, how long), for the
   doors menu's figures: the `%G?` codes. ([CODES](CODES.md#door-games-new))
 

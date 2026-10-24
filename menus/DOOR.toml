@@ -160,6 +160,16 @@ on = "|B1Planets: TEOS"
 off = "|B0Planets: TEOS"
 
 [[command]]
+keys = "L"
+command = "-/"
+param = "BBSLINK"
+acs = "s50"
+desc = "BBSLink games"
+help = "Door games on BBSLink's server, played with callers from other boards"
+on = "|B1BBSLink games"
+off = "|B0BBSLink games"
+
+[[command]]
 keys = "T"
 command = "-/"
 param = "TAROT"

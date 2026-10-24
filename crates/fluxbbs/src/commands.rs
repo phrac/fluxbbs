@@ -258,6 +258,8 @@ impl Session {
             "QD" => self.qwk_download().await?,
             "QU" => self.qwk_upload().await?,
             "D0" | "D1" | "D2" | "D3" | "D4" | "D7" | "DZ" => self.door_execute(param, code.chars().nth(1).unwrap()).await?,
+            // New: a BBSLink door, by its code.
+            "DB" => self.bbslink_door(param).await?,
             "IN" => self.infoforms(false).await?,
             "IM" => self.infoforms(true).await?,
             "NV" => self.nuv_vote(param.to_ascii_uppercase().contains('S')).await?,
