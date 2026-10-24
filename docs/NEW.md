@@ -209,6 +209,9 @@ All in [FEATURES](FEATURES.md#message-center).
 - Quotes say who wrote them ("phrac wrote:") and mark lines with `> `,
   not the author's initials. ([FEATURES](FEATURES.md#quoting))
 - The reader can have the board's prompt bar (MSGRBAR).
+- The thread tree (`v`) shows each message's comments under it.
+- Multinode chat says how it works on the way in, and shows its
+  commands at the bottom without a NODECHAT screen.
 - A SysOp's `edit` in a file list (and in search results) opens the
   whole file editor on that file; `*Y`'s `/` finds a file in any area.
   ([FILES](FILES.md#managing-files))
@@ -232,7 +235,8 @@ All in [FEATURES](FEATURES.md#message-center).
   ([FEATURES](FEATURES.md#votes-and-comments))
 - A tarot and fortune door read by the AI (`AT`): card of the day,
   three cards for a question, fortune cookies; cards drawn with
-  pictures, 3 readings and 3 fortunes a day.
+  pictures, 3 readings and 3 fortunes a day; its own menu (TAROT) and
+  `%TR`/`%TF` for what's left.
   ([FEATURES](FEATURES.md#tarot-and-fortunes))
 
 ### Mentions

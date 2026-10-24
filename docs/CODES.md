@@ -135,6 +135,8 @@ characters are letters, as the original did.
 | `%TL` | minutes left |
 | `%TT` | minutes per day |
 | `%TB` | minutes in the time bank (2.20) |
+| `%TR` | tarot readings left today (`∞` with no limit; new) |
+| `%TF` | fortunes left today (`∞` with no limit; new) |
 | `%BD` | birth date |
 | `%SX` | gender |
 | `%PN` | phone |

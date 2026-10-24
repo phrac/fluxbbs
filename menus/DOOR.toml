@@ -161,7 +161,8 @@ off = "|B0Planets: TEOS"
 
 [[command]]
 keys = "T"
-command = "AT"
+command = "-/"
+param = "TAROT"
 acs = "s50"
 desc = "Tarot & fortunes"
 help = "Tarot & fortunes: the cards are drawn here, and the AI reads them"

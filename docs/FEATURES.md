@@ -800,8 +800,12 @@ The reply keeps coming in during a pause.
 ## Tarot and fortunes
 
 `AT` is a door for the board's AI: tarot readings and fortune cookies.
-The board draws the cards; the AI only reads them. It's in the stock
-door menu as `T`.
+The board draws the cards; the AI only reads them. The stock door
+menu's `T` opens the TAROT menu, whose options run `AT day`, `AT three`
+and `AT fortune`; give TAROT.ANS lightbar markers and `type =
+"lightbar"` and it's a lightbar like the rest (`%TR` and `%TF` show the
+readings and fortunes left today). `AT` alone asks with a prompt
+instead.
 
 | Key | Does |
 |---|---|
@@ -835,8 +839,9 @@ door menu as `T`.
   (`TarotLimit` says so).
 - A parameter goes straight to one reading and back: `day`, `three` or
   `fortune` (say, `AT day` on a logon menu for a card of the day).
-- A TAROT screen heads it if the board has one; otherwise the
-  `TarotTitle` line.
+- A TAROTHDR screen heads each reading and fortune if the board has
+  one; otherwise the `TarotTitle` line. Keep it to a line or two: the
+  cards take 15 rows under it.
 
 ## Message center
 
@@ -1005,7 +1010,9 @@ The MTHRD screens (TOP/MID/HIL/BOT) draw it:
 
 `v` in the thread list, or in the reader, shows a thread as a tree:
 a line a message, in reading order, each reply under the one it
-answers, so you can see who answered whom.
+answers and each message's comments under it, so you can see who
+answered whom. (Since `r` is a comment, most threads are one post and
+its comments.)
 
 ```
   1    +2   10/19  sysop                    new board is up
@@ -1014,7 +1021,10 @@ answers, so you can see who answered whom.
   4         10/24 *│   └─zinekid            gallery
   5         10/24 *└─zinekid                first time here, hello all
   6         10/24 *  └─sysop                welcome aboard, grab a door game
+                10/24      └─ansifan            seconded
 ```
+
+A comment's row has no number or score, and shows what it says.
 
 The last column is a reply's subject where it changes, and its first
 words where it's still "Re:" the same thing. From the reader, the bar
@@ -1023,7 +1033,7 @@ new one.
 
 | Key | Does |
 |---|---|
-| Enter | read on from the message under the bar |
+| Enter | read on from the message under the bar (on a comment, the message it's under) |
 | `r` | comment on it (in email and echomail, reply) |
 | a number | move to that message |
 | Esc | back |
@@ -1545,14 +1555,20 @@ it's there.
 
 ### Multinode chat
 
+`XC` (`C` on the multinode menu). On the way in it says who's in chat
+and how it works (`MNChint`); `/help` lists the commands. Without a
+NODECHAT screen the bottom line shows them (`MNCbar`); with one, the
+screen should (its markers are in [ARTWORK](ARTWORK.md#chat)).
+
 | Type | Does |
 |---|---|
 | `/who` | who's on, and what they're doing |
 | `/me` | an action |
 | `/msg user text` | a message to someone in chat |
 | `/page user text` | a page to anyone on |
-| `/help` | help |
+| `/help` (or `/?`) | the commands |
 | Enter alone | who's in chat |
+| `/quit` or Esc | leave |
 
 ### Invisible
 

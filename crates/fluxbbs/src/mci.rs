@@ -225,6 +225,12 @@ impl Session {
             b"SX" => crate::user::gender_name(u.sex).into(),
             // 2.20: minutes in the time bank.
             b"TB" => u.bank_time.to_string(),
+            // New: tarot readings and fortunes left today (∞: no limit).
+            b"TR" | b"TF" => {
+                let ai = &self.state.config().ai;
+                let (kind, limit) = if code == *b"TR" { ("tarot", ai.tarot_daily) } else { ("fortune", ai.fortune_daily) };
+                self.tarot_left(kind, limit).map_or("∞".into(), |n| n.to_string())
+            }
             b"TI" => now.format("%-I:%M%P").to_string(),
             b"TL" => self.minutes_left().to_string(),
             b"TM" => now.format("%H:%M").to_string(),

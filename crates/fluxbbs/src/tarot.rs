@@ -3,8 +3,9 @@
 //! reversed) and the AI only reads them. The card of the day is the same
 //! card all day for a caller; three cards (past, present, future) answer a
 //! question; a fortune is a fortune cookie with lucky numbers, on a slip
-//! under the crystal ball. The pictures are in `tarotart`. TAROT.ANS heads
-//! the screen if the board has one. A caller has `tarot_daily` readings
+//! under the crystal ball. The pictures are in `tarotart`. The stock
+//! TAROT menu offers each reading (`AT day`, `AT three`, `AT fortune`);
+//! `AT` alone asks itself. TAROTHDR heads each screen if the board has one. A caller has `tarot_daily` readings
 //! and `fortune_daily` fortunes a day (the card of the day's reading is
 //! kept, so seeing it again is free), and each counts against the AI
 //! chat's daily limit too.
@@ -186,7 +187,7 @@ impl Session {
     async fn tarot_screen(&mut self) -> io::Result<()> {
         self.screen.set_color(Color::DEFAULT);
         self.clear_screen();
-        if !self.show_file("TAROT").await? {
+        if !self.show_file("TAROTHDR").await? {
             self.say_line("TarotTitle").await?;
         }
         Ok(())
@@ -194,7 +195,7 @@ impl Session {
 
     /// Readings of a kind (`tarot`, `fortune`) the caller has left today;
     /// None if there's no limit (0, or a SysOp).
-    fn tarot_left(&self, kind: &str, limit: u32) -> Option<u32> {
+    pub(crate) fn tarot_left(&self, kind: &str, limit: u32) -> Option<u32> {
         (limit > 0 && !self.is_sysop()).then(|| limit.saturating_sub(self.tarot_used(kind)))
     }
 
@@ -435,9 +436,10 @@ impl Session {
         let faces: Vec<Vec<Vec<Cell>>> = cards.iter().map(|&(c, rev)| card_face(c, rev, &reversed)).collect();
         let y = self.screen.where_y();
         for i in 0..cards.len() {
+            let place = places.get(i).map_or("", |s| s.as_str());
+            let label: Vec<Cell> = center(&format!("· {place} ·"), CARD_W).chars().map(|c| (c, if c == '·' { 8 } else { 15 })).collect();
             self.screen.goto((left + i * (CARD_W + gap)) as u16, y);
-            self.set_slot(Slot::Info);
-            self.write(&center(places.get(i).map_or("", |s| s.as_str()), CARD_W));
+            self.tarot_cells(&label);
         }
         self.newline();
         for row in 0..CARD_H {

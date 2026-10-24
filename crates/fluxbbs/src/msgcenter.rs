@@ -788,7 +788,8 @@ impl Session {
     }
 
     /// New: a thread as a tree, who answered whom, a line a message in
-    /// reading order. MTREETOP, MTREEMID, MTREEHIL and MTREEBOT dress it
+    /// reading order, each with its comments under it (a comment's row
+    /// leaves `~MN`, `~MT` and `~SC` empty; `~TX` is what it says). MTREETOP, MTREEMID, MTREEHIL and MTREEBOT dress it
     /// (`~MN` number, `~MK` `*` if new, `~TR` the branches, `~SN` author,
     /// `~TS` both, `~RT` who it answers, `~MT` subject, `~BL` its first
     /// words, `~TX` the subject where it changes and the first words
@@ -813,23 +814,60 @@ impl Session {
             let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
             let filled = if a.area.requests { self.state.msgs.filled(a.key()).map_err(io_err)? } else { HashMap::new() };
             let seq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
-            let lines = branches(&t.msgs.iter().map(|&(_, d)| d).collect::<Vec<_>>());
+            // New: each message's comments, as branches under it (`r` is a
+            // comment now, so they're most of a thread). A row is the
+            // message it reads (its place in `seq`) and the comment, if
+            // it's one.
+            let mut entries: Vec<(usize, Option<crate::msgbase::Push>)> = Vec::new();
+            let mut depths = Vec::new();
+            for (i, &(id, d)) in t.msgs.iter().enumerate() {
+                entries.push((i, None));
+                depths.push(d);
+                for p in self.state.msgs.pushes(id).map_err(io_err)?.into_iter().filter(|p| p.kind == 0) {
+                    entries.push((i, Some(p)));
+                    depths.push(d + 1);
+                }
+            }
+            let lines = branches(&depths);
             let first = by_id[&root];
             let topic = |s: &str| s.trim_start_matches("Re:").trim_start_matches("RE:").trim().to_lowercase();
             let mut rows = Vec::new();
             let mut labels = Vec::new();
-            for (i, (&id, branch)) in seq.iter().zip(&lines).enumerate() {
-                let m = by_id[&id];
+            for (row, ((i, comment), branch)) in entries.iter().zip(&lines).enumerate() {
+                let m = by_id[&seq[*i]];
+                if let Some(p) = comment {
+                    let text = crate::editor::strip_colours(&p.text);
+                    let day = self.local(p.at).format("%m/%d").to_string();
+                    let who = format!("{branch}{}", p.handle);
+                    let w = waves([
+                        ("MN", String::new()),
+                        ("MK", " ".into()),
+                        ("TR", branch.clone()),
+                        ("SN", p.handle.clone()),
+                        ("TS", who.clone()),
+                        ("RT", m.from.name.clone()),
+                        ("MT", String::new()),
+                        ("FL", String::new()),
+                        ("BL", text.clone()),
+                        ("TX", text.clone()),
+                        ("SC", String::new()),
+                        ("DS", day.clone()),
+                        ("DT", self.local(p.at).format("%m/%d/%y").to_string()),
+                        ("TI", self.local(p.at).format("%H:%M").to_string()),
+                    ]);
+                    rows.push(BarRow { n: row as u32, waves: w, plain: tree_line(" ", "", "", &day, &who, &text) });
+                    continue;
+                }
                 let new = v.is_new(m);
                 let mark = if new { "*" } else { " " };
                 let words = crate::mci::blurb(m.body());
-                let (state, subject) = if i == 0 { self.request_state(a, m, &filled) } else { (String::new(), m.subject.clone()) };
-                let text = if i == 0 || topic(&m.subject) != topic(&first.subject) || words.is_empty() { subject.clone() } else { words.clone() };
+                let (state, subject) = if *i == 0 { self.request_state(a, m, &filled) } else { (String::new(), m.subject.clone()) };
+                let text = if *i == 0 || topic(&m.subject) != topic(&first.subject) || words.is_empty() { subject.clone() } else { words.clone() };
                 let to = match by_id.get(&m.reply_to) {
                     Some(p) => p.from.name.clone(),
                     None => m.to.name.clone(),
                 };
-                let score = score_label(scores.get(&id).copied());
+                let score = score_label(scores.get(&m.id).copied());
                 let day = self.local(m.posted).format("%m/%d").to_string();
                 let who = format!("{branch}{}", m.from.name);
                 let w = waves([
@@ -848,22 +886,27 @@ impl Session {
                     ("DT", self.local(m.posted).format("%m/%d/%y").to_string()),
                     ("TI", self.local(m.posted).format("%H:%M").to_string()),
                 ]);
-                rows.push(BarRow { n: i as u32, waves: w, plain: tree_line(mark, &m.num.to_string(), &score, &day, &who, &text) });
-                labels.push((m.num, i as u32));
+                rows.push(BarRow { n: row as u32, waves: w, plain: tree_line(mark, &m.num.to_string(), &score, &day, &who, &text) });
+                labels.push((m.num, row as u32));
             }
-            let start = on.and_then(|o| seq.iter().position(|&n| n == o)).or_else(|| seq.iter().position(|&n| self_new(&v, &by_id, n))).unwrap_or(0);
+            // The rows of messages (not comments), as places in `seq`.
+            let row_of = |i: usize| entries.iter().position(|(j, c)| *j == i && c.is_none()).unwrap_or(0);
+            let start = on.and_then(|o| seq.iter().position(|&n| n == o)).or_else(|| seq.iter().position(|&n| self_new(&v, &by_id, n))).map_or(0, row_of);
             let help = self.strings().fmt("MsgTreeKeys", &[&fluxbbs_term::lit(&fluxbbs_term::codes::squish(&first.subject, 30))]);
             let header = tree_line(" ", "#", "+/-", "Date", "Who", "What");
             let spec = BarSpec { prefix: "MTREE", header: &header, rows: &rows, labels: &labels, start, help: &help, ask: "", can_go_up: true, keys: "R" };
             match self.area_bar(&spec).await? {
-                BarPick::Area(i) => {
-                    on = seq.get(i as usize).copied();
-                    if self.read_seq(a, &seq, i as usize).await? == ReadEnd::Quit {
+                // A comment reads (or answers) the message it's under.
+                BarPick::Area(row) => {
+                    let i = entries.get(row as usize).map_or(0, |e| e.0);
+                    on = seq.get(i).copied();
+                    if self.read_seq(a, &seq, i).await? == ReadEnd::Quit {
                         return Ok(true);
                     }
                 }
-                BarPick::Key('R', i) => {
-                    if let Some(m) = seq.get(i as usize).and_then(|id| by_id.get(id)) {
+                BarPick::Key('R', row) => {
+                    let i = entries.get(row as usize).map_or(0, |e| e.0);
+                    if let Some(m) = seq.get(i).and_then(|id| by_id.get(id)) {
                         on = Some(m.id);
                         let m = (*m).clone();
                         if self.comments_only(a) {

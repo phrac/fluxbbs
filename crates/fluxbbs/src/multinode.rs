@@ -191,6 +191,12 @@ impl Session {
         let mut lines: Vec<String> = Vec::new();
         let joined = self.strings().fmt("MNCenterchat", &[&me.1]);
         self.chat_out(&layout, &mut lines, &joined);
+        // New: who's here, and how it works.
+        for l in self.chat_command(&me, "") {
+            self.chat_out(&layout, &mut lines, &l);
+        }
+        let hint = self.strings().get("MNChint").to_string();
+        self.chat_out(&layout, &mut lines, &hint);
         let waker = self.node.waker();
         let mut input = String::new();
         self.chat_input(&layout, &input);
@@ -270,9 +276,10 @@ impl Session {
     }
 
     /// A line typed in chat that starts with `/` (or nothing: who's here).
-    /// 2.0's commands: `/help`, `/who` (everyone on the BBS), `/me`,
-    /// `/msg user text` (to someone in chat), `/page user text` (to someone
-    /// anywhere). Returns the lines to show.
+    /// 2.0's commands: `/help` (or `/?`, or anything it doesn't know),
+    /// `/who` (everyone on the BBS), `/me`, `/msg user text` (to someone in
+    /// chat), `/page user text` (to someone anywhere). Returns the lines to
+    /// show.
     fn chat_command(&mut self, me: &(usize, String), text: &str) -> Vec<String> {
         let nodes = self.node.nodes().clone();
         let sysop = self.is_sysop();
@@ -311,7 +318,11 @@ impl Session {
                 };
                 if nodes.send(*n, ev) { vec![s.fmt("MNCprivateSent", &[&info.user, &msg])] } else { vec![s.get("MNCnotFound").to_string()] }
             }
-            _ => ["MNChelp1", "MNChelp2", "MNChelp3", "MNChelp4"].iter().map(|k| s.get(k).to_string()).collect(),
+            _ => ["MNChelp1", "MNChelp2", "MNChelp3", "MNChelp4", "MNChelp5", "MNChelp6"]
+                .iter()
+                .map(|k| s.get(k).to_string())
+                .filter(|l| !l.is_empty())
+                .collect(),
         }
     }
 
@@ -334,6 +345,10 @@ impl Session {
         self.screen.goto(1, rows - 1);
         self.set_slot(Slot::Border);
         self.write(&"─".repeat(79));
+        // New: the commands, over the line.
+        self.screen.goto(3, rows - 1);
+        let bar = self.strings().get("MNCbar").to_string();
+        self.show(&bar).await?;
         Ok(ChatLayout { top: 1, bottom: rows - 2, x: 1, y: rows, width: 79 })
     }
 

@@ -197,7 +197,10 @@ prompt itself (e.g. `MHUBBOT`).
 - [ ] `FILLERS`: heads the top fillers (`MF`)
 - [ ] `MSGRBAR`: the message reader's bottom, a prompt bar (`~HP` the
       keys, `~PC` the cursor; its last line is the screen's last row)
-- [ ] `TAROT`: heads the tarot and fortune door (`AT`)
+- [ ] `TAROT`: the tarot menu (card of the day, three cards, a fortune);
+      `%TR` and `%TF` are the readings and fortunes left today
+- [ ] `TAROTHDR`: heads each reading and fortune (the cards and the
+      reading take 15 rows under it, so keep it to a line or two)
 - [ ] `MHOTTOP` / `MHOTMID` / `MHOTHIL` / `MHOTBOT`: the Hot list
       ([markers](#message-center))
 - [ ] `MSGRHELP`: the message reader's help (otherwise the
