@@ -32,6 +32,10 @@ pub struct Effect {
     /// color (`matches`) going out and on, each now and then (`every`
     /// seconds apart, on `amount` of the time): lamps, windows. `roll`: a
     /// bright bar rolling down the area every `every` seconds, a tube's.
+    /// `decode`: the area's letters scrambling and settling into the next
+    /// of `messages`, its letters at cells picked afresh each round and
+    /// the rest noise, `delay` into every `every` seconds, the scramble
+    /// lasting `amount` seconds (2 to start).
     pub kind: String,
     /// The screen rows it covers, first and last (1-based), and the
     /// columns.
@@ -52,6 +56,9 @@ pub struct Effect {
     pub tint: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub matches: String,
+    /// `decode`: what the letters settle into, in turn.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub messages: Vec<String>,
 }
 
 fn all_cols() -> [u16; 2] {
@@ -91,7 +98,7 @@ struct Target {
     /// For a `type`: seconds into its round when the cell shows, and
     /// when the cursor gets to it.
     typed: Option<(f32, f32)>,
-    last: Option<([u8; 3], [u8; 3])>,
+    last: Option<Shown>,
 }
 
 /// Seconds into a `type` round that each cell shows (and the cursor
@@ -126,6 +133,8 @@ fn type_times(cells: &[(u16, u16, u8)], e: &Effect) -> std::collections::HashMap
 pub struct Ambient {
     targets: Vec<Target>,
     effects: Vec<Effect>,
+    /// For each effect, a `decode`'s letter cells in reading order.
+    letters: Vec<Vec<(u16, u16)>>,
     start: Instant,
 }
 
@@ -167,6 +176,7 @@ impl Ambient {
                         "ripple" => box_line(c.ch),
                         "pulse" | "blink" => matches.is_some_and(|m| near(c.fg, m) || near(c.bg, m)),
                         "dust" | "type" | "roll" => true,
+                        "decode" => c.ch != b' ',
                         _ => false,
                     };
                     if wanted {
@@ -197,7 +207,10 @@ impl Ambient {
         }
         // In screen order, so a frame's cells run on from one another.
         targets.sort_by_key(|g| (g.y, g.x));
-        (!targets.is_empty()).then(|| Ambient { targets, effects: effects.to_vec(), start: Instant::now() })
+        let letters = (0..effects.len())
+            .map(|i| if effects[i].kind == "decode" { targets.iter().filter(|g| g.effects.contains(&i)).map(|g| (g.x, g.y)).collect() } else { Vec::new() })
+            .collect();
+        (!targets.is_empty()).then(|| Ambient { targets, effects: effects.to_vec(), letters, start: Instant::now() })
     }
 
     /// How lit cell (`x`, `y`) of a glint or ripple is at `t`, 0 to 1.
@@ -228,19 +241,22 @@ impl Ambient {
             .collect()
     }
 
-    /// A cell's colors under its effects at `t`.
-    fn shade(&self, g: &Target, t: f32, dust: &std::collections::HashSet<(u16, u16)>) -> ([u8; 3], [u8; 3]) {
-        g.effects.iter().fold((g.base.fg, g.base.bg), |now, &i| self.shade_one(i, g, now, t, dust))
+    /// A cell under its effects at `t`.
+    fn shade(&self, g: &Target, t: f32, dust: &std::collections::HashSet<(u16, u16)>) -> Shown {
+        g.effects.iter().fold(g.base, |now, &i| self.shade_one(i, g, now, t, dust))
     }
 
-    /// What effect `i` makes of a cell's colors (`now`) at `t`.
-    fn shade_one(&self, i: usize, g: &Target, now: ([u8; 3], [u8; 3]), t: f32, dust: &std::collections::HashSet<(u16, u16)>) -> ([u8; 3], [u8; 3]) {
+    /// What effect `i` makes of a cell (`b`, as the effects before it
+    /// left it) at `t`.
+    fn shade_one(&self, i: usize, g: &Target, b: Shown, t: f32, dust: &std::collections::HashSet<(u16, u16)>) -> Shown {
         let e = &self.effects[i];
-        let b = Shown { ch: g.base.ch, fg: now.0, bg: now.1 };
+        if e.kind == "decode" {
+            return self.decode(i, g, b, t);
+        }
         let since = t - e.delay;
         let phase = since.rem_euclid(e.every.max(0.5));
         let q = |k: f32, steps: f32| (k * steps).round() / steps;
-        match e.kind.as_str() {
+        let (fg, bg) = match e.kind.as_str() {
             "glint" | "ripple" => {
                 let k = if since < 0.0 { 0.0 } else { q(Self::sweep(e, g.x, g.y, phase), 8.0) };
                 let fg = if b.ch == b' ' { b.fg } else { lift(b.fg, k) };
@@ -260,7 +276,7 @@ impl Ambient {
                 (warm(b.fg), warm(b.bg))
             }
             "pulse" => {
-                let (Some(m), Some(to)) = (hex(&e.matches), hex(&e.tint)) else { return (b.fg, b.bg) };
+                let (Some(m), Some(to)) = (hex(&e.matches), hex(&e.tint)) else { return b };
                 let amount = if e.amount > 0.0 { e.amount } else { 0.9 };
                 let wave = if since < 0.0 { 0.0 } else { (0.5 - 0.5 * (phase / e.every.max(0.5) * 2.0 * std::f32::consts::PI).cos()).powi(2) };
                 let k = q(amount * wave, 8.0);
@@ -277,10 +293,10 @@ impl Ambient {
                 }
             }
             "type" => {
-                let Some((shows, cursor)) = g.typed else { return (b.fg, b.bg) };
+                let Some((shows, cursor)) = g.typed else { return b };
                 let local = t.rem_euclid(e.every.max(1.0)) - e.delay;
                 if local >= shows {
-                    return (b.fg, b.bg);
+                    return b;
                 }
                 // The cursor: steady while it types, blinking once done
                 // until the next `type` starts.
@@ -291,16 +307,16 @@ impl Ambient {
                     && local >= cursor
                     && (!done || (local * 2.0).rem_euclid(2.0) < 1.0)
                 {
-                    return (c, c);
+                    return Shown { ch: b.ch, fg: c, bg: c };
                 }
                 (b.bg, b.bg)
             }
             "blink" => {
-                let Some(m) = hex(&e.matches) else { return (b.fg, b.bg) };
+                let Some(m) = hex(&e.matches) else { return b };
                 let on = if e.amount > 0.0 { e.amount } else { 0.5 };
                 let tick = (t / e.every.max(0.05) + noise(g.x as i32, g.y as i32 * 7) * 4.0).floor() as i32;
                 if noise(tick, g.x as i32 * 131 + g.y as i32) < on {
-                    return (b.fg, b.bg);
+                    return b;
                 }
                 let dim = |c: [u8; 3]| if near(c, m) { times(c, 0.22) } else { c };
                 (dim(b.fg), dim(b.bg))
@@ -314,6 +330,55 @@ impl Ambient {
                 (fg, lift(b.bg, k * 0.7))
             }
             _ => (b.fg, b.bg),
+        };
+        Shown { ch: b.ch, fg, bg }
+    }
+
+    /// `decode`: a letter cell at `t`. Each round picks the cells that
+    /// carry the message's letters (as many as it has, in reading
+    /// order); the rest are noise. For the first `amount` seconds of a
+    /// round the cells run through glyphs, each settling in its own
+    /// time. The letters take `tint`, or the brightest color the area was
+    /// drawn in; noise the darkest. When the message fills every cell
+    /// (a word down a margin), each keeps its own color.
+    fn decode(&self, i: usize, g: &Target, b: Shown, t: f32) -> Shown {
+        let e = &self.effects[i];
+        let since = t - e.delay;
+        let cells = &self.letters[i];
+        if since < 0.0 || e.messages.is_empty() || cells.is_empty() {
+            return b;
+        }
+        let every = e.every.max(1.0);
+        let round = (since / every).floor() as i32;
+        let phase = since - round as f32 * every;
+        let dur = if e.amount > 0.0 { e.amount } else { 2.0 };
+        let Some(me) = cells.iter().position(|&p| p == (g.x, g.y)) else { return b };
+        let msg: Vec<u8> = fluxbbs_term::cp437::encode(&e.messages[round.rem_euclid(e.messages.len() as i32) as usize]).into_iter().filter(|&c| c != b' ').collect();
+        let n = msg.len().min(cells.len());
+        // This round's letter cells: the n with the lowest draw.
+        let draws: Vec<f32> = (0..cells.len()).map(|k| noise(round.wrapping_mul(7919) + k as i32, 17)).collect();
+        let mut sorted = draws.clone();
+        sorted.sort_by(f32::total_cmp);
+        let lit = |k: usize| n > 0 && draws[k] <= sorted[n - 1];
+        let letter = lit(me).then(|| msg[(0..me).filter(|&k| lit(k)).count()]);
+        // The colors the area was drawn in.
+        let bases = || self.targets.iter().filter(|o| o.effects.contains(&i)).map(|o| o.base.fg);
+        let sum = |c: [u8; 3]| c.iter().map(|&v| v as u32).sum::<u32>();
+        let dim = bases().min_by_key(|&c| sum(c)).unwrap_or(b.fg);
+        let bright = hex(&e.tint).or_else(|| bases().max_by_key(|&c| sum(c))).unwrap_or(b.fg);
+        let settle = dur * (0.25 + 0.75 * noise(round.wrapping_mul(31) + me as i32, 5));
+        if phase < settle {
+            let tick = (t * 12.0) as i32;
+            let k = (noise(tick, me as i32 * 13 + round) * 4.0).round() / 4.0;
+            return Shown { ch: rain_glyph(noise(tick.wrapping_mul(3), me as i32)), fg: toward(dim, bright, k), bg: b.bg };
+        }
+        match letter {
+            Some(ch) => Shown { ch, fg: if n == cells.len() { g.base.fg } else { bright }, bg: b.bg },
+            None => {
+                const SET: &[u8] = b"ABCDEFGHJKLMNPQRSTUVWXYZ0123456789";
+                let r = noise(round.wrapping_mul(101) + me as i32, 3);
+                Shown { ch: SET[((r * SET.len() as f32) as usize).min(SET.len() - 1)], fg: dim, bg: b.bg }
+            }
         }
     }
 
@@ -322,15 +387,13 @@ impl Ambient {
         let t = self.start.elapsed().as_secs_f32();
         let dust: std::collections::HashSet<(u16, u16)> =
             self.effects.iter().enumerate().filter(|(_, e)| e.kind == "dust" && t >= e.delay).flat_map(|(i, e)| Self::motes(e, i, t)).collect();
-        let colors: Vec<([u8; 3], [u8; 3])> = self.targets.iter().map(|g| self.shade(g, t, &dust)).collect();
+        let cells: Vec<Shown> = self.targets.iter().map(|g| self.shade(g, t, &dust)).collect();
         let mut out = Vec::new();
         let mut at: Option<(u16, u16)> = None;
         // Colors go out only when they change from the cell before.
         let mut pen = None;
-        for (g, now) in self.targets.iter_mut().zip(colors) {
-            let b = g.base;
-            let unchanged = (b.fg, b.bg) == now;
-            if g.last == Some(now) || (g.last.is_none() && unchanged) {
+        for (g, now) in self.targets.iter_mut().zip(cells) {
+            if g.last == Some(now) || (g.last.is_none() && g.base == now) {
                 g.last = Some(now);
                 continue;
             }
@@ -338,12 +401,12 @@ impl Ambient {
             if at != Some((g.x, g.y)) {
                 out.extend(format!("\x1b[{};{}H", g.y, g.x).as_bytes());
             }
-            let (fg, bg) = now;
-            if pen != Some(now) {
+            let (fg, bg) = (now.fg, now.bg);
+            if pen != Some((fg, bg)) {
                 out.extend(format!("\x1b[38;2;{};{};{};48;2;{};{};{}m", fg[0], fg[1], fg[2], bg[0], bg[1], bg[2]).as_bytes());
-                pen = Some(now);
+                pen = Some((fg, bg));
             }
-            out.push(b.ch);
+            out.push(now.ch);
             at = Some((g.x + 1, g.y));
         }
         out
@@ -628,7 +691,11 @@ mod tests {
     use fluxbbs_term::{Charset, Screen};
 
     fn fx(kind: &str, rows: [u16; 2]) -> Effect {
-        Effect { kind: kind.into(), rows, cols: all_cols(), every: 8.0, delay: 1.5, amount: 0.0, tint: String::new(), matches: String::new() }
+        Effect { kind: kind.into(), rows, cols: all_cols(), every: 8.0, delay: 1.5, amount: 0.0, tint: String::new(), matches: String::new(), messages: Vec::new() }
+    }
+
+    fn colors(s: Shown) -> ([u8; 3], [u8; 3]) {
+        (s.fg, s.bg)
     }
 
     #[test]
@@ -655,7 +722,7 @@ mod tests {
         let e = Effect { matches: "#3c0a08".into(), tint: "#ff3018".into(), ..fx("pulse", [1, 1]) };
         let a = Ambient::new(&s, &[e]).unwrap();
         assert_eq!(a.targets.len(), 1, "only the cell with the eye's color");
-        let (fg, bg) = a.shade(&a.targets[0], 1.5 + 4.0, &Default::default());
+        let (fg, bg) = colors(a.shade(&a.targets[0], 1.5 + 4.0, &Default::default()));
         assert!(fg[0] > 200 && bg == [200, 200, 190], "the eye glows, the bone doesn't: {fg:?} {bg:?}");
     }
 
@@ -667,7 +734,7 @@ mod tests {
         let a = Ambient::new(&s, &[e]).unwrap();
         let at = |x: u16, y: u16, t: f32| {
             let g = a.targets.iter().find(|g| (g.x, g.y) == (x, y)).unwrap();
-            a.shade(g, t, &Default::default())
+            colors(a.shade(g, t, &Default::default()))
         };
         let (bg, green) = ([0, 0, 20], [0, 255, 0]);
         assert_eq!(at(1, 1, 0.5), (bg, bg), "nothing before the delay");
@@ -692,8 +759,25 @@ mod tests {
         assert_eq!(a.targets.len(), 80, "one target a cell, with both effects");
         assert_eq!(a.targets[0].effects, [0, 1]);
         // The bar over the typed text lights it.
-        let (fg, bg) = a.shade(&a.targets[0], 4.0 * 2.0 / 5.0, &Default::default());
+        let (fg, bg) = colors(a.shade(&a.targets[0], 4.0 * 2.0 / 5.0, &Default::default()));
         assert!(fg[1] > 200 && bg[0] > 0, "{fg:?} {bg:?}");
+    }
+
+    #[test]
+    fn letters_decode_into_the_next_message() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        // Four noise letters in gray, one lit in pink.
+        s.write_bytes(b"\x1b[2J\x1b[38;2;85;85;85;48;2;0;0;0mAB \x1b[38;2;255;85;255mC\x1b[38;2;85;85;85mD");
+        let e = Effect { every: 10.0, delay: 1.0, amount: 1.0, messages: vec!["XY".into(), "QRS".into()], ..fx("decode", [1, 1]) };
+        let a = Ambient::new(&s, &[e]).unwrap();
+        assert_eq!(a.letters[0], [(1, 1), (2, 1), (4, 1), (5, 1)], "the letters, not the space");
+        let row = |t: f32| -> Vec<Shown> { a.targets.iter().map(|g| a.shade(g, t, &Default::default())).collect() };
+        assert!(row(0.5).iter().zip(&a.targets).all(|(s, g)| *s == g.base), "as drawn before the first round");
+        let lit = |t: f32| row(t).iter().filter(|s| s.fg == [255, 85, 255]).map(|s| s.ch).collect::<Vec<u8>>();
+        assert_eq!(lit(1.0 + 1.5), b"XY", "the message's letters, in order, in the lit color");
+        assert_eq!(lit(11.0 + 1.5), b"QRS", "then the next");
+        assert!(row(11.0 + 1.5).iter().all(|s| s.fg == [255, 85, 255] || s.fg == [85, 85, 85]), "the rest noise in the dim color");
+        assert!(row(1.05) != row(1.15), "scrambling at the start of a round");
     }
 
     #[test]
@@ -702,7 +786,7 @@ mod tests {
         s.write_bytes(b"\x1b[2J\x1b[38;2;255;40;40;48;2;30;30;30m\xDC");
         let e = Effect { matches: "#ff2828".into(), every: 0.2, ..fx("blink", [1, 1]) };
         let a = Ambient::new(&s, &[e]).unwrap();
-        let seen: std::collections::HashSet<_> = (0..60).map(|i| a.shade(&a.targets[0], i as f32 * 0.1, &Default::default()).0).collect();
+        let seen: std::collections::HashSet<_> = (0..60).map(|i| a.shade(&a.targets[0], i as f32 * 0.1, &Default::default()).fg).collect();
         assert!(seen.len() == 2, "lit and out: {seen:?}");
     }
 

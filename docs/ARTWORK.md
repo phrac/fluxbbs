@@ -158,6 +158,15 @@ delay = 6.0
     letter.
   - `roll`: a bright bar rolls down the area once every `every`
     seconds, as on an old tube.
+  - `decode`: the letters in the area scramble, matrix style, and
+    settle into the next of `messages = ["...", ...]`, every `every`
+    seconds, `delay` in; the scramble lasts `amount` seconds (2 to
+    start). Each round picks fresh cells for the message's letters,
+    in reading order, and fills the rest with noise: the letters in
+    `tint` (or the brightest color the area was drawn in), the noise
+    in the darkest. A message as long as the area (a word down a
+    margin) keeps each cell's own color. Give it the glint's `every`
+    and `delay` and the message changes as the glint passes.
 - **Effects can share cells.** Each applies to what the one before it
   made, in the order they're listed: put a `roll` before the `type`s
   on the same tube.

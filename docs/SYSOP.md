@@ -113,6 +113,7 @@ Logs go to `docker logs fluxbbs`.
 | `protocols.toml` | external transfer protocols | `*X` |
 | `archivers.toml` | archivers for formats other than ZIP | `*Z` |
 | `infoforms.toml` | infoforms | `*I` |
+| `questions.toml` | questions new users are asked when they apply | `*P` |
 | `themes.toml`, `themes/` | screen themes | `*T` |
 | `strings.toml` | prompt strings that differ from stock | `*E` |
 | `menus/*.toml` | menus | `*#` |

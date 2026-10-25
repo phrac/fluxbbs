@@ -435,6 +435,8 @@ impl Session {
                 .take(12)
                 .map(|(ini, c)| if nuv.initials { format!("{ini} - {c}") } else { c })
                 .collect();
+            // New: what they answered the SysOp's questions, first.
+            self.show_answers(u.id).await?;
             let (choice, done) = loop {
                 self.newline();
                 let mut w = waves([

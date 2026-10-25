@@ -255,6 +255,8 @@ pub struct Paths {
     pub levels: PathBuf,
     /// Infoform definitions.
     pub infoforms: PathBuf,
+    /// New: the SysOp's questions for new users.
+    pub questions: PathBuf,
     /// Screen themes (text libraries): the list, and their directories.
     pub themes: PathBuf,
     pub theme_dir: PathBuf,
@@ -1313,6 +1315,7 @@ impl Default for Paths {
             archivers: "archivers.toml".into(),
             levels: "levels.toml".into(),
             infoforms: "infoforms.toml".into(),
+            questions: "questions.toml".into(),
             themes: "themes.toml".into(),
             theme_dir: "themes".into(),
             temp: "data/temp".into(),

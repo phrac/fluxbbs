@@ -256,6 +256,7 @@ impl Session {
             "*#" if self.is_sysop() => self.menu_editor().await?,
             "*C" if self.is_sysop() => self.system_config().await?,
             "*I" if self.is_sysop() => self.infoform_editor().await?,
+            "*P" if self.is_sysop() => self.question_editor().await?,
             "*T" if self.is_sysop() => self.theme_editor().await?,
             "AG" => self.art_gallery().await?,
             "UT" => self.choose_theme().await?,

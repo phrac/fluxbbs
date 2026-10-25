@@ -127,6 +127,15 @@ on = "|B1Infoform editor"
 off = "|B0Infoform editor"
 
 [[command]]
+keys = "P"
+command = "*P"
+acs = "s250"
+desc = "New user questions"
+help = "[sysop] Edit the questions new users are asked when they apply"
+on = "|B1New user questions"
+off = "|B0New user questions"
+
+[[command]]
 keys = "L"
 command = "*L"
 acs = "s250"

@@ -559,6 +559,8 @@ impl Session {
             self.write(crate::user::gender_name(u.sex));
             self.newline();
         }
+        // New: the SysOp's own questions (`*P`).
+        let answers = self.ask_questions().await?;
         self.new_user_prefs(&mut u).await?;
         let pw = self.ask_new_password(&u.handle.clone(), "NuPassword", "NuValidatePW", "NuPWnoMatch").await?;
         u.set_password(&pw);
@@ -573,6 +575,11 @@ impl Session {
         self.newline();
         self.state.users.insert(&mut u).map_err(io::Error::other)?;
         tracing::info!("new user {} (#{}) applied", u.handle, u.id);
+        if !answers.is_empty()
+            && let Err(e) = self.state.forms.set_answers(crate::questions::FORM, u.id, &answers, crate::clock::now().naive_local())
+        {
+            tracing::error!("keeping {}'s answers: {e}", u.handle);
+        }
         let ip = self.caller.remote.map(|a| a.ip().to_string()).unwrap_or_default();
         if let Err(e) = self.state.sys.record_signup(&ip) {
             tracing::error!("recording sign-up: {e}");

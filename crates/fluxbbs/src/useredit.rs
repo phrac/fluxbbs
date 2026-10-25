@@ -450,13 +450,31 @@ impl Session {
                         }
                         '&' | '~' => {
                             let forms = self.state.infoforms().list.clone();
+                            // New: the answers to the SysOp's new user
+                            // questions, 0 (or the only thing to see).
+                            let asked = !self.state.questions().list.is_empty();
                             if forms.is_empty() {
-                                self.cfg_info(&mut f, "There are no infoforms.");
+                                if key == '&' && asked {
+                                    if self.show_answers(u.id).await? {
+                                        break;
+                                    }
+                                    self.cfg_info(&mut f, "They didn't answer the new user questions.");
+                                } else {
+                                    self.cfg_info(&mut f, "There are no infoforms.");
+                                }
                                 continue;
                             }
                             let verb = if key == '&' { "view" } else { "clear" };
-                            let q = format!("Infoform to {verb} [1-{}, = for all]: ", forms.len());
+                            let zero = if key == '&' && asked { ", 0 the new user questions" } else { "" };
+                            let q = format!("Infoform to {verb} [1-{}, = for all{zero}]: ", forms.len());
                             let pick = self.cfg_read_info(&mut f, &q, 3).await?;
+                            if pick == "0" && key == '&' && asked {
+                                if self.show_answers(u.id).await? {
+                                    break;
+                                }
+                                self.cfg_info(&mut f, "They didn't answer the new user questions.");
+                                continue;
+                            }
                             let which: Vec<_> = if pick == "=" {
                                 forms.iter().collect()
                             } else {

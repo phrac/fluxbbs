@@ -98,6 +98,11 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   SysOp's edits (level, flags, daily time) stay while they're online.
 - The session reads such an edit at once and tells the caller what
   changed; more daily time is more time today too.
+- `*P`: the SysOp's own questions for new users (text, yes/no, a
+  number or a choice; required or not), asked after the stock ones
+  when someone applies. The answers are kept with the infoform
+  answers, shown in `*U` (`&`, then `0`) and to new user voters before
+  the vote. ([SYSOP](SYSOP.md#configuration))
 - `*U`'s flags field: the info line says what the flag under the cursor
   is for and which menus, areas and settings test it; `?` describes it
   (`[flags]` in `fluxbbs.toml`). ([FEATURES](FEATURES.md#in-detail))
@@ -109,7 +114,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   that change, and after a minute idle a screen saver of digital rain.
   Callers can turn it all off in their config. Any screen can animate
   at its `|PK` with effects in a `NAME.FX` beside it (firelight,
-  glowing eyes, dust in the light).
+  glowing eyes, dust in the light, text typing itself out, a hidden
+  message that scrambles and settles into the next).
 - Logging off (`/G`, or the goodbye menu's logoff, which now thanks the
   caller the same way instead of clearing the screen) switches the screen off
   as an old TV did: what's showing flickers, squashes to a bright line,
