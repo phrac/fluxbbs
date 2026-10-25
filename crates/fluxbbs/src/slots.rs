@@ -311,6 +311,10 @@ impl Session {
             return None;
         }
         let pull = decide(cfg, &mut rand::rng());
+        // A pull counts as five chips played, for the players club.
+        if !free {
+            self.casino_played(5);
+        }
         if free {
             t.free = true;
         } else {
@@ -365,7 +369,8 @@ impl Session {
         let Some(pull) = self.slots_pull(cfg, true) else { return Ok(()) };
         if self.plain() || self.screen.rows() < 24 {
             let s = self.strings().fmt("SlotsFreePlain", &[&self.slots_result_text(cfg, &pull)]);
-            return self.show_line(&s).await;
+            self.show_line(&s).await?;
+            return self.say_line("SlotsFreeMore").await;
         }
         let st = self.stage_open();
         let mut game = Game::new(st);
@@ -393,6 +398,10 @@ impl Session {
         self.slots_show(cfg, game, pull).await?;
         let tally = self.slots_today();
         self.slots_status(cfg, game.st.truecolor, &tally);
+        self.slots_idle(game, Duration::from_millis(1500), true).await?;
+        // And where to play more.
+        let more = painted(&crate::editor::strip_colours(self.strings().get("SlotsFreeMore")), [255, 150, 220]);
+        self.stage_line(MSG_ROW, &more, game.st.truecolor);
         self.slots_idle(game, Duration::from_millis(2500), true).await?;
         Ok(())
     }

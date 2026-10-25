@@ -122,6 +122,25 @@ impl Session {
 pub struct Purse {
     pub chips: u32,
     pub paid: Prize,
+    /// Chips played today (bets made, slot pulls), for comps.
+    pub played: u32,
+    /// Comps had today: 1 the buffet, 2 the suite, 4 the show.
+    pub comps: u8,
+    pub drinks: u32,
+}
+
+impl Purse {
+    /// Chips onto the table.
+    pub fn stake(&mut self, n: u32) {
+        self.chips -= n;
+        self.played += n;
+    }
+
+    /// Chips taken back before they were played.
+    pub fn unstake(&mut self, n: u32) {
+        self.chips += n;
+        self.played = self.played.saturating_sub(n);
+    }
 }
 
 /// What winnings of `chips` pay.
@@ -143,22 +162,22 @@ impl Session {
         let mut w = v.split_whitespace();
         let day = w.next().unwrap_or("").to_string();
         let mut n = || w.next().and_then(|x| x.parse::<u32>().ok()).unwrap_or(0);
-        let (chips, minutes, points) = (n(), n(), n());
+        let (chips, minutes, points, played, comps, drinks) = (n(), n(), n(), n(), n(), n());
         if day == today {
-            return Purse { chips, paid: Prize { minutes, points } };
+            return Purse { chips, paid: Prize { minutes, points }, played, comps: comps as u8, drinks };
         }
         if !day.is_empty() && chips > cfg.daily_chips {
             let p = winnings(cfg, chips - cfg.daily_chips);
             self.casino_pay(p);
         }
-        let p = Purse { chips: cfg.daily_chips, paid: Prize::default() };
+        let p = Purse { chips: cfg.daily_chips, ..Default::default() };
         self.purse_save(&p);
         p
     }
 
     pub(crate) fn purse_save(&self, p: &Purse) {
         let today = crate::clock::now().date_naive();
-        let v = format!("{today} {} {} {}", p.chips, p.paid.minutes, p.paid.points);
+        let v = format!("{today} {} {} {} {} {} {}", p.chips, p.paid.minutes, p.paid.points, p.played, p.comps, p.drinks);
         if let Err(e) = self.state.sys.script_set("casino", &self.purse_key(), Some(&v)) {
             tracing::error!("casino: saving {}'s chips: {e}", self.user.handle);
         }
@@ -178,6 +197,14 @@ impl Session {
         Some(prize)
     }
 
+    /// Play outside the tables (a slot pull) counted toward comps.
+    pub(crate) fn casino_played(&mut self, chips: u32) {
+        let cfg = self.state.config().casino.clone();
+        let mut p = self.purse(&cfg);
+        p.played += chips;
+        self.purse_save(&p);
+    }
+
     fn casino_pay(&mut self, p: Prize) {
         if p.minutes == 0 && p.points == 0 {
             return;
@@ -192,8 +219,11 @@ impl Session {
 
 // ---- the lobby ---------------------------------------------------------------
 
-/// The games, as the lobby shows them: key, name, where.
-const GAMES: [(char, &str, f32); 3] = [('S', "slots", 13.0), ('B', "blackjack", 41.0), ('C', "craps", 67.0)];
+/// The places off the lobby, in the order the arrows walk them: key,
+/// name, where (the games on the floor; the bar and the club by the
+/// doors at the bottom).
+const GAMES: [(char, &str, f32); 6] =
+    [('D', "bar", 8.0), ('S', "slots", 9.0), ('B', "blackjack", 31.0), ('R', "roulette", 53.0), ('C', "craps", 71.0), ('P', "players club", 70.0)];
 
 /// The room without what moves: the wall, the carpet, the sign's glow.
 fn lobby_room() -> &'static Canvas {
@@ -302,45 +332,102 @@ fn draw_lobby(cv: &mut Canvas, t: f32, pick: usize) {
             cv.blend(x, 19, rgb(255, 200, 100), 0.35);
         }
     }
-    draw_slot_machine(cv, GAMES[0].2, t);
-    draw_bj_table(cv, GAMES[1].2);
-    draw_dice_table(cv, GAMES[2].2);
+    draw_slot_machine(cv, GAMES[1].2, t);
+    draw_bj_table(cv, GAMES[2].2);
+    draw_wheel_table(cv, GAMES[3].2, t);
+    draw_dice_table(cv, GAMES[4].2);
     for (i, &(key, name, x)) in GAMES.iter().enumerate() {
         let s = format!("{} {name}", key.to_ascii_lowercase());
-        let col = (x as usize).saturating_sub(s.len() / 2);
         let (fg, bg) = if i == pick { (rgb(255, 255, 255), Some(rgb(150, 40, 120))) } else { (rgb(170, 140, 170), None) };
-        cv.label(col.saturating_sub(1), 20, &format!(" {s} "), fg, bg);
+        // The bar and the club are through doors at the bottom.
+        let (col, row) = match name {
+            "bar" => (1, 21),
+            "players club" => (W - s.len() - 3, 21),
+            _ => ((x as usize).saturating_sub(s.len() / 2 + 1), 20),
+        };
+        cv.label(col, row, &format!(" {s} "), fg, bg);
     }
+}
+
+/// A little roulette wheel, turning, the ball going round it.
+fn draw_wheel_table(cv: &mut Canvas, cx: f32, t: f32) {
+    for y in 26..40 {
+        for x in (cx - 11.0) as i32..=(cx + 11.0) as i32 {
+            let (u, v) = ((x as f32 - cx) / 11.0, (y as f32 - 33.0) / 6.0);
+            if u * u + v * v <= 1.0 {
+                cv.set(x, y, mix(rgb(35, 130, 70), rgb(12, 60, 30), smooth(0.0, 1.0, u * u + v * v)));
+            }
+        }
+    }
+    // Too small for 37 pockets: a dozen, red and black, and the zero.
+    let (cy, rx, ry) = (31.5, 9.5, 4.5);
+    for y in (cy - ry) as i32..=(cy + ry) as i32 {
+        for x in (cx - rx) as i32..=(cx + rx) as i32 {
+            let (u, v) = ((x as f32 + 0.5 - cx) / rx, (y as f32 + 0.5 - cy) / ry);
+            let r = (u * u + v * v).sqrt();
+            if r > 1.0 {
+                continue;
+            }
+            let a = v.atan2(u) - t * 0.8;
+            let seg = ((a.rem_euclid(2.0 * std::f32::consts::PI)) / (2.0 * std::f32::consts::PI) * 12.0) as i32;
+            let c = if r > 0.82 {
+                rgb(120, 65, 30)
+            } else if r > 0.45 {
+                match seg {
+                    0 => rgb(30, 150, 70),
+                    s if s % 2 == 1 => rgb(205, 30, 40),
+                    _ => rgb(25, 22, 28),
+                }
+            } else if r > 0.2 {
+                rgb(130, 75, 35)
+            } else {
+                rgb(230, 230, 240)
+            };
+            cv.set(x, y, c);
+        }
+    }
+    let a = -t * 2.3;
+    cv.set((cx + 0.9 * rx * a.cos()).round() as i32, (cy + 0.9 * ry * a.sin()).round() as i32, rgb(255, 255, 255));
 }
 
 /// A little slot machine: red and gold, three sevens, a handle.
 fn draw_slot_machine(cv: &mut Canvas, cx: f32, t: f32) {
-    let x0 = cx as i32 - 10;
+    let x0 = cx as i32 - 8;
     let lamp = if (t * 2.0) as i32 % 2 == 0 { rgb(255, 220, 90) } else { rgb(160, 90, 30) };
-    for x in x0 + 6..x0 + 15 {
+    for x in x0 + 4..x0 + 13 {
         cv.set(x, 21, lamp);
     }
     for y in 22..39 {
-        for x in x0..x0 + 21 {
-            let edge = x == x0 || x == x0 + 20 || y == 22;
-            let shade = 1.0 - (x - x0) as f32 / 40.0;
+        for x in x0..x0 + 17 {
+            let edge = x == x0 || x == x0 + 16 || y == 22;
+            let shade = 1.0 - (x - x0) as f32 / 34.0;
             cv.set(x, y, if edge { rgb(230, 180, 60) } else { scale(rgb(185, 25, 40), shade) });
         }
     }
-    for y in 24..33 {
-        for x in x0 + 2..x0 + 19 {
-            let edge = ((y - 28) as f32 / 4.5).abs();
+    for y in 24..32 {
+        for x in x0 + 1..x0 + 16 {
+            let edge = ((y as f32 - 27.5) / 4.0).abs();
             cv.set(x, y, mix(rgb(250, 245, 230), rgb(150, 140, 130), edge * edge));
         }
     }
-    cv.print(x0 + 3, 25, "777", 1, |_, v| mix(rgb(240, 40, 40), rgb(150, 0, 20), v));
-    cv.rect(x0 + 2, 34, 17, 2, rgb(40, 10, 15));
+    // Three sevens, four pixels wide.
+    const SEVEN: [u8; 6] = [0b1111, 0b0001, 0b0010, 0b0100, 0b0100, 0b0100];
+    for k in 0..3 {
+        for (dy, bits) in SEVEN.iter().enumerate() {
+            for dx in 0..4 {
+                if bits >> (3 - dx) & 1 == 1 {
+                    cv.set(x0 + 2 + k * 5 + dx, 25 + dy as i32, mix(rgb(240, 40, 40), rgb(150, 0, 20), dy as f32 / 6.0));
+                }
+            }
+        }
+    }
+    cv.rect(x0 + 2, 34, 13, 2, rgb(40, 10, 15));
     // The handle.
     for y in 25..32 {
-        cv.set(x0 + 22, y, rgb(190, 190, 200));
+        cv.set(x0 + 18, y, rgb(190, 190, 200));
     }
     for (dx, dy) in [(0, 0), (1, 0), (0, 1), (1, 1)] {
-        cv.set(x0 + 21 + dx, 23 + dy, rgb(230, 30, 40));
+        cv.set(x0 + 17 + dx, 23 + dy, rgb(230, 30, 40));
     }
 }
 
@@ -359,38 +446,38 @@ fn draw_bj_table(cv: &mut Canvas, cx: f32) {
     }
     let ace = crate::blackjack::card_image(Some(crate::blackjack::Card { rank: 1, suit: 0 }));
     let king = crate::blackjack::card_image(Some(crate::blackjack::Card { rank: 13, suit: 1 }));
-    crate::blackjack::blit_card(cv, &king, cx - 13.0, 17.0, 1.0, 0.0);
-    crate::blackjack::blit_card(cv, &ace, cx - 2.0, 15.0, 1.0, 0.0);
+    crate::blackjack::blit_card(cv, &king, cx - 11.0, 17.0, 1.0, 0.0);
+    crate::blackjack::blit_card(cv, &ace, cx - 4.0, 15.0, 1.0, 0.0);
 }
 
 /// Two red dice on felt, showing seven.
 fn draw_dice_table(cv: &mut Canvas, cx: f32) {
     for y in 30..40 {
-        for x in (cx - 13.0) as i32..=(cx + 13.0) as i32 {
-            let (u, v) = ((x as f32 - cx) / 13.0, (y as f32 - 35.0) / 5.0);
+        for x in (cx - 10.0) as i32..=(cx + 10.0) as i32 {
+            let (u, v) = ((x as f32 - cx) / 10.0, (y as f32 - 35.0) / 5.0);
             if u * u + v * v <= 1.0 {
                 cv.set(x, y, mix(rgb(35, 130, 70), rgb(12, 60, 30), smooth(0.0, 1.0, u * u + v * v)));
             }
         }
     }
-    crate::craps::draw_die(cv, cx - 6.0, 31.0, 0.0, 0.25, 5, 10.0);
-    crate::craps::draw_die(cv, cx + 6.0, 27.0, 0.0, -0.35, 2, 10.0);
+    crate::craps::draw_die(cv, cx - 3.5, 32.0, 0.0, 0.25, 5, 8.0);
+    crate::craps::draw_die(cv, cx + 4.5, 28.0, 0.0, -0.35, 2, 8.0);
 }
 
 impl Session {
-    /// `AC`: the casino. `AC slots`, `AC blackjack` or `AC craps` goes
-    /// straight to a game.
+    /// `AC`: the casino. `AC slots`, `AC blackjack`, `AC roulette`, `AC
+    /// craps`, `AC bar` or `AC club` goes straight there.
     pub async fn casino(&mut self, param: &str) -> io::Result<()> {
         let cfg = self.state.config().casino.clone();
         let p = param.trim().to_ascii_lowercase();
-        if let Some(i) = GAMES.iter().position(|g| g.1 == p) {
+        if let Some(i) = GAMES.iter().position(|g| g.1 == p || (p == "club" && g.0 == 'P')) {
             self.casino_game(&cfg, i).await?;
             return Ok(());
         }
         if self.plain() || self.screen.rows() < 24 {
             return self.casino_plain(&cfg).await;
         }
-        let mut pick = 0;
+        let mut pick = 1;
         let mut message: Option<Vec<(char, Ink)>> = None;
         loop {
             let mut st = self.stage_open();
@@ -440,19 +527,37 @@ impl Session {
     /// Play a game; a table cashes out as the caller leaves it. Returns
     /// what to say back in the lobby.
     async fn casino_game(&mut self, cfg: &Casino, i: usize) -> io::Result<Option<Vec<(char, Ink)>>> {
-        if i == 0 {
-            self.slots("").await?;
-            return Ok(None);
+        let name = GAMES[i].1;
+        match name {
+            "slots" => {
+                self.slots("").await?;
+                return Ok(None);
+            }
+            "bar" | "players club" => {
+                let mut purse = self.purse(cfg);
+                if name == "bar" {
+                    self.casino_bar(cfg, &mut purse).await?;
+                } else {
+                    self.casino_club(cfg, &mut purse).await?;
+                }
+                return Ok(None);
+            }
+            _ => {}
         }
         let mut purse = self.purse(cfg);
         let begun = crate::clock::now().naive_local();
         let before = purse.chips;
-        if i == 1 {
-            self.blackjack(cfg, &mut purse).await?;
-        } else {
-            self.craps(cfg, &mut purse).await?;
+        match name {
+            "blackjack" => self.blackjack(cfg, &mut purse).await?,
+            "roulette" => self.roulette(cfg, &mut purse).await?,
+            _ => self.craps(cfg, &mut purse).await?,
         }
-        self.record_play(if i == 1 { "Blackjack" } else { "Craps" }, begun);
+        let title = match name {
+            "blackjack" => "Blackjack",
+            "roulette" => "Roulette",
+            _ => "Craps",
+        };
+        self.record_play(title, begun);
         let up = purse.chips.saturating_sub(cfg.daily_chips);
         let said = match self.cash_out(cfg, &mut purse) {
             Some(p) => {

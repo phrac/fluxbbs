@@ -86,6 +86,9 @@ pub struct Menu {
     pub global: bool,
     #[serde(default, skip_serializing_if = "is_default")]
     pub upper_input: bool,
+    /// New: animation while the menu waits (`ambient`).
+    #[serde(default, rename = "effect", skip_serializing_if = "Vec::is_empty")]
+    pub effects: Vec<crate::ambient::Effect>,
     #[serde(default, rename = "command")]
     pub commands: Vec<Command>,
 }

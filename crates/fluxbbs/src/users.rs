@@ -90,7 +90,8 @@ CREATE TABLE IF NOT EXISTS users (
     text_mode     TEXT NOT NULL DEFAULT '',
     code_bg       TEXT NOT NULL DEFAULT '',
     code_theme    TEXT NOT NULL DEFAULT '',
-    md_theme      TEXT NOT NULL DEFAULT ''
+    md_theme      TEXT NOT NULL DEFAULT '',
+    animate       TEXT NOT NULL DEFAULT ''
 );
 -- New: a SysOp's private notes on a caller, dated, for SysOps only.
 CREATE TABLE IF NOT EXISTS user_notes (
@@ -115,7 +116,7 @@ const COLUMNS: &[&str] = &[
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
     "file_scan", "theme", "last_rep", "bank_time", "bank_kb", "bank_time_in", "bank_time_out",
     "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "last_call_at", "area_sort",
-    "fav_boards", "profile_header", "show_real_name", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme",
+    "fav_boards", "profile_header", "show_real_name", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate",
 ];
 
 fn write(db: &Connection, u: &User) -> anyhow::Result<()> {
@@ -149,7 +150,7 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     if !have.iter().any(|c| c == "show_real_name") {
         db.execute("ALTER TABLE users ADD COLUMN show_real_name INTEGER NOT NULL DEFAULT 0", [])?;
     }
-    for col in ["ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "area_sort", "fav_boards", "profile_header", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme"] {
+    for col in ["ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "area_sort", "fav_boards", "profile_header", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate"] {
         if !have.iter().any(|c| c == col) {
             db.execute(&format!("ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"), [])?;
         }
@@ -259,6 +260,7 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         code_bg: r.get("code_bg")?,
         code_theme: r.get("code_theme")?,
         md_theme: r.get("md_theme")?,
+        animate: r.get("animate")?,
     })
 }
 
@@ -302,6 +304,7 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.code_bg.clone()),
         Box::new(u.code_theme.clone()),
         Box::new(u.md_theme.clone()),
+        Box::new(u.animate.clone()),
     ]
 }
 

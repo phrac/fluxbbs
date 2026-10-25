@@ -376,6 +376,12 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('F', "Decks", 2, "Decks in the blackjack shoe.", Num(|c| c.casino.decks as u64, |c, v| c.casino.decks = v as u32, 1, 8)),
             set('G', "Hit soft 17", 3, "Does the blackjack dealer hit a soft 17?", Bool(|c| &mut c.casino.hit_soft_17)),
             set('H', "Craps odds", 2, "The most odds a craps player may lay behind the line, times the line bet.", Num(|c| c.casino.max_odds as u64, |c, v| c.casino.max_odds = v as u32, 0, 100)),
+            set('I', "Buffet after", 6, "Players club: chips played in a day before the buffet's comped.", Num(|c| c.casino.comp_buffet as u64, |c, v| c.casino.comp_buffet = v as u32, 0, 1_000_000)),
+            set('J', "Buffet minutes", 4, "Minutes on today's time the buffet gives.", Num(|c| c.casino.buffet_minutes as u64, |c, v| c.casino.buffet_minutes = v as u32, 0, 9999)),
+            set('K', "Suite after", 6, "Chips played in a day before a suite's comped.", Num(|c| c.casino.comp_suite as u64, |c, v| c.casino.comp_suite = v as u32, 0, 1_000_000)),
+            set('L', "Suite chips", 6, "Chips the suite gives (on today's stack).", Num(|c| c.casino.suite_chips as u64, |c, v| c.casino.suite_chips = v as u32, 0, 1_000_000)),
+            set('M', "Show after", 6, "Chips played in a day before show tickets are comped.", Num(|c| c.casino.comp_show as u64, |c, v| c.casino.comp_show = v as u32, 0, 1_000_000)),
+            set('N', "Show points", 6, "File points the show tickets give.", Num(|c| c.casino.show_points as u64, |c, v| c.casino.show_points = v as u32, 0, 1_000_000)),
         ]),
     ]
 }
@@ -471,7 +477,7 @@ const GROUPS: &[Group] = &[
         ('U', "FTN Echomail", "Echomail networks: addresses, hub, passwords, polling"),
         ('W', "BBSLink", "Door games on bbslink.net's server: on or off, the board's codes"),
         ('X', "Slot Machine", "Pulls a day, how loose it is, what each line pays"),
-        ('Y', "Casino Tables", "Blackjack and craps: daily chips, bets, what winnings pay"),
+        ('Y', "Casino Tables", "The tables' daily chips, bets, what winnings pay; comps"),
     ]),
 ];
 

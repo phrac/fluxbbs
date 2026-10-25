@@ -513,7 +513,7 @@ impl Session {
             let place = |amount: &mut u32, room: u32, purse: &mut Purse| {
                 let add = unit.min(room.saturating_sub(*amount)).min(purse.chips);
                 *amount += add;
-                purse.chips -= add;
+                purse.stake(add);
             };
             match k {
                 Key::Up | Key::Right => unit = next_unit(unit, cfg, true),
@@ -547,10 +547,10 @@ impl Session {
                     // Take down what may come down: the field, the odds, and
                     // line bets before a point.
                     Some('X') => {
-                        purse.chips += bets.field + bets.odds;
+                        purse.unstake(bets.field + bets.odds);
                         (bets.field, bets.odds) = (0, 0);
                         if tb.point.is_none() {
-                            purse.chips += bets.pass + bets.dont;
+                            purse.unstake(bets.pass + bets.dont);
                             (bets.pass, bets.dont) = (0, 0);
                         }
                     }
@@ -568,7 +568,7 @@ impl Session {
             self.stage_line(MSG_ROW, &s, st.truecolor);
             return false;
         }
-        purse.chips += bets.total();
+        purse.unstake(bets.total());
         *bets = Bets::default();
         self.purse_save(purse);
         true
@@ -699,7 +699,7 @@ impl Session {
             let put = |slot: &mut u32, room: u32, purse: &mut Purse| {
                 let add = amount.min(room.saturating_sub(*slot)).min(purse.chips);
                 *slot += add;
-                purse.chips -= add;
+                purse.stake(add);
             };
             match cmd.as_str() {
                 "q" => {
@@ -707,7 +707,7 @@ impl Session {
                         self.say_line("CrapsFinish").await?;
                         continue;
                     }
-                    purse.chips += bets.total();
+                    purse.unstake(bets.total());
                     self.purse_save(purse);
                     return Ok(());
                 }
@@ -743,7 +743,7 @@ impl Session {
 }
 
 /// Chip sizes to bet with: 1, 5, 25, 100, within the table's limits.
-fn next_unit(unit: u32, cfg: &Casino, up: bool) -> u32 {
+pub(crate) fn next_unit(unit: u32, cfg: &Casino, up: bool) -> u32 {
     let sizes: Vec<u32> = [1, 5, 10, 25, 50, 100, 500].into_iter().filter(|&s| s >= cfg.min_bet && s <= cfg.max_bet).collect();
     let i = sizes.iter().position(|&s| s >= unit).unwrap_or(0);
     let j = if up { (i + 1).min(sizes.len().saturating_sub(1)) } else { i.saturating_sub(1) };

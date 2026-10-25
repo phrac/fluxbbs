@@ -55,6 +55,88 @@ pub struct Screen {
     /// the current one has any yet.
     text_lines: u64,
     dirty: bool,
+    /// New: what's on screen, cell by cell (for animating it in place),
+    /// and the colors text is being written in.
+    shown: Vec<Shown>,
+    pen: Pen,
+}
+
+/// New: a cell as it is on screen: its character and colors.
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Shown {
+    pub ch: u8,
+    pub fg: [u8; 3],
+    pub bg: [u8; 3],
+}
+
+const BLANK: Shown = Shown { ch: b' ', fg: VGA[7], bg: VGA[0] };
+
+/// The colors as SGR has set them: ANSI colors, or 24-bit.
+#[derive(Clone, Copy, Debug, Default)]
+struct Pen {
+    fg: Option<Ink>,
+    bg: Option<Ink>,
+    bold: bool,
+    blink: bool,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum Ink {
+    /// An ANSI color, 0-15 (8 up bright).
+    Ansi(u8),
+    Rgb([u8; 3]),
+}
+
+impl Pen {
+    fn apply(&mut self, params: &[u16]) {
+        let mut k = 0;
+        while k < params.len() {
+            let p = params[k];
+            k += 1;
+            match p {
+                0 => *self = Pen::default(),
+                1 => self.bold = true,
+                22 => self.bold = false,
+                5 | 6 => self.blink = true,
+                25 => self.blink = false,
+                30..=37 => self.fg = Some(Ink::Ansi((p - 30) as u8)),
+                39 => self.fg = None,
+                90..=97 => self.fg = Some(Ink::Ansi((p - 90 + 8) as u8)),
+                40..=47 => self.bg = Some(Ink::Ansi((p - 40) as u8)),
+                49 => self.bg = None,
+                100..=107 => self.bg = Some(Ink::Ansi((p - 100 + 8) as u8)),
+                38 | 48 => {
+                    let rgb = match params.get(k) {
+                        Some(5) => params.get(k + 1).map(|&n| xterm256(n)),
+                        Some(2) if k + 3 < params.len() => Some([params[k + 1], params[k + 2], params[k + 3]].map(|v| v.min(255) as u8)),
+                        _ => None,
+                    };
+                    k += if params.get(k) == Some(&2) { 4 } else { 2 };
+                    if let Some(rgb) = rgb {
+                        if p == 38 { self.fg = Some(Ink::Rgb(rgb)) } else { self.bg = Some(Ink::Rgb(rgb)) }
+                    }
+                }
+                _ => {}
+            }
+        }
+    }
+
+    /// The colors a cell written now shows: bold brightens an ANSI
+    /// foreground, blink (iCE) an ANSI background.
+    fn resolve(&self) -> ([u8; 3], [u8; 3]) {
+        let ansi = |n: u8, bright: bool| VGA[([0, 4, 2, 6, 1, 5, 3, 7][(n & 7) as usize] | if bright || n >= 8 { 8 } else { 0 }) as usize];
+        let fg = match self.fg {
+            Some(Ink::Rgb(c)) => c,
+            Some(Ink::Ansi(n)) => ansi(n, self.bold),
+            None => ansi(7, self.bold),
+        };
+        let bg = match self.bg {
+            Some(Ink::Rgb(c)) => c,
+            Some(Ink::Ansi(n)) => ansi(n, self.blink),
+            None => if self.blink { VGA[8] } else { VGA[0] },
+        };
+        (fg, bg)
+    }
 }
 
 impl Screen {
@@ -77,6 +159,8 @@ impl Screen {
             plain: false,
             text_lines: 0,
             dirty: false,
+            shown: vec![BLANK; COLUMNS as usize * rows.max(1) as usize],
+            pen: Pen::default(),
         }
         .init()
     }
@@ -142,6 +226,7 @@ impl Screen {
 
     pub fn set_rows(&mut self, rows: u16) {
         self.rows = rows.max(1);
+        self.shown.resize(COLUMNS as usize * self.rows as usize, BLANK);
         self.y = self.y.min(self.rows);
     }
 
@@ -201,6 +286,8 @@ impl Screen {
     }
 
     pub fn set_color(&mut self, c: Color) {
+        let ansi = |dos: u8| [0, 4, 2, 6, 1, 5, 3, 7][(dos & 7) as usize] | (dos & 8);
+        self.pen = Pen { fg: Some(Ink::Ansi(ansi(c.fore))), bg: Some(Ink::Ansi(ansi(c.back & 7))), bold: false, blink: c.blink };
         if self.bright_bg || self.ext_color {
             // Our model can't express these colours exactly; start over.
             self.raw(b"\x1b[0m");
@@ -229,6 +316,36 @@ impl Screen {
 
     pub fn clear_eol(&mut self) {
         self.raw(b"\x1b[K");
+        self.erase_rest_of_line();
+    }
+
+    /// New: what's in cell (`x`, `y`), 1-based, as far as what's been
+    /// sent says.
+    pub fn shown(&self, x: u16, y: u16) -> Option<Shown> {
+        ((1..=COLUMNS).contains(&x) && (1..=self.rows).contains(&y)).then(|| self.shown[(y as usize - 1) * COLUMNS as usize + x as usize - 1])
+    }
+
+    fn erase_rest_of_line(&mut self) {
+        let (_, bg) = self.pen.resolve();
+        let row = (self.y.max(1) as usize - 1) * COLUMNS as usize;
+        for x in self.x.max(1)..=COLUMNS {
+            if let Some(c) = self.shown.get_mut(row + x as usize - 1) {
+                *c = Shown { ch: b' ', fg: VGA[7], bg };
+            }
+        }
+    }
+
+    /// The screen (or the scroll region) moves up a line.
+    fn scroll_shown(&mut self) {
+        let bottom = self.region.unwrap_or(self.rows) as usize;
+        let w = COLUMNS as usize;
+        if bottom == 0 || self.shown.len() < bottom * w {
+            return;
+        }
+        self.shown.copy_within(w..bottom * w, 0);
+        for c in &mut self.shown[(bottom - 1) * w..bottom * w] {
+            *c = BLANK;
+        }
     }
 
     pub fn goto(&mut self, x: u16, y: u16) {
@@ -346,6 +463,8 @@ impl Screen {
         // At the bottom of a scroll region the region scrolls instead.
         if self.y < self.rows && Some(self.y) != self.region {
             self.y += 1;
+        } else {
+            self.scroll_shown();
         }
     }
 
@@ -373,6 +492,11 @@ impl Screen {
     fn glyph(&mut self, b: u8) {
         if b != b' ' {
             self.dirty = true;
+        }
+        let (fg, bg) = self.pen.resolve();
+        let at = (self.y.max(1) as usize - 1) * COLUMNS as usize + self.x.max(1) as usize - 1;
+        if let Some(c) = self.shown.get_mut(at) {
+            *c = Shown { ch: b, fg, bg };
         }
         match self.charset {
             Charset::Cp437 => self.out.push(b),
@@ -424,7 +548,10 @@ impl Screen {
             }
             b'G' => self.x = n(0).min(COLUMNS),
             b'd' => self.y = n(0).min(self.rows),
+            b'K' if params.first().copied().unwrap_or(0) == 0 => self.erase_rest_of_line(),
             b'J' if params.first() == Some(&2) => {
+                let (_, bg) = self.pen.resolve();
+                self.shown.iter_mut().for_each(|c| *c = Shown { ch: b' ', fg: VGA[7], bg });
                 self.dirty = false;
                 // Plain text has no screens: a new one starts a new line.
                 if self.plain && self.x > 1 {
@@ -460,6 +587,7 @@ impl Screen {
                 .map(|p| std::str::from_utf8(p).ok().and_then(|s| s.parse().ok()).unwrap_or(0))
                 .collect()
         };
+        self.pen.apply(&params);
         if params.iter().any(|&p| p == 38 || p == 48) {
             // xterm 256-colour / 24-bit colour (image converters and modern
             // editors). SyncTERM understands these too, so they go out as
@@ -667,6 +795,20 @@ mod tests {
         let mut s = Screen::new(Charset::Utf8, 25);
         s.clear_screen();
         assert_eq!(s.take_output(), b"\x1b[2J\x1b[H");
+    }
+
+    #[test]
+    fn what_is_shown_is_remembered() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.write_bytes(b"\x1b[2J\x1b[1;31mA\x1b[38;2;10;20;30;48;2;1;2;3mB\x1b[0m\x1b[3;5HC");
+        assert_eq!(s.shown(1, 1), Some(Shown { ch: b'A', fg: VGA[12], bg: VGA[0] }));
+        assert_eq!(s.shown(2, 1), Some(Shown { ch: b'B', fg: [10, 20, 30], bg: [1, 2, 3] }));
+        assert_eq!(s.shown(5, 3).map(|c| c.ch), Some(b'C'));
+        s.set_color(Color::new(14, 1));
+        s.write_bytes(b"\x1b[1;1HD");
+        assert_eq!(s.shown(1, 1), Some(Shown { ch: b'D', fg: VGA[14], bg: VGA[1] }));
+        s.write_bytes(b"\x1b[1;1H\x1b[K");
+        assert_eq!(s.shown(2, 1).map(|c| c.ch), Some(b' '));
     }
 
     #[test]

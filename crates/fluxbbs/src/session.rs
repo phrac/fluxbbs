@@ -121,6 +121,9 @@ pub struct Session {
     pub(crate) screen: Screen,
     pub(crate) input: VecDeque<u8>,
     pub(crate) last_cr: bool,
+    /// New: the next idle wait counts from here (a menu animating
+    /// meanwhile mustn't put the inactivity timeout off).
+    pub(crate) idle_since: Option<tokio::time::Instant>,
     /// Cursor position questions asked and answers seen, for `sync_output`.
     pub(crate) cursor_asks: u32,
     pub(crate) cursor_reports: u32,
@@ -331,6 +334,7 @@ impl Session {
             screen,
             input: VecDeque::new(),
             last_cr: false,
+            idle_since: None,
             cursor_asks: 0,
             cursor_reports: 0,
             report_tail: Vec::new(),

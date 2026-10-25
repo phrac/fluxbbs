@@ -814,6 +814,8 @@ impl Session {
             'T' => crate::markup::code_back(&u.code_bg).0.into(),
             'U' => crate::markup::theme(&u.code_theme).name.into(),
             'V' => crate::markup::theme(&u.md_theme).name.into(),
+            // New: menus animating, or still.
+            'W' => if u.animate == "off" { "off" } else { "on" }.into(),
             // New: plain text, ANSI, or as a bot or not (flag B).
             'S' => {
                 let on = crate::plain::wants_plain(&u.text_mode, crate::aimemory::is_bot(u));
@@ -871,6 +873,7 @@ impl Session {
                 self.user.text_mode = if plain == bot { "" } else if plain { "plain" } else { "ansi" }.into();
                 self.apply_text_mode();
             }
+            'W' => self.user.animate = if self.user.animate == "off" { String::new() } else { "off".into() },
             'H' => self.user.yes_no_bars = !self.user.yes_no_bars,
             'I' => self.user.expert = !self.user.expert,
             'J' => self.user.hot_keys = !self.user.hot_keys,
@@ -957,6 +960,7 @@ impl Session {
             ('T', 'G', "Code background"),
             ('U', 'R', "Code theme"),
             ('V', 'M', "Markdown theme"),
+            ('W', 'V', "Animations"),
         ];
         loop {
             self.newline();

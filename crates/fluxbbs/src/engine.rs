@@ -492,8 +492,14 @@ impl Session {
             self.show(&hint).await?;
             self.goto_pos(LIGHTBAR_CURSOR);
         }
+        // New: the screen animates while it waits, if the menu says how.
+        let mut ambient = if !menu.effects.is_empty() && menu.clear_before && self.animating() {
+            crate::ambient::Ambient::new(&self.screen, &menu.effects)
+        } else {
+            None
+        };
         let picked = loop {
-            let key = self.read_key().await?;
+            let key = self.read_key_ambient(&mut ambient).await?;
             if let Some(c) = key.upper().filter(|c| c.is_ascii_graphic()) {
                 let k = c.to_string();
                 if allowed(&k) {

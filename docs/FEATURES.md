@@ -630,8 +630,9 @@ Three special steps:
   see.
 - **A free slot pull** (`AL free`) is a pull on the house, on the first
   call of the day. The reels spin by themselves, the result shows for a
-  moment, and the logon goes on. It isn't one of the day's pulls, and
-  keys typed ahead don't skip it. Put it before fast logon, or callers
+  moment, then a line says the casino has more (`SlotsFreeMore`), and
+  the logon goes on. It isn't one of the day's pulls, and keys typed
+  ahead don't skip it. Put it before fast logon, or callers
   who take fast logon miss it.
 
 #### The waiting-for-caller screen
@@ -926,9 +927,11 @@ instead.
 ## Casino
 
 `AC` (the stock door menu's `C`) is the casino: a lobby under a neon
-sign, with the slot machine, a blackjack table and a craps table. Walk
-with the arrows and Enter, or press `s`, `b` or `c`. `AC slots`,
-`AC blackjack` and `AC craps` go straight to a game. Like the slots,
+sign, with the slot machine, blackjack, roulette and craps on the floor,
+and the bar and the players club through the doors. Walk with the
+arrows and Enter, or press `s`, `b`, `r`, `c`, `d` (drinks) or `p`.
+`AC slots`, `AC blackjack`, `AC roulette`, `AC craps`, `AC bar` and
+`AC club` go straight there. Like the slots,
 the tables are drawn in half-block pixels, and plain-text callers get a
 line at a time.
 
@@ -960,6 +963,23 @@ next time you come in. Bets run from `min_bet` to `max_bet` (5 to 50).
 - **Keys.** `+`/`-` set the bet, Enter deals, then `h`it, `s`tand,
   `d`ouble or s`p`lit. `q` leaves between hands.
 
+### Roulette
+
+- **The wheel.** A European wheel (one zero) fills the top of the
+  screen, seen across the table. It has a wooden bowl, chrome frets and
+  a turret, and turns one way while the ball runs the other way round
+  the track. The ball slows, drops, rattles over the frets and settles
+  in its pocket, and the number shows on the turret.
+- **The layout.** Below the wheel: 0 to 36 in red and black, the
+  columns (2 to 1), the dozens (2 to 1), and red or black, odd or even,
+  1-18 or 19-36 (even money). A number pays 35 to 1, and zero takes the
+  outside bets.
+- **Betting.** Arrows move over the layout; Enter puts a chip on a spot
+  (`+`/`-` choose the chip) and `x` takes it off. `s` spins. The spots
+  that won light up, and a board at the right keeps the last numbers.
+- **Plain text.** Bets are typed: `17 10`, `red 5`, `even`, `1st`,
+  `col2`.
+
 ### Craps
 
 - **The table.** The layout is printed on the felt: point boxes, come,
@@ -981,7 +1001,44 @@ next time you come in. Bets run from `min_bet` to `max_bet` (5 to 50).
   - Enter rolls.
   - `q` leaves, but not while a point is riding on a line bet.
 
-All of it is in `[casino]`, and in `*C`, Casino Tables. Each table
+### The bar
+
+- **The room.** A back bar of bottles under a neon BAR sign, a mirror,
+  a bartender, and stools at the counter.
+- **Drinks, on the house.** Order one by number (`1` to `6`): a
+  martini, an old fashioned, a cosmopolitan, a cold beer, champagne, or
+  whiskey on the rocks. Each is poured into its own glass with its
+  garnish, and the beer and champagne bubble.
+- **Too many.** After a few, the room starts to sway and the bartender
+  cuts you off.
+- **`s` smokes a cigarette.** A lighter flicks, the ember glows, and
+  the smoke curls up past the bottles.
+- **`t` talks to the bartender.** The lines are `BarTalk1`,
+  `BarTalk2`... (add more by number), plus who hit the last jackpot and
+  how busy the board is.
+
+### The players club
+
+Chips played today count toward comps. Every bet counts, and a slot
+pull counts as five. Each comp can be had once a day:
+
+| Comp | After (stock) | Gives |
+|---|---|---|
+| the buffet | 150 chips played | 15 minutes on today's time |
+| a suite upstairs | 400 | 50 chips on today's stack |
+| show tickets | 800 | 25 file points |
+
+The club shows how far along each one is; `1` to `3` claim one. Each
+has its own scene:
+
+- the buffet: the cover comes off a steak dinner, steaming;
+- the suite: the city's lights through the window;
+- the show: the curtains part under sweeping spotlights.
+
+Drinks are always comped.
+
+All of it is in `[casino]`, and in `*C`, Casino Tables: the chips,
+bets, payouts, and each comp's threshold and what it gives. Each table
 counts in the doors menu's stats.
 
 ## Slot machine

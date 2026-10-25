@@ -105,6 +105,8 @@ pub struct User {
     /// blank for Nord.
     pub code_theme: String,
     pub md_theme: String,
+    /// New: `off` stops menus animating; blank, they do.
+    pub animate: String,
     /// New: the time zone times are shown to them in (an IANA name or
     /// an offset, as `clock::Zone::parse` reads it); blank for the board's.
     pub time_zone: String,
@@ -196,6 +198,7 @@ impl Default for User {
             code_bg: String::new(),
             code_theme: String::new(),
             md_theme: String::new(),
+            animate: String::new(),
             time_zone: String::new(),
             thread_sort: String::new(),
             area_sort: String::new(),
@@ -305,6 +308,7 @@ impl User {
                 code_bg,
                 code_theme,
                 md_theme,
+                animate,
             ],
             [
                 total_calls,
@@ -395,6 +399,7 @@ impl User {
                 code_bg,
                 code_theme,
                 md_theme,
+                animate,
                             total_calls,
                 calls_today,
                 time_today,

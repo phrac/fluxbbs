@@ -81,7 +81,7 @@ on port 2222 and telnet on 23. Logs are in `docker logs fluxbbs`.
 - [Doors](docs/DOORS.md), native and DOS (a built-in DOS machine)
 - [AI chat](docs/FEATURES.md#ai-chat) that can search the web and knows its way around the board,
   and a [tarot and fortune door](docs/FEATURES.md#tarot-and-fortunes) it reads for
-- A [casino](docs/FEATURES.md#casino): slots, blackjack and craps, paying minutes and file points
+- A [casino](docs/FEATURES.md#casino): slots, blackjack, roulette and craps, a bar and a players club, paying minutes and file points
 - [Request boards](docs/FEATURES.md#request-boards) with points for fills, and
   [file links](docs/FEATURES.md#file-links) in messages
 - A [JSON feed](docs/SYSOP.md#website-feed) for the board's website

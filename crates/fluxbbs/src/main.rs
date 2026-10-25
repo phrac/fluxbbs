@@ -7,6 +7,7 @@
 //!     fluxbbs add-files [fluxbbs.toml]         add files put in areas by hand
 
 mod acs;
+mod ambient;
 mod clock;
 mod aiboard;
 mod aichat;
@@ -17,8 +18,10 @@ mod tarot;
 mod tarotart;
 mod blackjack;
 mod casino;
+mod casinobar;
 mod craps;
 mod pixels;
+mod roulette;
 mod slotart;
 mod slots;
 mod links;

@@ -190,7 +190,8 @@ impl Session {
                     // Shorter before logging in, so idle connections from
                     // bots don't hold nodes.
                     let idle = if self.logged_in { cfg.bbs.inactivity_seconds } else { cfg.security.prelogin_idle_seconds };
-                    let deadline = (idle > 0).then(|| tokio::time::Instant::now() + Duration::from_secs(idle));
+                    let since = self.idle_since.take().unwrap_or_else(tokio::time::Instant::now);
+                    let deadline = (idle > 0).then(|| since + Duration::from_secs(idle));
                     // Wait for the caller, showing node messages as they
                     // arrive (unless something like the editor holds them).
                     loop {

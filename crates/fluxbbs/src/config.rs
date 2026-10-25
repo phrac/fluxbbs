@@ -382,11 +382,34 @@ pub struct Casino {
     pub hit_soft_17: bool,
     /// Craps: the most odds behind the line, times the line bet.
     pub max_odds: u32,
+    /// The players club: chips played in a day for each comp, and what
+    /// it gives (minutes, chips, file points).
+    pub comp_buffet: u32,
+    pub buffet_minutes: u32,
+    pub comp_suite: u32,
+    pub suite_chips: u32,
+    pub comp_show: u32,
+    pub show_points: u32,
 }
 
 impl Default for Casino {
     fn default() -> Self {
-        Self { daily_chips: 100, min_bet: 5, max_bet: 50, chips_per_point: 2, chips_per_minute: 5, decks: 6, hit_soft_17: false, max_odds: 3 }
+        Self {
+            daily_chips: 100,
+            min_bet: 5,
+            max_bet: 50,
+            chips_per_point: 2,
+            chips_per_minute: 5,
+            decks: 6,
+            hit_soft_17: false,
+            max_odds: 3,
+            comp_buffet: 150,
+            buffet_minutes: 15,
+            comp_suite: 400,
+            suite_chips: 50,
+            comp_show: 800,
+            show_points: 25,
+        }
     }
 }
 

@@ -99,6 +99,10 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 
 ## Menus and screens
 
+- Menus can animate while they wait (`[[effect]]` in the menu): a glint
+  across the art, a pulse along the box lines, sent as only the cells
+  that change. Callers can turn it off in their config.
+  ([ARTWORK](ARTWORK.md#animation-new))
 - Lightbar menus also take their commands' keys: hot keys, `/X`, and
   digits for `#` typed on the help line. ([ARTWORK](ARTWORK.md#lightbar-menus))
 - Lightbar arrows go by where options sit on screen, so grids work.
@@ -247,7 +251,9 @@ All in [FEATURES](FEATURES.md#message-center).
   and what each line pays (minutes and file points) are in `*C`.
   ([FEATURES](FEATURES.md#slot-machine))
 - A casino (`AC`): a lobby under a neon sign, with the slot machine,
-  blackjack and craps. Pixel-art cards slide out of the shoe and chips
+  blackjack, roulette and craps, a bar (drinks poured on the house, a
+  smoke, the bartender's gossip) and a players club whose comps (the
+  buffet, a suite, show tickets) come with play. Pixel-art cards slide out of the shoe and chips
   move to whoever won them; red dice tumble and bounce off the back
   wall. The tables play for a free stack of chips a day, and winnings
   pay out in file points and minutes. A free slot pull on the first
@@ -380,7 +386,7 @@ All in [DOORS](DOORS.md).
 | `AG` | art gallery |
 | `AI` | AI chat |
 | `AT` (+ `day` `three` `fortune`) | tarot and fortunes |
-| `AC` (+ `slots` `blackjack` `craps`) | the casino |
+| `AC` (+ `slots` `blackjack` `roulette` `craps` `bar` `club`) | the casino |
 | `AL` (+ `free`) | the slot machine; `free`, the day's free pull |
 | `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |

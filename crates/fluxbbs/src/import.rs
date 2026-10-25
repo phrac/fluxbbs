@@ -650,6 +650,7 @@ fn convert_menu(m: &LegacyMenu) -> Menu {
         pause_before: m.pause_before,
         global: m.global_use,
         upper_input: m.input_upper,
+        effects: Vec::new(),
         commands: m
             .commands
             .iter()
@@ -746,6 +747,7 @@ fn convert_user(l: &LegacyUser) -> User {
         code_bg: String::new(),
         code_theme: String::new(),
         md_theme: String::new(),
+        animate: String::new(),
         last_call_at: None,
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.

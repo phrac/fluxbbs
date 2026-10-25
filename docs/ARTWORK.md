@@ -96,6 +96,38 @@ of the menu in the board's `menus/` (with `stock_menus` set; see
 - Without a `#` command, the number pad's digits act as arrows (`8`
   `2` `4` `6`), first (`7` `9`) and last (`1` `3`).
 
+### Animation (new)
+
+A lightbar menu can animate its screen while it waits for a key. List
+the effects in the menu, each over a band of screen rows:
+
+```toml
+[[effect]]
+kind = "glint"     # a band of light sweeps across the art
+rows = [1, 9]
+every = 10.0       # seconds from one sweep to the next
+delay = 2.0        # seconds before the first
+
+[[effect]]
+kind = "ripple"    # a pulse runs along the box-drawing lines
+rows = [10, 21]
+every = 10.0
+delay = 6.0
+```
+
+- **The effects work on what's on screen**, cell by cell. That means
+  any art, codes and all, and whichever random variant was drawn.
+- **Only the cells that change are sent**, a few kilobytes a second.
+- **A glint lights the art in its rows**: everything but blank space.
+  **A ripple lights only the box-drawing lines** (`─│┌┐└┘├┤┬┴┼` and the
+  double ones). Neither touches the menu's text or the lightbar.
+- **When it runs:** only on screens that clear first, for callers with
+  24-bit color (SyncTERM, or UTF-8) who haven't turned animations off
+  in their config (`v` on disflux's, field `W`). Never in plain text.
+- **It stops for the board's own messages.** A node message, a page or
+  the inactivity timeout takes over as usual, and the timeout still
+  counts from the last key.
+
 ## List screens: TOP, MID, HIL, BOT
 
 Lists are drawn from a set of screens that share a name:
@@ -315,6 +347,7 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 | `~S?` | text mode: plain text or ANSI (`auto` follows flag B) | `~SB` |
 | `~T?` | code's background (theme, gray, dim, blue, green, purple, none) | `~TG` |
 | `~U?` / `~V?` | the code and Markdown color themes (nord, dracula, one dark, monokai, classic) | none |
+| `~W?` | menus animating: on or off (new; plain-text key `v`) | none |
 
 The second character is the field's key.
 

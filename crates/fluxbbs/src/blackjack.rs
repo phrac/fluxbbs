@@ -729,7 +729,7 @@ impl Session {
                     } else {
                         self.stage_line(MSG_ROW, &[], st.truecolor);
                     }
-                    purse.chips -= bet;
+                    purse.stake(bet);
                     self.purse_save(purse);
                     self.bj_round(cfg, purse, st, &mut tb, &mut shoe, bet).await?;
                 }
@@ -818,7 +818,7 @@ impl Session {
                     }
                     Some('S') => break,
                     Some('D') if can_double => {
-                        purse.chips -= tb.bets[h];
+                        purse.stake(tb.bets[h]);
                         self.purse_save(purse);
                         let now = st.t();
                         tb.piles.push(Pile { amount: tb.bets[h], from: BANK, to: (CIRCLE.0 + h as f32 * 8.0 + 8.0, CIRCLE.1), t0: now, dur: 0.35, gone: f32::MAX });
@@ -828,7 +828,7 @@ impl Session {
                         break;
                     }
                     Some('P') if can_split => {
-                        purse.chips -= tb.bets[h];
+                        purse.stake(tb.bets[h]);
                         self.purse_save(purse);
                         let second = tb.hands[h].pop().expect("two cards");
                         tb.hands.push(vec![second]);
@@ -954,7 +954,7 @@ impl Session {
             if bet < cfg.min_bet || bet > cfg.max_bet.min(purse.chips) {
                 continue;
             }
-            purse.chips -= bet;
+            purse.stake(bet);
             let mut hands = vec![vec![shoe.draw()]];
             let mut dealer = vec![shoe.draw()];
             hands[0].push(shoe.draw());
@@ -985,13 +985,13 @@ impl Session {
                             "h" | "" => hands[h].push(shoe.draw()),
                             "s" => break,
                             "d" if two && purse.chips >= bets[h] => {
-                                purse.chips -= bets[h];
+                                purse.stake(bets[h]);
                                 bets[h] *= 2;
                                 hands[h].push(shoe.draw());
                                 break;
                             }
                             "p" if two && hands.len() == 1 && hands[h][0].value() == hands[h][1].value() && purse.chips >= bets[h] => {
-                                purse.chips -= bets[h];
+                                purse.stake(bets[h]);
                                 let c = hands[h].pop().expect("two cards");
                                 hands.push(vec![c]);
                                 bets.push(bets[h]);

@@ -51,6 +51,7 @@ pub fn new_menu(name: &str, bbs: &str) -> Menu {
         pause_before: true,
         global: true,
         upper_input: true,
+        effects: Vec::new(),
         commands: vec![Command {
             keys: "Q".into(),
             command: "-\\".into(),
