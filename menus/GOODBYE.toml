@@ -10,7 +10,7 @@ upper_input = true
 [[command]]
 keys = "1"
 command = "HI"
-param = "|CS"
+param = "|lf|u2Thanks for calling|u3, |u1%UN|u3."
 desc = "  logoff  "
 on = "|B1  logoff  "
 off = "|B0  logoff  "
