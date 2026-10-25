@@ -70,6 +70,7 @@ mod ftntoss;
 mod filebase;
 mod files;
 mod transfer;
+mod tvoff;
 mod upltest;
 mod upscan;
 mod web;

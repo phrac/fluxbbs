@@ -122,8 +122,9 @@ delay = 6.0
   **A ripple lights only the box-drawing lines** (`─│┌┐└┘├┤┬┴┼` and the
   double ones). Neither touches the menu's text or the lightbar.
 - **When it runs:** only on screens that clear first, for callers with
-  24-bit color (SyncTERM, or UTF-8) who haven't turned animations off
-  in their config (`v` on disflux's, field `W`). Never in plain text.
+  24-bit or 256 colors (SyncTERM, IcyTerm, NetRunner, or UTF-8) who
+  haven't turned animations off in their config (`v` on disflux's,
+  field `W`). Never in plain text.
 - **The screen saver.** After `screensaver_seconds` idle on a menu (60
   to start; `*C`, SSH, Telnet and Terminal; 0 for none), digital rain
   in pinks and magentas falls over the screen. The board's name shows
@@ -142,6 +143,24 @@ delay = 6.0
     eyes, gems or windows, drawn in a color nothing else on the screen
     uses.
   - `dust`: motes drift down through the area, catching the light.
+  - `type`: the text in the area types itself out again every `every`
+    seconds, starting `delay` seconds into each round. `amount` sets
+    the speed: 1 is a hundred characters a second, 0.1 ten (12 to
+    start). With `tint`, a block cursor in that color runs ahead of
+    the text, and blinks at the end until the next `type` begins. Give
+    each line its own `type` with the same `every` and delays one
+    after another, and a screen can dial in, print a banner and wait
+    at a login prompt.
+  - `blink`: cells of one exact color (`matches`) go out and come back
+    on, each on its own, a change every `every` seconds, on `amount` of
+    the time (half to start). Modem lights (`every = 0.09`), windows
+    across a city (`every = 3.5`, `amount = 0.8`), a failing neon
+    letter.
+  - `roll`: a bright bar rolls down the area once every `every`
+    seconds, as on an old tube.
+- **Effects can share cells.** Each applies to what the one before it
+  made, in the order they're listed: put a `roll` before the `type`s
+  on the same tube.
 - **`cols = [first, last]`** limits any effect to those columns, as
   `rows` limits it to those rows.
 - **It stops for the board's own messages.** A node message, a page or

@@ -126,6 +126,7 @@ impl Session {
                 if !param.is_empty() {
                     self.show_line(param).await?;
                 }
+                self.tv_off().await?;
                 self.hangup = true;
             }
             "HM" => {

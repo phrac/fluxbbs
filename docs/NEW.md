@@ -110,6 +110,10 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   Callers can turn it all off in their config. Any screen can animate
   at its `|PK` with effects in a `NAME.FX` beside it (firelight,
   glowing eyes, dust in the light).
+- Logging off (`/G`, or the goodbye menu's yes) switches the screen off
+  as an old TV did: what's showing flickers, squashes to a bright line,
+  shrinks to a dot that fades, then the line drops. Not for plain-text
+  callers or those who turned animation off.
   ([ARTWORK](ARTWORK.md#animation-new))
 - Lightbar menus also take their commands' keys: hot keys, `/X`, and
   digits for `#` typed on the help line. ([ARTWORK](ARTWORK.md#lightbar-menus))

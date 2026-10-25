@@ -24,7 +24,14 @@ pub struct Effect {
     /// runs along the box-drawing lines. `flicker`: firelight, the cells
     /// brightening and dimming. `pulse`: the cells of one color (`matches`)
     /// glowing toward another (`tint`) and back. `dust`: motes drifting
-    /// down through the area, catching the light.
+    /// down through the area, catching the light. `type`: the text in the
+    /// area typed out again every `every` seconds, `delay` into each
+    /// round, `amount` 1 a hundred characters a second (12 to start), with
+    /// a block cursor in `tint` if there is one, left blinking at the end
+    /// until the next `type` begins. `blink`: the cells of one
+    /// color (`matches`) going out and on, each now and then (`every`
+    /// seconds apart, on `amount` of the time): lamps, windows. `roll`: a
+    /// bright bar rolling down the area every `every` seconds, a tube's.
     pub kind: String,
     /// The screen rows it covers, first and last (1-based), and the
     /// columns.
@@ -78,8 +85,42 @@ struct Target {
     x: u16,
     y: u16,
     base: Shown,
-    effect: usize,
+    /// The effects on this cell, in order, each applied to what the one
+    /// before made of it.
+    effects: Vec<usize>,
+    /// For a `type`: seconds into its round when the cell shows, and
+    /// when the cursor gets to it.
+    typed: Option<(f32, f32)>,
     last: Option<([u8; 3], [u8; 3])>,
+}
+
+/// Seconds into a `type` round that each cell shows (and the cursor
+/// reaches it): row by row, a pause at each line's end, the cursor
+/// ending after the last line.
+fn type_times(cells: &[(u16, u16, u8)], e: &Effect) -> std::collections::HashMap<(u16, u16), (f32, f32)> {
+    let step = 1.0 / if e.amount > 0.0 { e.amount * 100.0 } else { 12.0 };
+    let pause = (step * 6.0).min(0.6);
+    let mut times = std::collections::HashMap::new();
+    let mut now = 0.0f32;
+    let mut cursor_at = None;
+    for y in e.rows[0]..=e.rows[1] {
+        let row: Vec<&(u16, u16, u8)> = cells.iter().filter(|c| c.1 == y).collect();
+        let Some(last) = row.iter().rposition(|c| c.2 != b' ') else { continue };
+        for c in &row[..=last] {
+            times.insert((c.0, c.1), (now + step, now));
+            now += step;
+        }
+        cursor_at = row.get(last + 1).map(|c| (c.0, c.1, now));
+        if let Some((x, y, _)) = cursor_at {
+            times.insert((x, y), (now + pause, now));
+        }
+        now += pause;
+    }
+    // The cursor stays after the last line, blinking.
+    if let Some((x, y, from)) = cursor_at {
+        times.insert((x, y), (f32::INFINITY, from));
+    }
+    times
 }
 
 pub struct Ambient {
@@ -113,26 +154,49 @@ fn times(c: [u8; 3], f: f32) -> [u8; 3] {
 impl Ambient {
     /// The cells the effects work on, as the screen shows them now.
     pub fn new(screen: &fluxbbs_term::Screen, effects: &[Effect]) -> Option<Ambient> {
-        let mut targets = Vec::new();
-        let mut taken = std::collections::HashSet::new();
+        let mut targets: Vec<Target> = Vec::new();
+        let mut at = std::collections::HashMap::new();
         for (i, e) in effects.iter().enumerate() {
             let matches = hex(&e.matches);
+            let mut cells = Vec::new();
             for y in e.rows[0].max(1)..=e.rows[1].min(screen.rows()) {
                 for x in e.cols[0].max(1)..=e.cols[1].min(80) {
                     let Some(c) = screen.shown(x, y) else { continue };
                     let wanted = match e.kind.as_str() {
                         "glint" | "flicker" => !blank(&c),
                         "ripple" => box_line(c.ch),
-                        "pulse" => matches.is_some_and(|m| near(c.fg, m) || near(c.bg, m)),
-                        "dust" => true,
+                        "pulse" | "blink" => matches.is_some_and(|m| near(c.fg, m) || near(c.bg, m)),
+                        "dust" | "type" | "roll" => true,
                         _ => false,
                     };
-                    if wanted && taken.insert((x, y)) {
-                        targets.push(Target { x, y, base: c, effect: i, last: None });
+                    if wanted {
+                        cells.push((x, y, c.ch));
                     }
                 }
             }
+            let times = if e.kind == "type" { type_times(&cells, e) } else { Default::default() };
+            for (x, y, _) in cells {
+                // A cell's typed by one `type` only, and the first one has it.
+                if e.kind == "type" && !times.contains_key(&(x, y)) {
+                    continue;
+                }
+                let k = *at.entry((x, y)).or_insert_with(|| {
+                    let base = screen.shown(x, y).unwrap_or(Shown { ch: b' ', fg: [0; 3], bg: [0; 3] });
+                    targets.push(Target { x, y, base, effects: Vec::new(), typed: None, last: None });
+                    targets.len() - 1
+                });
+                let g = &mut targets[k];
+                if e.kind == "type" {
+                    if g.typed.is_some() {
+                        continue;
+                    }
+                    g.typed = times.get(&(x, y)).copied();
+                }
+                g.effects.push(i);
+            }
         }
+        // In screen order, so a frame's cells run on from one another.
+        targets.sort_by_key(|g| (g.y, g.x));
         (!targets.is_empty()).then(|| Ambient { targets, effects: effects.to_vec(), start: Instant::now() })
     }
 
@@ -164,10 +228,15 @@ impl Ambient {
             .collect()
     }
 
-    /// A cell's colors under its effect at `t`.
+    /// A cell's colors under its effects at `t`.
     fn shade(&self, g: &Target, t: f32, dust: &std::collections::HashSet<(u16, u16)>) -> ([u8; 3], [u8; 3]) {
-        let e = &self.effects[g.effect];
-        let b = g.base;
+        g.effects.iter().fold((g.base.fg, g.base.bg), |now, &i| self.shade_one(i, g, now, t, dust))
+    }
+
+    /// What effect `i` makes of a cell's colors (`now`) at `t`.
+    fn shade_one(&self, i: usize, g: &Target, now: ([u8; 3], [u8; 3]), t: f32, dust: &std::collections::HashSet<(u16, u16)>) -> ([u8; 3], [u8; 3]) {
+        let e = &self.effects[i];
+        let b = Shown { ch: g.base.ch, fg: now.0, bg: now.1 };
         let since = t - e.delay;
         let phase = since.rem_euclid(e.every.max(0.5));
         let q = |k: f32, steps: f32| (k * steps).round() / steps;
@@ -182,7 +251,7 @@ impl Ambient {
                 // The flame as a whole, and a little each cell on its own.
                 let amount = if e.amount > 0.0 { e.amount } else { 0.3 };
                 let tick = (t * 9.0) as i32;
-                let f = 0.7 * noise(tick, g.effect as i32) + 0.3 * noise(tick + g.x as i32 * 31, g.y as i32);
+                let f = 0.7 * noise(tick, i as i32) + 0.3 * noise(tick + g.x as i32 * 31, g.y as i32);
                 let f = q(1.0 + amount * (f - 0.5) * 2.0, 16.0);
                 let warm = |c: [u8; 3]| {
                     let c = times(c, f);
@@ -207,6 +276,43 @@ impl Ambient {
                     (b.fg, b.bg)
                 }
             }
+            "type" => {
+                let Some((shows, cursor)) = g.typed else { return (b.fg, b.bg) };
+                let local = t.rem_euclid(e.every.max(1.0)) - e.delay;
+                if local >= shows {
+                    return (b.fg, b.bg);
+                }
+                // The cursor: steady while it types, blinking once done
+                // until the next `type` starts.
+                let done = shows.is_infinite();
+                let moved_on = || self.effects[i + 1..].iter().any(|f| f.kind == "type" && t.rem_euclid(f.every.max(1.0)) - f.delay >= 0.0);
+                if let Some(c) = hex(&e.tint)
+                    && !(done && moved_on())
+                    && local >= cursor
+                    && (!done || (local * 2.0).rem_euclid(2.0) < 1.0)
+                {
+                    return (c, c);
+                }
+                (b.bg, b.bg)
+            }
+            "blink" => {
+                let Some(m) = hex(&e.matches) else { return (b.fg, b.bg) };
+                let on = if e.amount > 0.0 { e.amount } else { 0.5 };
+                let tick = (t / e.every.max(0.05) + noise(g.x as i32, g.y as i32 * 7) * 4.0).floor() as i32;
+                if noise(tick, g.x as i32 * 131 + g.y as i32) < on {
+                    return (b.fg, b.bg);
+                }
+                let dim = |c: [u8; 3]| if near(c, m) { times(c, 0.22) } else { c };
+                (dim(b.fg), dim(b.bg))
+            }
+            "roll" => {
+                let span = (e.rows[1] - e.rows[0] + 1) as f32 + 4.0;
+                let at = e.rows[0] as f32 - 2.0 + (t - e.delay).rem_euclid(e.every.max(0.5)) / e.every.max(0.5) * span;
+                let amount = if e.amount > 0.0 { e.amount } else { 0.18 };
+                let k = q(amount * (-((g.y as f32 - at) / 0.9).powi(2)).exp(), 8.0);
+                let fg = if b.ch == b' ' { b.fg } else { lift(b.fg, k) };
+                (fg, lift(b.bg, k * 0.7))
+            }
             _ => (b.fg, b.bg),
         }
     }
@@ -219,6 +325,8 @@ impl Ambient {
         let colors: Vec<([u8; 3], [u8; 3])> = self.targets.iter().map(|g| self.shade(g, t, &dust)).collect();
         let mut out = Vec::new();
         let mut at: Option<(u16, u16)> = None;
+        // Colors go out only when they change from the cell before.
+        let mut pen = None;
         for (g, now) in self.targets.iter_mut().zip(colors) {
             let b = g.base;
             let unchanged = (b.fg, b.bg) == now;
@@ -231,7 +339,10 @@ impl Ambient {
                 out.extend(format!("\x1b[{};{}H", g.y, g.x).as_bytes());
             }
             let (fg, bg) = now;
-            out.extend(format!("\x1b[38;2;{};{};{};48;2;{};{};{}m", fg[0], fg[1], fg[2], bg[0], bg[1], bg[2]).as_bytes());
+            if pen != Some(now) {
+                out.extend(format!("\x1b[38;2;{};{};{};48;2;{};{};{}m", fg[0], fg[1], fg[2], bg[0], bg[1], bg[2]).as_bytes());
+                pen = Some(now);
+            }
             out.push(b.ch);
             at = Some((g.x + 1, g.y));
         }
@@ -546,6 +657,53 @@ mod tests {
         assert_eq!(a.targets.len(), 1, "only the cell with the eye's color");
         let (fg, bg) = a.shade(&a.targets[0], 1.5 + 4.0, &Default::default());
         assert!(fg[0] > 200 && bg == [200, 200, 190], "the eye glows, the bone doesn't: {fg:?} {bg:?}");
+    }
+
+    #[test]
+    fn text_types_itself_out_with_a_cursor() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.write_bytes(b"\x1b[2J\x1b[38;2;0;255;0;48;2;0;0;20mATDT\x1b[2;1Hlogin:");
+        let e = Effect { cols: [1, 10], every: 20.0, delay: 1.0, amount: 0.1, tint: "#00ff00".into(), ..fx("type", [1, 2]) };
+        let a = Ambient::new(&s, &[e]).unwrap();
+        let at = |x: u16, y: u16, t: f32| {
+            let g = a.targets.iter().find(|g| (g.x, g.y) == (x, y)).unwrap();
+            a.shade(g, t, &Default::default())
+        };
+        let (bg, green) = ([0, 0, 20], [0, 255, 0]);
+        assert_eq!(at(1, 1, 0.5), (bg, bg), "nothing before the delay");
+        assert_eq!(at(1, 1, 1.05), (green, green), "the cursor on the first letter");
+        assert_eq!(at(1, 1, 1.15), (green, bg), "then the letter");
+        assert_eq!(at(4, 1, 1.15), (bg, bg), "the rest still to come");
+        // After the last line the cursor sits after `login:`, blinking.
+        let done: Vec<_> = [10.0, 10.5, 11.0, 11.5].iter().map(|&t| at(7, 2, t).1).collect();
+        assert!(done.contains(&green) && done.contains(&[0, 0, 0]), "{done:?}");
+        assert_eq!(at(6, 2, 10.0), (green, bg));
+        // And it starts over each round.
+        assert_eq!(at(6, 2, 20.5), (bg, bg));
+    }
+
+    #[test]
+    fn effects_stack_on_a_cell() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.write_bytes(b"\x1b[2J\x1b[38;2;0;200;0;48;2;0;0;0mHI");
+        let roll = Effect { every: 4.0, delay: 0.0, ..fx("roll", [1, 1]) };
+        let typed = Effect { every: 30.0, delay: 0.0, amount: 1.0, ..fx("type", [1, 1]) };
+        let a = Ambient::new(&s, &[roll, typed]).unwrap();
+        assert_eq!(a.targets.len(), 80, "one target a cell, with both effects");
+        assert_eq!(a.targets[0].effects, [0, 1]);
+        // The bar over the typed text lights it.
+        let (fg, bg) = a.shade(&a.targets[0], 4.0 * 2.0 / 5.0, &Default::default());
+        assert!(fg[1] > 200 && bg[0] > 0, "{fg:?} {bg:?}");
+    }
+
+    #[test]
+    fn blinking_lamps_go_out_and_on() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.write_bytes(b"\x1b[2J\x1b[38;2;255;40;40;48;2;30;30;30m\xDC");
+        let e = Effect { matches: "#ff2828".into(), every: 0.2, ..fx("blink", [1, 1]) };
+        let a = Ambient::new(&s, &[e]).unwrap();
+        let seen: std::collections::HashSet<_> = (0..60).map(|i| a.shade(&a.targets[0], i as f32 * 0.1, &Default::default()).0).collect();
+        assert!(seen.len() == 2, "lit and out: {seen:?}");
     }
 
     #[test]
