@@ -37,6 +37,7 @@ pub struct Config {
     pub bbslink: BbsLink,
     pub slots: Slots,
     pub casino: Casino,
+    pub temple: Temple,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -413,6 +414,26 @@ impl Default for Casino {
             comp_show: 800,
             show_points: 25,
         }
+    }
+}
+
+/// The temple under the board (new, `temple.rs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Temple {
+    /// Turns a caller has a day: walking, searching, resting, trying
+    /// things (0: no limit).
+    pub turns_per_day: u32,
+    /// Reaching a new depth pays this many file points a depth (depth 3:
+    /// three times this).
+    pub points_per_depth: u32,
+    /// The torch-bearer trades a file point for this much gold (0: no trading).
+    pub gold_per_point: u32,
+}
+
+impl Default for Temple {
+    fn default() -> Self {
+        Self { turns_per_day: 20, points_per_depth: 5, gold_per_point: 10 }
     }
 }
 

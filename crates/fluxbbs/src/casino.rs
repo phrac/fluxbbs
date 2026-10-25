@@ -528,6 +528,7 @@ impl Session {
     /// what to say back in the lobby.
     async fn casino_game(&mut self, cfg: &Casino, i: usize) -> io::Result<Option<Vec<(char, Ink)>>> {
         let name = GAMES[i].1;
+        tracing::info!("{}: casino: {name}", self.user.handle);
         match name {
             "slots" => {
                 self.slots("").await?;

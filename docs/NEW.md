@@ -262,6 +262,15 @@ All in [FEATURES](FEATURES.md#message-center).
   pay out in file points and minutes. A free slot pull on the first
   call of the day is a logon sequence step.
   ([FEATURES](FEATURES.md#casino))
+- The temple (`AD`): a text adventure under the board that the AI
+  tells, in one world shared by every caller. Chambers are written by
+  the AI the first time anyone enters them and stay as written, with
+  what callers leave: graves, dropped gold, words scratched on the
+  walls. The game keeps the rules (the maze, fights, health, what's in
+  each chamber) and checks whatever the AI says a free-form try does
+  against them. Each chamber is drawn in half-block pixels by
+  torchlight. Turns a day; new depths pay file points.
+  ([FEATURES](FEATURES.md#the-temple))
 
 ### Mentions
 
@@ -391,6 +400,7 @@ All in [DOORS](DOORS.md).
 | `AT` (+ `day` `three` `fortune`) | tarot and fortunes |
 | `AC` (+ `slots` `blackjack` `roulette` `craps` `bar` `club`) | the casino |
 | `AL` (+ `free`) | the slot machine; `free`, the day's free pull |
+| `AD` | the temple |
 | `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |
 | `MH` | message center |

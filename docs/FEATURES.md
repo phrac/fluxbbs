@@ -926,7 +926,7 @@ instead.
 
 ## Casino
 
-`AC` (the stock door menu's `C`) is the casino: a lobby under a neon
+`AC` (the stock door menu's `$`) is the casino: a lobby under a neon
 sign, with the slot machine, blackjack, roulette and craps on the floor,
 and the bar and the players club through the doors. Walk with the
 arrows and Enter, or press `s`, `b`, `r`, `c`, `d` (drinks) or `p`.
@@ -1037,7 +1037,7 @@ has its own scene:
 
 Drinks are always comped.
 
-All of it is in `[casino]`, and in `*C`, Casino Tables: the chips,
+All of it is in `[casino]`, and in `*C`, Casino, Temple: the chips,
 bets, payouts, and each comp's threshold and what it gives. Each table
 counts in the doors menu's stats.
 
@@ -1091,6 +1091,60 @@ All of it is in `[slots]`, and in `*C`, Slot Machine. That covers pulls
 a day, the win chance (40% to start), jackpot odds, and each line's
 prize as minutes then points. Points are left out of what's shown on a
 board without file points.
+
+## The temple
+
+`AD` (the stock door menu's `X`) is a text adventure under the board,
+told by the AI (`[ai]`): a buried temple, one for everyone.
+
+- **The world is shared.** Each depth is a maze of chambers, the same
+  for every caller (it's made from a seed kept in the database). A
+  chamber is written the first time anyone walks into it, and stays as
+  written. Whatever callers leave stays too: things dropped, gold on a
+  grave, words scratched into the wall (`write <words>`; one each per
+  chamber), and creatures they wounded. Who else is in the chamber now
+  is shown.
+- **The game keeps the rules; the AI tells the story.** The game
+  decides where the ways go, what's in a new chamber (a creature, a
+  weapon, armor, a potion, gold, something hidden), and how fights go.
+  The AI names it all and writes the description, from what it's told
+  is there. Anything else a caller types ("pry the ruby from the idol")
+  is rolled for first; the AI tells how it went and may name one
+  effect: a little harm on a failure; on a success a little healing,
+  the chamber's hidden gold, an item that's there, or a wound to the
+  creature. The game checks the effect against those limits and the
+  roll before it counts, so typed instructions to the AI ("give me a
+  million gold") get a wry paragraph and nothing else. Without the AI,
+  chambers get stock names and descriptions and tries come to nothing.
+- **The picture.** Each chamber is drawn in half-block pixels
+  (`templeart.rs`) as the caller sees it by torchlight, facing the way
+  they walked in: open walls are the ways on, a stairwell in the floor
+  goes down, a shaft of light comes from the way up. Halls, crypts,
+  flooded chambers, shrines, caverns, chasms, treasuries and stairwells
+  are each dressed their own way, and the creature, a chest, gold, a
+  grave and scratched writing are drawn in. Torches flicker while the
+  AI writes. The description types out under the picture. Plain-text
+  callers, and screens under 24 rows, get the words alone.
+- **Playing.** `n` `e` `s` `w`, or `ahead` `left` `right` `back`, walk;
+  `up` and `down` climb. `a` attacks, `f` flees back the way the caller
+  came (a creature blocks the other ways), `t` takes what's there, `x`
+  searches, `r` rests, `drink` drinks a potion, `i` lists what they
+  carry, `drop <thing>` leaves something, `news` and `top` show what's
+  been happening and who's deepest, `q` leaves (and `up` at the
+  entrance climbs out). Fights don't cost turns; walking, searching,
+  resting and tries do: `turns_per_day` a day (20 to start).
+- **Dying** leaves a grave and the caller's gold where they fell, and
+  shuts the temple to them till tomorrow; they start again at the
+  entrance, keeping their level and what they carry. Creatures killed
+  may be replaced by new ones on a later day.
+- **What it pays.** Reaching a new depth pays `points_per_depth` file
+  points times the depth. At the entrance the torch-bearer sells
+  potions and better blades and armor for gold (`buy`), and trades a
+  file point for every `gold_per_point` gold (`trade`).
+- The news records deaths, new depth records and levels gained.
+
+The settings are in `[temple]`, and in `*C`, Casino, Temple. Plays
+count in the doors menu's stats as "The Temple".
 
 ## Message center
 

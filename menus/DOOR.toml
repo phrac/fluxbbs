@@ -180,13 +180,22 @@ on = "|B1Tarot & fortunes"
 off = "|B0Tarot & fortunes"
 
 [[command]]
-keys = "C"
+keys = "$"
 command = "AC"
 acs = "s50"
 desc = "Casino"
-help = "The casino: slots, blackjack and craps, for minutes and file points"
+help = "The casino: slots, blackjack, roulette, craps, the bar and the players club"
 on = "|B1Casino"
 off = "|B0Casino"
+
+[[command]]
+keys = "X"
+command = "AD"
+acs = "s50"
+desc = "The temple"
+help = "The temple under the board: a shared adventure the AI tells"
+on = "|B1The temple"
+off = "|B0The temple"
 
 [[command]]
 keys = "Q"

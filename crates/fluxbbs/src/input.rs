@@ -279,6 +279,9 @@ impl Session {
                 return Ok(true);
             }
             if tokio::time::Instant::now() >= deadline {
+                if self.cursor_reports > 0 {
+                    tracing::warn!("{}: the terminal stopped answering cursor reports ({}s)", self.user.handle, wait.as_secs());
+                }
                 // Stop waiting on the unanswered ones.
                 self.cursor_asks = self.cursor_reports + behind;
                 return Ok(false);

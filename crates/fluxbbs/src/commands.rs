@@ -213,6 +213,7 @@ impl Session {
             "AT" => self.tarot(param).await?,
             "AL" => self.slots(param).await?,
             "AC" => self.casino(param).await?,
+            "AD" => self.temple(param).await?,
             "MF" => self.top_fillers().await?,
             "FW" => self.file_browser(param).await?,
             "FV" => self.view_archive(param).await?,
