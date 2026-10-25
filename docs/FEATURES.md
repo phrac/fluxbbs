@@ -1168,10 +1168,31 @@ technique for breaking into anything appears anywhere.
   file and nowhere else. Anything else a caller types is rolled for;
   the AI narrates it, and can never hand out access, files or cred the
   board didn't place.
-- **Getting in.** You land as a guest. The password is hidden in a
-  public file (`cat` them and read closely); `login <user> <pass>`
-  with it unlocks the restricted loot. `grab <file>` copies loot;
-  `backdoor` leaves a way back; `deface <text>` tags the login screen.
+- **Getting in.** You land as a guest. One public file names the
+  account and hides the password in its prose (`cat` them and read
+  closely); `login <user> <pass>` with it unlocks the restricted loot.
+  `grab <file>` copies loot; `backdoor` leaves a way back; `deface
+  <text>` tags the login screen. A wrong password reads differently
+  from an unknown user, so you can tell which half is off.
+- **One box leads to the next.** Files name other systems: a public
+  dial-up note puts a new number (and its exchange) in your book just
+  by reading it; a trusted-hosts file, taken, hands you a login on the
+  box it names. The underground is a web you map by reading, not a flat
+  list you scan.
+- **Loot that does things.** A *calling card* unlocks a new exchange to
+  scan (more of the world); an *account list* / trusted-hosts file gives
+  you login-free access to a linked box; *source* sells high but makes
+  the system jumpier for everyone; plain *data* just sells.
+- **Admins fight back.** Each system's sysadmin catches up between calls
+  (shared, so the world changes while you're away): the box cools off,
+  and if callers have been noisy -- back doors, defacements -- the admin
+  sweeps them, and may change the password. The clue file follows the
+  new password, so it's still findable, but anything you'd memorised is
+  stale.
+- **Jobs.** The fixer (subcarrier) posts contracts on a board: pull a
+  file off a particular box, or just bring back anything good. `jobs`
+  lists them, `accept <n>` takes one, and delivering it pays cred and
+  file points.
 - **The trace.** Every move raises a trace meter, noisy moves more; let
   it reach 100 and you're caught -- your haul is lost, your gear is
   seized, and you're off the wires till tomorrow. `logout` cleanly to

@@ -63,7 +63,9 @@ CREATE TABLE IF NOT EXISTS cl_systems (
     account  TEXT NOT NULL,
     password TEXT NOT NULL,
     made_by  TEXT NOT NULL,
-    made_at  TEXT NOT NULL
+    made_at  TEXT NOT NULL,
+    alert      INTEGER NOT NULL DEFAULT 0,
+    last_admin TEXT NOT NULL DEFAULT ''
 );
 CREATE TABLE IF NOT EXISTS cl_files (
     id         INTEGER PRIMARY KEY,
@@ -73,7 +75,22 @@ CREATE TABLE IF NOT EXISTS cl_files (
     loot       INTEGER NOT NULL,
     restricted INTEGER NOT NULL,
     clue       INTEGER NOT NULL,
-    taken_by   TEXT NOT NULL
+    taken_by   TEXT NOT NULL,
+    cat        TEXT NOT NULL DEFAULT 'data',
+    link       TEXT NOT NULL DEFAULT '',
+    trust      INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS cl_jobs (
+    id      INTEGER PRIMARY KEY,
+    giver   TEXT NOT NULL,
+    number  TEXT NOT NULL,
+    name    TEXT NOT NULL,
+    want    TEXT NOT NULL,
+    reward  INTEGER NOT NULL,
+    points  INTEGER NOT NULL,
+    status  TEXT NOT NULL,
+    taken_by TEXT NOT NULL,
+    at      TEXT NOT NULL
 );
 CREATE TABLE IF NOT EXISTS cl_marks (
     number TEXT NOT NULL,
@@ -104,6 +121,11 @@ pub struct System {
     pub tier: u32,
     pub account: String,
     pub password: String,
+    /// Shared heat on this box: raised by defacements and busts, decays
+    /// over time; a higher alert starts everyone's trace higher.
+    pub alert: u32,
+    /// When the system's admin last caught up on what callers did.
+    pub last_admin: String,
 }
 
 #[derive(Clone, Debug)]
@@ -115,9 +137,16 @@ pub struct File {
     pub loot: u32,
     /// Needs a login to read or take.
     pub restricted: bool,
-    /// Its body gives away the password.
+    /// Its body gives away the login.
     pub clue: bool,
     pub taken_by: String,
+    /// What kind of loot: data, card, list or source (each does its own
+    /// thing when taken).
+    pub cat: String,
+    /// Another system this file points at (a number), learned on reading.
+    pub link: String,
+    /// The link is a trusted host: taking the file logs you in there.
+    pub trust: bool,
 }
 
 /// A caller's operator.
@@ -130,6 +159,19 @@ pub struct Player {
     pub tier: u32,
     /// Numbers found by scanning (shared knowledge is per-caller here).
     pub known: Vec<String>,
+    /// Exchange prefixes (first three digits) the caller can scan; a
+    /// calling card unlocks a new one. Empty is read as the home prefix.
+    #[serde(default)]
+    pub reach: Vec<String>,
+    /// Systems the caller holds working credentials for (login-free).
+    #[serde(default)]
+    pub creds: Vec<String>,
+    /// Contracts the caller has accepted (job ids).
+    #[serde(default)]
+    pub jobs: Vec<i64>,
+    /// Contracts finished, for the scoreboard.
+    #[serde(default)]
+    pub done: u32,
     pub day: String,
     pub actions: u32,
     /// The day they were busted, if they were (locked out that day).
@@ -152,6 +194,36 @@ fn sys_row(r: &rusqlite::Row) -> rusqlite::Result<System> {
         tier: r.get("tier")?,
         account: r.get("account")?,
         password: r.get("password")?,
+        alert: r.get("alert")?,
+        last_admin: r.get("last_admin")?,
+    })
+}
+
+/// A contract posted by the fixer.
+#[derive(Clone, Debug)]
+pub struct Job {
+    pub id: i64,
+    pub giver: String,
+    pub number: String,
+    pub name: String,
+    pub want: String,
+    pub reward: u32,
+    pub points: u32,
+    pub status: String,
+    pub taken_by: String,
+}
+
+fn job_row(r: &rusqlite::Row) -> rusqlite::Result<Job> {
+    Ok(Job {
+        id: r.get("id")?,
+        giver: r.get("giver")?,
+        number: r.get("number")?,
+        name: r.get("name")?,
+        want: r.get("want")?,
+        reward: r.get("reward")?,
+        points: r.get("points")?,
+        status: r.get("status")?,
+        taken_by: r.get("taken_by")?,
     })
 }
 
@@ -159,6 +231,7 @@ impl CarrierStore {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let db = crate::sysdata::open_db(path)?;
         db.execute_batch(SCHEMA)?;
+        migrate(&db)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -196,8 +269,9 @@ impl CarrierStore {
         if n == 1 {
             for f in files {
                 tx.execute(
-                    "INSERT INTO cl_files (number, name, body, loot, restricted, clue, taken_by) VALUES (?1, ?2, ?3, ?4, ?5, ?6, '')",
-                    params![s.number, f.name, f.body, f.loot, f.restricted as i32, f.clue as i32],
+                    "INSERT INTO cl_files (number, name, body, loot, restricted, clue, taken_by, cat, link, trust)
+                     VALUES (?1, ?2, ?3, ?4, ?5, ?6, '', ?7, ?8, ?9)",
+                    params![s.number, f.name, f.body, f.loot, f.restricted as i32, f.clue as i32, f.cat, f.link, f.trust as i32],
                 )?;
             }
         }
@@ -205,9 +279,28 @@ impl CarrierStore {
         Ok(n == 1)
     }
 
+    /// Make the clue file carry both the account and the password, for
+    /// systems written before this was guaranteed. Idempotent.
+    pub fn ensure_clue(&self, number: &str, account: &str, password: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        let row: Option<(i64, String)> = db
+            .query_row("SELECT id, body FROM cl_files WHERE number = ?1 AND clue = 1 LIMIT 1", params![number], |r| Ok((r.get(0)?, r.get(1)?)))
+            .optional()?;
+        if let Some((id, body)) = row {
+            let low = body.to_lowercase();
+            if !low.contains(&account.to_lowercase()) || !low.contains(&password.to_lowercase()) {
+                let body = format!("{body}\r\n-- note to self: log in as {account} / {password} --");
+                db.execute("UPDATE cl_files SET body = ?2 WHERE id = ?1", params![id, body])?;
+            }
+        }
+        Ok(())
+    }
+
     pub fn files(&self, number: &str) -> anyhow::Result<Vec<File>> {
         let db = self.db.lock().unwrap();
-        let mut st = db.prepare("SELECT id, name, body, loot, restricted, clue, taken_by FROM cl_files WHERE number = ?1 ORDER BY id")?;
+        let mut st = db.prepare(
+            "SELECT id, name, body, loot, restricted, clue, taken_by, cat, link, trust FROM cl_files WHERE number = ?1 ORDER BY id",
+        )?;
         let rows = st.query_map(params![number], |r| {
             Ok(File {
                 id: r.get(0)?,
@@ -217,6 +310,9 @@ impl CarrierStore {
                 restricted: r.get::<_, i32>(4)? != 0,
                 clue: r.get::<_, i32>(5)? != 0,
                 taken_by: r.get(6)?,
+                cat: r.get(7)?,
+                link: r.get(8)?,
+                trust: r.get::<_, i32>(9)? != 0,
             })
         })?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -271,6 +367,78 @@ impl CarrierStore {
         let mut st = db.prepare("SELECT handle, state FROM cl_players")?;
         let rows = st.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?)))?;
         Ok(rows.filter_map(|r| r.ok()).filter_map(|(h, s)| Some((h, serde_json::from_str(&s).ok()?))).collect())
+    }
+
+    /// Set a system's shared alert level.
+    pub fn set_alert(&self, number: &str, alert: u32) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("UPDATE cl_systems SET alert = ?2 WHERE number = ?1", params![number, alert])?;
+        Ok(())
+    }
+
+    /// Record when the admin last caught up, and (on a rotation) the new
+    /// password, rewriting the clue file to carry the new login.
+    pub fn admin_update(&self, number: &str, at: &str, rotate: Option<(&str, &str)>, account: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        db.execute("UPDATE cl_systems SET last_admin = ?2 WHERE number = ?1", params![number, at])?;
+        if let Some((old_pw, pw)) = rotate {
+            db.execute("UPDATE cl_systems SET password = ?2 WHERE number = ?1", params![number, pw])?;
+            let row: Option<(i64, String)> = db
+                .query_row("SELECT id, body FROM cl_files WHERE number = ?1 AND clue = 1 LIMIT 1", params![number], |r| Ok((r.get(0)?, r.get(1)?)))
+                .optional()?;
+            if let Some((id, body)) = row {
+                // Swap the old password wherever the prose wove it in, drop
+                // any stale note, then re-append a clean one.
+                let swapped = replace_ci(&body, old_pw, pw);
+                let kept: String = swapped.lines().filter(|l| !l.trim_start().starts_with("-- note to self")).collect::<Vec<_>>().join("\n");
+                let body = format!("{}\r\n-- note to self: log in as {account} / {pw} --", kept.trim_end());
+                db.execute("UPDATE cl_files SET body = ?2 WHERE id = ?1", params![id, body])?;
+            }
+        }
+        Ok(())
+    }
+
+    /// Delete all marks of a kind on a system (the admin sweeping up).
+    pub fn clear_marks_of(&self, number: &str, kind: &str) -> anyhow::Result<usize> {
+        let db = self.db.lock().unwrap();
+        Ok(db.execute("DELETE FROM cl_marks WHERE number = ?1 AND kind = ?2", params![number, kind])?)
+    }
+
+    pub fn open_jobs(&self) -> anyhow::Result<Vec<Job>> {
+        let db = self.db.lock().unwrap();
+        let mut st = db.prepare("SELECT * FROM cl_jobs WHERE status = 'open' OR status = 'taken' ORDER BY id")?;
+        let rows = st.query_map([], job_row)?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
+    pub fn job(&self, id: i64) -> anyhow::Result<Option<Job>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT * FROM cl_jobs WHERE id = ?1", params![id], job_row).optional()?)
+    }
+
+    pub fn add_job(&self, j: &Job, at: &str) -> anyhow::Result<i64> {
+        let db = self.db.lock().unwrap();
+        db.execute(
+            "INSERT INTO cl_jobs (giver, number, name, want, reward, points, status, taken_by, at)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, 'open', '', ?7)",
+            params![j.giver, j.number, j.name, j.want, j.reward, j.points, at],
+        )?;
+        Ok(db.last_insert_rowid())
+    }
+
+    pub fn take_job(&self, id: i64, by: &str) -> anyhow::Result<bool> {
+        let db = self.db.lock().unwrap();
+        Ok(db.execute("UPDATE cl_jobs SET status = 'taken', taken_by = ?2 WHERE id = ?1 AND status = 'open'", params![id, by])? == 1)
+    }
+
+    pub fn finish_job(&self, id: i64, by: &str) -> anyhow::Result<bool> {
+        let db = self.db.lock().unwrap();
+        Ok(db.execute("UPDATE cl_jobs SET status = 'done' WHERE id = ?1 AND taken_by = ?2 AND status = 'taken'", params![id, by])? == 1)
+    }
+
+    pub fn count_open_jobs(&self) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT COUNT(*) FROM cl_jobs WHERE status = 'open'", [], |r| r.get(0))?)
     }
 
     pub fn add_news(&self, at: &str, text: &str) -> anyhow::Result<()> {
@@ -370,15 +538,50 @@ fn roll(n: u32) -> u32 {
     rand::rng().random_range(1..=n.max(1))
 }
 
+fn chance(percent: u32) -> bool {
+    rand::rng().random_range(0..100) < percent
+}
+
 /// The board's own secret for a system: the password, the account it
 /// belongs to, and how many files there are and which are loot/clue.
+struct FilePlan {
+    /// Cred it's worth taken (0: not loot).
+    value: u32,
+    restricted: bool,
+    clue: bool,
+    /// data, card, list, source, or link.
+    cat: &'static str,
+    /// Another system this file points at (for link/list files).
+    link: String,
+    /// The link is trusted: taking the file logs you in there.
+    trust: bool,
+}
+
 struct Plan {
     kind: Kind,
     tier: u32,
     account: String,
     password: String,
-    /// (is_loot_value, is_restricted, is_clue) for each file to write.
-    files: Vec<(u32, bool, bool)>,
+    files: Vec<FilePlan>,
+}
+
+/// Exchange prefixes a caller can reach. Everyone starts on the home
+/// exchange; calling cards unlock the rest.
+const HOME_EXCHANGE: &str = "555";
+/// Contract flavours: (category wanted, the fixer's words for it).
+const JOB_WANTS: [(&str, &str); 6] = [
+    ("source", "lift the source"),
+    ("list", "get an account list"),
+    ("data", "pull the records"),
+    ("any", "grab anything good"),
+    ("any", "have a look around"),
+    ("source", "the design docs"),
+];
+
+const EXCHANGES: [&str; 10] = ["310", "415", "212", "617", "213", "808", "702", "305", "206", "404"];
+
+fn reach_of(p: &Player) -> Vec<String> {
+    if p.reach.is_empty() { vec![HOME_EXCHANGE.to_string()] } else { p.reach.clone() }
 }
 
 const ACCOUNTS: [&str; 10] = ["guest", "root", "sysop", "operator", "field", "demo", "admin", "backup", "test", "service"];
@@ -391,25 +594,64 @@ fn pick<'a>(v: &'a [&'a str], r: &mut Steady) -> &'a str {
     v[r.below(v.len() as u64) as usize]
 }
 
+/// A few other numbers this system points at, found deterministically
+/// (so everyone sees the same web). They answer somewhere on the wires.
+fn linked_numbers(seed: u64, number: &str, n: usize) -> Vec<String> {
+    let mut r = Steady(num_seed(seed, number) ^ 0x11A7_C0DE);
+    let mut out = Vec::new();
+    for _ in 0..400 {
+        if out.len() >= n {
+            break;
+        }
+        let d = format!("{:07}", r.below(10_000_000));
+        let fmt = format_number(&d);
+        if d != number.replace('-', "") && answers(seed, &d) && !out.contains(&fmt) {
+            out.push(fmt);
+        }
+    }
+    out
+}
+
+fn f(value: u32, restricted: bool, clue: bool, cat: &'static str) -> FilePlan {
+    FilePlan { value, restricted, clue, cat, link: String::new(), trust: false }
+}
+
 fn plan(seed: u64, number: &str) -> Plan {
     let kind = kind_at(seed, number);
     let tier = tier_at(seed, number);
     let mut r = Steady(num_seed(seed, number) ^ 0xC0DE);
     let account = pick(&ACCOUNTS[1..], &mut r).to_string();
-    // The password: a word plus two digits, period-plausible.
     let password = format!("{}{:02}", pick(&WORDS, &mut r), r.below(100));
-    // Files: a couple of public ones (one holds the clue), then
-    // restricted loot behind the login.
+    let links = linked_numbers(seed, number, 3);
     let mut files = Vec::new();
-    files.push((0, false, true)); // the clue, public
-    files.push((0, false, false)); // flavour, public
+    files.push(f(0, false, true, "data")); // the clue, public
+    files.push(f(0, false, false, "data")); // flavour, public
+    // A public dialup note: a number to another box, learned on reading.
+    if let Some(ln) = links.first() {
+        files.push(FilePlan { cat: "link", link: ln.clone(), ..f(0, false, false, "link") });
+    }
+    // Restricted loot: mostly data; sometimes an account list (creds on
+    // the linked boxes), a trusted host, or source (worth more, runs hot).
     let loot_files = 2 + tier;
-    for _ in 0..loot_files {
+    for i in 0..loot_files {
         let value = (5 + roll(10)) * tier;
-        files.push((value, true, false));
+        let roll3 = r.below(10);
+        if roll3 < 2 && links.get(1).is_some() {
+            // a trusted host: login handed to you on the linked box
+            files.push(FilePlan { cat: "list", link: links[1].clone(), trust: true, ..f(value, true, false, "list") });
+        } else if roll3 < 4 {
+            files.push(f((15 + roll(15)) * tier, true, false, "source"));
+        } else {
+            let _ = i;
+            files.push(f(value, true, false, "data"));
+        }
+    }
+    // A calling card now and then: unlocks a new exchange to scan.
+    if r.below(10) < 4 {
+        files.push(f((8 + roll(8)) * tier, true, false, "card"));
     }
     if kind == Kind::Bank || kind == Kind::Switch {
-        files.push(((20 + roll(20)) * tier, true, false));
+        files.push(f((20 + roll(20)) * tier, true, false, "source"));
     }
     Plan { kind, tier, account, password, files }
 }
@@ -429,20 +671,28 @@ fn sys_system(bbs: &str) -> String {
 
 fn sys_prompt(p: &Plan) -> String {
     let mut s = format!(
-        "Kind of system: {}.\nAccount: {}\nPassword (put in the clue file only, exactly): {}\nFiles to write, in order:\n",
+        "Kind of system: {}.\nAccount, named in the clue file: {}\nPassword, in the clue file only, exactly: {}\nFiles to write, in order:\n",
         kind_words(p.kind),
         p.account,
         p.password,
     );
-    for (i, (loot, restricted, clue)) in p.files.iter().enumerate() {
-        let what = if *clue {
-            "a public file that hides the password"
-        } else if *loot > 0 {
-            "a valuable file worth taking (login required)"
+    for (i, fp) in p.files.iter().enumerate() {
+        let what = if fp.clue {
+            "a public file that names the account and hides the password in plain prose".to_string()
+        } else if fp.cat == "link" {
+            format!("a public note mentioning another system's dial-up number, which is {} -- write the number plainly", fp.link)
+        } else if fp.cat == "list" && fp.trust {
+            format!("an account list or trusted-hosts file that includes the number {} as a system this one trusts", fp.link)
+        } else if fp.cat == "source" {
+            "a valuable source-code or design file worth taking".to_string()
+        } else if fp.cat == "card" {
+            "a scrap with a stolen calling-card or dial-code on it, worth taking".to_string()
+        } else if fp.value > 0 {
+            "a valuable data file worth taking".to_string()
         } else {
-            "a harmless public file"
+            "a harmless public file".to_string()
         };
-        s += &format!("  {}) {what}{}\n", i + 1, if *restricted { " [restricted]" } else { " [public]" });
+        s += &format!("  {}) {what}{}\n", i + 1, if fp.restricted { " [restricted]" } else { " [public]" });
     }
     s
 }
@@ -479,16 +729,34 @@ fn written(seed: u64, number: &str, p: &Plan, reply: Option<&Value>) -> (System,
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| STOCK_BANNERS[(num_seed(seed, number) % 6) as usize].into());
     let mut files = Vec::new();
-    for (i, (loot, restricted, clue)) in p.files.iter().enumerate() {
+    for (i, fp) in p.files.iter().enumerate() {
         let w = written.get(i);
         let fname = w.and_then(|v| v["name"].as_str()).map(|s| clean(s, 20)).filter(|s| !s.is_empty()).unwrap_or_else(|| STOCK_FILES[i % 6].into());
         let mut body = w.and_then(|v| v["body"].as_str()).map(|s| clean_multi(s, 400)).filter(|s| !s.is_empty()).unwrap_or_else(|| "(garbled)".into());
-        // Make sure the clue really carries the password, even if the AI
-        // left it out: the board's rule, not the model's say-so.
-        if *clue && !body.to_lowercase().contains(&p.password.to_lowercase()) {
-            body = format!("{body}\r\n-- note to self: pw is {} --", p.password);
+        // The board's rules, enforced whatever the model wrote:
+        if fp.clue {
+            let low = body.to_lowercase();
+            if !low.contains(&p.password.to_lowercase()) || !low.contains(&p.account.to_lowercase()) {
+                body = format!("{body}\r\n-- note to self: log in as {} / {} --", p.account, p.password);
+            }
         }
-        files.push(File { id: 0, name: fname, body, loot: *loot, restricted: *restricted, clue: *clue, taken_by: String::new() });
+        // A link/list file must carry the number it points at.
+        if !fp.link.is_empty() && !body.contains(&fp.link) {
+            let tag = if fp.trust { "trusts" } else { "dial-up" };
+            body = format!("{body}\r\n-- {tag}: {} --", fp.link);
+        }
+        files.push(File {
+            id: 0,
+            name: fname,
+            body,
+            loot: fp.value,
+            restricted: fp.restricted,
+            clue: fp.clue,
+            taken_by: String::new(),
+            cat: fp.cat.to_string(),
+            link: fp.link.clone(),
+            trust: fp.trust,
+        });
     }
     let sys = System {
         number: number.to_string(),
@@ -498,6 +766,8 @@ fn written(seed: u64, number: &str, p: &Plan, reply: Option<&Value>) -> (System,
         tier: p.tier,
         account: p.account.clone(),
         password: p.password.clone(),
+        alert: 0,
+        last_admin: String::new(),
     };
     (sys, files)
 }
@@ -554,6 +824,8 @@ enum Cmd {
     Systems,
     Gear,
     Buy,
+    Jobs,
+    Accept(usize),
     // On a system.
     Ls,
     Cat(String),
@@ -590,6 +862,8 @@ fn parse(line: &str, home: bool) -> Cmd {
         "systems" | "list" | "numbers" | "ls" if home => Cmd::Systems,
         "gear" | "rig" if home => Cmd::Gear,
         "buy" | "upgrade" if home => Cmd::Buy,
+        "jobs" | "work" | "contracts" | "board" if home => Cmd::Jobs,
+        "accept" | "take" if home => Cmd::Accept(rest.chars().filter(|c| c.is_ascii_digit()).collect::<String>().parse().unwrap_or(0)),
         "ls" | "dir" | "files" => Cmd::Ls,
         "cat" | "read" | "type" | "more" | "less" if !rest.is_empty() => Cmd::Cat(rest),
         "grab" | "take" | "get" | "download" | "dl" | "cp" if !rest.is_empty() => Cmd::Grab(rest),
@@ -652,6 +926,9 @@ impl Session {
         if p.day != today {
             p.day = today.clone();
             p.actions = 0;
+        }
+        if p.reach.is_empty() {
+            p.reach.push(HOME_EXCHANGE.to_string());
         }
         self.node.update(|n| n.activity = "on the wires (Carrier Lost)".into());
         let truecolor = self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8;
@@ -731,6 +1008,8 @@ impl Session {
                 Cmd::Systems => self.cl_systems(v, p).await?,
                 Cmd::Gear => self.cl_gear(v, p, cfg).await?,
                 Cmd::Buy => self.cl_buy(v, p, cfg).await?,
+                Cmd::Jobs => self.cl_jobs(v, p, seed).await?,
+                Cmd::Accept(n) => self.cl_accept(v, p, n).await?,
                 Cmd::Scan(ex) => {
                     if !self.cl_spend(v, p, cfg).await? {
                         continue;
@@ -786,6 +1065,11 @@ impl Session {
         let digits: String = ex.chars().filter(|c| c.is_ascii_digit()).collect();
         if digits.len() < 5 {
             let s = self.strings().get("ClScanWhat").to_string();
+            return self.cl_tell(v, &s, NOTE, false).await;
+        }
+        let ex: String = digits.chars().take(3).collect();
+        if !reach_of(p).contains(&ex) {
+            let s = self.strings().fmt("ClOutOfReach", &[&ex]);
             return self.cl_tell(v, &s, NOTE, false).await;
         }
         let found = scan_exchange(seed, &digits);
@@ -863,11 +1147,15 @@ impl Session {
             }
             sys = self.state.carrier.system(num).ok().flatten().or(Some(s));
         }
-        let sys = sys.expect("written above");
+        let mut sys = sys.expect("written above");
+        self.cl_admin_catchup(num, &mut sys).await;
+        let _ = self.state.carrier.ensure_clue(num, &sys.account, &sys.password);
         let files = self.state.carrier.files(num).unwrap_or_default();
         let backdoor = self.state.carrier.has_mark(num, &self.user.handle, "backdoor").unwrap_or(false);
-        let base_trace = 4 * sys.tier.saturating_sub(p.gear).max(1);
-        let mut on = OnSystem { sys, files, trace: base_trace, logged_in: backdoor, haul: 0, took: Vec::new() };
+        let creds = p.creds.contains(&num.to_string());
+        // A jumpier box (high alert) starts the trace higher for everyone.
+        let base_trace = (4 * sys.tier.saturating_sub(p.gear).max(1) + sys.alert / 4).min(60);
+        let mut on = OnSystem { sys, files, trace: base_trace, logged_in: backdoor || creds, haul: 0, took: Vec::new() };
         v.scene = Scene::System { kind: on.sys.kind, name: on.sys.name.clone(), trace: on.trace, backdoor };
         self.cl_log_clear(v);
         let nm = on.sys.name.clone();
@@ -912,8 +1200,8 @@ impl Session {
                     false
                 }
                 Cmd::Ls => self.cl_ls(v, &on).await?,
-                Cmd::Cat(f) => self.cl_cat(v, &mut on, &f).await?,
-                Cmd::Grab(f) => self.cl_grab(v, &mut on, &f).await?,
+                Cmd::Cat(f) => self.cl_cat(v, p, &mut on, &f).await?,
+                Cmd::Grab(f) => self.cl_grab(v, p, &mut on, &f).await?,
                 Cmd::Login(u, pw) => self.cl_login(v, &mut on, &u, &pw).await?,
                 Cmd::Backdoor => self.cl_backdoor(v, &mut on, num).await?,
                 Cmd::Deface(t) => self.cl_deface(v, &mut on, num, &t).await?,
@@ -961,7 +1249,7 @@ impl Session {
         on.files.iter().find(|f| f.name.to_lowercase() == w).or_else(|| on.files.iter().find(|f| f.name.to_lowercase().contains(&w)))
     }
 
-    async fn cl_cat(&mut self, v: &mut View, on: &mut OnSystem, what: &str) -> io::Result<bool> {
+    async fn cl_cat(&mut self, v: &mut View, p: &mut Player, on: &mut OnSystem, what: &str) -> io::Result<bool> {
         let Some(f) = Self::find_file(on, what).cloned() else {
             let s = self.strings().get("ClNoFile").to_string();
             self.cl_tell(v, &s, NOTE, false).await?;
@@ -978,18 +1266,27 @@ impl Session {
             let l = l.to_string();
             self.cl_tell(v, &l, PROSE, true).await?;
         }
+        // Reading a note that names another system puts it in your book.
+        if !f.link.is_empty() {
+            self.cl_learn(v, p, &f.link).await?;
+        }
         Ok(false)
     }
 
-    async fn cl_grab(&mut self, v: &mut View, on: &mut OnSystem, what: &str) -> io::Result<bool> {
+    async fn cl_grab(&mut self, v: &mut View, p: &mut Player, on: &mut OnSystem, what: &str) -> io::Result<bool> {
         let Some(f) = Self::find_file(on, what).cloned() else {
             let s = self.strings().get("ClNoFile").to_string();
             self.cl_tell(v, &s, NOTE, false).await?;
             return Ok(false);
         };
         if f.loot == 0 {
-            let s = self.strings().get("ClNotLoot").to_string();
-            self.cl_tell(v, &s, NOTE, false).await?;
+            // A plain note isn't loot, but if it points somewhere, read it.
+            if !f.link.is_empty() {
+                self.cl_learn(v, p, &f.link).await?;
+            } else {
+                let s = self.strings().get("ClNotLoot").to_string();
+                self.cl_tell(v, &s, NOTE, false).await?;
+            }
             return Ok(false);
         }
         if f.restricted && !on.logged_in {
@@ -1011,7 +1308,99 @@ impl Session {
         self.heat(on, 10, 0);
         let s = self.strings().fmt("ClGrabbed", &[&f.name, &f.loot.to_string()]);
         self.cl_tell(v, &s, LOOT, false).await?;
-        Ok(false)
+        // What the loot does:
+        match f.cat.as_str() {
+            "card" => {
+                if let Some(ex) = self.cl_new_exchange(p) {
+                    p.reach.push(ex.clone());
+                    let s = self.strings().fmt("ClCard", &[&ex]);
+                    self.cl_tell(v, &s, MARK, false).await?;
+                }
+            }
+            "list" if f.trust && !f.link.is_empty() => {
+                self.cl_learn(v, p, &f.link).await?;
+                if !p.creds.contains(&f.link) {
+                    p.creds.push(f.link.clone());
+                }
+                let s = self.strings().fmt("ClTrust", &[&f.link]);
+                self.cl_tell(v, &s, MARK, false).await?;
+            }
+            "source" => {
+                // Pulling source is loud: the box gets jumpier for everyone.
+                let alert = (on.sys.alert + 12).min(100);
+                on.sys.alert = alert;
+                let _ = self.state.carrier.set_alert(&on.sys.number, alert);
+                self.heat(on, 6, 0);
+            }
+            _ => {
+                if !f.link.is_empty() {
+                    self.cl_learn(v, p, &f.link).await?;
+                }
+            }
+        }
+        let num = on.sys.number.clone();
+        let cat = f.cat.clone();
+        self.cl_job_done(v, p, &num, &cat).await?;
+        Ok(on.trace >= 100)
+    }
+
+    /// Put a newly-found number in the caller's book, unlocking its
+    /// exchange so it can be dialled.
+    async fn cl_learn(&mut self, v: &mut View, p: &mut Player, number: &str) -> io::Result<()> {
+        let known = p.known.contains(&number.to_string());
+        if !known {
+            p.known.push(number.to_string());
+        }
+        let ex: String = number.chars().filter(|c| c.is_ascii_digit()).take(3).collect();
+        if ex.len() == 3 && !reach_of(p).contains(&ex) {
+            p.reach.push(ex);
+        }
+        if !known {
+            let s = self.strings().fmt("ClLearned", &[number]);
+            self.cl_tell(v, &s, MARK, false).await?;
+        }
+        Ok(())
+    }
+
+    /// A fresh exchange a calling card can unlock, if any are left.
+    fn cl_new_exchange(&self, p: &Player) -> Option<String> {
+        EXCHANGES.iter().find(|e| !reach_of(p).contains(&e.to_string())).map(|e| e.to_string())
+    }
+
+    /// The system's admin catches up on what callers did since last time:
+    /// the box cools off, and if callers have been noisy the admin sweeps
+    /// -- welds back doors shut, scrubs tags, changes the password (and
+    /// the clue file follows, so it's still findable). Shared, so the
+    /// world changes between everyone's calls.
+    async fn cl_admin_catchup(&mut self, num: &str, sys: &mut System) {
+        let now = crate::clock::now().naive_local();
+        let fmt = "%Y-%m-%d %H:%M:%S";
+        if sys.last_admin.is_empty() {
+            let _ = self.state.carrier.admin_update(num, &now.format(fmt).to_string(), None, &sys.account);
+            return;
+        }
+        let last = chrono::NaiveDateTime::parse_from_str(&sys.last_admin, fmt).ok();
+        let hours = last.map(|l| (now - l).num_hours()).unwrap_or(0).clamp(0, 6) as u32;
+        if hours == 0 {
+            return;
+        }
+        let mut alert = sys.alert.saturating_sub(5 * hours);
+        let marks = self.state.carrier.marks(num).unwrap_or_default();
+        let messy = marks.iter().any(|(_, k, _)| k == "backdoor" || k == "deface");
+        let mut new_pw: Option<(String, String)> = None;
+        if (sys.alert >= 30 || messy) && chance(55) {
+            let _ = self.state.carrier.clear_marks_of(num, "backdoor");
+            let _ = self.state.carrier.clear_marks_of(num, "deface");
+            let pw = new_password();
+            new_pw = Some((sys.password.clone(), pw.clone()));
+            sys.password = pw;
+            alert = alert.saturating_sub(20);
+            self.cl_news_add(&format!("sysadmin on {} changed the locks", sys.name));
+        }
+        sys.alert = alert;
+        let _ = self.state.carrier.set_alert(num, alert);
+        let rot = new_pw.as_ref().map(|(o, n)| (o.as_str(), n.as_str()));
+        let _ = self.state.carrier.admin_update(num, &now.format(fmt).to_string(), rot, &sys.account);
     }
 
     async fn cl_login(&mut self, v: &mut View, on: &mut OnSystem, user: &str, pw: &str) -> io::Result<bool> {
@@ -1020,15 +1409,19 @@ impl Session {
             self.cl_tell(v, &s, NOTE, false).await?;
             return Ok(false);
         }
-        let ok = user.eq_ignore_ascii_case(&on.sys.account) && pw.eq_ignore_ascii_case(&on.sys.password) && !pw.is_empty();
-        if ok {
+        let user_ok = user.eq_ignore_ascii_case(&on.sys.account);
+        let pw_ok = pw.eq_ignore_ascii_case(&on.sys.password) && !pw.is_empty();
+        if user_ok && pw_ok {
             on.logged_in = true;
             let s = self.strings().fmt("ClLoginOk", &[&on.sys.account]);
             self.cl_tell(v, &s, LOOT, false).await?;
-            if let Scene::System { backdoor, .. } = &mut v.scene {
-                let _ = backdoor;
-            }
             Ok(false)
+        } else if !user_ok {
+            // A name the system doesn't know barely registers.
+            self.heat(on, 4, 0);
+            let s = self.strings().get("ClLoginNoUser").to_string();
+            self.cl_tell(v, &s, NOTE, false).await?;
+            Ok(on.trace >= 100)
         } else {
             self.heat(on, 14, 0);
             let s = self.strings().get("ClLoginBad").to_string();
@@ -1198,6 +1591,101 @@ impl Session {
 
     // ---- home helpers ----
 
+    /// The fixer's board: top it up to a few open contracts, then list
+    /// the open ones and the caller's own.
+    async fn cl_jobs(&mut self, v: &mut View, p: &Player, seed: u64) -> io::Result<()> {
+        self.cl_make_jobs(p, seed);
+        let open = self.state.carrier.open_jobs().unwrap_or_default();
+        let s = self.strings().get("ClJobsHead").to_string();
+        self.cl_tell(v, &s, SYS, false).await?;
+        let mine: Vec<&Job> = open.iter().filter(|j| j.taken_by == self.user.handle && j.status == "taken").collect();
+        for j in &mine {
+            let s = format!("  [yours] {} on {} -- {} cred, {} pts", j.name, j.number, j.reward, j.points);
+            self.cl_tell(v, &s, LOOT, false).await?;
+        }
+        let avail: Vec<&Job> = open.iter().filter(|j| j.status == "open").collect();
+        if avail.is_empty() && mine.is_empty() {
+            let s = self.strings().get("ClNoJobs").to_string();
+            return self.cl_tell(v, &s, NOTE, false).await;
+        }
+        for (i, j) in avail.iter().enumerate() {
+            let s = format!("  {}) {} on {} -- {} cred, {} pts", i + 1, j.name, j.number, j.reward, j.points);
+            self.cl_tell(v, &s, PROSE, false).await?;
+        }
+        if !avail.is_empty() {
+            let s = self.strings().get("ClJobsAccept").to_string();
+            self.cl_tell(v, &s, NOTE, false).await?;
+        }
+        Ok(())
+    }
+
+    async fn cl_accept(&mut self, v: &mut View, p: &mut Player, n: usize) -> io::Result<()> {
+        let open = self.state.carrier.open_jobs().unwrap_or_default();
+        let avail: Vec<&Job> = open.iter().filter(|j| j.status == "open").collect();
+        let Some(j) = n.checked_sub(1).and_then(|i| avail.get(i)) else {
+            let s = self.strings().get("ClAcceptWhich").to_string();
+            return self.cl_tell(v, &s, NOTE, false).await;
+        };
+        if self.state.carrier.take_job(j.id, &self.user.handle).unwrap_or(false) {
+            if !p.jobs.contains(&j.id) {
+                p.jobs.push(j.id);
+            }
+            let s = self.strings().fmt("ClAccepted", &[&j.name, &j.number]);
+            self.cl_tell(v, &s, LOOT, false).await?;
+        }
+        Ok(())
+    }
+
+    /// Keep a few contracts on the board, targeting boxes the caller knows.
+    fn cl_make_jobs(&self, p: &Player, seed: u64) {
+        let have = self.state.carrier.count_open_jobs().unwrap_or(0);
+        if p.known.is_empty() || have >= 3 {
+            return;
+        }
+        let at = crate::clock::now().naive_local().format("%Y-%m-%d %H:%M:%S").to_string();
+        for _ in 0..(3 - have) {
+            let number = p.known[roll(p.known.len() as u32) as usize - 1].clone();
+            let tier = tier_at(seed, &number.replace('-', ""));
+            let (want, name) = JOB_WANTS[roll(JOB_WANTS.len() as u32) as usize - 1];
+            let j = Job {
+                id: 0,
+                giver: "subcarrier".into(),
+                number,
+                name: name.into(),
+                want: want.into(),
+                reward: (20 + roll(30)) * tier,
+                points: 1 + tier / 2,
+                status: "open".into(),
+                taken_by: String::new(),
+            };
+            let _ = self.state.carrier.add_job(&j, &at);
+        }
+    }
+
+    /// A grab may finish a contract on this box: pay it out.
+    async fn cl_job_done(&mut self, v: &mut View, p: &mut Player, number: &str, cat: &str) -> io::Result<()> {
+        let open = self.state.carrier.open_jobs().unwrap_or_default();
+        let hits: Vec<Job> = open
+            .into_iter()
+            .filter(|j| j.taken_by == self.user.handle && j.status == "taken" && j.number == number && (j.want == "any" || j.want == cat))
+            .collect();
+        for j in hits {
+            if self.state.carrier.finish_job(j.id, &self.user.handle).unwrap_or(false) {
+                p.jobs.retain(|&id| id != j.id);
+                p.cred += j.reward;
+                p.done += 1;
+                if j.points > 0 {
+                    self.user.file_points = self.user.file_points.saturating_add(j.points);
+                    let _ = self.save_own_user();
+                }
+                let s = self.strings().fmt("ClJobDone", &[&j.name, &j.reward.to_string(), &j.points.to_string()]);
+                self.cl_tell(v, &s, LOOT, false).await?;
+                self.cl_news_add(&format!("{} came through on a job for {}", self.user.handle, j.giver));
+            }
+        }
+        Ok(())
+    }
+
     async fn cl_gear(&mut self, v: &mut View, p: &Player, cfg: &Cfg) -> io::Result<()> {
         let s = self.strings().fmt("ClGear", &[gear_name(p.gear), &p.gear.to_string(), &p.cred.to_string()]);
         self.cl_tell(v, &s, SYS, false).await?;
@@ -1259,12 +1747,53 @@ impl Session {
     }
 
     async fn cl_help(&mut self, v: &mut View, home: bool) -> io::Result<()> {
-        let keys = if home { ["ClHelpHome1", "ClHelpHome2", "ClHelpHome3"] } else { ["ClHelpSys1", "ClHelpSys2", "ClHelpSys3"] };
-        for k in keys {
-            let s = self.strings().get(k).to_string();
-            self.cl_tell(v, &s, NOTE, false).await?;
+        let (title, rows, tip): (&str, &[(&str, &str)], &str) = if home {
+            ("-- your desk --", &HOME_HELP, "the password is hidden in a public file -- cat them and read close.")
+        } else {
+            ("-- on a system --", &SYS_HELP, "login <user> <pw>: both are written in one of the public files.")
+        };
+        if !v.full {
+            self.cl_tell(v, title, SYS, false).await?;
+            for (c, d) in rows {
+                self.cl_tell(v, &format!("{c:<18}{d}"), NOTE, false).await?;
+            }
+            if !tip.is_empty() {
+                self.cl_tell(v, tip, LOOT, false).await?;
+            }
+            return Ok(());
         }
-        Ok(())
+        self.cl_log_clear(v);
+        let mut i = 0;
+        self.cl_help_row(v, i, title, SYS, "", NOTE);
+        i += 1;
+        for (c, d) in rows {
+            self.cl_help_row(v, i, c, LOOT, d, NOTE);
+            i += 1;
+        }
+        if !tip.is_empty() {
+            self.cl_help_row(v, i, "tip:", MARK, tip, PROSE);
+            i += 1;
+        }
+        v.fresh = i;
+        self.flush().await
+    }
+
+    /// One help row: a command in one colour, its note in another.
+    fn cl_help_row(&mut self, v: &mut View, i: usize, cmd: &str, ci: Ink, desc: &str, di: Ink) {
+        let mut out = format!("\x1b[{};1H\x1b[0m\x1b[K  ", LOG_TOP + i as u16).into_bytes();
+        ink(&mut out, ci, v.truecolor);
+        out.extend(fluxbbs_term::cp437::encode(cmd));
+        let combined = if desc.is_empty() {
+            cmd.to_string()
+        } else {
+            out.extend(vec![b' '; 18usize.saturating_sub(cmd.chars().count())]);
+            ink(&mut out, di, v.truecolor);
+            out.extend(fluxbbs_term::cp437::encode(desc));
+            format!("{cmd:<18}{desc}")
+        };
+        out.extend(b"\x1b[0m");
+        self.screen.write_bytes(&out);
+        v.log.push((combined, ci));
     }
 
     // ---- drawing ----
@@ -1524,6 +2053,76 @@ fn cl_try_system() -> String {
         .to_string()
 }
 
+const HOME_HELP: [(&str, &str); 7] = [
+    ("scan <exchange>", "war-dial for carriers, e.g. scan 555-01"),
+    ("dial <number>", "call a carrier you've found"),
+    ("systems", "your black book (back doors, creds marked)"),
+    ("jobs / accept <n>", "the fixer's board; take a contract"),
+    ("gear / buy", "better rigs run quieter on the line"),
+    ("news / top", "word on the wire, the most wanted"),
+    ("q", "log off"),
+];
+
+const SYS_HELP: [(&str, &str); 8] = [
+    ("ls", "list the files (* marks loot)"),
+    ("cat <file>", "read it; notes name other numbers"),
+    ("login <user> <pw>", "get in; grab, backdoor, deface unlock"),
+    ("grab <file>", "copy the loot to fence later"),
+    ("backdoor", "leave a way back in for next time"),
+    ("deface <text>", "tag the login screen"),
+    ("who", "who's been on this system"),
+    ("logout", "hang up with your haul"),
+];
+
+/// Columns added to the carrier tables since a database was made.
+fn migrate(db: &Connection) -> rusqlite::Result<()> {
+    let add = |col: &str, def: &str| -> rusqlite::Result<()> {
+        let (table, name) = col.split_once('.').unwrap();
+        let has: bool = db.query_row(
+            &format!("SELECT COUNT(*) > 0 FROM pragma_table_info('{table}') WHERE name = '{name}'"),
+            [],
+            |r| r.get(0),
+        )?;
+        if !has {
+            db.execute(&format!("ALTER TABLE {table} ADD COLUMN {name} {def}"), [])?;
+        }
+        Ok(())
+    };
+    add("cl_systems.alert", "INTEGER NOT NULL DEFAULT 0")?;
+    add("cl_systems.last_admin", "TEXT NOT NULL DEFAULT ''")?;
+    add("cl_files.cat", "TEXT NOT NULL DEFAULT 'data'")?;
+    add("cl_files.link", "TEXT NOT NULL DEFAULT ''")?;
+    add("cl_files.trust", "INTEGER NOT NULL DEFAULT 0")?;
+    Ok(())
+}
+
+/// Replace every case-insensitive occurrence of `from` with `to`.
+fn replace_ci(s: &str, from: &str, to: &str) -> String {
+    if from.is_empty() {
+        return s.to_string();
+    }
+    let (low, flow) = (s.to_lowercase(), from.to_lowercase());
+    let mut out = String::with_capacity(s.len());
+    let mut i = 0;
+    while i < s.len() {
+        if low[i..].starts_with(&flow) {
+            out.push_str(to);
+            i += from.len();
+        } else {
+            let ch = s[i..].chars().next().unwrap();
+            out.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    out
+}
+
+/// A fresh password for a rotation (an event, not deterministic).
+fn new_password() -> String {
+    let mut r = rand::rng();
+    format!("{}{:02}", WORDS[r.random_range(0..WORDS.len())], r.random_range(0..100))
+}
+
 fn gear_name(gear: u32) -> &'static str {
     match gear {
         0 => "a 2400 baud modem",
@@ -1595,6 +2194,7 @@ mod tests {
         assert_eq!(sys.password, pl.password);
         let clue = files.iter().find(|f| f.clue).expect("a clue file");
         assert!(clue.body.to_lowercase().contains(&pl.password.to_lowercase()), "clue must leak the password");
+        assert!(clue.body.to_lowercase().contains(&pl.account.to_lowercase()), "clue must name the account");
         assert!(!clue.restricted, "the clue is public");
         // No other file leaks it.
         for f in files.iter().filter(|f| !f.clue) {
@@ -1618,6 +2218,75 @@ mod tests {
         st.set_mark("555-0100", "zinekid", "deface", "owned", "1").unwrap();
         assert!(st.has_mark("555-0100", "zinekid", "deface").unwrap());
         assert!(st.clear_mark("555-0100", "zinekid", "deface").unwrap());
+    }
+
+    #[test]
+    fn links_point_at_real_carriers_and_files_carry_them() {
+        let seed = 7u64;
+        let num = "5550100";
+        let links = linked_numbers(seed, num, 3);
+        assert!(!links.is_empty(), "a system should link somewhere");
+        for ln in &links {
+            assert!(answers(seed, &ln.replace('-', "")), "a link must answer");
+            assert_ne!(ln.replace('-', ""), num);
+        }
+        // Stable: same links for everyone.
+        assert_eq!(linked_numbers(seed, num, 3), links);
+        // A link/list file in the plan carries its number in the body.
+        let pl = plan(seed, num);
+        let (_, files) = written(seed, num, &pl, None);
+        for f in files.iter().filter(|f| !f.link.is_empty()) {
+            assert!(f.body.contains(&f.link), "link file must name the number");
+        }
+        // Every file keeps its category.
+        assert!(files.iter().any(|f| f.cat == "data"));
+    }
+
+    #[test]
+    fn reach_and_cards() {
+        let mut p = Player::default();
+        assert_eq!(reach_of(&p), vec![HOME_EXCHANGE.to_string()]);
+        // A card offers an exchange not already in reach.
+        let st = CarrierStore::open_memory().unwrap();
+        let sess_reach = |p: &Player| EXCHANGES.iter().find(|e| !reach_of(p).contains(&e.to_string())).map(|e| e.to_string());
+        let ex = sess_reach(&p).unwrap();
+        assert!(!reach_of(&p).contains(&ex));
+        p.reach = vec![HOME_EXCHANGE.to_string(), ex.clone()];
+        assert!(reach_of(&p).contains(&ex));
+        let _ = st;
+    }
+
+    #[test]
+    fn jobs_match_by_target_and_category() {
+        let st = CarrierStore::open_memory().unwrap();
+        let j = Job { id: 0, giver: "subcarrier".into(), number: "555-0100".into(), name: "x".into(), want: "source".into(), reward: 50, points: 2, status: "open".into(), taken_by: String::new() };
+        let id = st.add_job(&j, "now").unwrap();
+        assert!(st.take_job(id, "zinekid").unwrap());
+        assert!(!st.take_job(id, "other").unwrap(), "already taken");
+        assert!(st.finish_job(id, "zinekid").unwrap());
+        assert!(!st.finish_job(id, "zinekid").unwrap(), "only once");
+    }
+
+    #[test]
+    fn admins_rotate_and_the_clue_follows() {
+        let st = CarrierStore::open_memory().unwrap();
+        let _ = st.seed().unwrap();
+        let pl = plan(1, "5550100");
+        let (sys, files) = written(1, "555-0100", &pl, None);
+        st.add_system(&sys, &files, "a", "2026-01-01 00:00:00").unwrap();
+        // Weave the old password into the clue's prose, as the AI would.
+        let cid = st.files("555-0100").unwrap().into_iter().find(|f| f.clue).unwrap().id;
+        {
+            let db = st.db.lock().unwrap();
+            db.execute("UPDATE cl_files SET body = ?2 WHERE id = ?1", params![cid, format!("the {} key is on the whiteboard", pl.password)]).unwrap();
+        }
+        // Rotate; the clue file must carry the new password, not the old.
+        st.admin_update("555-0100", "2026-01-02 00:00:00", Some((pl.password.as_str(), "raven99")), &sys.account).unwrap();
+        let sys2 = st.system("555-0100").unwrap().unwrap();
+        assert_eq!(sys2.password, "raven99");
+        let clue = st.files("555-0100").unwrap().into_iter().find(|f| f.clue).unwrap();
+        assert!(clue.body.to_lowercase().contains("raven99"), "clue follows the rotation");
+        assert!(!clue.body.to_lowercase().contains(&pl.password.to_lowercase()), "old pw gone from clue");
     }
 
     #[test]

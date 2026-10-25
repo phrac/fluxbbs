@@ -277,8 +277,12 @@ All in [FEATURES](FEATURES.md#message-center).
   switch) the first time it's dialled, hiding the password in a public
   file for you to find. Grab loot, leave back doors, deface login
   screens; a trace meter climbs as you work and busts you (off till
-  tomorrow) at 100. Pixel title cards per system. Loot fences for cred,
-  cred pays file points. ([FEATURES](FEATURES.md#carrier-lost))
+  tomorrow) at 100. Systems link to each other (read a file, learn a
+  number or a login); loot does things (calling cards open new
+  exchanges, trusted-hosts files hand you logins, source runs hot);
+  admins sweep back doors and rotate passwords between calls; the fixer
+  posts jobs. Pixel title cards per system; loot fences for cred, cred
+  pays file points. ([FEATURES](FEATURES.md#carrier-lost))
 
 ### Mentions
 
