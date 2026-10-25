@@ -469,14 +469,16 @@ impl Session {
             let since = Instant::now();
             let key = loop {
                 let t = game.st.clock.elapsed().as_secs_f32();
+                // Left alone a while, the machine idles quietly.
+                let calm = self.last_key.elapsed() > Duration::from_secs(15);
                 let n = game.scene.bulbs.len();
-                let step = (t * 3.0) as usize;
+                let step = (t * if calm { 0.5 } else { 3.0 }) as usize;
                 for (i, b) in game.scene.bulbs.iter_mut().enumerate() {
                     *b = (i + n * 4 - step % n) % 6 < 2;
                 }
                 let cycle = t % 7.0;
-                game.scene.glint = if cycle < 0.9 { -10.0 + cycle / 0.9 * 110.0 } else { -1.0 };
-                self.slots_draw(game, false).await?;
+                game.scene.glint = if cycle < 0.9 && !calm { -10.0 + cycle / 0.9 * 110.0 } else { -1.0 };
+                self.slots_draw(game, true).await?;
                 match &message {
                     Some((m, at)) if at.elapsed() < Duration::from_secs(6) => {
                         if shown != usize::MAX - 1 {
@@ -485,7 +487,7 @@ impl Session {
                         }
                     }
                     _ => {
-                        let off = (t * 8.0) as usize;
+                        let off = (t * if calm { 1.0 } else { 8.0 }) as usize;
                         if off != shown {
                             let line: Vec<(char, Rgb)> = (0..78).map(|i| ticker[(off + i) % ticker.len()]).collect();
                             self.stage_line(MSG_ROW, &line, game.st.truecolor);
@@ -497,7 +499,7 @@ impl Session {
                 if self.key_waiting().await? {
                     break self.read_key().await?;
                 }
-                tokio::time::sleep(Duration::from_millis(60)).await;
+                tokio::time::sleep(self.idle_pause(60)).await;
                 if since.elapsed() > Duration::from_secs(idle_limit) {
                     return Ok(());
                 }

@@ -205,6 +205,20 @@ impl Session {
         self.purse_save(&p);
     }
 
+    /// The pause between frames of an animation waiting on the caller:
+    /// `busy` while they're playing, slower once they've left it alone a
+    /// while (less to send down a slow line).
+    pub(crate) fn idle_pause(&self, busy: u64) -> Duration {
+        let quiet = self.last_key.elapsed();
+        Duration::from_millis(if quiet > Duration::from_secs(60) {
+            2000
+        } else if quiet > Duration::from_secs(15) {
+            busy.max(500)
+        } else {
+            busy
+        })
+    }
+
     fn casino_pay(&mut self, p: Prize) {
         if p.minutes == 0 && p.points == 0 {
             return;
@@ -495,7 +509,7 @@ impl Session {
                 self.stage_show(&mut st, true).await?;
                 self.flush().await?;
                 if !self.key_waiting().await? {
-                    tokio::time::sleep(Duration::from_millis(50)).await;
+                    tokio::time::sleep(self.idle_pause(50)).await;
                     if since.elapsed() > Duration::from_secs(900) {
                         break None;
                     }

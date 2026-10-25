@@ -297,11 +297,13 @@ impl Session {
                         self.screen.write_bytes(b"\x1b[0m");
                         self.screen.goto(x, y);
                         self.screen.set_color(color);
+                        // One frame on the way at a time, on a slow line.
+                        self.sync_output(Duration::from_secs(3), 1).await?;
                         self.flush().await?;
                     }
                 }
                 tokio::select! {
-                    _ = tokio::time::sleep(Duration::from_millis(70)) => {}
+                    _ = tokio::time::sleep(self.idle_pause(70)) => {}
                     _ = waker.notified() => {
                         // Something for the caller: the usual wait shows it.
                         *amb = None;

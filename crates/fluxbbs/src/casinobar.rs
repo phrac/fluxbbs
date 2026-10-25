@@ -747,7 +747,7 @@ impl Session {
             self.stage_show(&mut st, true).await?;
             self.flush().await?;
             if !self.key_waiting().await? {
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                tokio::time::sleep(self.idle_pause(50)).await;
                 if since.elapsed() > std::time::Duration::from_secs(900) {
                     break;
                 }
@@ -866,7 +866,7 @@ impl Session {
                 if self.key_waiting().await? {
                     break Some(self.read_key().await?);
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+                tokio::time::sleep(self.idle_pause(60)).await;
                 if since.elapsed() > std::time::Duration::from_secs(900) {
                     break None;
                 }

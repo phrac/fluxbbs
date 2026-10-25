@@ -541,7 +541,7 @@ impl Session {
                 if self.key_waiting().await? {
                     break self.read_key().await?;
                 }
-                tokio::time::sleep(std::time::Duration::from_millis(60)).await;
+                tokio::time::sleep(self.idle_pause(60)).await;
             };
             let (gx, gy) = tb.cursor;
             let step = |dx: i32| {

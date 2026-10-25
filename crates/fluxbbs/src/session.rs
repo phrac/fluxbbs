@@ -124,6 +124,8 @@ pub struct Session {
     /// New: the next idle wait counts from here (a menu animating
     /// meanwhile mustn't put the inactivity timeout off).
     pub(crate) idle_since: Option<tokio::time::Instant>,
+    /// When the caller last pressed a key: animations calm down after a while.
+    pub(crate) last_key: std::time::Instant,
     /// New: the effects beside the screen being shown (`NAME.FX`), for
     /// its `|PK` wait.
     pub(crate) screen_fx: Option<Vec<crate::ambient::Effect>>,
@@ -338,6 +340,7 @@ impl Session {
             input: VecDeque::new(),
             last_cr: false,
             idle_since: None,
+            last_key: std::time::Instant::now(),
             screen_fx: None,
             cursor_asks: 0,
             cursor_reports: 0,

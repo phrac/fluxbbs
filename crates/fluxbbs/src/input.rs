@@ -319,6 +319,7 @@ impl Session {
     pub async fn read_key(&mut self) -> io::Result<Key> {
         loop {
             let b = self.next_byte(Wait::Idle).await?.expect("idle wait returns a byte");
+            self.last_key = std::time::Instant::now();
             return Ok(match b {
                 b'\r' | b'\n' => Key::Enter,
                 0x08 | 0x7F => Key::Backspace,
