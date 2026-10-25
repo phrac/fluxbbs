@@ -102,6 +102,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('F', "24-bit TERMs", 50, "CP437 terminals sent bright backgrounds as 24-bit color, not the iCE blink bit.", List(|c| &mut c.terminal.truecolor_terms)),
             set('G', "Telnet", 3, "Also accept plain (unencrypted) telnet? (restart)", Bool(|c| &mut c.telnet.enabled)),
             set('H', "Telnet listen", 40, "Address and port for telnet, e.g. 0.0.0.0:2323 (restart).", Text(|c| &mut c.telnet.listen, TEXT)),
+            set('I', "Screen saver", 5, "Seconds idle on a menu before the screen saver (0 = none); for callers whose menus animate.", Num(|c| c.terminal.screensaver_seconds, |c, v| c.terminal.screensaver_seconds = v, 0, 86_400)),
         ]),
         ("Access and Logon", false, vec![
             set('A', "SysOp ACS", 20, "ACS for SysOp access.", Text(|c| &mut c.acs.sysop, ACS)),
@@ -366,6 +367,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('J', "Three cherries", 20, "Three cherries pay: minutes, then file points.", Prize(|c| &mut c.slots.cherries)),
             set('K', "Two cherries", 20, "Cherries on the first two reels pay: minutes, then file points.", Prize(|c| &mut c.slots.two_cherries)),
             set('L', "One cherry", 20, "A cherry on the first reel pays: minutes, then file points.", Prize(|c| &mut c.slots.one_cherry)),
+            set('M', "Free logon pulls", 3, "A free pull on each call (the logon sequence's slots step), at most this many a day.", Num(|c| c.slots.free_per_day as u64, |c, v| c.slots.free_per_day = v as u32, 0, 999)),
         ]),
         ("Casino Tables", false, vec![
             set('A', "Chips a day", 6, "The free stack each caller gets a day for blackjack and craps.", Num(|c| c.casino.daily_chips as u64, |c, v| c.casino.daily_chips = v as u32, 1, 1_000_000)),

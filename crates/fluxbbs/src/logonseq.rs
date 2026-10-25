@@ -55,7 +55,7 @@ pub const KINDS: [(&str, &str); 15] = [
     ("oneliners", "Oneliners"),
     ("screen", "Show a screen"),
     ("fastlogon", "Fast logon: offer to skip the rest"),
-    ("slots", "A free slot pull (first call of the day)"),
+    ("slots", "A free slot pull (each call, a few a day)"),
 ];
 
 /// STARTUP's stock order.

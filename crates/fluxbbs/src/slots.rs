@@ -11,9 +11,10 @@
 //! The pull is counted and the prize paid before the reels move, so a
 //! dropped call keeps both. Plain-text callers get a line per pull.
 //!
-//! `AL free` (the logon sequence's `slots` step) is a pull on the house,
-//! once a day: the reels spin by themselves, the result shows for a
-//! moment, and the logon goes on. It isn't one of the day's pulls.
+//! `AL free` (the logon sequence's `slots` step) is a pull on the house
+//! each call, up to `free_per_day` a day: the reels spin by themselves,
+//! the result shows for a moment, and the logon goes on. They aren't
+//! among the day's pulls.
 
 use std::io;
 use std::time::{Duration, Instant};
@@ -265,14 +266,14 @@ impl Motion {
 
 type Rgb = Ink;
 
-/// The day's tally: pulls, minutes and points won, and whether the free
-/// pull's been had.
+/// The day's tally: pulls, minutes and points won, and the free pulls
+/// had.
 #[derive(Default)]
 struct Tally {
     pulls: u32,
     minutes: u32,
     points: u32,
-    free: bool,
+    free: u32,
 }
 
 impl Session {
@@ -288,12 +289,12 @@ impl Session {
             return Tally::default();
         }
         let mut n = || w.next().and_then(|x| x.parse().ok()).unwrap_or(0);
-        Tally { pulls: n(), minutes: n(), points: n(), free: n() == 1 }
+        Tally { pulls: n(), minutes: n(), points: n(), free: n() }
     }
 
     fn slots_save(&self, t: &Tally) {
         let today = crate::clock::now().date_naive();
-        let v = format!("{today} {} {} {} {}", t.pulls, t.minutes, t.points, t.free as u8);
+        let v = format!("{today} {} {} {} {}", t.pulls, t.minutes, t.points, t.free);
         if let Err(e) = self.state.sys.script_set("slots", &self.slots_key(), Some(&v)) {
             tracing::error!("slots: saving {}'s pulls: {e}", self.user.handle);
         }
@@ -304,10 +305,10 @@ impl Session {
     }
 
     /// A pull: counted, decided and paid. None if none are left today
-    /// (or, `free`, the free one's been had).
+    /// (or, `free`, the day's free ones have been had).
     fn slots_pull(&mut self, cfg: &Slots, free: bool) -> Option<Pull> {
         let mut t = self.slots_today();
-        if if free { t.free } else { self.pulls_left(cfg) == Some(0) } {
+        if if free { t.free >= cfg.free_per_day } else { self.pulls_left(cfg) == Some(0) } {
             return None;
         }
         let pull = decide(cfg, &mut rand::rng());
@@ -316,7 +317,7 @@ impl Session {
             self.casino_played(5);
         }
         if free {
-            t.free = true;
+            t.free += 1;
         } else {
             t.pulls += 1;
         }
@@ -349,7 +350,7 @@ impl Session {
         }
     }
 
-    /// `AL`: the slot machine; `AL free`, the day's free pull.
+    /// `AL`: the slot machine; `AL free`, a free pull (at logon).
     pub async fn slots(&mut self, param: &str) -> io::Result<()> {
         let cfg = self.state.config().slots.clone();
         let free = param.trim().eq_ignore_ascii_case("free");

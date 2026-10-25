@@ -811,3 +811,5 @@ ClubSuite = "a suite upstairs, comped: +%S1 chips on your stack"
 ClubShow = "front row at the show: +%S1 file points"
 ClubPlainPrompt = "|U1claim which |U2(|U11-3, enter to leave|U2)> |U3"
 SlotsFreeMore = "want more? the casino's open: doors menu, c."
+# The screen saver over a menu left idle (new): the notice at the bottom.
+ScreenSaverExit = " enter or ESC to exit screen saver "

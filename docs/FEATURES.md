@@ -628,8 +628,8 @@ Three special steps:
   on to the main menu (STARTUP's fallback), skipping the steps after
   it. Put it first for a quick way in, or after the steps everyone must
   see.
-- **A free slot pull** (`AL free`) is a pull on the house, on the first
-  call of the day. The reels spin by themselves, the result shows for a
+- **A free slot pull** (`AL free`) is a pull on the house on each call,
+  up to `free_per_day` a day (5 to start; `*C`, Slot Machine). The reels spin by themselves, the result shows for a
   moment, then a line says the casino has more (`SlotsFreeMore`), and
   the logon goes on. It isn't one of the day's pulls, and keys typed
   ahead don't skip it. Put it before fast logon, or callers

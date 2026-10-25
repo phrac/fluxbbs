@@ -124,6 +124,9 @@ pub struct Session {
     /// New: the next idle wait counts from here (a menu animating
     /// meanwhile mustn't put the inactivity timeout off).
     pub(crate) idle_since: Option<tokio::time::Instant>,
+    /// New: the effects beside the screen being shown (`NAME.FX`), for
+    /// its `|PK` wait.
+    pub(crate) screen_fx: Option<Vec<crate::ambient::Effect>>,
     /// Cursor position questions asked and answers seen, for `sync_output`.
     pub(crate) cursor_asks: u32,
     pub(crate) cursor_reports: u32,
@@ -335,6 +338,7 @@ impl Session {
             input: VecDeque::new(),
             last_cr: false,
             idle_since: None,
+            screen_fx: None,
             cursor_asks: 0,
             cursor_reports: 0,
             report_tail: Vec::new(),
@@ -801,9 +805,18 @@ impl Session {
         match c {
             Control::Delay(ms) => self.delay(ms as u64).await?,
             Control::PromptKey => self.prompt_key().await?,
-            Control::ReadKey if !self.plain() => {
-                self.read_key().await?;
-            }
+            // New: a screen with effects beside it animates while it waits.
+            Control::ReadKey if !self.plain() => match self.screen_fx.take() {
+                Some(fx) => {
+                    self.flush().await?;
+                    let mut amb = crate::ambient::Ambient::new(&self.screen, &fx);
+                    self.read_key_ambient(&mut amb, false).await?;
+                    self.screen_fx = Some(fx);
+                }
+                None => {
+                    self.read_key().await?;
+                }
+            },
             Control::ReadKey => {}
             Control::Pause => self.pause().await?,
             Control::StockArt => self.include_stock().await?,
@@ -885,7 +898,11 @@ impl Session {
         let Some(data) = self.read_text_file(name).await? else {
             return Ok(false);
         };
-        self.display(&data, Source::File, Some(waves), false).await?;
+        let fx = self.find_text_file(name).and_then(|p| crate::ambient::sidecar(&p)).filter(|_| self.animating());
+        let outer = std::mem::replace(&mut self.screen_fx, fx);
+        let r = self.display(&data, Source::File, Some(waves), false).await;
+        self.screen_fx = outer;
+        r?;
         Ok(true)
     }
 

@@ -101,7 +101,10 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 
 - Menus can animate while they wait (`[[effect]]` in the menu): a glint
   across the art, a pulse along the box lines, sent as only the cells
-  that change. Callers can turn it off in their config.
+  that change, and after a minute idle a screen saver of digital rain.
+  Callers can turn it all off in their config. Any screen can animate
+  at its `|PK` with effects in a `NAME.FX` beside it (firelight,
+  glowing eyes, dust in the light).
   ([ARTWORK](ARTWORK.md#animation-new))
 - Lightbar menus also take their commands' keys: hot keys, `/X`, and
   digits for `#` typed on the help line. ([ARTWORK](ARTWORK.md#lightbar-menus))

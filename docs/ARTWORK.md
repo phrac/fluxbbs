@@ -124,6 +124,26 @@ delay = 6.0
 - **When it runs:** only on screens that clear first, for callers with
   24-bit color (SyncTERM, or UTF-8) who haven't turned animations off
   in their config (`v` on disflux's, field `W`). Never in plain text.
+- **The screen saver.** After `screensaver_seconds` idle on a menu (60
+  to start; `*C`, SSH, Telnet and Terminal; 0 for none), digital rain
+  in pinks and magentas falls over the screen. The board's name shows
+  through across the middle as drops pass over it. Enter or Esc
+  (`ScreenSaverExit` says so at the bottom) brings the menu back. Like
+  the effects, it runs on any lightbar menu that clears the screen,
+  only for callers whose menus animate.
+- **Any screen can animate too**, while it waits at a `|PK`. Put its
+  effects in a file beside it with the same name and `.FX` (say
+  `PRELOGON.FX`), as `[[effect]]` entries like these.
+- **More kinds, for scenes:**
+  - `flicker`: firelight; cells brighten and dim, warmer as they
+    brighten (`amount` 0.3 to start).
+  - `pulse`: cells of one exact color (`matches = "#600404"`) glow
+    toward another (`tint`) and back, every `every` seconds. Use it for
+    eyes, gems or windows, drawn in a color nothing else on the screen
+    uses.
+  - `dust`: motes drift down through the area, catching the light.
+- **`cols = [first, last]`** limits any effect to those columns, as
+  `rows` limits it to those rows.
 - **It stops for the board's own messages.** A node message, a page or
   the inactivity timeout takes over as usual, and the timeout still
   counts from the last key.

@@ -499,7 +499,9 @@ impl Session {
             None
         };
         let picked = loop {
-            let key = self.read_key_ambient(&mut ambient).await?;
+            // After the screen saver, the menu's drawn again.
+            let saver = menu.clear_before && self.animating();
+            let Some(key) = self.read_key_ambient(&mut ambient, saver).await? else { break "?".to_string() };
             if let Some(c) = key.upper().filter(|c| c.is_ascii_graphic()) {
                 let k = c.to_string();
                 if allowed(&k) {

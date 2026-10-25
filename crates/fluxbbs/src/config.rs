@@ -349,6 +349,9 @@ impl Default for Ai {
 pub struct Slots {
     /// 0: no limit.
     pub pulls_per_day: u32,
+    /// Free pulls at logon (the logon sequence's `slots` step), one a
+    /// call, at most this many a day.
+    pub free_per_day: u32,
     /// The chance, in percent, that a pull wins something.
     pub win_percent: u32,
     /// Three sevens come up one pull in this many (0: never).
@@ -426,6 +429,7 @@ impl Default for Slots {
         let p = |minutes, points| Prize { minutes, points };
         Self {
             pulls_per_day: 10,
+            free_per_day: 5,
             win_percent: 40,
             jackpot_odds: 200,
             jackpot: p(60, 100),
@@ -833,6 +837,9 @@ pub struct Terminal {
     /// backgrounds (others get the iCE blink bit, and blink if they don't
     /// honour the iCE switch).
     pub truecolor_terms: Vec<String>,
+    /// New: seconds idle on a lightbar menu before the screen saver (0:
+    /// none); only where menus animate.
+    pub screensaver_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1283,6 +1290,7 @@ impl Default for Terminal {
                 .map(String::from)
                 .to_vec(),
             truecolor_terms: vec!["syncterm".into()],
+            screensaver_seconds: 60,
         }
     }
 }
