@@ -9,6 +9,7 @@ use fluxbbs_term::Slot;
 use fluxbbs_term::codes::{resize, squish};
 
 use crate::cfgedit::{Field, Form, yes_no};
+use crate::input::ReadOpts;
 use crate::config::Protocol;
 use crate::extprog::{Archiver, Archivers, Protocols};
 use crate::fileareas::{FileArea, FileAreas, SortBy, children_of};
@@ -716,6 +717,10 @@ impl Session {
         self.fa_edit(at).await
     }
 
+    /// Delete area `which`, or (new) the whole section under it, or a
+    /// list and ranges of areas typed by number; then, if asked, their
+    /// file records and the files on disk. Sub-areas left behind move up
+    /// under the nearest area that stays.
     async fn fa_delete(&mut self, which: u32) -> io::Result<()> {
         let mut areas = (*self.state.fareas()).clone();
         let n = areas.areas.len() as u32;
@@ -723,32 +728,127 @@ impl Session {
             self.show_line("|U0You must have at least one file area!").await?;
             return self.prompt_key().await;
         }
-        let Some(a) = areas.areas.get(which as usize - 1) else { return Ok(()) };
-        self.show(&format!("|U1Delete file area |U3{}|U1 ({})? ", a.name, a.file)).await?;
+        let Some(a) = areas.areas.get(which as usize - 1).cloned() else { return Ok(()) };
+        let sub = areas.subtree(which);
+        self.newline();
+        let ask = if sub.len() > 1 {
+            format!(
+                "|U1Delete |U3{}|U1: |U3enter|U1 just it, |U3a|U1 it and its {} sub-areas, or numbers like |U312-40,52|U2> |U3",
+                a.name,
+                sub.len() - 1
+            )
+        } else {
+            format!("|U1Delete |U3{}|U1: |U3enter|U1 just it, or numbers like |U312-40,52|U2> |U3", a.name)
+        };
+        self.show(&ask).await?;
+        let typed = self.read_string(ReadOpts::new(60).esc_cancels()).await?;
+        self.newline();
+        if self.escaped {
+            return Ok(());
+        }
+        let gone: Vec<u32> = match typed.trim().to_ascii_lowercase().as_str() {
+            "" => vec![which],
+            "a" | "all" if sub.len() > 1 => sub,
+            t => match crate::fileareas::parse_numbers(t, n) {
+                Some(v) => v,
+                None => {
+                    self.show_line(&format!("|U0Area numbers run 1 to {n}: like 12-40, or 3,5,9.")).await?;
+                    return self.prompt_key().await;
+                }
+            },
+        };
+        if gone.len() as u32 >= n {
+            self.show_line("|U0You must keep at least one file area!").await?;
+            return self.prompt_key().await;
+        }
+        let picked: Vec<FileArea> = gone.iter().filter_map(|&g| areas.areas.get(g as usize - 1).cloned()).collect();
+        let stay: Vec<&FileArea> = areas.areas.iter().enumerate().filter(|(i, _)| !gone.contains(&(*i as u32 + 1))).map(|(_, a)| a).collect();
+        // Records go with an area unless another area that stays uses the key.
+        let mut keys: Vec<String> = Vec::new();
+        for p in &picked {
+            if !stay.iter().any(|s| s.file.eq_ignore_ascii_case(&p.file)) && !keys.iter().any(|k| k.eq_ignore_ascii_case(&p.file)) {
+                keys.push(p.file.clone());
+            }
+        }
+        let mut records = 0;
+        for k in &keys {
+            records += self.state.files.count(k).map_err(io_err)?;
+        }
+        let what = match picked.len() {
+            1 => format!("|U3{}", picked[0].name),
+            k => format!("|U3{k}|U1 file areas (|U3{}|U1 and {} more)", picked[0].name, k - 1),
+        };
+        self.show(&format!("|U1Delete {what}|U1? ")).await?;
         if !self.yes_no(false).await? {
             return Ok(());
         }
         self.newline();
-        let gone = areas.areas.remove(which as usize - 1);
-        // Its sub-areas move up a level.
-        for a in areas.areas.iter_mut().filter(|a| a.parent.eq_ignore_ascii_case(&gone.file)) {
-            a.parent = gone.parent.clone();
-        }
-        // Keep the records if another area still uses the same key.
-        let shared = areas.areas.iter().any(|a| a.file.eq_ignore_ascii_case(&gone.file));
-        let records = self.state.files.count(&gone.file).map_err(io_err)?;
-        self.save_fareas(areas)?;
-        tracing::info!("{}: deleted file area {which} ({})", self.user.handle, gone.name);
-        if records > 0 && !shared {
-            self.show(&format!("|U1Delete this file area's {records} file records? ")).await?;
-            if self.yes_no(false).await? {
-                self.state.files.delete_area(&gone.file).map_err(io_err)?;
-            }
+        let mut drop_records = false;
+        if records > 0 {
+            self.show(&format!("|U1Delete their |U3{records}|U1 file records? ")).await?;
+            drop_records = self.yes_no(false).await?;
             self.newline();
-            self.show_line(&format!("|U2The files themselves are still in |U3{}|U2.", gone.path.display())).await?;
-            self.prompt_key().await?;
         }
-        Ok(())
+        let mut drop_disk = false;
+        if drop_records {
+            self.show("|U1Delete the files themselves from disk too? ").await?;
+            drop_disk = self.yes_no(false).await?;
+            self.newline();
+        }
+        // What's on disk, listed before the records go.
+        let cfg = self.state.config();
+        let stay_dirs: Vec<std::path::PathBuf> = stay.iter().map(|s| cfg.resolve(&s.path)).collect();
+        let mut doomed: Vec<std::path::PathBuf> = Vec::new();
+        let mut dirs: Vec<std::path::PathBuf> = Vec::new();
+        if drop_disk {
+            for p in &picked {
+                let dir = cfg.resolve(&p.path);
+                // A folder another area still uses keeps its files.
+                if stay_dirs.iter().any(|d| d == &dir) || !keys.iter().any(|k| k.eq_ignore_ascii_case(&p.file)) {
+                    continue;
+                }
+                for f in self.state.files.list(&p.file).map_err(io_err)? {
+                    doomed.push(dir.join(&f.name));
+                }
+                dirs.push(dir);
+            }
+        }
+        let removed = areas.remove_areas(&gone);
+        self.save_fareas(areas)?;
+        let mut dropped = 0;
+        if drop_records {
+            for k in &keys {
+                dropped += self.state.files.delete_area(k).map_err(io_err)?;
+            }
+        }
+        let mut erased = 0;
+        for f in &doomed {
+            if f.is_file() && std::fs::remove_file(f).is_ok() {
+                erased += 1;
+            }
+        }
+        // Empty folders, deepest first, unless an area that stays is in one.
+        dirs.sort_by_key(|d| std::cmp::Reverse(d.components().count()));
+        for d in &dirs {
+            if !stay_dirs.iter().any(|s| s.starts_with(d)) {
+                let _ = std::fs::remove_dir(d);
+            }
+        }
+        tracing::info!(
+            "{}: deleted {} file area(s) ({}), {dropped} record(s), {erased} file(s) from disk",
+            self.user.handle,
+            removed.len(),
+            removed.iter().map(|a| a.file.as_str()).collect::<Vec<_>>().join(" ")
+        );
+        self.show_line(&format!(
+            "|U1Deleted |U3{}|U1 area(s), |U3{dropped}|U1 record(s), |U3{erased}|U1 file(s) from disk.",
+            removed.len()
+        ))
+        .await?;
+        if records > 0 && !drop_disk {
+            self.show_line("|U2The files themselves are still on disk.").await?;
+        }
+        self.prompt_key().await
     }
 
     /// Move area `from` before another; returns where it ended up. (Its

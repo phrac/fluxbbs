@@ -118,7 +118,9 @@ impl Parser {
 fn subnegotiation(sub: &[u8]) -> Option<Event> {
     match sub {
         [NAWS, w1, w2, h1, h2] => Some(Event::Size(u16::from_be_bytes([*w1, *w2]), u16::from_be_bytes([*h1, *h2]))),
-        [TTYPE, IS, name @ ..] => Some(Event::TermType(String::from_utf8_lossy(name).trim().to_string())),
+        // Some clients end the name with a NUL (NetRunner sends
+        // "ANSI-256COLOR\0"): control characters go with the spaces.
+        [TTYPE, IS, name @ ..] => Some(Event::TermType(String::from_utf8_lossy(name).trim_matches(|c: char| c.is_whitespace() || c.is_control()).to_string())),
         _ => None,
     }
 }
@@ -342,6 +344,11 @@ mod tests {
         ]);
         assert_eq!(data, b"ab");
         assert_eq!(events, [Event::Option(WILL, NAWS), Event::Size(132, 50), Event::TermType("SYNCTERM".into())]);
+        // NetRunner ends its name with a NUL.
+        let mut netrunner = vec![IAC, SB, TTYPE, IS];
+        netrunner.extend(b"ANSI-256COLOR\0");
+        netrunner.extend([IAC, SE]);
+        assert_eq!(parse(&netrunner).1, [Event::TermType("ANSI-256COLOR".into())]);
     }
 
     #[test]

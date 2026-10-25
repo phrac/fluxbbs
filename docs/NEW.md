@@ -129,6 +129,10 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - Sub-areas, to any depth. ([FILES](FILES.md#sub-areas))
 - `*F` is a bar list in tree order: `/` searches, insert, delete, move,
   and `S` sorts a level by name.
+- Deleting in bulk: `*F` deletes a whole section, or areas by number
+  (`12-40`), with their records and files if asked; a SysOp's batch
+  (`FB`) takes up to 1,000 files, adds by wildcard or numbers (`w`) and
+  deletes them all (`k`). ([FILES](FILES.md#deleting-in-bulk))
 - The file browser (`FW`, L on the file menu): areas as folders; ZIP,
   tar and tar.gz opened in place; text and ANSI in a viewer.
 - In the browser, pictures show as ANSI (half-blocks, 24-bit) and

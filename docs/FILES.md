@@ -105,6 +105,22 @@ In the editor itself:
 A co-SysOp's `edit` in a list edits the description only, as in the
 original.
 
+### Deleting in bulk
+
+New. Two ways, both asking before anything goes:
+
+- **Files:** a SysOp's download batch holds up to 1,000 files. Tag
+  files into it as usual, or in the batch editor (`FB`) press `w` to
+  add every file in the current area matching a wildcard (`*.exe`) or
+  numbers (`3-17,20`). The batch lists what's in it; `k` deletes every
+  file in it from its area, and, if asked, from disk.
+- **Areas:** in `*F`, `d` on an area with sub-areas offers just that
+  area (its sub-areas move up a level) or `a`, the whole section with
+  everything under it. Typing numbers instead (`12-40`, `3,5,9`)
+  deletes those areas. It then asks whether to delete their file
+  records, and then the files on disk too. A folder another area still
+  uses keeps its files, and folders left empty are removed.
+
 ## The textfiles.com archive
 
 `fluxbbs textfiles` puts Jason Scott's textfiles.com collection on the
@@ -196,8 +212,11 @@ are left as they are, so a later `fetch` and `import` bring the
 mirror's additions.
 
 The areas are `[[area]]` entries in `fileareas.toml` and rows in the
-database, like any other. `*F` edits, moves and deletes them; a section
-takes its sub-areas with it.
+database, like any other. `*F` edits, moves and deletes them; to drop
+a whole section, `d` on it and `a` takes everything under it, records
+and files too if asked ([Deleting in bulk](#deleting-in-bulk)). A
+section deleted this way comes back with the next `textfiles import` of
+a fetch that still has it.
 
 ### In the container
 

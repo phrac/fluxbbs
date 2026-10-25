@@ -1120,10 +1120,14 @@ impl Session {
         let known = p.known.clone();
         for num in &known {
             let back = self.state.carrier.has_mark(num, &self.user.handle, "backdoor").unwrap_or(false);
+            let creds = p.creds.contains(num);
             let name = self.state.carrier.system(num).ok().flatten().map(|s| s.name).unwrap_or_else(|| "unknown".into());
-            let s = format!("  {num}   {name}{}", if back { "   [back door]" } else { "" });
+            let tag = if back { "   [back door]" } else if creds { "   [login]" } else { "" };
+            let s = format!("  {num}   {name}{tag}");
             self.cl_tell(v, &s, PROSE, false).await?;
         }
+        let s = self.strings().fmt("ClReach", &[&reach_of(p).join(" ")]);
+        self.cl_tell(v, &s, MARK, false).await?;
         Ok(())
     }
 
@@ -1340,7 +1344,8 @@ impl Session {
         }
         let num = on.sys.number.clone();
         let cat = f.cat.clone();
-        self.cl_job_done(v, p, &num, &cat).await?;
+        let left: Vec<String> = on.files.iter().filter(|x| x.loot > 0 && x.taken_by.is_empty()).map(|x| x.cat.clone()).collect();
+        self.cl_job_done(v, p, &num, &cat, &left).await?;
         Ok(on.trace >= 100)
     }
 
@@ -1593,7 +1598,8 @@ impl Session {
 
     /// The fixer's board: top it up to a few open contracts, then list
     /// the open ones and the caller's own.
-    async fn cl_jobs(&mut self, v: &mut View, p: &Player, seed: u64) -> io::Result<()> {
+    async fn cl_jobs(&mut self, v: &mut View, p: &mut Player, seed: u64) -> io::Result<()> {
+        self.cl_settle_jobs(v, p).await?;
         self.cl_make_jobs(p, seed);
         let open = self.state.carrier.open_jobs().unwrap_or_default();
         let s = self.strings().get("ClJobsHead").to_string();
@@ -1645,8 +1651,27 @@ impl Session {
         let at = crate::clock::now().naive_local().format("%Y-%m-%d %H:%M:%S").to_string();
         for _ in 0..(3 - have) {
             let number = p.known[roll(p.known.len() as u32) as usize - 1].clone();
-            let tier = tier_at(seed, &number.replace('-', ""));
-            let (want, name) = JOB_WANTS[roll(JOB_WANTS.len() as u32) as usize - 1];
+            let bare = number.replace('-', "");
+            let tier = tier_at(seed, &bare);
+            // The kinds of loot the box has still to take: its files if
+            // it's been written, else the plan it will be written from.
+            let kinds: Vec<String> = match self.state.carrier.system(&number).ok().flatten() {
+                Some(_) => self
+                    .state
+                    .carrier
+                    .files(&number)
+                    .unwrap_or_default()
+                    .into_iter()
+                    .filter(|f| f.loot > 0 && f.taken_by.is_empty())
+                    .map(|f| f.cat)
+                    .collect(),
+                None => plan(seed, &bare).files.iter().filter(|f| f.value > 0).map(|f| f.cat.to_string()).collect(),
+            };
+            if kinds.is_empty() {
+                continue;
+            }
+            let fits: Vec<&(&str, &str)> = JOB_WANTS.iter().filter(|(w, _)| *w == "any" || kinds.iter().any(|k| k == w)).collect();
+            let &(want, name) = fits[roll(fits.len() as u32) as usize - 1];
             let j = Job {
                 id: 0,
                 giver: "subcarrier".into(),
@@ -1663,24 +1688,53 @@ impl Session {
     }
 
     /// A grab may finish a contract on this box: pay it out.
-    async fn cl_job_done(&mut self, v: &mut View, p: &mut Player, number: &str, cat: &str) -> io::Result<()> {
+    /// `left`: the kinds of loot still untaken on the box. If none of the
+    /// wanted kind is left (it never had one, or someone beat you to
+    /// it), any loot from the box does.
+    async fn cl_job_done(&mut self, v: &mut View, p: &mut Player, number: &str, cat: &str, left: &[String]) -> io::Result<()> {
         let open = self.state.carrier.open_jobs().unwrap_or_default();
         let hits: Vec<Job> = open
             .into_iter()
-            .filter(|j| j.taken_by == self.user.handle && j.status == "taken" && j.number == number && (j.want == "any" || j.want == cat))
+            .filter(|j| {
+                j.taken_by == self.user.handle
+                    && j.status == "taken"
+                    && j.number == number
+                    && (j.want == "any" || j.want == cat || !left.contains(&j.want))
+            })
             .collect();
         for j in hits {
-            if self.state.carrier.finish_job(j.id, &self.user.handle).unwrap_or(false) {
-                p.jobs.retain(|&id| id != j.id);
-                p.cred += j.reward;
-                p.done += 1;
-                if j.points > 0 {
-                    self.user.file_points = self.user.file_points.saturating_add(j.points);
-                    let _ = self.save_own_user();
-                }
-                let s = self.strings().fmt("ClJobDone", &[&j.name, &j.reward.to_string(), &j.points.to_string()]);
-                self.cl_tell(v, &s, LOOT, false).await?;
-                self.cl_news_add(&format!("{} came through on a job for {}", self.user.handle, j.giver));
+            self.cl_pay_job(v, p, &j).await?;
+        }
+        Ok(())
+    }
+
+    async fn cl_pay_job(&mut self, v: &mut View, p: &mut Player, j: &Job) -> io::Result<()> {
+        if !self.state.carrier.finish_job(j.id, &self.user.handle).unwrap_or(false) {
+            return Ok(());
+        }
+        p.jobs.retain(|&id| id != j.id);
+        p.cred += j.reward;
+        p.done += 1;
+        if j.points > 0 {
+            self.user.file_points = self.user.file_points.saturating_add(j.points);
+            let _ = self.save_own_user();
+        }
+        let s = self.strings().fmt("ClJobDone", &[&j.name, &j.reward.to_string(), &j.points.to_string()]);
+        self.cl_tell(v, &s, LOOT, false).await?;
+        self.cl_news_add(&format!("{} came through on a job for {}", self.user.handle, j.giver));
+        Ok(())
+    }
+
+    /// Jobs of the caller's whose box has been cleaned out, with loot of
+    /// theirs among what went: nothing's left to grab, so they're done.
+    async fn cl_settle_jobs(&mut self, v: &mut View, p: &mut Player) -> io::Result<()> {
+        let me = self.user.handle.clone();
+        let mine: Vec<Job> = self.state.carrier.open_jobs().unwrap_or_default().into_iter().filter(|j| j.taken_by == me && j.status == "taken").collect();
+        for j in mine {
+            let files = self.state.carrier.files(&j.number).unwrap_or_default();
+            let loot: Vec<&File> = files.iter().filter(|f| f.loot > 0).collect();
+            if !loot.is_empty() && loot.iter().all(|f| !f.taken_by.is_empty()) && loot.iter().any(|f| f.taken_by == me) {
+                self.cl_pay_job(v, p, &j).await?;
             }
         }
         Ok(())

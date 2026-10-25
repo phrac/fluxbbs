@@ -190,6 +190,57 @@ impl FileAreas {
     pub fn subtree(&self, n: u32) -> Vec<u32> {
         subtree_of(&self.tree(), n)
     }
+
+    /// New: take the areas at positions `gone` (1-based) out. An area left
+    /// behind whose parent went is hung under its nearest ancestor that
+    /// stays (or the top level). Returns what was taken out, in order.
+    pub fn remove_areas(&mut self, gone: &[u32]) -> Vec<FileArea> {
+        let dead: std::collections::HashSet<String> =
+            gone.iter().filter_map(|&n| self.areas.get(n as usize - 1)).map(|a| a.file.to_ascii_lowercase()).collect();
+        let parent_of: HashMap<String, String> =
+            self.areas.iter().map(|a| (a.file.to_ascii_lowercase(), a.parent.clone())).collect();
+        for a in self.areas.iter_mut().filter(|a| !dead.contains(&a.file.to_ascii_lowercase())) {
+            let mut p = a.parent.clone();
+            let mut hops = 0;
+            while !p.is_empty() && dead.contains(&p.to_ascii_lowercase()) && hops < 1000 {
+                p = parent_of.get(&p.to_ascii_lowercase()).cloned().unwrap_or_default();
+                hops += 1;
+            }
+            a.parent = p;
+        }
+        let mut idx: Vec<usize> = gone.iter().map(|&n| n as usize - 1).filter(|&i| i < self.areas.len()).collect();
+        idx.sort_unstable();
+        idx.dedup();
+        let mut out = Vec::new();
+        for &i in idx.iter().rev() {
+            out.push(self.areas.remove(i));
+        }
+        out.reverse();
+        out
+    }
+}
+
+/// New: numbers typed as a list and ranges ("12-40", "3,5,9", "3, 7-9"),
+/// each 1 to `max`; sorted, no repeats. None if any part isn't one.
+pub fn parse_numbers(s: &str, max: u32) -> Option<Vec<u32>> {
+    let mut out = Vec::new();
+    for part in s.split([',', ' ']).map(str::trim).filter(|p| !p.is_empty()) {
+        let (a, b) = match part.split_once('-') {
+            Some((a, b)) => (a.trim().parse::<u32>().ok()?, b.trim().parse::<u32>().ok()?),
+            None => {
+                let n = part.parse::<u32>().ok()?;
+                (n, n)
+            }
+        };
+        let (lo, hi) = (a.min(b), a.max(b));
+        if lo == 0 || hi > max {
+            return None;
+        }
+        out.extend(lo..=hi);
+    }
+    out.sort_unstable();
+    out.dedup();
+    (!out.is_empty()).then_some(out)
 }
 
 /// The tree of areas given as (storage key, parent key), numbered from 1
@@ -267,6 +318,31 @@ mod tests {
         let proto = fa.areas[0].clone();
         fa.areas = spec.iter().map(|(file, parent)| FileArea { file: file.to_string(), parent: parent.to_string(), ..proto.clone() }).collect();
         fa
+    }
+
+    #[test]
+    fn whole_sections_and_ranges_come_out() {
+        // 1 UPLOADS, 2 SEX, 3 EROTICA (under SEX), 4 A (under EROTICA), 5 B (under EROTICA), 6 HACK
+        let mut fa = areas(&[("UPLOADS", ""), ("SEX", ""), ("EROTICA", "SEX"), ("A", "EROTICA"), ("B", "EROTICA"), ("HACK", "")]);
+        let sec = fa.subtree(2);
+        assert_eq!(sec, vec![2, 3, 4, 5]);
+        let gone = fa.remove_areas(&sec);
+        assert_eq!(gone.iter().map(|a| a.file.as_str()).collect::<Vec<_>>(), ["SEX", "EROTICA", "A", "B"]);
+        assert_eq!(fa.areas.iter().map(|a| a.file.as_str()).collect::<Vec<_>>(), ["UPLOADS", "HACK"]);
+        // Taking out the middle of a chain hangs what's below on what's above.
+        let mut fa = areas(&[("TOP", ""), ("MID", "TOP"), ("LOW", "MID"), ("LEAF", "LOW")]);
+        fa.remove_areas(&[2, 3]);
+        assert_eq!(fa.areas.iter().map(|a| (a.file.as_str(), a.parent.as_str())).collect::<Vec<_>>(), [("TOP", ""), ("LEAF", "TOP")]);
+    }
+
+    #[test]
+    fn numbers_and_ranges() {
+        assert_eq!(parse_numbers("12-14,3", 20), Some(vec![3, 12, 13, 14]));
+        assert_eq!(parse_numbers("5 7-6, 5", 10), Some(vec![5, 6, 7]));
+        assert_eq!(parse_numbers("0-3", 10), None);
+        assert_eq!(parse_numbers("9-11", 10), None);
+        assert_eq!(parse_numbers("*.exe", 10), None);
+        assert_eq!(parse_numbers("", 10), None);
     }
 
     #[test]

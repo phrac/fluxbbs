@@ -37,6 +37,7 @@ cp437_terms = [
     "pcansi",
     "scoansi",
     "netrunner",
+    "ansi-256color",
 ]
 
 [acs]

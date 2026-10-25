@@ -1326,7 +1326,7 @@ impl Default for Terminal {
     fn default() -> Self {
         Self {
             charset: CharsetPref::Auto,
-            cp437_terms: ["syncterm", "ansi-bbs", "ansi", "pc-ansi", "pcansi", "scoansi", "netrunner"]
+            cp437_terms: ["syncterm", "ansi-bbs", "ansi", "pc-ansi", "pcansi", "scoansi", "netrunner", "ansi-256color"]
                 .map(String::from)
                 .to_vec(),
             truecolor_terms: vec!["syncterm".into()],

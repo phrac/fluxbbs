@@ -623,36 +623,48 @@ impl Session {
                 .unwrap_or_default()
         };
         let s = |n: usize| if n == 1 { "" } else { "s" };
+        // Only what this menu can act on: a hint whose key isn't here (new
+        // files, on the doors menu) would just cover the selected option's
+        // help, so it waits for a menu that has one.
+        let board = key(&["MH"], "MESSAGE");
         // A request of theirs filled comes first, and once.
-        if let Some((id, _, subject)) = self.state.msgs.filled_untold(self.user.id).ok().and_then(|v| v.into_iter().next()) {
+        if !board.is_empty()
+            && let Some((id, _, subject)) = self.state.msgs.filled_untold(self.user.id).ok().and_then(|v| v.into_iter().next())
+        {
             let _ = self.state.msgs.filled_told(id);
             let subject = fluxbbs_term::codes::squish(&subject, 30);
-            return Some(self.strings().fmt("HintFilled", &[&fluxbbs_term::lit(&subject), &key(&["MH"], "MESSAGE")]));
+            return Some(self.strings().fmt("HintFilled", &[&fluxbbs_term::lit(&subject), &board]));
         }
         // And one that filled someone's request.
-        if let Some((id, subject, pts)) = self.state.msgs.fills_untold(self.user.id).ok().and_then(|v| v.into_iter().next()) {
+        if !board.is_empty()
+            && let Some((id, subject, pts)) = self.state.msgs.fills_untold(self.user.id).ok().and_then(|v| v.into_iter().next())
+        {
             let _ = self.state.msgs.fill_told(id, self.user.id);
             let subject = fluxbbs_term::codes::squish(&subject, 30);
             return Some(self.strings().fmt("HintFill", &[&fluxbbs_term::lit(&subject), &pts.to_string()]));
         }
         let mut hints = Vec::new();
         let mail = self.mail_waiting() as usize;
-        if mail > 0 {
-            hints.push(self.strings().fmt("HintMail", &[&mail.to_string(), s(mail), &key(&["ER"], "EMAIL")]));
+        let k = key(&["ER"], "EMAIL");
+        if mail > 0 && !k.is_empty() {
+            hints.push(self.strings().fmt("HintMail", &[&mail.to_string(), s(mail), &k]));
         }
         let mentions = self.state.msgs.mentions(self.user.id, true).map(|m| m.len()).unwrap_or(0);
-        if mentions > 0 {
-            hints.push(self.strings().fmt("HintMentions", &[&mentions.to_string(), s(mentions), &key(&["M@"], "")]));
+        let k = key(&["M@", "MH"], "MESSAGE");
+        if mentions > 0 && !k.is_empty() {
+            hints.push(self.strings().fmt("HintMentions", &[&mentions.to_string(), s(mentions), &k]));
         }
         let posts = self.msg_stats(false).unread;
-        if posts > 0 {
-            hints.push(self.strings().fmt("HintPosts", &[&posts.to_string(), s(posts), &key(&["MH", "MN"], "MESSAGE")]));
+        let k = key(&["MH", "MN"], "MESSAGE");
+        if posts > 0 && !k.is_empty() {
+            hints.push(self.strings().fmt("HintPosts", &[&posts.to_string(), s(posts), &k]));
         }
         // Only a count worth reading: not every file there is, for a caller
         // who's never scanned, nor a whole archive brought in at once.
         let files = self.file_stats(false).since as usize;
-        if self.user.file_scan.is_some() && (1..1000).contains(&files) {
-            hints.push(self.strings().fmt("HintFiles", &[&files.to_string(), s(files), &key(&["FN"], "FILE")]));
+        let k = key(&["FN"], "FILE");
+        if self.user.file_scan.is_some() && (1..1000).contains(&files) && !k.is_empty() {
+            hints.push(self.strings().fmt("HintFiles", &[&files.to_string(), s(files), &k]));
         }
         if hints.is_empty() {
             return None;

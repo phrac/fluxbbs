@@ -16,6 +16,8 @@ use crate::transfer::{Proto, safe_name};
 use crate::user::{fmt_date, parse_date};
 
 pub const MAX_BATCH: usize = 20;
+/// New: a SysOp's batch can hold more, for deleting files in bulk.
+const SYSOP_BATCH: usize = 1000;
 pub(crate) const MAX_DESC_LINES: usize = 20;
 pub(crate) const DESC_WIDTH: usize = 70;
 const MAX_UPLOAD_NAMES: usize = 60;
@@ -750,7 +752,7 @@ impl Session {
     fn add_to_batch(&mut self, area: u32, num: u32) -> u8 {
         if self.batch.contains(&(area, num)) {
             2
-        } else if self.batch.len() >= MAX_BATCH {
+        } else if self.batch.len() >= if self.is_sysop() { SYSOP_BATCH } else { MAX_BATCH } {
             1
         } else {
             self.batch.push((area, num));
@@ -780,17 +782,30 @@ impl Session {
             self.set_slot(Slot::Info);
             self.show_line("|U4 Num  Filename                   Size          Area").await?;
             self.rule().await?;
+            // The heading and rule are two lines of this page.
+            let mut lines: u16 = 2;
+            self.nonstop = false;
             for (i, (an, fnum)) in self.batch.clone().into_iter().enumerate() {
                 let Some(a) = self.farea(an) else { continue };
                 let Some(f) = self.state.files.get(&a.area.file, fnum).map_err(io_err)? else { continue };
                 let line = format!("|U1 {} {} {} {}", resize(&(i + 1).to_string(), 4), resize(&f.name, 26), resize(&commas(f.size), 13), a.area.name);
                 self.show_line(&line).await?;
+                lines += 1;
+                if !self.more(&mut lines).await? {
+                    break;
+                }
             }
             self.rule().await?;
             self.say_line("s284").await?;
+            let sysop = self.is_sysop();
+            if sysop {
+                self.show_line("|U1SysOp: (|U3w|U1) add by wildcard or numbers from this area, (|U3k|U1) delete everything in the batch").await?;
+            }
             let key = self.read_key().await?;
             match (key, key.upper()) {
                 (Key::Esc, _) | (Key::Enter, _) | (_, Some('Q')) => return Ok(()),
+                (_, Some('W')) if sysop => self.batch_add_matching().await?,
+                (_, Some('K')) if sysop => self.batch_delete_all().await?,
                 (_, Some('A')) => {
                     self.flag_file("").await?;
                 }
@@ -812,6 +827,78 @@ impl Session {
                 _ => {}
             }
         }
+    }
+
+    /// New (SysOp): put every file in the current area that matches a
+    /// wildcard (`*.exe`) or numbers (`3-17,20`) into the batch.
+    async fn batch_add_matching(&mut self) -> io::Result<()> {
+        let Some(a) = self.current_farea() else { return Ok(()) };
+        self.newline();
+        self.show(&format!("|U1Add from |U3{}|U1 files matching (like |U3*.exe|U1 or |U33-17,20|U1)|U2> |U3", a.area.name)).await?;
+        let spec = self.read_string(ReadOpts::new(60).esc_cancels()).await?;
+        self.newline();
+        let spec = spec.trim();
+        if spec.is_empty() || self.escaped {
+            return Ok(());
+        }
+        let files = self.state.files.list(&a.area.file).map_err(io_err)?;
+        let by_num = crate::fileareas::parse_numbers(spec, files.len() as u32);
+        let (mut added, mut full) = (0, false);
+        for f in &files {
+            let hit = match &by_num {
+                Some(nums) => nums.contains(&f.num),
+                None => wildcard(spec, &f.name),
+            };
+            if hit {
+                match self.add_to_batch(a.num, f.num) {
+                    0 => added += 1,
+                    1 => {
+                        full = true;
+                        break;
+                    }
+                    _ => {}
+                }
+            }
+        }
+        self.show_line(&format!("|U1Added |U3{added}|U1 file(s) to the batch{}.", if full { " (it's full)" } else { "" })).await
+    }
+
+    /// New (SysOp): delete every file in the batch from its area, and,
+    /// if asked, from disk.
+    async fn batch_delete_all(&mut self) -> io::Result<()> {
+        self.newline();
+        if self.batch.is_empty() {
+            return self.show_line("|U1The batch is empty.").await;
+        }
+        self.show(&format!("|U1Delete all |U3{}|U1 file(s) in the batch from their areas? ", self.batch.len())).await?;
+        if !self.yes_no(false).await? {
+            self.newline();
+            return Ok(());
+        }
+        self.newline();
+        self.show("|U1Delete the files themselves from disk too? ").await?;
+        let disk = self.yes_no(false).await?;
+        self.newline();
+        // Highest numbers first in each area: removing a record renumbers
+        // the ones after it.
+        let mut items = self.batch.clone();
+        items.sort_by(|x, y| x.0.cmp(&y.0).then(y.1.cmp(&x.1)));
+        let (mut gone, mut erased) = (0, 0);
+        for (an, fnum) in items {
+            let Some(a) = self.farea(an) else { continue };
+            let Some(f) = self.state.files.get(&a.area.file, fnum).map_err(io_err)? else { continue };
+            if disk {
+                let path = self.state.config().resolve(&a.area.path).join(&f.name);
+                if path.is_file() && std::fs::remove_file(&path).is_ok() {
+                    erased += 1;
+                }
+            }
+            self.state.files.remove(&a.area.file, f.num).map_err(io_err)?;
+            gone += 1;
+        }
+        self.batch.clear();
+        tracing::info!("{}: batch deleted {gone} file(s), {erased} from disk", self.user.handle);
+        self.show_line(&format!("|U1Deleted |U3{gone}|U1 file(s), |U3{erased}|U1 from disk.")).await
     }
 
     // ---- the file lister ------------------------------------------------
