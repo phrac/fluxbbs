@@ -271,6 +271,14 @@ All in [FEATURES](FEATURES.md#message-center).
   against them. Each chamber is drawn in half-block pixels by
   torchlight. Turns a day; new depths pay file points.
   ([FEATURES](FEATURES.md#the-temple))
+- Carrier Lost (`AP`): a 1994 dial-up game the AI tells, one
+  underground shared by every caller. You war-dial exchanges, and the
+  AI writes each system (a Unix box, a VAX, a bank terminal, a phone
+  switch) the first time it's dialled, hiding the password in a public
+  file for you to find. Grab loot, leave back doors, deface login
+  screens; a trace meter climbs as you work and busts you (off till
+  tomorrow) at 100. Pixel title cards per system. Loot fences for cred,
+  cred pays file points. ([FEATURES](FEATURES.md#carrier-lost))
 
 ### Mentions
 
@@ -401,6 +409,7 @@ All in [DOORS](DOORS.md).
 | `AC` (+ `slots` `blackjack` `roulette` `craps` `bar` `club`) | the casino |
 | `AL` (+ `free`) | the slot machine; `free`, the day's free pull |
 | `AD` | the temple |
+| `AP` | Carrier Lost (the dial-up game) |
 | `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |
 | `MH` | message center |

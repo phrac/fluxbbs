@@ -214,6 +214,7 @@ impl Session {
             "AL" => self.slots(param).await?,
             "AC" => self.casino(param).await?,
             "AD" => self.temple(param).await?,
+            "AP" => self.carrier_lost(param).await?,
             "MF" => self.top_fillers().await?,
             "FW" => self.file_browser(param).await?,
             "FV" => self.view_archive(param).await?,

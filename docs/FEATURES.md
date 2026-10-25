@@ -1146,6 +1146,49 @@ told by the AI (`[ai]`): a buried temple, one for everyone.
 The settings are in `[temple]`, and in `*C`, Casino, Temple. Plays
 count in the doors menu's stats as "The Temple".
 
+## Carrier Lost
+
+`AP` (the stock door menu's `V`) is Carrier Lost, a 1994 dial-up game
+told by the AI (`[ai]`): an underground of computers reached by modem,
+one world shared by every caller. It's period make-believe -- no real
+technique for breaking into anything appears anywhere.
+
+- **The wires are shared.** Which of a hundred numbers in an exchange
+  answer is fixed by a seed in the database, so everyone who scans
+  `555-01` finds the same carriers. A system is written by the AI the
+  first time anyone dials it, and stays as written, with what callers
+  leave: their handle in its `last` log, a back door, a defaced login
+  screen, and the loot they already took (gone for the next caller).
+- **The board keeps the rules; the AI tells the story.** The board
+  decides each system's kind (a university Unix box, a VAX, a bank wire
+  terminal, a phone switch, a pager, another board), the account and
+  password, which files are worth taking, and -- the crux -- which one
+  public file hides the password. The AI writes the login banner and
+  every file around those facts, weaving the password into the clue
+  file and nowhere else. Anything else a caller types is rolled for;
+  the AI narrates it, and can never hand out access, files or cred the
+  board didn't place.
+- **Getting in.** You land as a guest. The password is hidden in a
+  public file (`cat` them and read closely); `login <user> <pass>`
+  with it unlocks the restricted loot. `grab <file>` copies loot;
+  `backdoor` leaves a way back; `deface <text>` tags the login screen.
+- **The trace.** Every move raises a trace meter, noisy moves more; let
+  it reach 100 and you're caught -- your haul is lost, your gear is
+  seized, and you're off the wires till tomorrow. `logout` cleanly to
+  fence your haul for cred.
+- **The picture.** The desk (a CRT, a modem with its lights, a
+  wardialer) at home; each system's phosphor title card, coloured by
+  its kind, with a trace bar that reddens as the heat climbs; the alert
+  when a trace completes. Drawn in half-block pixels (`carrierart.rs`).
+  Plain-text callers, and screens under 24 rows, get the words alone.
+- **What it pays.** Fencing loot builds cred; each new cred tier (every
+  100) pays file points. Cred buys quieter gear (`gear`, `buy`), which
+  slows the trace. `news` and `top` show the scene and the most wanted.
+
+The main setting (calls a day) is in `*C`, Casino, Temple, CL; the
+rest of `[carrier]` (tier pay, gear cost) is in the board's TOML. Plays
+count in the doors menu's stats as "Carrier Lost".
+
 ## Message center
 
 `MH` (`r` on the message menu) and `MW Read` (`n` there) replace the

@@ -198,6 +198,15 @@ on = "|B1The temple"
 off = "|B0The temple"
 
 [[command]]
+keys = "V"
+command = "AP"
+acs = "s50"
+desc = "Carrier Lost"
+help = "Carrier Lost: a 1994 dial-up game the AI tells, one underground for everyone"
+on = "|B1Carrier Lost"
+off = "|B0Carrier Lost"
+
+[[command]]
 keys = "Q"
 command = '-\'
 param = "main"

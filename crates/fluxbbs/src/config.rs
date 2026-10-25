@@ -38,6 +38,7 @@ pub struct Config {
     pub slots: Slots,
     pub casino: Casino,
     pub temple: Temple,
+    pub carrier: CarrierLost,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -434,6 +435,24 @@ pub struct Temple {
 impl Default for Temple {
     fn default() -> Self {
         Self { turns_per_day: 20, points_per_depth: 5, gold_per_point: 10 }
+    }
+}
+
+/// Carrier Lost (new, `carrierlost.rs`), the 1994 dial-up game.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct CarrierLost {
+    /// Scans and dials a caller has a day (0: no limit).
+    pub actions_per_day: u32,
+    /// File points for reaching a new cred tier (each 100 cred), per tier.
+    pub points_per_tier: u32,
+    /// Cred a gear upgrade costs, times the next level.
+    pub gear_cost: u32,
+}
+
+impl Default for CarrierLost {
+    fn default() -> Self {
+        Self { actions_per_day: 25, points_per_tier: 5, gear_cost: 120 }
     }
 }
 

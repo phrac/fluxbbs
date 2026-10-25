@@ -369,7 +369,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('L', "One cherry", 20, "A cherry on the first reel pays: minutes, then file points.", Prize(|c| &mut c.slots.one_cherry)),
             set('M', "Free logon pulls", 3, "A free pull on each call (the logon sequence's slots step), at most this many a day.", Num(|c| c.slots.free_per_day as u64, |c, v| c.slots.free_per_day = v as u32, 0, 999)),
         ]),
-        ("Casino Tables and the Temple", false, vec![
+        ("Casino, Temple and Carrier Lost", false, vec![
             set('A', "Chips a day", 6, "The free stack each caller gets a day for blackjack and craps.", Num(|c| c.casino.daily_chips as u64, |c, v| c.casino.daily_chips = v as u32, 1, 1_000_000)),
             set('B', "Smallest bet", 6, "The table minimum, in chips.", Num(|c| c.casino.min_bet as u64, |c, v| c.casino.min_bet = v as u32, 1, 1_000_000)),
             set('C', "Biggest bet", 6, "The table maximum, in chips.", Num(|c| c.casino.max_bet as u64, |c, v| c.casino.max_bet = v as u32, 1, 1_000_000)),
@@ -387,6 +387,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('O', "Temple turns", 4, "The temple (AD): turns a caller has a day for walking, searching, resting and trying things (0 = no limit).", Num(|c| c.temple.turns_per_day as u64, |c, v| c.temple.turns_per_day = v as u32, 0, 9999)),
             set('P', "Temple depth pay", 6, "File points for reaching a new depth, times the depth (0 = none).", Num(|c| c.temple.points_per_depth as u64, |c, v| c.temple.points_per_depth = v as u32, 0, 1_000_000)),
             set('Q', "Temple gold a point", 6, "The torch-bearer trades a file point for this much gold (0 = no trading).", Num(|c| c.temple.gold_per_point as u64, |c, v| c.temple.gold_per_point = v as u32, 0, 1_000_000)),
+            set('R', "Carrier calls a day", 4, "Carrier Lost (AP): scans and dials a caller has a day (0 = no limit). [carrier] points_per_tier and gear_cost are in the TOML.", Num(|c| c.carrier.actions_per_day as u64, |c, v| c.carrier.actions_per_day = v as u32, 0, 9999)),
         ]),
     ]
 }
@@ -482,7 +483,7 @@ const GROUPS: &[Group] = &[
         ('U', "FTN Echomail", "Echomail networks: addresses, hub, passwords, polling"),
         ('W', "BBSLink", "Door games on bbslink.net's server: on or off, the board's codes"),
         ('X', "Slot Machine", "Pulls a day, how loose it is, what each line pays"),
-        ('Y', "Casino, Temple", "The tables' daily chips, bets, what winnings pay; comps; the temple"),
+        ('Y', "Casino, Temple, CL", "The tables; the temple; Carrier Lost (AP)"),
     ]),
 ];
 
