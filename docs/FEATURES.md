@@ -1049,8 +1049,9 @@ machine. Wins pay minutes on today's time and file points.
 - **The screen is the machine.** Three big reels fill it, behind glass,
   in a chrome bezel ringed with bulbs. It's drawn in half-block pixels
   (`slotart.rs`): 24-bit color, or xterm's 256 colors for a terminal
-  not in `truecolor_terms`. UTF-8 terminals get 24-bit color, as in the
-  gallery. Callers in plain-text mode, or on a screen under 24 rows, get
+  not in `truecolor_terms` (16 colors for one not in
+  `palette256_terms` either). UTF-8 terminals get 24-bit color, as in
+  the gallery. Callers in plain-text mode, or on a screen under 24 rows, get
   a line per pull.
 - **The reels are cylinders.** They're lit from above, so symbols bend
   away and darken toward the top and bottom of the window. A spinning

@@ -48,6 +48,10 @@ pub struct Screen {
     /// (NetRunner): 24-bit colours go out as the nearest of the 256, and
     /// bright backgrounds as its bright colours.
     palette256: bool,
+    /// The 256-colour foreground and background NetRunner holds: it keeps
+    /// them through `0` and draws both once either is set, so every
+    /// sequence that sets one sets the other too.
+    p256: [Option<u8>; 2],
     /// The text's own blink attribute (`5` until `25` or `0`), which DOS
     /// art means as a bright background.
     ice_blink: bool,
@@ -160,6 +164,7 @@ impl Screen {
             ext_color: false,
             truecolor: false,
             palette256: false,
+            p256: [None; 2],
             ice_blink: false,
             plain: false,
             text_lines: 0,
@@ -263,7 +268,7 @@ impl Screen {
     /// Forget what we think the terminal looks like after something else
     /// (a file transfer) wrote to it: reset its colour and our model.
     pub fn resync(&mut self) {
-        self.raw(b"\x1b[0m");
+        self.put_sgr(b"\x1b[0m");
         self.color = Color::DEFAULT;
         self.esc = None;
     }
@@ -304,7 +309,7 @@ impl Screen {
         self.pen = Pen { fg: Some(Ink::Ansi(ansi(c.fore))), bg: Some(Ink::Ansi(ansi(c.back & 7))), bold: false, blink: c.blink };
         if self.bright_bg || self.ext_color {
             // Our model can't express these colours exactly; start over.
-            self.raw(b"\x1b[0m");
+            self.put_sgr(b"\x1b[0m");
             self.color = Color::DEFAULT;
             self.bright_bg = false;
             self.ext_color = false;
@@ -314,14 +319,14 @@ impl Screen {
             let d = [0, 4, 2, 6, 1, 5, 3, 7];
             let back = self.bright_back(c.back);
             let seq = format!("\x1b[0;{}3{};{back}m", if c.fore >= 8 { "1;" } else { "" }, d[(c.fore & 7) as usize]);
-            self.raw(seq.as_bytes());
             self.color = c;
+            self.put_sgr(seq.as_bytes());
             self.bright_bg = true;
             return;
         }
         let seq = self.color.transition(c);
-        self.raw(seq.as_bytes());
         self.color = c;
+        self.put_sgr(seq.as_bytes());
     }
 
     pub fn clear_screen(&mut self) {
@@ -640,7 +645,25 @@ impl Screen {
             }
             if self.palette256() && params.windows(2).any(|w| matches!(w, [38 | 48, 2])) {
                 let out = to_palette256(&params);
-                self.raw(format!("\x1b[{out}m").as_bytes());
+                self.put_sgr(format!("\x1b[{out}m").as_bytes());
+            } else if self.charset == Charset::Cp437 && !self.truecolor && !self.palette256() {
+                // New: a 16-colour terminal (Qodem) gets the nearest DOS
+                // colours rather than codes it would misread.
+                let c = self.color;
+                let d = [0, 4, 2, 6, 1, 5, 3, 7];
+                let seq = format!(
+                    "\x1b[0;{}{}3{};4{}m",
+                    if c.fore >= 8 { "1;" } else { "" },
+                    if c.blink { "5;" } else { "" },
+                    d[(c.fore & 7) as usize],
+                    d[(c.back & 7) as usize]
+                );
+                self.raw(seq.as_bytes());
+            } else if self.palette256() {
+                let mut seq = b"\x1b[".to_vec();
+                seq.extend(body);
+                seq.push(b'm');
+                self.put_sgr(&seq);
             } else {
                 self.raw(b"\x1b[");
                 self.raw(body);
@@ -705,11 +728,66 @@ impl Screen {
                 if c.blink && !rgb { "5;" } else { "" },
                 d[(c.fore & 7) as usize]
             );
-            self.raw(seq.as_bytes());
+            self.put_sgr(seq.as_bytes());
+        } else if self.palette256() {
+            let mut seq = b"\x1b[".to_vec();
+            seq.extend(body);
+            seq.push(b'm');
+            self.put_sgr(&seq);
         } else {
             self.raw(b"\x1b[");
             self.raw(body);
             self.raw(b"m");
+        }
+    }
+
+    /// An SGR sequence (`ESC[...m`) out to the terminal. For NetRunner, one
+    /// that leaves a 256-colour on also names the other side, so a colour
+    /// it kept from earlier doesn't show through.
+    fn put_sgr(&mut self, seq: &[u8]) {
+        let body = seq.strip_prefix(b"\x1b[").and_then(|b| b.strip_suffix(b"m"));
+        let Some(body) = body.filter(|_| self.palette256()) else {
+            self.raw(seq);
+            return;
+        };
+        let params: Vec<u16> = if body.is_empty() {
+            vec![0]
+        } else {
+            body.split(|&c| c == b';').map(|p| std::str::from_utf8(p).ok().and_then(|s| s.parse().ok()).unwrap_or(0)).collect()
+        };
+        let mut k = 0;
+        while k < params.len() {
+            match params[k] {
+                0 => {
+                    self.p256 = [None; 2];
+                }
+                p @ (38 | 48) if params.get(k + 1) == Some(&5) && k + 2 < params.len() => {
+                    let i = (p == 48) as usize;
+                    self.p256[i] = Some(params[k + 2].min(255) as u8);
+                    k += 2;
+                }
+                30..=37 | 39 | 90..=97 => self.p256[0] = None,
+                40..=47 | 49 | 100..=107 => self.p256[1] = None,
+                _ => {}
+            }
+            k += 1;
+        }
+        self.raw(seq);
+        if self.p256.iter().all(Option::is_none) {
+            return;
+        }
+        let d = [0u8, 4, 2, 6, 1, 5, 3, 7];
+        let c = self.color;
+        let dos = [d[(c.fore & 7) as usize] | (c.fore & 8), d[(c.back & 7) as usize] | if c.blink { 8 } else { 0 }];
+        let mut more = Vec::new();
+        for i in 0..2 {
+            if self.p256[i].is_none() {
+                self.p256[i] = Some(dos[i]);
+                more.push(format!("{};5;{}", [38, 48][i], dos[i]));
+            }
+        }
+        if !more.is_empty() {
+            self.raw(format!("\x1b[{}m", more.join(";")).as_bytes());
         }
     }
 }
@@ -903,6 +981,7 @@ mod tests {
     fn extended_colours_pass_through() {
         for cs in [Charset::Utf8, Charset::Cp437] {
             let mut s = Screen::new(cs, 25);
+            s.set_truecolor(cs == Charset::Cp437);
             s.take_output();
             // The 102 and 5 inside these must not read as iCE green / blink.
             s.write_bytes(b"\x1b[48;2;102;5;40m\x1b[38;5;196mX");
@@ -912,6 +991,30 @@ mod tests {
             s.set_color(Color::new(7, 0));
             assert_eq!(s.take_output(), b"\x1b[0m");
         }
+    }
+
+    #[test]
+    fn sixteen_colour_terminals_get_the_nearest_dos_colour() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.take_output();
+        s.write_bytes(b"\x1b[48;2;102;5;40m\x1b[38;5;196mX\x1b[1;38;2;250;250;80mY");
+        assert_eq!(s.take_output(), b"\x1b[0;37;41m\x1b[0;31;41mX\x1b[0;1;33;41mY");
+    }
+
+    #[test]
+    fn netrunner_always_gets_both_256_colours() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.set_palette256(true);
+        s.take_output();
+        // A foreground alone also names the background NetRunner would
+        // otherwise keep from earlier, and the other way round.
+        s.write_bytes(b"\x1b[0;1;30m[\x1b[38;5;213ma\x1b[38;5;127mb");
+        assert_eq!(s.take_output(), b"\x1b[0;1;30m[\x1b[38;5;213m\x1b[48;5;0ma\x1b[38;5;127mb");
+        s.write_bytes(b"\x1b[0m\x1b[48;5;58mX\x1b[35mY\x1b[0mZ");
+        assert_eq!(s.take_output(), b"\x1b[0m\x1b[48;5;58m\x1b[38;5;7mX\x1b[35m\x1b[38;5;5mY\x1b[0mZ");
+        // Bright backgrounds go out as 256-colour ones, with the foreground.
+        s.write_bytes(b"\x1b[0;102;30mW");
+        assert_eq!(s.take_output(), b"\x1b[0;30;48;5;10m\x1b[38;5;0mW");
     }
 
     #[test]
@@ -943,10 +1046,10 @@ mod tests {
         assert_eq!(s.take_output(), b"\x1b[38;5;196;48;5;16mX");
         // Greys land on the grey ramp; 256-colour codes pass as they are.
         s.write_bytes(b"\x1b[0;38;2;128;128;128m.\x1b[38;5;33m.");
-        assert_eq!(s.take_output(), b"\x1b[0;38;5;244m.\x1b[38;5;33m.");
+        assert_eq!(s.take_output(), b"\x1b[0;38;5;244m\x1b[48;5;0m.\x1b[38;5;33m.");
         // Bright backgrounds are xterm's bright colours, not the blink bit.
         s.write_bytes(b"\x1b[0;102;30mY");
-        assert_eq!(s.take_output(), b"\x1b[0;30;48;5;10mY");
+        assert_eq!(s.take_output(), b"\x1b[0;30;48;5;10m\x1b[38;5;0mY");
         // A terminal that takes 24-bit colour isn't touched.
         s.set_truecolor(true);
         s.write_bytes(b"\x1b[38;2;1;2;3mZ");

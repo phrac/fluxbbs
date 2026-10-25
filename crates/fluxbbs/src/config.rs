@@ -1332,10 +1332,9 @@ impl Default for Terminal {
             cp437_terms: ["syncterm", "ansi-bbs", "ansi", "pc-ansi", "pcansi", "scoansi", "netrunner", "ansi-256color"]
                 .map(String::from)
                 .to_vec(),
-            // NetRunner reports ansi-256color but draws 24-bit colour,
-            // and misreads 256-colour codes (their 5 as blink).
-            truecolor_terms: vec!["syncterm".into(), "ansi-256color".into()],
-            palette256_terms: Vec::new(),
+            truecolor_terms: vec!["syncterm".into()],
+            // NetRunner: 256 colours, no 24-bit.
+            palette256_terms: vec!["ansi-256color".into()],
             screensaver_seconds: 60,
         }
     }

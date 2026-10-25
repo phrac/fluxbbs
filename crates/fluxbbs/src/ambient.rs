@@ -231,8 +231,7 @@ impl Ambient {
                 out.extend(format!("\x1b[{};{}H", g.y, g.x).as_bytes());
             }
             let (fg, bg) = now;
-            // Two sequences: NetRunner reads only one 24-bit colour per one.
-            out.extend(format!("\x1b[38;2;{};{};{}m\x1b[48;2;{};{};{}m", fg[0], fg[1], fg[2], bg[0], bg[1], bg[2]).as_bytes());
+            out.extend(format!("\x1b[38;2;{};{};{};48;2;{};{};{}m", fg[0], fg[1], fg[2], bg[0], bg[1], bg[2]).as_bytes());
             out.push(b.ch);
             at = Some((g.x + 1, g.y));
         }

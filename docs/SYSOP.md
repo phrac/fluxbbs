@@ -420,11 +420,13 @@ callers see `text/`. To use one:
 The BBS terminals are listed in `[terminal] cp437_terms`. Override the
 choice with `[terminal] charset`.
 
-Color goes out three ways. `truecolor_terms` get 24-bit color as it
-is: SyncTERM, and `ansi-256color`, which NetRunner reports (it draws
-24-bit color, but reads 256-color codes wrongly, their `5` as blink).
-`palette256_terms` (none by default) take xterm's 256 colors but not
-24-bit: every 24-bit color is sent as the nearest of the 256, and
-bright backgrounds as its bright colors. Both get the animated screens
-and the pictures. Other CP437 terminals get the iCE blink bit for
-bright backgrounds and no animation.
+Color goes out three ways. `truecolor_terms` (SyncTERM) get 24-bit
+color as it is. `palette256_terms` take xterm's 256 colors but not
+24-bit: by default `ansi-256color`, which NetRunner reports. Every
+24-bit color is sent as the nearest of the 256, bright backgrounds as
+its bright colors, and each color code names both foreground and
+background (NetRunner keeps an old 256-color background through a
+reset otherwise). Both get the animated screens and the pictures.
+Other CP437 terminals (Qodem, which reports `ansi-bbs`) get 16 colors:
+256 and 24-bit color as the nearest DOS color, the iCE blink bit for
+bright backgrounds, and no animation.

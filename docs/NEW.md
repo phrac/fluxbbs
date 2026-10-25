@@ -34,9 +34,10 @@ differently on purpose. Each line links to the doc with the details.
   (wrap at column 80, `ESC[2J` homing); `[terminal] charset` overrides.
   ([SYSOP](SYSOP.md#terminal-handling))
 - aixterm bright colors, iCE backgrounds, and 256 and 24-bit color art
-  passed through; NetRunner (`ansi-256color`) gets 24-bit color, and a
-  terminal set up as 256-color gets the nearest of the 256, so the
-  pictures and animations show there too. ([SYSOP](SYSOP.md#terminal-handling))
+  passed through to terminals that take them; NetRunner
+  (`ansi-256color`) gets the nearest of the 256, so the pictures and
+  animations show there too, and 16-color terminals (Qodem) the nearest
+  DOS color. ([SYSOP](SYSOP.md#terminal-handling))
 - Output paced to the terminal for fast streams (animated GIFs), and a
   log line when a link stalls.
 

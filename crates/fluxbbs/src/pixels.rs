@@ -295,14 +295,15 @@ impl Encoder {
                     }
                 };
                 if !sets.is_empty() {
-                    // A sequence each: NetRunner reads only one 24-bit
-                    // colour per sequence.
-                    for &(fore, c) in &sets {
-                        out.extend(b"\x1b[");
+                    out.extend(b"\x1b[");
+                    for (n, &(fore, c)) in sets.iter().enumerate() {
+                        if n > 0 {
+                            out.push(b';');
+                        }
                         self.sgr(&mut out, fore, c);
-                        out.push(b'm');
                         if fore { fg = Some(c) } else { bg = Some(c) }
                     }
+                    out.push(b'm');
                 }
                 out.push(glyph);
                 at = Some(x + 1);
