@@ -305,7 +305,9 @@ impl Session {
                     }
                 }
                 tokio::select! {
-                    _ = tokio::time::sleep(self.idle_pause(70)) => {}
+                    // A steady pace: frames only go out while something
+                    // moves, each waiting for the last to be drawn.
+                    _ = tokio::time::sleep(Duration::from_millis(70)) => {}
                     _ = waker.notified() => {
                         // Something for the caller: the usual wait shows it.
                         *amb = None;
