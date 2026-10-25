@@ -246,6 +246,13 @@ All in [FEATURES](FEATURES.md#message-center).
   with a jolt; wins glow and rain coins. Pulls a day, how loose it is
   and what each line pays (minutes and file points) are in `*C`.
   ([FEATURES](FEATURES.md#slot-machine))
+- A casino (`AC`): a lobby under a neon sign, with the slot machine,
+  blackjack and craps. Pixel-art cards slide out of the shoe and chips
+  move to whoever won them; red dice tumble and bounce off the back
+  wall. The tables play for a free stack of chips a day, and winnings
+  pay out in file points and minutes. A free slot pull on the first
+  call of the day is a logon sequence step.
+  ([FEATURES](FEATURES.md#casino))
 
 ### Mentions
 
@@ -373,7 +380,8 @@ All in [DOORS](DOORS.md).
 | `AG` | art gallery |
 | `AI` | AI chat |
 | `AT` (+ `day` `three` `fortune`) | tarot and fortunes |
-| `AL` | the slot machine |
+| `AC` (+ `slots` `blackjack` `craps`) | the casino |
+| `AL` (+ `free`) | the slot machine; `free`, the day's free pull |
 | `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |
 | `MH` | message center |

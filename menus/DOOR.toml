@@ -180,13 +180,13 @@ on = "|B1Tarot & fortunes"
 off = "|B0Tarot & fortunes"
 
 [[command]]
-keys = "S"
-command = "AL"
+keys = "C"
+command = "AC"
 acs = "s50"
-desc = "Slots"
-help = "The slot machine: pull for minutes and file points"
-on = "|B1Slots"
-off = "|B0Slots"
+desc = "Casino"
+help = "The casino: slots, blackjack and craps, for minutes and file points"
+on = "|B1Casino"
+off = "|B0Casino"
 
 [[command]]
 keys = "Q"

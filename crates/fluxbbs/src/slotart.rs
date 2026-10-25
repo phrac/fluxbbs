@@ -9,6 +9,8 @@
 use std::f32::consts::PI;
 use std::sync::OnceLock;
 
+use crate::pixels::{Canvas, Rgb, add, hash, mix, rgb, scale, smooth};
+
 pub const W: usize = 80;
 pub const H: usize = 44;
 /// Symbols on each reel, and the distance between them (pixels).
@@ -42,38 +44,6 @@ const WIN_Y: usize = 4;
 const WIN_H: usize = 36;
 /// How far round the reel the window sees, each way from the payline.
 const VIEW: f32 = 58.0 * PI / 180.0;
-
-type Rgb = [f32; 3];
-
-fn rgb(r: u8, g: u8, b: u8) -> Rgb {
-    [r as f32, g as f32, b as f32]
-}
-
-fn mix(a: Rgb, b: Rgb, t: f32) -> Rgb {
-    let t = t.clamp(0.0, 1.0);
-    [a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t, a[2] + (b[2] - a[2]) * t]
-}
-
-fn scale(a: Rgb, k: f32) -> Rgb {
-    [a[0] * k, a[1] * k, a[2] * k]
-}
-
-fn add(a: Rgb, b: Rgb, k: f32) -> Rgb {
-    [a[0] + b[0] * k, a[1] + b[1] * k, a[2] + b[2] * k]
-}
-
-fn smooth(e0: f32, e1: f32, x: f32) -> f32 {
-    let t = ((x - e0) / (e1 - e0)).clamp(0.0, 1.0);
-    t * t * (3.0 - 2.0 * t)
-}
-
-fn hash(x: i32, y: i32) -> f32 {
-    let mut h = (x as u32).wrapping_mul(0x9E37_79B1) ^ (y as u32).wrapping_mul(0x85EB_CA77);
-    h ^= h >> 15;
-    h = h.wrapping_mul(0x2C1B_3C6D);
-    h ^= h >> 12;
-    (h & 0xFFFF) as f32 / 65535.0
-}
 
 // ---- the symbols -------------------------------------------------------
 
@@ -413,10 +383,6 @@ fn art_at(sym: usize, x: usize, v: f32) -> [f32; 4] {
 
 // ---- the canvas --------------------------------------------------------
 
-pub struct Canvas {
-    pub px: Vec<Rgb>,
-}
-
 /// A reel as it's drawn: where it is, how fast it's going (pixels a
 /// second, positive down), and how it's lit.
 #[derive(Clone, Copy, Default)]
@@ -532,144 +498,139 @@ fn backdrop() -> &'static Vec<Rgb> {
     })
 }
 
-impl Canvas {
-    pub fn new() -> Canvas {
-        Canvas { px: vec![[0.0; 3]; W * H] }
+/// The machine, as the scene has it.
+pub fn draw(cv: &mut Canvas, s: &Scene) {
+    cv.px.clone_from(backdrop());
+    for (i, r) in s.reels.iter().enumerate() {
+        reel(cv, i, r, s);
     }
-
-    pub fn draw(&mut self, s: &Scene) {
-        self.px.clone_from(backdrop());
-        for (i, r) in s.reels.iter().enumerate() {
-            self.reel(i, r, s);
-        }
-        self.bulbs(s);
-        for c in &s.coins {
-            self.coin(c);
-        }
+    bulbs(cv, s);
+    for c in &s.coins {
+        coin(cv, c);
     }
+}
 
-    fn reel(&mut self, i: usize, r: &ReelView, s: &Scene) {
-        let radius = WIN_H as f32 / 2.0 / VIEW.sin();
-        let strip = &STRIPS[i];
-        let ivory = mix(rgb(247, 241, 224), rgb(255, 215, 120), r.glow);
-        // Motion blur: what the reel passes in a 25th of a second.
-        let blur = r.speed / 25.0;
-        let taps = ((blur.abs() / 1.5).ceil() as usize).clamp(1, 10);
-        for y in 0..WIN_H {
-            let yc = y as f32 + 0.5 - WIN_H as f32 / 2.0;
-            let theta = (yc / radius).clamp(-1.0, 1.0).asin();
-            // Lit from above the window, falling off round the reel.
-            let light = 0.16 + 0.95 * (theta + 0.12).cos().max(0.0).powf(2.2);
-            let shine = 0.12 * (-((yc + 9.0) / 2.6).powi(2)).exp();
-            for x in 0..WIN_W {
-                let mut acc = [0.0f32; 3];
-                let n = taps * 2;
-                for k in 0..n {
-                    // Two samples down each pixel, along the blur.
-                    let sy = yc + if k % 2 == 0 { -0.25 } else { 0.25 };
-                    let arc = radius * (sy / radius).clamp(-1.0, 1.0).asin();
-                    let pos = r.pos - blur * ((k / 2) as f32 / taps as f32);
-                    let q = (arc - pos).rem_euclid(CIRCLE);
-                    let slot = ((q + PITCH / 2.0) / PITCH).floor();
-                    let sym = strip[(slot as usize) % STOPS];
-                    let within = q - slot * PITCH + PITCH / 2.0 - (PITCH - ART_H) / 2.0;
-                    let ax = x as i32 - ((WIN_W - ART_W) / 2) as i32;
-                    let c = if (0.0..ART_H).contains(&within) && (0..ART_W as i32).contains(&ax) {
-                        let a = art_at(sym, ax as usize, within);
-                        add([a[0], a[1], a[2]], ivory, 1.0 - a[3])
-                    } else {
-                        ivory
-                    };
-                    acc = add(acc, c, 1.0);
-                }
-                let mut c = scale(acc, 1.0 / n as f32);
-                // The bezel's shadow in from each side.
-                let side = 1.0 - 0.35 * (-(x as f32) / 1.4).exp() - 0.35 * (-((WIN_W - 1 - x) as f32) / 1.4).exp();
-                c = scale(c, light * side * (1.0 - 0.5 * r.dim));
-                c = add(c, rgb(255, 255, 255), shine);
-                // A streak of reflection on the glass, and the glint.
-                let d = x as f32 + 0.55 * y as f32;
-                if (25.0..27.5).contains(&d) {
-                    c = mix(c, rgb(255, 255, 255), 0.09);
-                }
-                if s.glint >= 0.0 {
-                    let g = (d + WIN_X[i] as f32 - s.glint).abs();
-                    c = mix(c, rgb(255, 255, 255), 0.45 * (-(g / 1.3).powi(2)).exp());
-                }
-                // The payline, a red line on the glass.
-                if (y == WIN_H / 2 - 1 || y == WIN_H / 2) && s.payline > 0.0 {
-                    c = mix(c, rgb(255, 30, 50), 0.45 * s.payline);
-                }
-                self.px[(WIN_Y + y) * W + WIN_X[i] + x] = c;
-            }
-        }
-        // Spinning fast it's a blur anyway: a color a cell, in fewer
-        // shades, is all a slow line needs to carry.
-        if r.speed.abs() > 250.0 {
-            for y in (0..WIN_H).step_by(2) {
-                for x in 0..WIN_W {
-                    let (a, b) = ((WIN_Y + y) * W + WIN_X[i] + x, (WIN_Y + y + 1) * W + WIN_X[i] + x);
-                    let c = scale(add(self.px[a], self.px[b], 1.0), 0.5).map(|v| (v / 20.0).round() * 20.0);
-                    self.px[a] = c;
-                    self.px[b] = c;
-                }
-            }
-        }
-    }
-
-    fn bulbs(&mut self, s: &Scene) {
-        for (n, &(bx, by)) in bulb_spots().iter().enumerate() {
-            let on = s.bulbs.get(n).copied().unwrap_or(false);
-            if on {
-                // A glow round it, on whatever is there.
-                for y in by.saturating_sub(1)..(by + 3).min(H) {
-                    for x in bx.saturating_sub(1)..(bx + 3).min(W) {
-                        if in_window(x, y).is_some() {
-                            continue;
-                        }
-                        let d = ((x as f32 - bx as f32 - 0.5).powi(2) + (y as f32 - by as f32 - 0.5).powi(2)).sqrt();
-                        let p = &mut self.px[y * W + x];
-                        *p = mix(*p, rgb(255, 180, 80), 0.8 * (-(d / 1.3).powi(2)).exp());
-                    }
-                }
-            }
-            for (k, (dx, dy)) in [(0, 0), (1, 0), (0, 1), (1, 1)].into_iter().enumerate() {
-                let c = match (on, k) {
-                    (true, 0) => rgb(255, 255, 240),
-                    (true, 3) => rgb(255, 190, 80),
-                    (true, _) => rgb(255, 228, 150),
-                    (false, 0) => rgb(110, 80, 60),
-                    (false, 3) => rgb(45, 25, 20),
-                    (false, _) => rgb(75, 50, 35),
+fn reel(cv: &mut Canvas, i: usize, r: &ReelView, s: &Scene) {
+    let radius = WIN_H as f32 / 2.0 / VIEW.sin();
+    let strip = &STRIPS[i];
+    let ivory = mix(rgb(247, 241, 224), rgb(255, 215, 120), r.glow);
+    // Motion blur: what the reel passes in a 25th of a second.
+    let blur = r.speed / 25.0;
+    let taps = ((blur.abs() / 1.5).ceil() as usize).clamp(1, 10);
+    for y in 0..WIN_H {
+        let yc = y as f32 + 0.5 - WIN_H as f32 / 2.0;
+        let theta = (yc / radius).clamp(-1.0, 1.0).asin();
+        // Lit from above the window, falling off round the reel.
+        let light = 0.16 + 0.95 * (theta + 0.12).cos().max(0.0).powf(2.2);
+        let shine = 0.12 * (-((yc + 9.0) / 2.6).powi(2)).exp();
+        for x in 0..WIN_W {
+            let mut acc = [0.0f32; 3];
+            let n = taps * 2;
+            for k in 0..n {
+                // Two samples down each pixel, along the blur.
+                let sy = yc + if k % 2 == 0 { -0.25 } else { 0.25 };
+                let arc = radius * (sy / radius).clamp(-1.0, 1.0).asin();
+                let pos = r.pos - blur * ((k / 2) as f32 / taps as f32);
+                let q = (arc - pos).rem_euclid(CIRCLE);
+                let slot = ((q + PITCH / 2.0) / PITCH).floor();
+                let sym = strip[(slot as usize) % STOPS];
+                let within = q - slot * PITCH + PITCH / 2.0 - (PITCH - ART_H) / 2.0;
+                let ax = x as i32 - ((WIN_W - ART_W) / 2) as i32;
+                let c = if (0.0..ART_H).contains(&within) && (0..ART_W as i32).contains(&ax) {
+                    let a = art_at(sym, ax as usize, within);
+                    add([a[0], a[1], a[2]], ivory, 1.0 - a[3])
+                } else {
+                    ivory
                 };
-                self.px[(by + dy) * W + bx + dx] = c;
+                acc = add(acc, c, 1.0);
+            }
+            let mut c = scale(acc, 1.0 / n as f32);
+            // The bezel's shadow in from each side.
+            let side = 1.0 - 0.35 * (-(x as f32) / 1.4).exp() - 0.35 * (-((WIN_W - 1 - x) as f32) / 1.4).exp();
+            c = scale(c, light * side * (1.0 - 0.5 * r.dim));
+            c = add(c, rgb(255, 255, 255), shine);
+            // A streak of reflection on the glass, and the glint.
+            let d = x as f32 + 0.55 * y as f32;
+            if (25.0..27.5).contains(&d) {
+                c = mix(c, rgb(255, 255, 255), 0.09);
+            }
+            if s.glint >= 0.0 {
+                let g = (d + WIN_X[i] as f32 - s.glint).abs();
+                c = mix(c, rgb(255, 255, 255), 0.45 * (-(g / 1.3).powi(2)).exp());
+            }
+            // The payline, a red line on the glass.
+            if (y == WIN_H / 2 - 1 || y == WIN_H / 2) && s.payline > 0.0 {
+                c = mix(c, rgb(255, 30, 50), 0.45 * s.payline);
+            }
+            cv.px[(WIN_Y + y) * W + WIN_X[i] + x] = c;
+        }
+    }
+    // Spinning fast it's a blur anyway: a color a cell, in fewer
+    // shades, is all a slow line needs to carry.
+    if r.speed.abs() > 250.0 {
+        for y in (0..WIN_H).step_by(2) {
+            for x in 0..WIN_W {
+                let (a, b) = ((WIN_Y + y) * W + WIN_X[i] + x, (WIN_Y + y + 1) * W + WIN_X[i] + x);
+                let c = scale(add(cv.px[a], cv.px[b], 1.0), 0.5).map(|v| (v / 20.0).round() * 20.0);
+                cv.px[a] = c;
+                cv.px[b] = c;
             }
         }
     }
+}
 
-    fn coin(&mut self, c: &Coin) {
-        let (rx, ry) = (3.3 * c.spin.cos().abs() + 0.4, 3.3);
-        for y in (c.y - ry).floor() as i32..=(c.y + ry).ceil() as i32 {
-            for x in (c.x - rx).floor() as i32..=(c.x + rx).ceil() as i32 {
-                if !(0..W as i32).contains(&x) || !(0..H as i32).contains(&y) {
-                    continue;
+fn bulbs(cv: &mut Canvas, s: &Scene) {
+    for (n, &(bx, by)) in bulb_spots().iter().enumerate() {
+        let on = s.bulbs.get(n).copied().unwrap_or(false);
+        if on {
+            // A glow round it, on whatever is there.
+            for y in by.saturating_sub(1)..(by + 3).min(H) {
+                for x in bx.saturating_sub(1)..(bx + 3).min(W) {
+                    if in_window(x, y).is_some() {
+                        continue;
+                    }
+                    let d = ((x as f32 - bx as f32 - 0.5).powi(2) + (y as f32 - by as f32 - 0.5).powi(2)).sqrt();
+                    let p = &mut cv.px[y * W + x];
+                    *p = mix(*p, rgb(255, 180, 80), 0.8 * (-(d / 1.3).powi(2)).exp());
                 }
-                let (dx, dy) = ((x as f32 + 0.5 - c.x) / rx, (y as f32 + 0.5 - c.y) / ry);
-                let d = dx * dx + dy * dy;
-                if d > 1.0 {
-                    continue;
-                }
-                let mut col = gold(dx * 0.9 - dy * 0.2);
-                if d > 0.72 {
-                    col = mix(col, rgb(120, 70, 0), 0.6);
-                } else if (0.2..0.34).contains(&d) {
-                    col = scale(col, 0.82);
-                }
-                if c.spin.cos().abs() < 0.25 {
-                    col = mix(rgb(230, 170, 40), rgb(140, 85, 5), dy * 0.5 + 0.5);
-                }
-                self.px[y as usize * W + x as usize] = col;
             }
+        }
+        for (k, (dx, dy)) in [(0, 0), (1, 0), (0, 1), (1, 1)].into_iter().enumerate() {
+            let c = match (on, k) {
+                (true, 0) => rgb(255, 255, 240),
+                (true, 3) => rgb(255, 190, 80),
+                (true, _) => rgb(255, 228, 150),
+                (false, 0) => rgb(110, 80, 60),
+                (false, 3) => rgb(45, 25, 20),
+                (false, _) => rgb(75, 50, 35),
+            };
+            cv.px[(by + dy) * W + bx + dx] = c;
+        }
+    }
+}
+
+fn coin(cv: &mut Canvas, c: &Coin) {
+    let (rx, ry) = (3.3 * c.spin.cos().abs() + 0.4, 3.3);
+    for y in (c.y - ry).floor() as i32..=(c.y + ry).ceil() as i32 {
+        for x in (c.x - rx).floor() as i32..=(c.x + rx).ceil() as i32 {
+            if !(0..W as i32).contains(&x) || !(0..H as i32).contains(&y) {
+                continue;
+            }
+            let (dx, dy) = ((x as f32 + 0.5 - c.x) / rx, (y as f32 + 0.5 - c.y) / ry);
+            let d = dx * dx + dy * dy;
+            if d > 1.0 {
+                continue;
+            }
+            let mut col = gold(dx * 0.9 - dy * 0.2);
+            if d > 0.72 {
+                col = mix(col, rgb(120, 70, 0), 0.6);
+            } else if (0.2..0.34).contains(&d) {
+                col = scale(col, 0.82);
+            }
+            if c.spin.cos().abs() < 0.25 {
+                col = mix(rgb(230, 170, 40), rgb(140, 85, 5), dy * 0.5 + 0.5);
+            }
+            cv.px[y as usize * W + x as usize] = col;
         }
     }
 }
@@ -686,120 +647,10 @@ pub fn pos_of(k: usize) -> f32 {
     (-(k as f32) * PITCH).rem_euclid(CIRCLE)
 }
 
-// ---- output ------------------------------------------------------------
-
-/// A cell as sent: its top and bottom colors (24-bit, or xterm indexes).
-pub type Cell = (u32, u32);
-
-pub struct Encoder {
-    pub truecolor: bool,
-    prev: Vec<Option<Cell>>,
-}
-
-impl Encoder {
-    pub fn new(truecolor: bool) -> Encoder {
-        Encoder { truecolor, prev: vec![None; W * H / 2] }
-    }
-
-    /// Everything is drawn again next frame.
-    pub fn forget(&mut self) {
-        self.prev.iter_mut().for_each(|c| *c = None);
-    }
-
-    fn code(&self, c: Rgb) -> u32 {
-        let q = |v: f32| (v.round().clamp(0.0, 255.0) as u32 + 2) & !3;
-        let (r, g, b) = (q(c[0]).min(255), q(c[1]).min(255), q(c[2]).min(255));
-        if self.truecolor {
-            r << 16 | g << 8 | b
-        } else {
-            crate::picture::xterm256([r as u8, g as u8, b as u8]) as u32
-        }
-    }
-
-    fn sgr(&self, out: &mut Vec<u8>, fore: bool, c: u32) {
-        let k = if fore { 38 } else { 48 };
-        let s = if self.truecolor { format!("{k};2;{};{};{}", c >> 16, (c >> 8) & 255, c & 255) } else { format!("{k};5;{c}") };
-        out.extend(s.as_bytes());
-    }
-
-    /// The ANSI for the cells that changed since the last frame, the
-    /// canvas's top row at screen row `top`.
-    pub fn frame(&mut self, cv: &Canvas, top: u16) -> Vec<u8> {
-        let mut out = Vec::new();
-        let (mut fg, mut bg): (Option<u32>, Option<u32>) = (None, None);
-        for row in 0..H / 2 {
-            let mut at: Option<usize> = None;
-            for x in 0..W {
-                let cell = (self.code(cv.px[row * 2 * W + x]), self.code(cv.px[(row * 2 + 1) * W + x]));
-                let i = row * W + x;
-                if self.prev[i] == Some(cell) {
-                    continue;
-                }
-                self.prev[i] = Some(cell);
-                match at {
-                    Some(c) if c == x => {}
-                    Some(c) if x - c <= 4 => out.extend(format!("\x1b[{}C", x - c).as_bytes()),
-                    _ => out.extend(format!("\x1b[{};{}H", top as usize + row, x + 1).as_bytes()),
-                }
-                let (up, down) = cell;
-                // The glyph that needs the fewest changes: a space or a full
-                // block for one color, else a half block either way up.
-                let mut sets: Vec<(bool, u32)> = Vec::new();
-                let glyph = if up == down {
-                    if bg == Some(up) {
-                        b' '
-                    } else if fg == Some(up) {
-                        0xDB
-                    } else {
-                        sets.push((false, up));
-                        b' '
-                    }
-                } else if fg == Some(up) && bg == Some(down) {
-                    0xDF
-                } else if bg == Some(up) && fg == Some(down) {
-                    0xDC
-                } else if fg == Some(up) || bg == Some(down) {
-                    if fg != Some(up) {
-                        sets.push((true, up));
-                    }
-                    if bg != Some(down) {
-                        sets.push((false, down));
-                    }
-                    0xDF
-                } else {
-                    if bg != Some(up) {
-                        sets.push((false, up));
-                    }
-                    if fg != Some(down) {
-                        sets.push((true, down));
-                    }
-                    0xDC
-                };
-                if !sets.is_empty() {
-                    out.extend(b"\x1b[");
-                    for (n, &(fore, c)) in sets.iter().enumerate() {
-                        if n > 0 {
-                            out.push(b';');
-                        }
-                        self.sgr(&mut out, fore, c);
-                        if fore { fg = Some(c) } else { bg = Some(c) }
-                    }
-                    out.push(b'm');
-                }
-                out.push(glyph);
-                at = Some(x + 1);
-            }
-        }
-        if !out.is_empty() {
-            out.extend(b"\x1b[0m");
-        }
-        out
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::pixels::Encoder;
 
     #[test]
     fn stops_land_on_their_symbols() {
@@ -816,15 +667,15 @@ mod tests {
 
     #[test]
     fn frames_send_only_what_changed() {
-        let mut cv = Canvas::new();
+        let mut cv = Canvas::new(W, H);
         let mut scene = Scene { payline: 0.5, ..Default::default() };
-        cv.draw(&scene);
-        let mut enc = Encoder::new(true);
+        draw(&mut cv, &scene);
+        let mut enc = Encoder::new(true, W, H);
         let first = enc.frame(&cv, 1);
         assert!(!first.is_empty());
         assert!(enc.frame(&cv, 1).is_empty(), "nothing changed");
         scene.reels[1].pos = 7.0;
-        cv.draw(&scene);
+        draw(&mut cv, &scene);
         let second = enc.frame(&cv, 1);
         assert!(!second.is_empty() && second.len() < first.len() / 2, "{} vs {}", second.len(), first.len());
     }
@@ -874,15 +725,15 @@ mod tests {
             }),
         ];
         for (name, scene) in shots {
-            let mut cv = Canvas::new();
-            cv.draw(&scene);
-            let mut enc = Encoder::new(true);
+            let mut cv = Canvas::new(W, H);
+            draw(&mut cv, &scene);
+            let mut enc = Encoder::new(true, W, H);
             let mut out = b"\x1b[2J".to_vec();
             out.extend(enc.frame(&cv, 1));
             std::fs::write(dir.join(format!("{name}.ans")), &out).unwrap();
             eprintln!("{name}: {} bytes", out.len());
             let mut out = b"\x1b[2J".to_vec();
-            out.extend(Encoder::new(false).frame(&cv, 1));
+            out.extend(Encoder::new(false, W, H).frame(&cv, 1));
             std::fs::write(dir.join(format!("{name}-256.ans")), &out).unwrap();
         }
     }

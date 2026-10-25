@@ -10,17 +10,22 @@
 //! pull sometimes stops just short of three of a kind, as real ones do.
 //! The pull is counted and the prize paid before the reels move, so a
 //! dropped call keeps both. Plain-text callers get a line per pull.
+//!
+//! `AL free` (the logon sequence's `slots` step) is a pull on the house,
+//! once a day: the reels spin by themselves, the result shows for a
+//! moment, and the logon goes on. It isn't one of the day's pulls.
 
 use std::io;
 use std::time::{Duration, Instant};
 
 use rand::RngExt;
 
+use crate::casino::{Ink, MSG_ROW, STATUS_ROW, Stage, ink, painted, shade};
 use crate::config::{Prize, Slots};
 use crate::input::Key;
 use crate::session::Session;
 use crate::slotart::{
-    BAR, BELL, CHERRY, CIRCLE, Canvas, Coin, Encoder, INK, LEMON, NAMES, ORANGE, PLUM, ReelView, SEVEN, STOPS, STRIPS, Scene, W, bulb_spots, pos_of,
+    BAR, BELL, CHERRY, CIRCLE, Coin, INK, LEMON, NAMES, ORANGE, PLUM, ReelView, SEVEN, STOPS, STRIPS, Scene, W, bulb_spots, pos_of,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -258,27 +263,16 @@ impl Motion {
 
 // ---- the screen ------------------------------------------------------------
 
-/// Rows under the reels: the message line and the status line.
-const MSG_ROW: u16 = 23;
-const STATUS_ROW: u16 = 24;
+type Rgb = Ink;
 
-type Rgb = [u8; 3];
-
-fn shade(a: Rgb, b: Rgb, t: f32) -> Rgb {
-    let t = t.clamp(0.0, 1.0);
-    [0, 1, 2].map(|i| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * t) as u8)
-}
-
-fn painted(text: &str, color: Rgb) -> Vec<(char, Rgb)> {
-    text.chars().map(|c| (c, color)).collect()
-}
-
-/// The day's tally: pulls, minutes and points won.
+/// The day's tally: pulls, minutes and points won, and whether the free
+/// pull's been had.
 #[derive(Default)]
 struct Tally {
     pulls: u32,
     minutes: u32,
     points: u32,
+    free: bool,
 }
 
 impl Session {
@@ -294,12 +288,12 @@ impl Session {
             return Tally::default();
         }
         let mut n = || w.next().and_then(|x| x.parse().ok()).unwrap_or(0);
-        Tally { pulls: n(), minutes: n(), points: n() }
+        Tally { pulls: n(), minutes: n(), points: n(), free: n() == 1 }
     }
 
     fn slots_save(&self, t: &Tally) {
         let today = crate::clock::now().date_naive();
-        let v = format!("{today} {} {} {}", t.pulls, t.minutes, t.points);
+        let v = format!("{today} {} {} {} {}", t.pulls, t.minutes, t.points, t.free as u8);
         if let Err(e) = self.state.sys.script_set("slots", &self.slots_key(), Some(&v)) {
             tracing::error!("slots: saving {}'s pulls: {e}", self.user.handle);
         }
@@ -309,14 +303,19 @@ impl Session {
         (cfg.pulls_per_day > 0).then(|| cfg.pulls_per_day.saturating_sub(self.slots_today().pulls))
     }
 
-    /// A pull: counted, decided and paid. None if none are left today.
-    fn slots_pull(&mut self, cfg: &Slots) -> Option<Pull> {
-        if self.pulls_left(cfg) == Some(0) {
+    /// A pull: counted, decided and paid. None if none are left today
+    /// (or, `free`, the free one's been had).
+    fn slots_pull(&mut self, cfg: &Slots, free: bool) -> Option<Pull> {
+        let mut t = self.slots_today();
+        if if free { t.free } else { self.pulls_left(cfg) == Some(0) } {
             return None;
         }
         let pull = decide(cfg, &mut rand::rng());
-        let mut t = self.slots_today();
-        t.pulls += 1;
+        if free {
+            t.free = true;
+        } else {
+            t.pulls += 1;
+        }
         if let Some(w) = pull.win {
             let p = prize(cfg, w);
             t.minutes += p.minutes;
@@ -346,34 +345,101 @@ impl Session {
         }
     }
 
-    /// `AL`: the slot machine.
-    pub async fn slots(&mut self) -> io::Result<()> {
+    /// `AL`: the slot machine; `AL free`, the day's free pull.
+    pub async fn slots(&mut self, param: &str) -> io::Result<()> {
         let cfg = self.state.config().slots.clone();
-        let (begun, pulled) = (crate::clock::now().naive_local(), self.slots_today().pulls);
-        let result = self.slots_play(&cfg).await;
+        let free = param.trim().eq_ignore_ascii_case("free");
+        let (begun, before) = (crate::clock::now().naive_local(), self.slots_today());
+        let result = if free { self.slots_free(&cfg).await } else { self.slots_play(&cfg).await };
         // A visit with a pull in it counts as a play, for the door stats.
-        if self.slots_today().pulls != pulled {
+        let after = self.slots_today();
+        if (after.pulls, after.free) != (before.pulls, before.free) {
             self.record_play("Slots", begun);
         }
         result
     }
 
+    /// The free pull: the reels spin by themselves, the result shows for
+    /// a moment (a key moves on sooner), then on with the logon.
+    async fn slots_free(&mut self, cfg: &Slots) -> io::Result<()> {
+        let Some(pull) = self.slots_pull(cfg, true) else { return Ok(()) };
+        if self.plain() || self.screen.rows() < 24 {
+            let s = self.strings().fmt("SlotsFreePlain", &[&self.slots_result_text(cfg, &pull)]);
+            return self.show_line(&s).await;
+        }
+        let st = self.stage_open();
+        let mut game = Game::new(st);
+        let result = self.slots_free_show(cfg, &mut game, &pull).await;
+        self.stage_close();
+        result
+    }
+
+    async fn slots_free_show(&mut self, cfg: &Slots, game: &mut Game, pull: &Pull) -> io::Result<()> {
+        // What it won shows once it's seen.
+        let mut tally = self.slots_today();
+        if let Some(w) = pull.win {
+            let p = prize(cfg, w);
+            tally.minutes = tally.minutes.saturating_sub(p.minutes);
+            tally.points = tally.points.saturating_sub(p.points);
+        }
+        self.slots_status(cfg, game.st.truecolor, &tally);
+        let hello = painted(&crate::editor::strip_colours(self.strings().get("SlotsFree")), [255, 215, 110]);
+        self.stage_line(MSG_ROW, &hello, game.st.truecolor);
+        // The lights run a moment first, then the handle pulls itself.
+        // Keys typed ahead through the logon screens don't skip it.
+        self.input.clear();
+        self.slots_idle(game, Duration::from_millis(1400), false).await?;
+        self.slots_spin(game, pull).await?;
+        self.slots_show(cfg, game, pull).await?;
+        let tally = self.slots_today();
+        self.slots_status(cfg, game.st.truecolor, &tally);
+        self.slots_idle(game, Duration::from_millis(2500), true).await?;
+        Ok(())
+    }
+
+    /// The lights chasing for `long`, or until a key if `keys` (true if
+    /// one cut it short); without, keys are taken and dropped.
+    async fn slots_idle(&mut self, game: &mut Game, long: Duration, keys: bool) -> io::Result<bool> {
+        let until = Instant::now() + long;
+        while Instant::now() < until {
+            let t = game.st.clock.elapsed().as_secs_f32();
+            let n = game.scene.bulbs.len();
+            let step = (t * 8.0) as usize;
+            for (i, b) in game.scene.bulbs.iter_mut().enumerate() {
+                *b = ((i + step) % n).is_multiple_of(3);
+            }
+            self.slots_draw(game, true).await?;
+            self.flush().await?;
+            if self.key_waiting().await? {
+                self.read_key().await?;
+                if keys {
+                    return Ok(true);
+                }
+            }
+        }
+        Ok(false)
+    }
+
+    /// "[ cherry | lemon | cherry ]  a cherry: +2 min", for plain text.
+    fn slots_result_text(&self, cfg: &Slots, pull: &Pull) -> String {
+        let syms: Vec<&str> = (0..3).map(|i| NAMES[STRIPS[i][pull.stops[i]]]).collect();
+        let result = match pull.win {
+            Some(w) => format!("{}: {}", tier_name(w), self.prize_text(prize(cfg, w))),
+            None => crate::editor::strip_colours(self.strings().get(if pull.near { "SlotsNear" } else { "SlotsLose" })),
+        };
+        format!("[ {} | {} | {} ]  {result}", syms[0], syms[1], syms[2])
+    }
+
+
     async fn slots_play(&mut self, cfg: &Slots) -> io::Result<()> {
         if self.plain() || self.screen.rows() < 24 {
             return self.slots_plain(cfg).await;
         }
-        let truecolor = self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8;
-        let mut game = Game::new(truecolor);
-        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-        self.clear_screen();
-        self.screen.write_bytes(b"\x1b[?25l");
-        self.cursor_asks = self.cursor_asks.min(self.cursor_reports);
+        let st = self.stage_open();
+        let mut game = Game::new(st);
         let ticker = self.slots_ticker(cfg);
         let result = self.slots_loop(cfg, &mut game, &ticker).await;
-        self.screen.write_bytes(b"\x1b[0m\x1b[?25h");
-        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-        self.clear_screen();
-        self.full_screen_done();
+        self.stage_close();
         result
     }
 
@@ -386,13 +452,13 @@ impl Session {
         // What's on the message line now, so it's drawn only when it moves.
         let mut shown = usize::MAX;
         let tally = self.slots_today();
-        self.slots_status(cfg, game.truecolor, &tally);
+        self.slots_status(cfg, game.st.truecolor, &tally);
         loop {
             // Waiting for a pull: the lights run, a glint now and then, the
             // ticker under the reels.
             let since = Instant::now();
             let key = loop {
-                let t = game.clock.elapsed().as_secs_f32();
+                let t = game.st.clock.elapsed().as_secs_f32();
                 let n = game.scene.bulbs.len();
                 let step = (t * 3.0) as usize;
                 for (i, b) in game.scene.bulbs.iter_mut().enumerate() {
@@ -404,7 +470,7 @@ impl Session {
                 match &message {
                     Some((m, at)) if at.elapsed() < Duration::from_secs(6) => {
                         if shown != usize::MAX - 1 {
-                            self.slots_line(m, game.truecolor);
+                            self.stage_line(MSG_ROW, m, game.st.truecolor);
                             shown = usize::MAX - 1;
                         }
                     }
@@ -412,7 +478,7 @@ impl Session {
                         let off = (t * 8.0) as usize;
                         if off != shown {
                             let line: Vec<(char, Rgb)> = (0..78).map(|i| ticker[(off + i) % ticker.len()]).collect();
-                            self.slots_line(&line, game.truecolor);
+                            self.stage_line(MSG_ROW, &line, game.st.truecolor);
                             shown = off;
                         }
                     }
@@ -429,30 +495,30 @@ impl Session {
             match key {
                 Key::Char(b' ') | Key::Enter => {
                     let before = self.slots_today();
-                    let Some(pull) = self.slots_pull(cfg) else {
+                    let Some(pull) = self.slots_pull(cfg, false) else {
                         let s = self.strings().fmt("SlotsNone", &[&cfg.pulls_per_day.to_string()]);
                         message = Some((painted(&crate::editor::strip_colours(&s), [255, 120, 140]), Instant::now()));
                         shown = usize::MAX;
                         continue;
                     };
                     // The pull counts now; what it won shows once it's seen.
-                    self.slots_status(cfg, game.truecolor, &Tally { pulls: before.pulls + 1, ..before });
+                    self.slots_status(cfg, game.st.truecolor, &Tally { pulls: before.pulls + 1, ..before });
                     self.slots_spin(game, &pull).await?;
                     message = Some((self.slots_show(cfg, game, &pull).await?, Instant::now()));
                     shown = usize::MAX;
                     let tally = self.slots_today();
-                    self.slots_status(cfg, game.truecolor, &tally);
+                    self.slots_status(cfg, game.st.truecolor, &tally);
                 }
                 Key::Esc => return Ok(()),
                 k => match k.upper() {
                     Some('Q') => return Ok(()),
                     Some('P') => {
-                        self.slots_paytable(cfg, game.truecolor);
+                        self.slots_paytable(cfg, game.st.truecolor);
                         self.flush().await?;
                         self.read_key().await?;
-                        game.enc.forget();
+                        game.st.enc.forget();
                         let tally = self.slots_today();
-                        self.slots_status(cfg, game.truecolor, &tally);
+                        self.slots_status(cfg, game.st.truecolor, &tally);
                         shown = usize::MAX;
                     }
                     _ => {}
@@ -461,28 +527,14 @@ impl Session {
         }
     }
 
-    /// Draw the scene; with `paced`, hold the next frame until the
-    /// terminal has shown this one.
     async fn slots_draw(&mut self, game: &mut Game, paced: bool) -> io::Result<()> {
-        game.canvas.draw(&game.scene);
-        let out = game.enc.frame(&game.canvas, 1);
-        if out.is_empty() {
-            return Ok(());
-        }
-        self.screen.write_bytes(&out);
-        if paced && game.sync {
-            let answering = self.cursor_reports > 0;
-            let wait = Duration::from_secs(if answering { 10 } else { 3 });
-            if !self.sync_output(wait, 1).await? && !answering {
-                game.sync = false;
-            }
-        }
-        Ok(())
+        crate::slotart::draw(&mut game.st.cv, &game.scene);
+        self.stage_show(&mut game.st, paced).await
     }
 
     /// The reels spin and stop on the pull. A key stops them sooner.
     async fn slots_spin(&mut self, game: &mut Game, pull: &Pull) -> io::Result<()> {
-        let begin = game.clock.elapsed().as_secs_f32();
+        let begin = game.st.clock.elapsed().as_secs_f32();
         let mut motions: Vec<Motion> = (0..3).map(|i| Motion::new(begin + i as f32 * 0.05, game.scene.reels[i].pos)).collect();
         // The third holds out when the first two could still make three.
         let tease = STRIPS[0][pull.stops[0]] == STRIPS[1][pull.stops[1]] && STRIPS[0][pull.stops[0]] != CHERRY;
@@ -496,7 +548,7 @@ impl Session {
         game.scene.glint = -1.0;
         let mut slammed = false;
         loop {
-            let t = game.clock.elapsed().as_secs_f32();
+            let t = game.st.clock.elapsed().as_secs_f32();
             let mut done = true;
             for (i, m) in motions.iter().enumerate() {
                 let (pos, speed, rest) = m.at(t);
@@ -542,7 +594,7 @@ impl Session {
             let s = if pull.near { "SlotsNear" } else { "SlotsLose" };
             let text = crate::editor::strip_colours(self.strings().get(s));
             let line = painted(&text, if pull.near { [255, 170, 90] } else { [150, 130, 170] });
-            self.slots_line(&line, game.truecolor);
+            self.stage_line(MSG_ROW, &line, game.st.truecolor);
             self.flush().await?;
             return Ok(line);
         };
@@ -566,11 +618,11 @@ impl Session {
             Tier::Plums | Tier::Oranges | Tier::Lemons | Tier::Cherries => (2.8, 0),
             _ => (2.0, 0),
         };
-        let begin = game.clock.elapsed().as_secs_f32();
+        let begin = game.st.clock.elapsed().as_secs_f32();
         let mut spawned = 0;
         let mut last = begin;
         loop {
-            let t = game.clock.elapsed().as_secs_f32();
+            let t = game.st.clock.elapsed().as_secs_f32();
             let tau = t - begin;
             if tau > len {
                 break;
@@ -634,7 +686,7 @@ impl Session {
                     (ch, c)
                 })
                 .collect();
-            self.slots_line(&line, game.truecolor);
+            self.stage_line(MSG_ROW, &line, game.st.truecolor);
             self.slots_draw(game, true).await?;
             self.flush().await?;
             if self.key_waiting().await? {
@@ -651,33 +703,9 @@ impl Session {
         }
         self.slots_draw(game, false).await?;
         let line = painted(&text, [255, 215, 110]);
-        self.slots_line(&line, game.truecolor);
+        self.stage_line(MSG_ROW, &line, game.st.truecolor);
         self.flush().await?;
         Ok(line)
-    }
-
-    fn slots_color(&self, out: &mut Vec<u8>, c: Rgb, truecolor: bool) {
-        if truecolor {
-            out.extend(format!("\x1b[38;2;{};{};{}m", c[0], c[1], c[2]).as_bytes());
-        } else {
-            out.extend(format!("\x1b[38;5;{}m", crate::picture::xterm256(c)).as_bytes());
-        }
-    }
-
-    /// The message line, centered, each character its own color.
-    fn slots_line(&mut self, text: &[(char, Rgb)], truecolor: bool) {
-        let text = &text[..text.len().min(78)];
-        let mut out = format!("\x1b[{MSG_ROW};1H\x1b[0m\x1b[K\x1b[{MSG_ROW};{}H", (80 - text.len()) / 2 + 1).into_bytes();
-        let mut last = None;
-        for &(ch, c) in text {
-            if last != Some(c) && ch != ' ' {
-                self.slots_color(&mut out, c, truecolor);
-                last = Some(c);
-            }
-            out.extend(fluxbbs_term::cp437::encode(&ch.to_string()));
-        }
-        out.extend(b"\x1b[0m");
-        self.screen.write_bytes(&out);
     }
 
     /// The bottom line: pulls left, today's winnings, the keys.
@@ -688,21 +716,21 @@ impl Session {
                 let shown = cfg.pulls_per_day.min(20);
                 for i in 0..shown {
                     let on = i < left.min(shown);
-                    self.slots_color(&mut out, if on { [255, 200, 80] } else { [70, 50, 70] }, truecolor);
+                    ink(&mut out, if on { [255, 200, 80] } else { [70, 50, 70] }, truecolor);
                     out.push(0xFE);
                 }
-                self.slots_color(&mut out, [200, 170, 210], truecolor);
+                ink(&mut out, [200, 170, 210], truecolor);
                 out.extend(format!(" {left} left").as_bytes());
             }
             None => {
-                self.slots_color(&mut out, [200, 170, 210], truecolor);
+                ink(&mut out, [200, 170, 210], truecolor);
                 out.extend(b"free play");
             }
         }
         if t.minutes > 0 || t.points > 0 {
-            self.slots_color(&mut out, [140, 120, 150], truecolor);
+            ink(&mut out, [140, 120, 150], truecolor);
             out.extend(b"   won ");
-            self.slots_color(&mut out, [255, 215, 110], truecolor);
+            ink(&mut out, [255, 215, 110], truecolor);
             out.extend(self.prize_text(Prize { minutes: t.minutes, points: t.points }).as_bytes());
         }
         out.extend(b"\x1b[0m");
@@ -750,7 +778,7 @@ impl Session {
         let mut out = Vec::new();
         let row = |out: &mut Vec<u8>, n: u16| out.extend(format!("\x1b[{};{x}H\x1b[0;40m", y + n).as_bytes());
         row(&mut out, 0);
-        self.slots_color(&mut out, frame, truecolor);
+        ink(&mut out, frame, truecolor);
         out.extend(fluxbbs_term::cp437::encode(&format!("\u{2554}{}\u{2557}", "\u{2550}".repeat(w))));
         let mut lines: Vec<(Vec<(char, Rgb)>, usize)> = Vec::new();
         let head = self.strings().get("SlotsPaysHead").to_string();
@@ -782,20 +810,20 @@ impl Session {
         lines.push((painted(&crate::editor::strip_colours(self.strings().get("SlotsPaysKey")), [120, 100, 140]), 0));
         for (i, (l, indent)) in lines.iter().enumerate() {
             row(&mut out, i as u16 + 1);
-            self.slots_color(&mut out, frame, truecolor);
+            ink(&mut out, frame, truecolor);
             out.push(0xBA);
             let pad = if *indent == 0 { (w.saturating_sub(l.len())) / 2 } else { *indent + 2 };
             out.extend(" ".repeat(pad).as_bytes());
             for &(ch, c) in l.iter().take(w - pad) {
-                self.slots_color(&mut out, c, truecolor);
+                ink(&mut out, c, truecolor);
                 out.extend(fluxbbs_term::cp437::encode(&ch.to_string()));
             }
             out.extend(" ".repeat(w.saturating_sub(pad + l.len())).as_bytes());
-            self.slots_color(&mut out, frame, truecolor);
+            ink(&mut out, frame, truecolor);
             out.push(0xBA);
         }
         row(&mut out, lines.len() as u16 + 1);
-        self.slots_color(&mut out, frame, truecolor);
+        ink(&mut out, frame, truecolor);
         out.extend(fluxbbs_term::cp437::encode(&format!("\u{255A}{}\u{255D}", "\u{2550}".repeat(w))));
         out.extend(b"\x1b[0m");
         self.screen.write_bytes(&out);
@@ -812,17 +840,13 @@ impl Session {
             self.newline();
             match s.trim().to_ascii_uppercase().as_str() {
                 "" => {
-                    let Some(pull) = self.slots_pull(cfg) else {
+                    let Some(pull) = self.slots_pull(cfg, false) else {
                         let s = self.strings().fmt("SlotsNone", &[&cfg.pulls_per_day.to_string()]);
                         self.show_line(&s).await?;
                         return Ok(());
                     };
-                    let syms: Vec<&str> = (0..3).map(|i| NAMES[STRIPS[i][pull.stops[i]]]).collect();
-                    let result = match pull.win {
-                        Some(w) => format!("{}: {}", tier_name(w), self.prize_text(prize(cfg, w))),
-                        None => crate::editor::strip_colours(self.strings().get(if pull.near { "SlotsNear" } else { "SlotsLose" })),
-                    };
-                    self.write(&format!("[ {} | {} | {} ]  {result}", syms[0], syms[1], syms[2]));
+                    let line = self.slots_result_text(cfg, &pull);
+                    self.write(&line);
                     self.newline();
                 }
                 "P" => {
@@ -838,25 +862,20 @@ impl Session {
     }
 }
 
-/// The machine on screen: what's drawn, and what the terminal has.
+/// The machine on screen.
 struct Game {
     scene: Scene,
-    canvas: Canvas,
-    enc: Encoder,
-    truecolor: bool,
-    /// Pacing by the terminal's answers, until it doesn't answer.
-    sync: bool,
-    clock: Instant,
+    st: Stage,
 }
 
 impl Game {
-    fn new(truecolor: bool) -> Game {
+    fn new(st: Stage) -> Game {
         let mut rng = rand::rng();
         let mut scene = Scene { bulbs: vec![false; bulb_spots().len()], glint: -1.0, ..Default::default() };
         for r in &mut scene.reels {
             r.pos = pos_of(rng.random_range(0..STOPS));
         }
-        Game { scene, canvas: Canvas::new(), enc: Encoder::new(truecolor), truecolor, sync: true, clock: Instant::now() }
+        Game { scene, st }
     }
 }
 

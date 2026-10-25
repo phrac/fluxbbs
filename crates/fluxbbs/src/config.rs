@@ -36,6 +36,7 @@ pub struct Config {
     pub ftn: Ftn,
     pub bbslink: BbsLink,
     pub slots: Slots,
+    pub casino: Casino,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -361,6 +362,32 @@ pub struct Slots {
     pub cherries: Prize,
     pub two_cherries: Prize,
     pub one_cherry: Prize,
+}
+
+/// The casino's tables (new, `casino.rs`): each caller gets a stack of
+/// chips a day, free; what they're up when they leave a table is paid in
+/// file points and minutes, so nobody loses anything real.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Casino {
+    pub daily_chips: u32,
+    pub min_bet: u32,
+    pub max_bet: u32,
+    /// Winnings pay a file point per this many chips (0: none)...
+    pub chips_per_point: u32,
+    /// ...and a minute per this many (0: none).
+    pub chips_per_minute: u32,
+    /// Blackjack: decks in the shoe, and whether the dealer hits a soft 17.
+    pub decks: u32,
+    pub hit_soft_17: bool,
+    /// Craps: the most odds behind the line, times the line bet.
+    pub max_odds: u32,
+}
+
+impl Default for Casino {
+    fn default() -> Self {
+        Self { daily_chips: 100, min_bet: 5, max_bet: 50, chips_per_point: 2, chips_per_minute: 5, decks: 6, hit_soft_17: false, max_odds: 3 }
+    }
 }
 
 /// What a win pays: minutes on today's time, and file points.

@@ -620,7 +620,7 @@ come last.
 The sequence is kept in `logon.toml` with the board, and the start menu
 (STARTUP) is built from it. Without the file, STARTUP runs as written.
 
-Two special steps:
+Three special steps:
 
 - **New users stop here** sends callers who aren't validated to
   NEWUSER. They see the steps above it too.
@@ -628,6 +628,11 @@ Two special steps:
   on to the main menu (STARTUP's fallback), skipping the steps after
   it. Put it first for a quick way in, or after the steps everyone must
   see.
+- **A free slot pull** (`AL free`) is a pull on the house, on the first
+  call of the day. The reels spin by themselves, the result shows for a
+  moment, and the logon goes on. It isn't one of the day's pulls, and
+  keys typed ahead don't skip it. Put it before fast logon, or callers
+  who take fast logon miss it.
 
 #### The waiting-for-caller screen
 
@@ -918,10 +923,71 @@ instead.
   one; otherwise the `TarotTitle` line. Keep it to a line or two: the
   cards take 15 rows under it.
 
+## Casino
+
+`AC` (the stock door menu's `C`) is the casino: a lobby under a neon
+sign, with the slot machine, a blackjack table and a craps table. Walk
+with the arrows and Enter, or press `s`, `b` or `c`. `AC slots`,
+`AC blackjack` and `AC craps` go straight to a game. Like the slots,
+the tables are drawn in half-block pixels, and plain-text callers get a
+line at a time.
+
+**Chips.** The tables play for chips, and the house gives each caller
+a free stack a day (`daily_chips`, 100 to start). When you leave a
+table up, the winnings are paid in file points (a point per
+`chips_per_point` chips, 2 to start) and minutes on today's time (a
+minute per `chips_per_minute`, 5). Your stack then goes back to the
+day's. Down, what's left is all you have till tomorrow, so nobody loses
+anything real. Winnings left at a table when the day ends are paid the
+next time you come in. Bets run from `min_bet` to `max_bet` (5 to 50).
+
+### Blackjack
+
+- **The table.** Green felt under a lamp, the insurance arc in gold
+  paint, a shoe at the dealer's right and a betting circle.
+- **The cards.** They're drawn in pixels: corner index, a big pip, and
+  portraits on the court cards. Each slides out of the shoe, and the
+  hole card turns over at the reveal.
+- **The chips.** They stack in the circle and move to whoever won them.
+- **The rules.**
+  - Six decks (`decks`), cut three-quarters in.
+  - The dealer peeks for blackjack and stands on all 17s, or hits a
+    soft 17 with `hit_soft_17`.
+  - Blackjack pays 3 to 2.
+  - Double on any two cards.
+  - One split; split aces take a card each.
+  - No insurance or surrender.
+- **Keys.** `+`/`-` set the bet, Enter deals, then `h`it, `s`tand,
+  `d`ouble or s`p`lit. `q` leaves between hands.
+
+### Craps
+
+- **The table.** The layout is printed on the felt: point boxes, come,
+  the field, don't pass and the pass line. A puck shows ON on the point
+  and OFF beside it.
+- **The dice.** Two red dice tumble down the table, bounce off the
+  rubber diamonds on the back wall, and roll to a stop. The stickman
+  calls the roll.
+- **The bets.**
+  - The pass line and don't pass, on the come-out roll. Don't pass bars
+    12.
+  - Odds behind the pass line once a point is set, paid at true odds,
+    up to `max_odds` times the line bet (3 to start).
+  - The field, for one roll: 2 pays double, 12 triple.
+- **Keys.**
+  - `p`, `d`, `o` and `f` put a chip on each bet; `+`/`-` choose the
+    chip.
+  - `x` takes down what may come down.
+  - Enter rolls.
+  - `q` leaves, but not while a point is riding on a line bet.
+
+All of it is in `[casino]`, and in `*C`, Casino Tables. Each table
+counts in the doors menu's stats.
+
 ## Slot machine
 
-`AL` (the stock door menu's `S`) is a three-reel slot machine. Wins pay
-minutes on today's time and file points.
+`AL` (in the casino, or straight from a menu) is a three-reel slot
+machine. Wins pay minutes on today's time and file points.
 
 - **The screen is the machine.** Three big reels fill it, behind glass,
   in a chrome bezel ringed with bulbs. It's drawn in half-block pixels
