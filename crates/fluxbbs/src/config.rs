@@ -877,8 +877,8 @@ pub struct Terminal {
     /// backgrounds (others get the iCE blink bit, and blink if they don't
     /// honour the iCE switch).
     pub truecolor_terms: Vec<String>,
-    /// New: CP437 terminals with xterm's 256 colours but not 24-bit
-    /// (NetRunner): 24-bit colour goes to them as the nearest of the 256.
+    /// New: CP437 terminals with xterm's 256 colours but not 24-bit: 24-bit
+    /// colour goes to them as the nearest of the 256.
     pub palette256_terms: Vec<String>,
     /// New: seconds idle on a lightbar menu before the screen saver (0:
     /// none); only where menus animate.
@@ -1332,8 +1332,10 @@ impl Default for Terminal {
             cp437_terms: ["syncterm", "ansi-bbs", "ansi", "pc-ansi", "pcansi", "scoansi", "netrunner", "ansi-256color"]
                 .map(String::from)
                 .to_vec(),
-            truecolor_terms: vec!["syncterm".into()],
-            palette256_terms: vec!["ansi-256color".into()],
+            // NetRunner reports ansi-256color but draws 24-bit colour,
+            // and misreads 256-colour codes (their 5 as blink).
+            truecolor_terms: vec!["syncterm".into(), "ansi-256color".into()],
+            palette256_terms: Vec::new(),
             screensaver_seconds: 60,
         }
     }
