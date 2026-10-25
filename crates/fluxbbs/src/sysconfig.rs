@@ -103,6 +103,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('G', "Telnet", 3, "Also accept plain (unencrypted) telnet? (restart)", Bool(|c| &mut c.telnet.enabled)),
             set('H', "Telnet listen", 40, "Address and port for telnet, e.g. 0.0.0.0:2323 (restart).", Text(|c| &mut c.telnet.listen, TEXT)),
             set('I', "Screen saver", 5, "Seconds idle on a menu before the screen saver (0 = none); for callers whose menus animate.", Num(|c| c.terminal.screensaver_seconds, |c, v| c.terminal.screensaver_seconds = v, 0, 86_400)),
+            set('J', "256-color TERMs", 50, "CP437 terminals with 256 colors but not 24-bit (NetRunner): sent the nearest of the 256.", List(|c| &mut c.terminal.palette256_terms)),
         ]),
         ("Access and Logon", false, vec![
             set('A', "SysOp ACS", 20, "ACS for SysOp access.", Text(|c| &mut c.acs.sysop, ACS)),

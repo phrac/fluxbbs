@@ -44,6 +44,10 @@ pub struct Screen {
     /// The terminal takes 24-bit colour: bright backgrounds go out as
     /// that rather than the iCE blink bit.
     truecolor: bool,
+    /// New: a CP437 terminal with xterm's 256 colours but not 24-bit
+    /// (NetRunner): 24-bit colours go out as the nearest of the 256, and
+    /// bright backgrounds as its bright colours.
+    palette256: bool,
     /// The text's own blink attribute (`5` until `25` or `0`), which DOS
     /// art means as a bright background.
     ice_blink: bool,
@@ -155,6 +159,7 @@ impl Screen {
             aix_fg: false,
             ext_color: false,
             truecolor: false,
+            palette256: false,
             ice_blink: false,
             plain: false,
             text_lines: 0,
@@ -185,6 +190,15 @@ impl Screen {
     /// A CP437 terminal known to take 24-bit colour.
     pub fn truecolor(&self) -> bool {
         self.truecolor
+    }
+
+    pub fn set_palette256(&mut self, on: bool) {
+        self.palette256 = on;
+    }
+
+    /// A CP437 terminal with 256 colours but not 24-bit.
+    pub fn palette256(&self) -> bool {
+        self.palette256 && !self.truecolor
     }
 
     /// Switch character sets mid-call (the caller says detection got it
@@ -295,11 +309,11 @@ impl Screen {
             self.bright_bg = false;
             self.ext_color = false;
         }
-        if c.blink && self.truecolor && self.charset == Charset::Cp437 {
+        if c.blink && (self.truecolor || self.palette256) && self.charset == Charset::Cp437 {
             // A bright background, as `sgr` sends it to these terminals.
             let d = [0, 4, 2, 6, 1, 5, 3, 7];
-            let [r, g, b] = VGA[(c.back & 7 | 8) as usize];
-            let seq = format!("\x1b[0;{}3{};48;2;{r};{g};{b}m", if c.fore >= 8 { "1;" } else { "" }, d[(c.fore & 7) as usize]);
+            let back = self.bright_back(c.back);
+            let seq = format!("\x1b[0;{}3{};{back}m", if c.fore >= 8 { "1;" } else { "" }, d[(c.fore & 7) as usize]);
             self.raw(seq.as_bytes());
             self.color = c;
             self.bright_bg = true;
@@ -624,9 +638,14 @@ impl Screen {
                     _ => self.color.apply_sgr(&[p]),
                 }
             }
-            self.raw(b"\x1b[");
-            self.raw(body);
-            self.raw(b"m");
+            if self.palette256() && params.windows(2).any(|w| matches!(w, [38 | 48, 2])) {
+                let out = to_palette256(&params);
+                self.raw(format!("\x1b[{out}m").as_bytes());
+            } else {
+                self.raw(b"\x1b[");
+                self.raw(body);
+                self.raw(b"m");
+            }
             return;
         }
         if params.contains(&0) {
@@ -650,6 +669,13 @@ impl Screen {
             }
         }
         self.color.apply_sgr(&params);
+        // A bright background after a reset in the same sequence
+        // (`0;102`): the reset mustn't undo it.
+        if let Some(i) = params.iter().rposition(|p| (100..=107).contains(p))
+            && params.iter().rposition(|&p| p == 0).is_none_or(|z| z < i)
+        {
+            self.color.back = [0, 4, 2, 6, 1, 5, 3, 7][(params[i] - 100) as usize];
+        }
         let plain_fg = params.iter().any(|p| (30..=37).contains(p));
         if plain_fg && was_aix_fg && !params.contains(&1) {
             self.color.fore &= 7;
@@ -662,15 +688,14 @@ impl Screen {
         // DOS art means blink as a bright background (iCE colours); a
         // terminal getting 24-bit colour gets it that way too.
         let ice = self.ice_blink;
-        let ice_rgb = self.truecolor && (ice || was_blink);
+        let ice_rgb = (self.truecolor || self.palette256) && (ice || was_blink);
         if self.charset == Charset::Cp437 && (aixterm || self.bright_bg || was_bright || was_aix_fg || ice_rgb) {
             self.color.blink = self.bright_bg || ice;
             let c = self.color;
             let d = [0, 4, 2, 6, 1, 5, 3, 7];
-            let rgb = c.blink && self.truecolor;
+            let rgb = c.blink && (self.truecolor || self.palette256);
             let back = if rgb {
-                let [r, g, b] = VGA[(c.back & 7 | 8) as usize];
-                format!("48;2;{r};{g};{b}")
+                self.bright_back(c.back)
             } else {
                 format!("4{}", d[(c.back & 7) as usize])
             };
@@ -687,6 +712,60 @@ impl Screen {
             self.raw(b"m");
         }
     }
+}
+
+impl Screen {
+    /// The SGR for a bright background (DOS colour `back` with the blink
+    /// bit): 24-bit, or xterm's bright colours 8-15.
+    fn bright_back(&self, back: u8) -> String {
+        if self.truecolor {
+            let [r, g, b] = VGA[(back & 7 | 8) as usize];
+            format!("48;2;{r};{g};{b}")
+        } else {
+            format!("48;5;{}", [0, 4, 2, 6, 1, 5, 3, 7][(back & 7) as usize] + 8)
+        }
+    }
+}
+
+/// SGR parameters with 24-bit colours (`38;2;r;g;b`, `48;2;...`) as the
+/// nearest of xterm's 256 (`38;5;n`).
+fn to_palette256(params: &[u16]) -> String {
+    let mut out: Vec<String> = Vec::with_capacity(params.len());
+    let mut k = 0;
+    while k < params.len() {
+        let p = params[k];
+        if matches!(p, 38 | 48) && params.get(k + 1) == Some(&2) && k + 4 < params.len() {
+            let rgb = [params[k + 2], params[k + 3], params[k + 4]].map(|v| v.min(255) as u8);
+            out.push(format!("{p};5;{}", nearest_xterm256(rgb)));
+            k += 5;
+        } else if matches!(p, 38 | 48) && params.get(k + 1) == Some(&5) && k + 2 < params.len() {
+            out.push(format!("{p};5;{}", params[k + 2]));
+            k += 3;
+        } else {
+            out.push(p.to_string());
+            k += 1;
+        }
+    }
+    out.join(";")
+}
+
+/// The xterm 256-colour index nearest `rgb`: the 6x6x6 cube or the grey
+/// ramp, whichever is closer.
+pub fn nearest_xterm256(rgb: [u8; 3]) -> u8 {
+    let level = |v: u8| -> (u16, u8) {
+        let steps = [0u8, 95, 135, 175, 215, 255];
+        let i = steps.iter().enumerate().min_by_key(|(_, s)| (**s as i32 - v as i32).abs()).map(|(i, _)| i).unwrap_or(0);
+        (i as u16, steps[i])
+    };
+    let (ri, rv) = level(rgb[0]);
+    let (gi, gv) = level(rgb[1]);
+    let (bi, bv) = level(rgb[2]);
+    let dist = |c: [u8; 3]| -> i32 { (0..3).map(|i| (c[i] as i32 - rgb[i] as i32).pow(2)).sum() };
+    let cube = (16 + 36 * ri + 6 * gi + bi) as u8;
+    let avg = (rgb[0] as u16 + rgb[1] as u16 + rgb[2] as u16) / 3;
+    let gi = ((avg.saturating_sub(8)) / 10).min(23) as u8;
+    let g = 8 + 10 * gi;
+    if dist([g, g, g]) < dist([rv, gv, bv]) { 232 + gi } else { cube }
 }
 
 /// The VGA text palette in DOS order.
@@ -852,6 +931,27 @@ mod tests {
         s.take_output();
         s.set_color(Color::new(7, 0));
         assert_eq!(s.take_output(), b"\x1b[0m");
+    }
+
+    #[test]
+    fn palette256_terminals_get_the_nearest_of_256() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.set_palette256(true);
+        s.take_output();
+        // 24-bit colour goes out as the nearest of xterm's 256.
+        s.write_bytes(b"\x1b[38;2;255;0;0;48;2;0;0;0mX");
+        assert_eq!(s.take_output(), b"\x1b[38;5;196;48;5;16mX");
+        // Greys land on the grey ramp; 256-colour codes pass as they are.
+        s.write_bytes(b"\x1b[0;38;2;128;128;128m.\x1b[38;5;33m.");
+        assert_eq!(s.take_output(), b"\x1b[0;38;5;244m.\x1b[38;5;33m.");
+        // Bright backgrounds are xterm's bright colours, not the blink bit.
+        s.write_bytes(b"\x1b[0;102;30mY");
+        assert_eq!(s.take_output(), b"\x1b[0;30;48;5;10mY");
+        // A terminal that takes 24-bit colour isn't touched.
+        s.set_truecolor(true);
+        s.write_bytes(b"\x1b[38;2;1;2;3mZ");
+        assert_eq!(s.take_output(), b"\x1b[38;2;1;2;3mZ");
+        assert_eq!(nearest_xterm256([0, 135, 255]), 33);
     }
 
     #[test]

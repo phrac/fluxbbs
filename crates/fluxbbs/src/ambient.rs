@@ -262,7 +262,9 @@ pub fn sidecar(screen: &std::path::Path) -> Option<Vec<Effect>> {
 impl Session {
     /// Do this caller's screen and settings allow animating?
     pub(crate) fn animating(&self) -> bool {
-        !self.plain() && self.user.animate != "off" && (self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8)
+        !self.plain()
+            && self.user.animate != "off"
+            && (self.screen.truecolor() || self.screen.palette256() || self.screen.charset() == fluxbbs_term::Charset::Utf8)
     }
 
     /// A key, the screen animating while it waits; idle long enough

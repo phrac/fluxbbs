@@ -34,7 +34,9 @@ differently on purpose. Each line links to the doc with the details.
   (wrap at column 80, `ESC[2J` homing); `[terminal] charset` overrides.
   ([SYSOP](SYSOP.md#terminal-handling))
 - aixterm bright colors, iCE backgrounds, and 256 and 24-bit color art
-  passed through.
+  passed through; to a 256-color BBS terminal (NetRunner), 24-bit color
+  goes as the nearest of the 256, so the pictures and animations show
+  there too. ([SYSOP](SYSOP.md#terminal-handling))
 - Output paced to the terminal for fast streams (animated GIFs), and a
   log line when a link stalls.
 

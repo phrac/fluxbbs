@@ -30,7 +30,7 @@ const BOARD_HELP: &[&str] = &[
     "  t <#>          the thread message # is in",
     "  n              read what's new here (20 at a time)",
     "  p              start a thread",
-    "  reply <#>      reply to message # (where replies are posts)",
+    "  reply <#>      reply to message # with a post (c for a one-line comment)",
     "  c <#> <text>   comment on message #; a link to a file is file:AREA/NAME",
     "  c <#> /l       comment with a link: pick the file, then add words",
     "  + <#> <text>   vote message # up, with a word",
@@ -170,7 +170,6 @@ impl Session {
                     match cmd.as_str() {
                         "r" => self.plain_show(a, &m)?,
                         "t" => self.plain_thread(a, &m)?,
-                        "reply" if self.comments_only(a) => self.plain_line("Replies here are comments: c <#> <text>."),
                         "reply" => {
                             if let Some(n) = self.post(a, "", "", Some(&m)).await? {
                                 self.plain_line(&format!("Posted as #{n}."));

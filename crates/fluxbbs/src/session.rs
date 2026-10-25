@@ -324,8 +324,10 @@ impl Session {
         };
         let rows = caller.size.borrow().1;
         let truecolor = state.config().terminal.truecolor_terms.iter().any(|t| t.eq_ignore_ascii_case(&caller.term));
+        let palette256 = state.config().terminal.palette256_terms.iter().any(|t| t.eq_ignore_ascii_case(&caller.term));
         let mut screen = Screen::new(charset, rows);
         screen.set_truecolor(truecolor);
+        screen.set_palette256(palette256 && charset == Charset::Cp437);
         let user = User { palette: state.config().colors.clone(), ..User::default() };
         Self {
             state,

@@ -877,6 +877,9 @@ pub struct Terminal {
     /// backgrounds (others get the iCE blink bit, and blink if they don't
     /// honour the iCE switch).
     pub truecolor_terms: Vec<String>,
+    /// New: CP437 terminals with xterm's 256 colours but not 24-bit
+    /// (NetRunner): 24-bit colour goes to them as the nearest of the 256.
+    pub palette256_terms: Vec<String>,
     /// New: seconds idle on a lightbar menu before the screen saver (0:
     /// none); only where menus animate.
     pub screensaver_seconds: u64,
@@ -1330,6 +1333,7 @@ impl Default for Terminal {
                 .map(String::from)
                 .to_vec(),
             truecolor_terms: vec!["syncterm".into()],
+            palette256_terms: vec!["ansi-256color".into()],
             screensaver_seconds: 60,
         }
     }

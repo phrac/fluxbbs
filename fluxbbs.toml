@@ -39,6 +39,7 @@ cp437_terms = [
     "netrunner",
     "ansi-256color",
 ]
+palette256_terms = ["ansi-256color"]
 
 [acs]
 sysop = "s255"

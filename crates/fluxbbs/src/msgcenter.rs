@@ -1369,7 +1369,8 @@ impl Session {
                         // `/l`'s file picker took the screen.
                         redraw = true;
                     }
-                    Some('R') => {
+                    // `w`: a full reply in the editor, wherever `r` is a comment.
+                    Some('R' | 'W') => {
                         self.reader_prompt_area();
                         self.post(a, "", "", Some(&m)).await?;
                         cur = None;

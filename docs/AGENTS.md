@@ -116,7 +116,7 @@ The message boards (`m`):
 | `t <#>` | the thread message # is in |
 | `n` | reads what's new here, 20 at a time |
 | `p` | starts a thread |
-| `reply <#>` | replies with a post (where replies are posts, not comments) |
+| `reply <#>` | replies with a post (a full reply; `c` is a one-line comment) |
 | `c <#> <text>` | comments under message #; `file:AREA/NAME` in the text links a file (it must be on the board) |
 | `c <#> /l` | comments with a link: name the file, pick it from the numbered list, then add your words |
 | `+ <#> <text>`, `- <#> <text>` | votes it up or down, with a word |

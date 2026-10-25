@@ -1378,8 +1378,8 @@ The MTHRD screens (TOP/MID/HIL/BOT) draw it:
 `v` in the thread list, or in the reader, shows a thread as a tree:
 a line a message, in reading order, each reply under the one it
 answers and each message's comments under it, so you can see who
-answered whom. (Since `r` is a comment, most threads are one post and
-its comments.)
+answered whom. (`r` is a comment and `w` a full reply, so most threads
+are a post and its comments, with a reply here and there.)
 
 ```
   1    +2   10/19  sysop                    new board is up
@@ -1511,6 +1511,7 @@ its number, author and first words), so it reads on its own.
 | Left, Right | previous, next message |
 | Up, Down | scroll |
 | `r` | comment ([below](#votes-and-comments)); in email and echomail, reply |
+| `w` | a full reply in the editor, quoting allowed, posted in the thread |
 | `p` | post |
 | `x` | vote or comment |
 | `g` | the attached file and the files the message [links to](#file-links) |
