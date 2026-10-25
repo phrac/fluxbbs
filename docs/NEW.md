@@ -37,7 +37,9 @@ differently on purpose. Each line links to the doc with the details.
   passed through to terminals that take them; NetRunner
   (`ansi-256color`) gets the nearest of the 256, so the pictures and
   animations show there too, and 16-color terminals (Qodem) the nearest
-  DOS color. ([SYSOP](SYSOP.md#terminal-handling))
+  DOS color. Other ANSI terminals are asked at connect what they can
+  show (device attributes, DECRQSS, CTerm's `ESC[<c`), so IcyTerm gets
+  24-bit color though it sends a plain `ANSI`. ([SYSOP](SYSOP.md#terminal-handling))
 - Output paced to the terminal for fast streams (animated GIFs), and a
   log line when a link stalls.
 

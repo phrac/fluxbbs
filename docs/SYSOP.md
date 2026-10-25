@@ -427,6 +427,14 @@ color as it is. `palette256_terms` take xterm's 256 colors but not
 its bright colors, and each color code names both foreground and
 background (NetRunner keeps an old 256-color background through a
 reset otherwise). Both get the animated screens and the pictures.
-Other CP437 terminals (Qodem, which reports `ansi-bbs`) get 16 colors:
-256 and 24-bit color as the nearest DOS color, the iCE blink bit for
-bright backgrounds, and no animation.
+Any other CP437 terminal is asked what it can show when it connects,
+from its answers rather than its TERM (IcyTerm sends a plain `ANSI`).
+It is asked for its device attributes (`ESC[c`); one that answers is
+set to a 24-bit color and asked what it has (DECRQSS): the color coming
+back means 24-bit, a `38;5` the 256. One answering as CTerm does
+(`ESC[=...c`: SyncTERM, IcyTerm) that didn't say is asked for its
+features (`ESC[<c`), as Synchronet does, and an extended palette there
+means 24-bit. The log shows the answers ("the terminal answers ...").
+A terminal that doesn't answer, or says nothing of color (Qodem,
+`ansi-bbs`), gets 16 colors: 256 and 24-bit color as the nearest DOS
+color, the iCE blink bit for bright backgrounds, and no animation.

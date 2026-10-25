@@ -134,6 +134,9 @@ pub struct Session {
     pub(crate) cursor_reports: u32,
     /// The start of a cursor report whose end hasn't arrived yet.
     pub(crate) report_tail: Vec<u8>,
+    /// New: the terminal's answers to `ESC[c` and `ESC[<c` (without
+    /// `ESC[` and `c`) and to DECRQSS (without `ESC P` and `ESC \`).
+    pub(crate) device_attrs: Vec<String>,
     /// A UTF-8 character split between reads.
     pub(crate) utf8_tail: Vec<u8>,
     /// Bytes sent this call, for the stalled-output warning.
@@ -248,6 +251,10 @@ pub async fn run(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Caller) 
         *caller.size.borrow()
     );
     let mut s = Session::new(state, io, caller, node);
+    if let Err(e) = s.probe_terminal().await {
+        tracing::info!("{who}: disconnected ({e})");
+        return;
+    }
     let result = s.call().await;
     s.logoff();
     match result {
@@ -309,6 +316,44 @@ fn is_hangup(e: &io::Error) -> bool {
 }
 
 impl Session {
+    /// New: ask a 16-colour ANSI terminal what it can show, from its
+    /// answers rather than its TERM (IcyTerm sends `ANSI`). Each question
+    /// is followed by a cursor report, so we know when it has answered.
+    /// One that answers `ESC[c` at all is set to a 24-bit colour and
+    /// asked what it has (DECRQSS, `DCS $ q m ST`): the colour coming back
+    /// means 24-bit, `38;5` the 256. One answering as CTerm does
+    /// (`ESC[=...c`: SyncTERM, IcyTerm) that didn't say is asked for its
+    /// features (`ESC[<c`), as Synchronet does: an extended palette (6)
+    /// means CTerm's colours, 24-bit included.
+    async fn probe_terminal(&mut self) -> io::Result<()> {
+        if self.screen.charset() != Charset::Cp437 || self.screen.truecolor() || self.screen.palette256() {
+            return Ok(());
+        }
+        let wait = std::time::Duration::from_secs(2);
+        self.screen.write_bytes(b"\x1b[c");
+        self.sync_output(wait, 0).await?;
+        if self.device_attrs.is_empty() {
+            return Ok(());
+        }
+        // Raw: the screen would turn the colour into a DOS one. The line
+        // is wiped after, in case a terminal printed the question.
+        self.screen.write_raw(b"\x1b[0;38;2;1;2;3m\x1bP$qm\x1b\\\x1b[0m\r\x1b[K");
+        self.sync_output(wait, 0).await?;
+        let said = |s: &Self, any: &[&str]| s.device_attrs.iter().any(|a| a.contains("$r") && any.iter().any(|x| a.contains(x)));
+        let (mut truecolor, palette256) = (said(self, &["38;2;1;2;3", "38:2::1:2:3", "38:2:1:2:3"]), said(self, &["38;5;", "38:5:"]));
+        if !truecolor && !palette256 && self.device_attrs.iter().any(|a| a.starts_with('=')) {
+            self.screen.write_bytes(b"\x1b[<c");
+            self.sync_output(wait, 0).await?;
+            let features = self.device_attrs.iter().find_map(|a| a.strip_prefix("<0;")).unwrap_or("");
+            truecolor = features.split(';').any(|f| f == "6");
+        }
+        let shows = if truecolor { "24-bit color" } else if palette256 { "256 colors" } else { "16 colors" };
+        tracing::info!("node {}: the terminal answers {:?}: {shows}", self.node.number(), self.device_attrs);
+        self.screen.set_truecolor(truecolor);
+        self.screen.set_palette256(palette256 && !truecolor);
+        Ok(())
+    }
+
     fn new(state: Arc<BbsState>, io: Box<dyn Stream>, caller: Caller, node: NodeGuard) -> Self {
         let charset = match state.config().terminal.charset {
             CharsetPref::Cp437 => Charset::Cp437,
@@ -347,6 +392,7 @@ impl Session {
             cursor_asks: 0,
             cursor_reports: 0,
             report_tail: Vec::new(),
+            device_attrs: Vec::new(),
             utf8_tail: Vec::new(),
             sent: 0,
             saved_color: Color::DEFAULT,

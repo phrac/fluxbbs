@@ -255,8 +255,9 @@ impl Session {
             let mut data = std::mem::take(&mut self.report_tail);
             data.extend_from_slice(&buf[..n]);
             let expecting = self.cursor_asks > self.cursor_reports;
-            let (keys, reports, tail) = strip_cursor_reports(&data, expecting);
+            let (keys, reports, tail, da) = strip_cursor_reports(&data, expecting);
             self.cursor_reports += reports;
+            self.device_attrs.extend(da.iter().map(|a| String::from_utf8_lossy(a).into_owned()));
             let keys = if self.screen.charset() == fluxbbs_term::Charset::Utf8 { utf8_keys(&keys, &mut self.utf8_tail) } else { keys };
             self.input.extend(keys);
             self.report_tail = tail;
@@ -605,36 +606,77 @@ pub fn text_char(c: u8) -> Option<char> {
     (c >= 0x20 && c != 0x7F && c != 0xFF).then(|| fluxbbs_term::cp437::TO_UNICODE[c as usize])
 }
 
-fn strip_cursor_reports(buf: &[u8], hold: bool) -> (Vec<u8>, u32, Vec<u8>) {
-    // `ESC`, `ESC [` or `ESC [ 24;8` at the very end: the start of one.
-    let tail_at = buf.iter().rposition(|&b| b == 0x1B).filter(|&p| {
+/// Cursor reports (`ESC[24;80R`), device attributes (`ESC[=...c`,
+/// `ESC[?...c`, `ESC[>...c`, `ESC[<...c`) and status strings (`ESC P 1
+/// $ r ... ESC \`) out of what the caller sent: the keys, the reports
+/// counted, an unfinished one held back, and the answers.
+fn strip_cursor_reports(buf: &[u8], hold: bool) -> (Vec<u8>, u32, Vec<u8>, Vec<Vec<u8>>) {
+    fn lead(b: &[u8]) -> &[u8] {
+        match b.split_first() {
+            Some((b'=' | b'?' | b'>' | b'<', rest)) => rest,
+            _ => b,
+        }
+    }
+    // A status string not ended yet, or `ESC`, `ESC [` or `ESC [ 24;8`
+    // at the very end: the start of one.
+    let dcs_open = (0..buf.len()).rev().find(|&p| status_string(&buf[p..]).is_some()).filter(|&p| status_string(&buf[p..]) == Some(None));
+    let tail_at = dcs_open.filter(|_| hold).or_else(|| buf.iter().rposition(|&b| b == 0x1B).filter(|&p| {
         hold && match buf.get(p + 1) {
             None => true,
-            Some(b'[') => buf[p + 2..].iter().all(|b| b.is_ascii_digit() || *b == b';'),
+            Some(b'[') => lead(&buf[p + 2..]).iter().all(|b| b.is_ascii_digit() || *b == b';'),
             Some(_) => false,
         }
-    });
+    }));
     let (buf, tail) = match tail_at {
         Some(p) => (&buf[..p], buf[p..].to_vec()),
         None => (buf, Vec::new()),
     };
     let mut keys = Vec::with_capacity(buf.len());
     let mut reports = 0;
+    let mut da = Vec::new();
     let mut i = 0;
     while i < buf.len() {
         if buf[i] == 0x1B && buf.get(i + 1) == Some(&b'[') {
-            let body = buf[i + 2..].iter().take_while(|b| b.is_ascii_digit() || **b == b';').count();
-            let end = i + 2 + body;
-            if body > 0 && buf.get(end) == Some(&b'R') && buf[i + 2..end].contains(&b';') {
+            let lead = matches!(buf.get(i + 2), Some(b'=' | b'?' | b'>' | b'<')) as usize;
+            let body = buf[i + 2 + lead..].iter().take_while(|b| b.is_ascii_digit() || **b == b';').count();
+            let end = i + 2 + lead + body;
+            if lead == 0 && body > 0 && buf.get(end) == Some(&b'R') && buf[i + 2..end].contains(&b';') {
                 reports += 1;
                 i = end + 1;
                 continue;
             }
+            if lead == 1 && buf.get(end) == Some(&b'c') {
+                da.push(buf[i + 2..end].to_vec());
+                i = end + 1;
+                continue;
+            }
+        }
+        if let Some(Some(len)) = status_string(&buf[i..]) {
+            da.push(buf[i + 2..i + len - 2].to_vec());
+            i += len;
+            continue;
         }
         keys.push(buf[i]);
         i += 1;
     }
-    (keys, reports, tail)
+    (keys, reports, tail, da)
+}
+
+/// A DECRQSS answer (`ESC P 0|1 $ r ... ESC \`) at the start of `b`:
+/// `Some(Some(length))`, `Some(None)` if it hasn't ended yet, `None` if
+/// it isn't one.
+fn status_string(b: &[u8]) -> Option<Option<usize>> {
+    let head = [0x1B, b'P'];
+    if b.len() < 2 || b[..2] != head {
+        return None;
+    }
+    let digits = b[2..].iter().take_while(|c| c.is_ascii_digit()).count();
+    let rest = &b[2 + digits..];
+    let n = rest.len().min(2);
+    if rest[..n] != b"$r"[..n] || (digits == 0 && !rest.is_empty()) {
+        return None;
+    }
+    Some(rest.windows(2).position(|w| w == b"\x1b\\").map(|p| 2 + digits + p + 2))
 }
 
 #[cfg(test)]
@@ -674,21 +716,34 @@ mod tests {
 
     #[test]
     fn cursor_reports() {
-        assert_eq!(strip_cursor_reports(b"a\x1b[24;80Rb", false), (b"ab".to_vec(), 1, Vec::new()));
-        assert_eq!(strip_cursor_reports(b"\x1b[1;1R\x1b[2;5R", false), (Vec::new(), 2, Vec::new()));
+        assert_eq!(strip_cursor_reports(b"a\x1b[24;80Rb", false), (b"ab".to_vec(), 1, Vec::new(), Vec::new()));
+        assert_eq!(strip_cursor_reports(b"\x1b[1;1R\x1b[2;5R", false), (Vec::new(), 2, Vec::new(), Vec::new()));
         // Split between reads while one is expected: held, then joined.
-        let (keys, n, tail) = strip_cursor_reports(b"x\x1b[24;", true);
+        let (keys, n, tail, _) = strip_cursor_reports(b"x\x1b[24;", true);
         assert_eq!((keys, n, tail.clone()), (b"x".to_vec(), 0, b"\x1b[24;".to_vec()));
         let mut next = tail;
         next.extend_from_slice(b"80Ry");
-        assert_eq!(strip_cursor_reports(&next, true), (b"y".to_vec(), 1, Vec::new()));
+        assert_eq!(strip_cursor_reports(&next, true), (b"y".to_vec(), 1, Vec::new(), Vec::new()));
         assert_eq!(strip_cursor_reports(b"\x1b", true).2, b"\x1b".to_vec());
         // Not expecting one: an Esc at the end is a key, now.
-        assert_eq!(strip_cursor_reports(b"\x1b", false), (b"\x1b".to_vec(), 0, Vec::new()));
+        assert_eq!(strip_cursor_reports(b"\x1b", false), (b"\x1b".to_vec(), 0, Vec::new(), Vec::new()));
         // A finished arrow key isn't held.
-        assert_eq!(strip_cursor_reports(b"\x1b[A", true), (b"\x1b[A".to_vec(), 0, Vec::new()));
+        assert_eq!(strip_cursor_reports(b"\x1b[A", true), (b"\x1b[A".to_vec(), 0, Vec::new(), Vec::new()));
         // Keys that look a little like one stay keys.
-        assert_eq!(strip_cursor_reports(b"\x1b[A\x1b[5~\x1b[R", false), (b"\x1b[A\x1b[5~\x1b[R".to_vec(), 0, Vec::new()));
+        assert_eq!(strip_cursor_reports(b"\x1b[A\x1b[5~\x1b[R", false), (b"\x1b[A\x1b[5~\x1b[R".to_vec(), 0, Vec::new(), Vec::new()));
+        // Device attributes (IcyTerm's) come out too, kept for the probe.
+        let (keys, n, tail, da) = strip_cursor_reports(b"\x1b[=73;99;121;84;101;114;109;4;0;0c\x1b[25;80Rx\x1b[<0;1;6c", true);
+        assert_eq!((keys, n, tail), (b"x".to_vec(), 1, Vec::new()));
+        assert_eq!(da, vec![b"=73;99;121;84;101;114;109;4;0;0".to_vec(), b"<0;1;6".to_vec()]);
+        assert_eq!(strip_cursor_reports(b"\x1b[?1;2", true).2, b"\x1b[?1;2".to_vec());
+        // A status string (DECRQSS), whole or split between reads.
+        let (keys, n, tail, da) = strip_cursor_reports(b"a\x1bP1$r0;38;2;1;2;3m\x1b\\\x1b[1;1Rb", true);
+        assert_eq!((keys, n, tail), (b"ab".to_vec(), 1, Vec::new()));
+        assert_eq!(da, vec![b"1$r0;38;2;1;2;3m".to_vec()]);
+        let (keys, _, tail, da) = strip_cursor_reports(b"a\x1bP1$r0;38;2", true);
+        assert_eq!((keys, tail, da.len()), (b"a".to_vec(), b"\x1bP1$r0;38;2".to_vec(), 0));
+        // Alt-P is a key, not the start of one.
+        assert_eq!(strip_cursor_reports(b"\x1bPx", true).0, b"\x1bPx".to_vec());
     }
 }
 

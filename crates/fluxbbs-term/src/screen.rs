@@ -435,6 +435,12 @@ impl Screen {
     }
 
     /// Append bytes with no cursor tracking.
+    /// New: bytes straight to the terminal, untouched and untracked
+    /// (questions to it, such as DECRQSS).
+    pub fn write_raw(&mut self, b: &[u8]) {
+        self.raw(b);
+    }
+
     fn raw(&mut self, b: &[u8]) {
         self.out.extend_from_slice(b);
     }
