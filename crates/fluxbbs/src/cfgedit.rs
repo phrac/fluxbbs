@@ -173,6 +173,20 @@ impl Form {
     }
 }
 
+/// A description in at most two lines of 72, broken between words; the
+/// second cut off if even that's not enough.
+fn info_lines(text: &str) -> Vec<String> {
+    let text = text.trim();
+    if text.chars().count() <= 72 {
+        return vec![text.to_string()];
+    }
+    let chars: Vec<char> = text.chars().collect();
+    let cut = chars[..=72].iter().rposition(|&c| c == ' ').filter(|&i| i > 30).unwrap_or(72);
+    let first: String = chars[..cut].iter().collect();
+    let rest: String = chars[cut..].iter().collect::<String>().trim_start().chars().take(72).collect();
+    vec![first.trim_end().to_string(), rest]
+}
+
 impl Session {
     /// `cfgInit` + items + `cfgBar` + `cfgDrawAllItems`.
     pub fn cfg_draw(&mut self, f: &Form) {
@@ -202,9 +216,8 @@ impl Session {
         self.screen.move_right(73);
         self.write_with_controls("]|U5■▀");
         if let Some(it) = f.items.get(f.bar).filter(|_| f.hints) {
-            self.screen.goto(4, f.bar_row());
-            self.set_slot(Slot::InfoHi);
-            self.write(&format!("{:<72.72}", it.info));
+            let info = it.info.clone();
+            self.cfg_info_lines(f.bar_row(), &info, 144);
         }
     }
 
@@ -260,15 +273,39 @@ impl Session {
         }
     }
 
-    /// `cfgInfo`: text on the bottom bar (empty clears it).
+    /// `cfgInfo`: text on the bottom bar (empty clears it). New: a
+    /// description too long for the bar goes on over a second line
+    /// under it rather than being cut off.
     pub fn cfg_info(&mut self, f: &mut Form, text: &str) {
         let len = text.chars().count();
-        self.screen.goto(4, f.bar_row());
-        self.set_slot(Slot::InfoHi);
-        // Hints vary in length: blank the whole bar.
-        let width = if f.hints { 72 } else { f.info_len.max(len).min(72) };
-        self.write(&format!("{text:<width$.72}"));
+        // Hints vary in length: blank the whole bar (and the line under
+        // it, if the last text used it).
+        let blank = if f.hints { 144.max(f.info_len) } else { f.info_len.max(len) };
+        self.cfg_info_lines(f.bar_row(), text, blank);
         f.info_len = len;
+    }
+
+    /// The bottom bar's text at `row`, wrapped at word breaks over two
+    /// lines of 72; blanks out to `blank` characters of what was there.
+    fn cfg_info_lines(&mut self, row: u16, text: &str, blank: usize) {
+        let lines = info_lines(text);
+        self.screen.goto(4, row);
+        self.set_slot(Slot::InfoHi);
+        let first = lines.first().map(String::as_str).unwrap_or("");
+        self.write(&format!("{first:<w$.72}", w = blank.clamp(first.chars().count(), 72)));
+        if (lines.len() > 1 || blank > 72) && row < self.screen.rows() {
+            let second = lines.get(1).map(String::as_str).unwrap_or("");
+            self.screen.goto(4, row + 1);
+            self.set_slot(Slot::Info);
+            self.write(&format!("{second:<72.72}"));
+        }
+    }
+
+    /// After an edit: the bar's own description again if the form shows
+    /// them, else nothing.
+    fn cfg_info_after(&mut self, f: &mut Form) {
+        let info = if f.hints { f.items.get(f.bar).map(|i| i.info.clone()).unwrap_or_default() } else { String::new() };
+        self.cfg_info(f, &info);
     }
 
     fn cfg_move_bar(&mut self, f: &mut Form, to: usize) {
@@ -347,7 +384,7 @@ impl Session {
         let value = f.items[i].value.clone();
         let result = self.edit_line(x, y, len.max(1), &value, Field { max, ..field }).await?;
         if !info.is_empty() {
-            self.cfg_info(f, "");
+            self.cfg_info_after(f);
         }
         if let Some(v) = &result {
             f.items[i].value = v.clone();
@@ -418,7 +455,7 @@ impl Session {
                 _ => {}
             }
         };
-        self.cfg_info(f, "");
+        self.cfg_info_after(f);
         self.cfg_set(f, key, choices[done]);
         Ok(done)
     }
@@ -447,7 +484,7 @@ impl Session {
         };
         self.screen.goto(x, y);
         self.write("          ");
-        self.cfg_info(f, "");
+        self.cfg_info_after(f);
         self.cfg_set(f, key, yes_no(answer));
         Ok(answer)
     }
@@ -472,7 +509,7 @@ impl Session {
             }
         };
         f.info_len = f.info_len.max(question.chars().count() + 10);
-        self.cfg_info(f, "");
+        self.cfg_info_after(f);
         Ok(answer)
     }
 
@@ -483,7 +520,7 @@ impl Session {
         self.set_slot(Slot::TextHi);
         let s = self.read_string(crate::input::ReadOpts::new(max)).await?;
         f.info_len = f.info_len.max(question.chars().count() + max);
-        self.cfg_info(f, "");
+        self.cfg_info_after(f);
         Ok(s)
     }
 
@@ -508,7 +545,7 @@ impl Session {
                 _ => {}
             }
         };
-        self.cfg_info(f, "");
+        self.cfg_info_after(f);
         self.screen.goto(x, y);
         self.screen.set_color(done);
         self.write(&resize(&color_name(done), len));
@@ -557,7 +594,7 @@ impl Session {
                 _ => {}
             }
         }
-        self.cfg_info(f, "");
+        self.cfg_info_after(f);
         self.cfg_set(f, key, flags_text(flags));
         Ok(())
     }
@@ -765,5 +802,21 @@ mod tests {
         f.bar = 3;
         assert_eq!(f.nearest(-1, 0), Some(2));
         assert_eq!(f.bar_row(), TOP + 2 + 2);
+    }
+}
+
+#[cfg(test)]
+mod info_tests {
+    use super::info_lines;
+
+    #[test]
+    fn long_descriptions_wrap_between_words() {
+        assert_eq!(info_lines("short and sweet"), ["short and sweet"]);
+        let long = "A short form of the name, for a logo font too wide for the full name; the screen saver and art generators fall back to it.";
+        let l = info_lines(long);
+        assert_eq!(l.len(), 2);
+        assert!(l[0].chars().count() <= 72 && l[1].chars().count() <= 72);
+        assert!(!l[0].ends_with(' ') && !l[1].starts_with(' '));
+        assert_eq!(format!("{} {}", l[0], l[1]), long, "nothing lost when it fits two lines");
     }
 }

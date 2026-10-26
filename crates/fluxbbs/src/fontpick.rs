@@ -68,18 +68,13 @@ fn faces(root: &Path) -> Vec<Face> {
 }
 
 /// What the saver spells: the message if there is one, else the name;
-/// set in `font`, falling back to the short name when it's too wide for
-/// 80 columns. Returns the set word and the text it shows.
+/// set in `font`, falling back to the short name, then the super short
+/// one, where it's too wide for 80 columns. Returns the set word and the
+/// text it shows.
 fn preview_word(cfg: &Config, font: &crate::tdf::Font) -> ((Vec<crate::tdf::Cell>, u16, u16), String) {
     let msg = cfg.terminal.screensaver_message.trim();
     let text = if msg.is_empty() { cfg.bbs.name.clone() } else { msg.to_string() };
-    let set = font.set(&text);
-    let short = cfg.bbs.short_name.trim();
-    if set.1 > 80 && !short.is_empty() {
-        (font.set(short), short.to_string())
-    } else {
-        (set, text)
-    }
+    font.set_fitting(&cfg.bbs.fallbacks(&text), 80)
 }
 
 /// The SGR for a DOS foreground (0-15) and background (0-7).
@@ -123,7 +118,7 @@ impl Session {
             self.clear_screen();
             self.screen.write_bytes(b"\x1b[?25l");
             let mut out = String::new();
-            out.push_str("\x1b[1;1H\x1b[0;1;37m Screen saver font\x1b[0;37m  -  arrows pick, enter sets it, esc leaves it as it was");
+            out.push_str("\x1b[1;1H\x1b[0;1;37m Screen saver font\x1b[0;37m  -  the TheDraw face the saver spells its message in");
             for (r, i) in (top..(top + list_rows).min(total)).enumerate() {
                 let label = match i {
                     0 => "(none)                 the name in plain letters".to_string(),
@@ -143,7 +138,7 @@ impl Session {
             // The preview, under a rule.
             let rule_row = 3 + list_rows as u16;
             let prev_top = rule_row + 1;
-            let prev_rows = rows.saturating_sub(prev_top + 1);
+            let prev_rows = rows.saturating_sub(prev_top + 2);
             let mut note = String::new();
             if sel == 0 {
                 let msg = cfg.terminal.screensaver_message.trim();
@@ -184,7 +179,7 @@ impl Session {
                         self.screen.write_bytes(&bytes);
                         note = format!("{w}x{h}, shows \"{shows}\"");
                         if w > 80 {
-                            note.push_str(" - too wide, cut off (set a short name)");
+                            note.push_str(" - too wide, cut off (set a shorter short name)");
                         }
                     }
                     None => note.push_str("can't read that face"),
@@ -192,7 +187,8 @@ impl Session {
             }
             let rule = format!("\x1b[{rule_row};1H\x1b[0;1;30m{}\x1b[{rule_row};3H\x1b[0;37m preview: \x1b[0;1;37m{note} ", "\u{2500}".repeat(80));
             self.screen.write_bytes(&fluxbbs_term::cp437::encode(&rule));
-            self.screen.write_bytes(format!("\x1b[{rows};1H\x1b[0m").as_bytes());
+            let keys = " arrows pick a face    enter sets it    esc or q leaves it as it was";
+            self.screen.write_bytes(format!("\x1b[{rows};1H\x1b[0;1;30m{keys}\x1b[0m").as_bytes());
             self.flush().await?;
             let key = self.read_key().await?;
             match key {

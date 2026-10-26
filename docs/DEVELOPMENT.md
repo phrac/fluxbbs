@@ -53,11 +53,15 @@ All under `crates/fluxbbs/src/`.
 
 ## Tests
 
-    cargo test       # unit tests, plus the legacy readers once
-                     # tools/setup_host.sh has unpacked original/stock
+    cargo test --features full   # unit tests, plus the legacy readers once
+                                 # tools/setup_host.sh has unpacked original/stock
+    cargo test                   # the core board alone
+    cargo clippy --all-targets --features full
     cargo clippy --all-targets
 
-`cargo clippy --all-targets` must be clean. Don't run `cargo fmt`: the
+Both clippy runs must be clean: the core board and the full one
+([BUILDING.md](BUILDING.md) has the components, and a loop to check
+each on its own). Don't run `cargo fmt`: the
 code has never been rustfmt'd, and a format pass would rewrite every
 file.
 

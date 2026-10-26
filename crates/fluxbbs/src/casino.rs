@@ -15,108 +15,15 @@ use std::time::{Duration, Instant};
 
 use crate::config::{Casino, Prize};
 use crate::input::Key;
-use crate::pixels::{Canvas, Encoder, hash, mix, rgb, scale, smooth};
+use crate::pixels::{Canvas, hash, mix, rgb, scale, smooth};
 use crate::session::Session;
 
-/// The canvas: the whole width, rows 1 to 22.
-pub const W: usize = 80;
-pub const H: usize = 44;
 /// Rows under the canvas: the message line and the status line.
 pub const MSG_ROW: u16 = 23;
 pub const STATUS_ROW: u16 = 24;
 
-/// A color for text: 8-bit channels.
-pub type Ink = [u8; 3];
-
-pub fn shade(a: Ink, b: Ink, t: f32) -> Ink {
-    let t = t.clamp(0.0, 1.0);
-    [0, 1, 2].map(|i| (a[i] as f32 + (b[i] as f32 - a[i] as f32) * t) as u8)
-}
-
-pub fn painted(text: &str, color: Ink) -> Vec<(char, Ink)> {
-    text.chars().map(|c| (c, color)).collect()
-}
-
-/// What's on screen: the canvas, what the terminal has of it, and the
-/// clock the animations run by.
-pub struct Stage {
-    pub cv: Canvas,
-    pub enc: Encoder,
-    pub truecolor: bool,
-    /// Pacing by the terminal's answers, until it doesn't answer.
-    pub sync: bool,
-    pub clock: Instant,
-}
-
-impl Stage {
-    /// Seconds since the stage went up.
-    pub fn t(&self) -> f32 {
-        self.clock.elapsed().as_secs_f32()
-    }
-}
-
-/// The SGR for a text color.
-pub fn ink(out: &mut Vec<u8>, c: Ink, truecolor: bool) {
-    if truecolor {
-        out.extend(format!("\x1b[38;2;{};{};{}m", c[0], c[1], c[2]).as_bytes());
-    } else {
-        out.extend(format!("\x1b[38;5;{}m", crate::picture::xterm256(c)).as_bytes());
-    }
-}
-
-impl Session {
-    /// Clear the screen for a stage, cursor hidden.
-    pub(crate) fn stage_open(&mut self) -> Stage {
-        let truecolor = self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8;
-        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-        self.clear_screen();
-        self.screen.write_bytes(b"\x1b[?25l");
-        // Start counting afresh: nothing old is still owed.
-        self.cursor_asks = self.cursor_asks.min(self.cursor_reports);
-        Stage { cv: Canvas::new(W, H), enc: Encoder::new(truecolor, W, H), truecolor, sync: true, clock: Instant::now() }
-    }
-
-    pub(crate) fn stage_close(&mut self) {
-        self.screen.write_bytes(b"\x1b[0m\x1b[?25h");
-        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-        self.clear_screen();
-        self.full_screen_done();
-    }
-
-    /// Send what changed on the canvas; with `paced`, hold the next frame
-    /// until the terminal has shown this one.
-    pub(crate) async fn stage_show(&mut self, st: &mut Stage, paced: bool) -> io::Result<()> {
-        let out = st.enc.frame(&st.cv, 1);
-        if out.is_empty() {
-            return Ok(());
-        }
-        self.screen.write_bytes(&out);
-        if paced && st.sync {
-            let answering = self.cursor_reports > 0;
-            let wait = Duration::from_secs(if answering { 10 } else { 3 });
-            if !self.sync_output(wait, 1).await? && !answering {
-                st.sync = false;
-            }
-        }
-        Ok(())
-    }
-
-    /// A line of text centered on `row`, each character its own color.
-    pub(crate) fn stage_line(&mut self, row: u16, text: &[(char, Ink)], truecolor: bool) {
-        let text = &text[..text.len().min(78)];
-        let mut out = format!("\x1b[{row};1H\x1b[0m\x1b[K\x1b[{row};{}H", (80 - text.len()) / 2 + 1).into_bytes();
-        let mut last = None;
-        for &(ch, c) in text {
-            if last != Some(c) && ch != ' ' {
-                ink(&mut out, c, truecolor);
-                last = Some(c);
-            }
-            out.extend(fluxbbs_term::cp437::encode(&ch.to_string()));
-        }
-        out.extend(b"\x1b[0m");
-        self.screen.write_bytes(&out);
-    }
-}
+// The stage the games share lives in `pixels`.
+pub use crate::pixels::{H, Ink, Stage, W, ink, painted, shade};
 
 /// The caller's chips today, and what winnings have paid so far.
 #[derive(Clone, Copy, Default)]
@@ -204,20 +111,6 @@ impl Session {
         let mut p = self.purse(&cfg);
         p.played += chips;
         self.purse_save(&p);
-    }
-
-    /// The pause between frames of an animation waiting on the caller:
-    /// `busy` while they're playing, slower once they've left it alone a
-    /// while (less to send down a slow line).
-    pub(crate) fn idle_pause(&self, busy: u64) -> Duration {
-        let quiet = self.last_key.elapsed();
-        Duration::from_millis(if quiet > Duration::from_secs(60) {
-            2000
-        } else if quiet > Duration::from_secs(15) {
-            busy.max(500)
-        } else {
-            busy
-        })
     }
 
     fn casino_pay(&mut self, p: Prize) {
@@ -607,7 +500,7 @@ impl Session {
         let up = purse.chips.saturating_sub(cfg.daily_chips);
         let said = match self.cash_out(cfg, &mut purse) {
             Some(p) => {
-                let s = self.strings().fmt("CasinoCashOut", &[&up.to_string(), &self.casino_prize_text(p)]);
+                let s = self.strings().fmt("CasinoCashOut", &[&up.to_string(), &self.winnings_text(p)]);
                 Some(painted(&crate::editor::strip_colours(&s), [255, 215, 110]))
             }
             None if purse.chips < before => {
@@ -625,18 +518,6 @@ impl Session {
         Ok(said)
     }
 
-    /// "+20 points  +8 min", leaving out what's nothing.
-    pub(crate) fn casino_prize_text(&self, p: Prize) -> String {
-        let mut parts = Vec::new();
-        if p.points > 0 && self.state.config().files.use_file_points {
-            parts.push(format!("+{} points", p.points));
-        }
-        if p.minutes > 0 {
-            parts.push(format!("+{} min", p.minutes));
-        }
-        if parts.is_empty() { "nothing yet".into() } else { parts.join("  ") }
-    }
-
     fn lobby_status(&mut self, st: &Stage, purse: &Purse) {
         let mut out = format!("\x1b[{STATUS_ROW};1H\x1b[0m\x1b[K ").into_bytes();
         ink(&mut out, [200, 150, 210], st.truecolor);
@@ -647,7 +528,7 @@ impl Session {
             ink(&mut out, [200, 150, 210], st.truecolor);
             out.extend(b"   won today ");
             ink(&mut out, [255, 215, 110], st.truecolor);
-            out.extend(self.casino_prize_text(purse.paid).as_bytes());
+            out.extend(self.winnings_text(purse.paid).as_bytes());
         }
         out.extend(b"\x1b[0m");
         self.screen.write_bytes(&out);

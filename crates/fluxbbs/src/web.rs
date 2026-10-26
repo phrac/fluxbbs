@@ -309,7 +309,7 @@ fn file_list(state: &BbsState, html: bool) -> anyhow::Result<String> {
             let size = format!("{}k", f.size.div_ceil(1024));
             let plain = |l: &str| {
                 let l = crate::editor::strip_colours(l);
-                fluxbbs_term::cp437::decode(&crate::aichat::strip_escapes(&fluxbbs_term::cp437::encode(&l)))
+                fluxbbs_term::cp437::decode(&crate::editor::strip_escapes(&fluxbbs_term::cp437::encode(&l)))
             };
             let desc: Vec<String> = f.description.iter().map(|l| plain(l)).collect();
             let first = desc.first().cloned().unwrap_or_default();

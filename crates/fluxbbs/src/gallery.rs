@@ -449,7 +449,7 @@ impl Session {
                         Item::Folder { name, place, .. } => path.push((name.clone(), place.clone(), 0)),
                         Item::Art { name, sauce, src, .. } => {
                             // From the viewer, P plays and D downloads.
-                            let picked = if crate::pdf::is_pdf(name) {
+                            let picked = if is_pdf(name) {
                                 self.pdf_open(name, src, false).await?
                             } else if is_image(name) {
                                 self.gallery_picture(name, src).await?
@@ -476,7 +476,7 @@ impl Session {
                 Pick::Play(i) => {
                     path.last_mut().expect("root").2 = i;
                     if let Item::Art { src, name, .. } = &items[i] {
-                        if crate::pdf::is_pdf(name) {
+                        if is_pdf(name) {
                             if self.pdf_open(name, src, true).await? == Some('D') {
                                 self.gallery_download(&items[i]).await?;
                             }
@@ -696,7 +696,7 @@ impl Session {
                 }
                 match c {
                     "open" if !items.is_empty() => return Ok(Pick::Open(cur)),
-                    "play" if matches!(items.get(cur), Some(Item::Art { name, .. }) if is_art(name) || is_image(name) || crate::pdf::is_pdf(name)) => return Ok(Pick::Play(cur)),
+                    "play" if matches!(items.get(cur), Some(Item::Art { name, .. }) if is_art(name) || is_image(name) || is_pdf(name)) => return Ok(Pick::Play(cur)),
                     "play" => note = Some(self.strings().get("GalleryPlayWhat").to_string()),
                     "get" if items.get(cur).is_some_and(downloadable) => return Ok(Pick::Download(cur)),
                     "get" => note = Some(self.strings().get("GalleryNotFile").to_string()),
@@ -800,9 +800,17 @@ impl Session {
         }
     }
 
+    /// Without PDFs built in (`pdf`) there's no PDF to open; `is_pdf`
+    /// never says there is.
+    #[cfg(not(feature = "pdf"))]
+    async fn pdf_open(&mut self, _name: &str, _src: &Src, _pages: bool) -> io::Result<Option<char>> {
+        Ok(None)
+    }
+
     /// A PDF: its text (or with `pages`, its pages), switching between the
     /// two with P and T. D is passed back to download it. One inside an
     /// archive is copied out first (Poppler reads files).
+    #[cfg(feature = "pdf")]
     async fn pdf_open(&mut self, name: &str, src: &Src, mut pages: bool) -> io::Result<Option<char>> {
         let path = match src {
             Src::Disk(p) => p.clone(),
@@ -1166,6 +1174,18 @@ enum Pick {
     Open(usize),
     Play(usize),
     Download(usize),
+}
+
+/// A PDF, shown as one (with PDFs built in, `pdf`); without, it's just a
+/// file to download.
+fn is_pdf(name: &str) -> bool {
+    #[cfg(feature = "pdf")]
+    return crate::pdf::is_pdf(name);
+    #[cfg(not(feature = "pdf"))]
+    {
+        let _ = name;
+        false
+    }
 }
 
 #[cfg(test)]

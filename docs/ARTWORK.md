@@ -140,7 +140,12 @@ delay = 6.0
   of every face in every `.TDF` under the board (not under `files/`,
   `data/` and the like), with the saver's text set in the face under
   the bar; Enter sets both. Set in a face too wide for 80 columns, the
-  text falls back to the board's short name (`[bbs] short_name`).
+  text falls back to the board's short name (`[bbs] short_name`), then
+  its super short one. That's the digital rain; there's also a warp
+  starfield, with the message held in the middle as stars stream past,
+  and the demoscene fire, with the message hanging over flames in
+  half-block pixels (`screensaver_style`, `*C` field `P`; random
+  unless set, and callers can pick their own).
   Backspace on any lightbar menu
   starts it at once. Enter or Esc
   (`ScreenSaverExit` says so at the bottom) brings the menu back. Like
@@ -417,6 +422,7 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 | `~T?` | code's background (theme, gray, dim, blue, green, purple, none) | `~TG` |
 | `~U?` / `~V?` | the code and Markdown color themes (nord, dracula, one dark, monokai, classic) | none |
 | `~W?` | menus animating: on or off (new; plain-text key `v`) | none |
+| `~X?` | the screen saver: `board's`, `random`, `rain`, `stars` or `fire` (new; plain-text key `d`) | none |
 
 The second character is the field's key.
 

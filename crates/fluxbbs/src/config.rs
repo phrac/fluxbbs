@@ -71,6 +71,9 @@ pub struct Bbs {
     /// art generators and the screen saver fall back to this). Blank:
     /// always use the full name.
     pub short_name: String,
+    /// New: a last resort where even the short name won't fit; at most
+    /// two characters (more are cut off). Blank: none.
+    pub super_short_name: String,
     pub location: String,
     pub phone: String,
     pub sysop_alias: String,
@@ -774,9 +777,9 @@ impl Ftn {
                 Some("its name may only have letters, digits, - and _".to_string())
             } else if !n.address.trim().is_empty() && out.iter().any(|(o, why)| why.is_none() && !o.address.trim().is_empty() && o.name == n.name) {
                 Some("another network has that name".to_string())
-            } else if !n.address.trim().is_empty() && crate::ftn::Addr::parse(&n.address).is_none() {
+            } else if !n.address.trim().is_empty() && !ftn_address(&n.address) {
                 Some(format!("address {:?} isn't an FTN address", n.address))
-            } else if !n.address.trim().is_empty() && crate::ftn::Addr::parse(&n.hub).is_none() {
+            } else if !n.address.trim().is_empty() && !ftn_address(&n.hub) {
                 Some(format!("hub {:?} isn't an FTN address", n.hub))
             } else {
                 None
@@ -968,6 +971,9 @@ pub struct Terminal {
     /// board's name). Set in a font too wide for it, the saver falls
     /// back to `[bbs] short_name`.
     pub screensaver_message: String,
+    /// New: which screen saver: `rain`, `stars` or `fire`; `random` (or
+    /// blank) a different one each time. Callers can pick their own.
+    pub screensaver_style: String,
     /// New: milliseconds the picture flickers before it switches off at
     /// logoff (0: straight to the switch-off).
     pub logoff_flicker_ms: u64,
@@ -1368,11 +1374,31 @@ pub struct Level {
     pub bank_kb_withdraw: u16,
 }
 
+impl Bbs {
+    /// The super short name: its first two characters.
+    pub fn super_short(&self) -> String {
+        self.super_short_name.trim().chars().take(2).collect()
+    }
+
+    /// `text`, then the short name, then the super short name (those
+    /// set): what to try in turn where `text` won't fit.
+    pub fn fallbacks(&self, text: &str) -> Vec<String> {
+        let mut out = vec![text.to_string()];
+        for n in [self.short_name.trim().to_string(), self.super_short()] {
+            if !n.is_empty() && !out.contains(&n) {
+                out.push(n);
+            }
+        }
+        out
+    }
+}
+
 impl Default for Bbs {
     fn default() -> Self {
         Self {
             name: "flux/bbs".into(),
             short_name: String::new(),
+            super_short_name: String::new(),
             location: String::new(),
             phone: String::new(),
             sysop_alias: "SysOp".into(),
@@ -1434,6 +1460,7 @@ impl Default for Terminal {
             screensaver_font: String::new(),
             screensaver_face: String::new(),
             screensaver_message: String::new(),
+            screensaver_style: "random".into(),
             logoff_flicker_ms: 3500,
             glint_seconds: 12,
         }
@@ -1629,9 +1656,33 @@ fn renamed(dir: &Path, new: &str, old: &str) -> PathBuf {
 
 
 
+/// Does `s` read as an FTN address? Without echomail built in (`ftn`),
+/// any address is taken as given; nothing uses it.
+fn ftn_address(s: &str) -> bool {
+    #[cfg(feature = "ftn")]
+    return crate::ftn::Addr::parse(s).is_some();
+    #[cfg(not(feature = "ftn"))]
+    {
+        let _ = s;
+        true
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn names_fall_back_short_then_super_short() {
+        let mut b = Bbs { name: "disflux".into(), ..Bbs::default() };
+        assert_eq!(b.fallbacks("disflux"), ["disflux"]);
+        b.short_name = "FLUX".into();
+        b.super_short_name = "DFX".into();
+        assert_eq!(b.super_short(), "DF", "two characters at most");
+        assert_eq!(b.fallbacks("disflux"), ["disflux", "FLUX", "DF"]);
+        b.short_name.clear();
+        assert_eq!(b.fallbacks("hello"), ["hello", "DF"]);
+    }
 
     #[test]
     fn a_board_from_before_the_temple_went_still_loads() {

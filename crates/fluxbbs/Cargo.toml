@@ -8,12 +8,12 @@ anyhow = "1.0.104"
 argon2 = "0.6.0"
 chrono = "0.4.45"
 chrono-tz = "0.10.4"
-fluxbbs-dos = { path = "../fluxbbs-dos" }
+fluxbbs-dos = { path = "../fluxbbs-dos", optional = true }
 flate2 = "1.1.10"
 iniquity-legacy = { version = "0.1.0", path = "../iniquity-legacy" }
 fluxbbs-term = { version = "0.1.0", path = "../fluxbbs-term" }
 libc = "0.2.191"
-mlua = { version = "0.12.2", features = ["lua54", "vendored"] }
+mlua = { version = "0.12.2", features = ["lua54", "vendored"], optional = true }
 rand = "0.10.3"
 rusqlite = { version = "0.40.2", features = ["bundled", "chrono"] }
 russh = "0.64.1"
@@ -29,6 +29,39 @@ zip = { version = "9.0.4", default-features = false, features = ["deflate"] }
 zmodem2 = "0.7.3"
 image = { version = "0.25.10", default-features = false, features = ["gif", "png", "jpeg"] }
 futures-util = "0.3.34"
-md-5 = "0.10"
-hmac = "0.12"
-reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "stream"] }
+md-5 = { version = "0.10", optional = true }
+hmac = { version = "0.12", optional = true }
+reqwest = { version = "0.13.5", default-features = false, features = ["rustls", "json", "stream"], optional = true }
+
+# Optional components (docs/BUILDING.md). A plain `cargo build` is the
+# core board; `--features full` is everything, as disflux, the flagship
+# board, runs. A part left out answers its commands as one switched off
+# in *C Features, and its settings still load.
+[features]
+default = []
+full = ["doors", "effects", "screensavers", "games", "ai", "ftn", "meshcore", "pdf", "lua", "textfiles"]
+# DOS doors in the built-in DOS machine, external doors, and BBSLink.
+doors = ["dep:fluxbbs-dos", "dep:reqwest", "dep:md-5"]
+# Menus and screens that animate while they wait (.FX effects, glints),
+# and the TV switching off at logoff.
+effects = []
+# The screen savers (digital rain, starfield, fire) and their font picker.
+screensavers = ["effects"]
+# The games of the board's own.
+games = ["casino", "carrierlost", "tarot"]
+casino = []
+carrierlost = []
+# The tarot's readings come from the AI, so it brings `ai`.
+tarot = ["ai"]
+# AI chat, the AI on the message boards, and its memory of callers.
+ai = ["dep:reqwest"]
+# FidoNet-style echomail: packets, tossing, binkp.
+ftn = ["dep:md-5", "dep:hmac"]
+# The MeshCore radio bridge.
+meshcore = []
+# Showing PDFs (needs Poppler on the host).
+pdf = []
+# Lua scripts on menus and in screens.
+lua = ["dep:mlua"]
+# Importing the textfiles.com archive (`fluxbbs textfiles`).
+textfiles = ["dep:reqwest"]

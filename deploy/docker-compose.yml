@@ -11,9 +11,14 @@
 # [ftn] listen is set) on 24554. The status feed ([web],
 # listening on 0.0.0.0:8099 inside the container) is published on the
 # host's loopback only, for a web server there to pass through.
+# FEATURES picks the optional components built in (docs/BUILDING.md);
+# the default is all of them, as disflux, the flagship board, runs.
 services:
   fluxbbs:
-    build: ..
+    build:
+      context: ..
+      args:
+        FEATURES: ${FEATURES:-full}
     image: fluxbbs
     container_name: fluxbbs
     restart: unless-stopped

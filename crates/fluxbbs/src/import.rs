@@ -749,6 +749,7 @@ fn convert_user(l: &LegacyUser) -> User {
         code_theme: String::new(),
         md_theme: String::new(),
         animate: String::new(),
+        saver: String::new(),
         last_call_at: None,
     };
     // Iniquity upper-cased passwords; `check_password` accepts any case.

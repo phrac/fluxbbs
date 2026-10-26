@@ -131,6 +131,8 @@ impl Session {
                 if !param.is_empty() {
                     self.show_line(param).await?;
                 }
+                // New: the picture switching off, with the effects built in.
+                #[cfg(feature = "effects")]
                 self.tv_off().await?;
                 self.hangup = true;
             }
@@ -215,10 +217,15 @@ impl Session {
             "F+" => self.flag_file(param).await?,
             "FB" => self.batch_editor().await?,
             "FI" => self.file_info_cmd(param).await?,
+            #[cfg(feature = "ai")]
             "AI" => self.ai_chat().await?,
+            #[cfg(feature = "tarot")]
             "AT" => self.tarot(param).await?,
+            #[cfg(feature = "casino")]
             "AL" => self.slots(param).await?,
+            #[cfg(feature = "casino")]
             "AC" => self.casino(param).await?,
+            #[cfg(feature = "carrierlost")]
             "AP" => self.carrier_lost(param).await?,
             "MF" => self.top_fillers().await?,
             "FW" => self.file_browser(param).await?,
@@ -267,6 +274,7 @@ impl Session {
             "UT" => self.choose_theme().await?,
             "UK" => self.ssh_keys_edit().await?,
             "UF" => self.finger(param).await?,
+            #[cfg(feature = "lua")]
             "-X" => Box::pin(self.script_command(param)).await?,
             "!D" => self.bank_transaction(crate::timebank::Unit::Minutes, true).await?,
             "!W" => self.bank_transaction(crate::timebank::Unit::Minutes, false).await?,
@@ -275,8 +283,10 @@ impl Session {
             "!V" => self.bank_stats().await?,
             "QD" => self.qwk_download().await?,
             "QU" => self.qwk_upload().await?,
+            #[cfg(feature = "doors")]
             "D0" | "D1" | "D2" | "D3" | "D4" | "D7" | "DZ" => self.door_execute(param, code.chars().nth(1).unwrap()).await?,
             // New: a BBSLink door, by its code.
+            #[cfg(feature = "doors")]
             "DB" => self.bbslink_door(param).await?,
             "IN" => self.infoforms(false).await?,
             "IM" => self.infoforms(true).await?,

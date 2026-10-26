@@ -876,6 +876,7 @@ fn markdown_line(raw: &str, width: usize, fence: &mut Option<Option<Lang>>, code
 
 // ---- streamed Markdown (AI chat) ---------------------------------------------
 
+#[cfg(feature = "ai")]
 /// What a stream gives to write: text in a style, or a new line.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Piece {
@@ -883,6 +884,7 @@ pub enum Piece {
     Newline,
 }
 
+#[cfg(feature = "ai")]
 /// Markdown arriving a piece at a time, written as it comes: a line's
 /// kind is decided from its first characters, words go out as they end,
 /// and a code block goes a line at a time.
@@ -902,6 +904,7 @@ pub struct MdStream {
     indent: Line,
 }
 
+#[cfg(feature = "ai")]
 impl MdStream {
     /// `col`: where the first line starts (after the speaker's name).
     pub fn new(width: usize, col: usize) -> Self {
@@ -1262,6 +1265,7 @@ mod tests {
         assert!(render_markdown("an *it* and **bo**", 60)[0].iter().any(|s| s.text == "it" && s.ink == Ink::Italic));
     }
 
+    #[cfg(feature = "ai")]
     #[test]
     fn long_lines_wrap_with_their_indent() {
         let lines = render_markdown(&format!("- {}", "word ".repeat(20)), 30);
@@ -1270,6 +1274,7 @@ mod tests {
         assert!(lines[1].iter().map(|s| s.text.as_str()).collect::<String>().starts_with("    word"));
     }
 
+    #[cfg(feature = "ai")]
     fn streamed(chunks: &[&str]) -> String {
         let mut m = MdStream::new(40, 0);
         let mut out = Vec::new();
@@ -1285,6 +1290,7 @@ mod tests {
             .collect()
     }
 
+    #[cfg(feature = "ai")]
     #[test]
     fn a_stream_comes_out_as_the_whole_would() {
         let s = streamed(&["## He", "ading\nSome **bo", "ld** te", "xt.\n- it", "em one\n```", "c\nint x", ";\n```\nAfter."]);

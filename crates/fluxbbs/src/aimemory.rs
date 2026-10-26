@@ -9,11 +9,14 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
+#[cfg(feature = "ai")]
 use std::time::Duration;
 
+#[cfg(feature = "ai")]
 use serde_json::{Value, json};
 
 use crate::BbsState;
+#[cfg(feature = "ai")]
 use crate::config::Ai;
 use crate::user::User;
 
@@ -22,8 +25,11 @@ use crate::user::User;
 pub const BOT_FLAG: char = 'B';
 
 /// The longest a memory gets.
+#[cfg(feature = "ai")]
 const MAX_CHARS: usize = 600;
 
+// Kept on every call; only the AI (`ai`) reads it.
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
 /// What a caller did this call, as much as the memory needs.
 #[derive(Debug, Default, Clone)]
 pub struct Seen {
@@ -36,6 +42,7 @@ pub struct Seen {
     pub asked: Vec<String>,
 }
 
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
 impl Seen {
     pub fn is_empty(&self) -> bool {
         self.read.is_empty() && self.posted.is_empty() && self.downloads.is_empty() && self.doors.is_empty() && self.asked.is_empty()
@@ -77,6 +84,7 @@ pub fn is_bot(u: &User) -> bool {
 
 /// After a call: fold what `seen` says into `u`'s memory, in the
 /// background (the caller has gone; nobody waits on it).
+#[cfg(feature = "ai")]
 pub fn remember(state: Arc<BbsState>, u: User, seen: Seen) {
     let cfg = state.config().ai.clone();
     if !cfg.enabled || u.id == 0 || is_bot(&u) || seen.is_empty() {
@@ -96,6 +104,7 @@ pub fn remember(state: Arc<BbsState>, u: User, seen: Seen) {
     });
 }
 
+#[cfg(feature = "ai")]
 async fn updated(cfg: &Ai, u: &User, seen: &Seen) -> anyhow::Result<String> {
     let system = "You keep a short memory of a caller to a bulletin board system, so the board's AI can suit them next time \
         (what to point out, what they'd enjoy). Write at most five short lines of plain text about their interests on this board: \
@@ -119,6 +128,7 @@ async fn updated(cfg: &Ai, u: &User, seen: &Seen) -> anyhow::Result<String> {
 }
 
 /// One answer from the model, not streamed, without its thinking.
+#[cfg(feature = "ai")]
 pub async fn complete(cfg: &Ai, system: &str, prompt: &str) -> anyhow::Result<String> {
     let client = reqwest::Client::builder().timeout(Duration::from_secs(cfg.timeout_seconds.max(10))).build()?;
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
@@ -145,6 +155,7 @@ pub async fn complete(cfg: &Ai, system: &str, prompt: &str) -> anyhow::Result<St
 }
 
 /// A reply less any `<think>...</think>` part.
+#[cfg(feature = "ai")]
 fn without_thinking(s: &str) -> String {
     let mut out = s.to_string();
     while let (Some(a), Some(b)) = (out.find("<think>"), out.find("</think>")) {
@@ -155,6 +166,29 @@ fn without_thinking(s: &str) -> String {
     }
     out.trim().to_string()
 }
+
+impl crate::session::Session {
+    /// Count a message against the day's limit; false if it's used up.
+    #[cfg_attr(not(feature = "ai"), allow(dead_code))]
+    pub(crate) fn ai_count(&mut self, limit: u32) -> bool {
+        if limit == 0 || self.is_sysop() {
+            return true;
+        }
+        let key = (self.user.id, crate::clock::now().date_naive());
+        let mut used = self.state.ai_usage.lock().unwrap();
+        used.retain(|(_, day), _| *day == key.1);
+        let n = used.entry(key).or_insert(0);
+        if *n >= limit {
+            return false;
+        }
+        *n += 1;
+        true
+    }
+}
+
+/// Without AI built in (`ai`), there's no memory to keep.
+#[cfg(not(feature = "ai"))]
+pub fn remember(_state: Arc<BbsState>, _u: User, _seen: Seen) {}
 
 #[cfg(test)]
 mod tests {
@@ -169,6 +203,7 @@ mod tests {
         s.asked("how do I download?");
         let d = s.describe();
         assert!(d.contains("read in: hack/phreak") && d.contains("art scene (2)") && d.contains("how do I download?"));
+        #[cfg(feature = "ai")]
         assert_eq!(without_thinking("<think>hmm</think>Likes ANSI art."), "Likes ANSI art.");
     }
 }

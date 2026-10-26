@@ -737,8 +737,10 @@ impl Session {
     // ---- user configuration ----------------------------------------------------
 
     /// `userConfiguration` (`UC`). USERCFG.ANS marks each field with
-    /// `~XY`: X is the field (A password .. O zip code), Y the key that
-    /// edits it. `~**` is where the command key is read.
+    /// `~XY`: X is the field (A password .. O zip code; new: P SSH keys,
+    /// Q the profile, R time zone, S text mode, T-V code and Markdown
+    /// colors, W animations, X the screen saver), Y the key that edits
+    /// it. `~**` is where the command key is read.
     pub async fn user_config(&mut self) -> io::Result<()> {
         self.user_config_screen("USERCFG").await
     }
@@ -853,6 +855,11 @@ impl Session {
             'V' => crate::markup::theme(&u.md_theme).name.into(),
             // New: menus animating, or still.
             'W' => if u.animate == "off" { "off" } else { "on" }.into(),
+            // New: their screen saver, or the board's.
+            'X' => match crate::sysconfig::SAVERS.iter().find(|s| s.0 == u.saver) {
+                Some(s) => s.0.into(),
+                None => "board's".into(),
+            },
             // New: plain text, ANSI, or as a bot or not (flag B).
             'S' => {
                 let on = crate::plain::wants_plain(&u.text_mode, crate::aimemory::is_bot(u));
@@ -911,6 +918,12 @@ impl Session {
                 self.apply_text_mode();
             }
             'W' => self.user.animate = if self.user.animate == "off" { String::new() } else { "off".into() },
+            // The board's, then each saver in turn, then the board's again.
+            'X' => {
+                let names: Vec<&str> = std::iter::once("").chain(crate::sysconfig::SAVERS.iter().map(|s| s.0)).collect();
+                let at = names.iter().position(|n| *n == self.user.saver).unwrap_or(0);
+                self.user.saver = names[(at + 1) % names.len()].into();
+            }
             'H' => self.user.yes_no_bars = !self.user.yes_no_bars,
             'I' => self.user.expert = !self.user.expert,
             'J' => self.user.hot_keys = !self.user.hot_keys,
@@ -998,6 +1011,7 @@ impl Session {
             ('U', 'R', "Code theme"),
             ('V', 'M', "Markdown theme"),
             ('W', 'V', "Animations"),
+            ('X', 'D', "Screen saver"),
         ];
         loop {
             self.newline();
@@ -1020,7 +1034,7 @@ impl Session {
             self.newline();
             let Some(c) = key.upper().filter(|_| !matches!(key, Key::Enter | Key::Esc)) else { return Ok(()) };
             if let Some(&(f, _, name)) = items.iter().find(|(_, k, _)| *k == c) {
-                if !"AHIJKLMNRSTUV".contains(f) {
+                if !"AHIJKLMNRSTUVWX".contains(f) {
                     self.show(&format!("|U1{name}|U2: |U3")).await?;
                 }
                 self.edit_user_field(f).await?;

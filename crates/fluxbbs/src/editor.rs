@@ -952,6 +952,24 @@ impl Session {
     }
 }
 
+/// Text without its ANSI escape sequences (which take no room).
+pub(crate) fn strip_escapes(b: &[u8]) -> Vec<u8> {
+    let mut out = Vec::new();
+    let mut i = 0;
+    while i < b.len() {
+        if b[i] == 0x1b && b.get(i + 1) == Some(&b'[') {
+            i += 2;
+            while i < b.len() && !(0x40..=0x7e).contains(&b[i]) {
+                i += 1;
+            }
+        } else {
+            out.push(b[i]);
+        }
+        i += 1;
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

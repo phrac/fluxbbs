@@ -20,7 +20,7 @@ You need `cargo` and `unzip`. Showing PDFs also needs Poppler
 (`poppler-utils`).
 
     tools/setup_host.sh                      # first time: stock data, build
-    cargo run --release                      # serves fluxbbs.toml
+    cargo run --release --features full      # serves fluxbbs.toml
     ssh -p 2222 anyname@localhost            # UTF-8 terminal
     syncterm ssh://anyname@localhost:2222    # CP437 BBS terminal
     syncterm telnet://localhost:2323         # plain telnet
@@ -32,12 +32,17 @@ You need `cargo` and `unzip`. Showing PDFs also needs Poppler
   Neither is in git.
 - Boards from before the rename keep `iniquity.toml` and
   `data/iniquity.db`, and still work.
+- Doors, the games, animated menus, screen savers, AI chat, echomail,
+  MeshCore, PDFs and Lua are optional components: a plain `cargo
+  build` is the core board, `--features full` everything.
+  [BUILDING.md](docs/BUILDING.md) lists them and how to pick.
 
 ## In a container
 
     docker compose -f deploy/docker-compose.yml up -d --build
 
-The image holds the server and the stock files. Your board directory
+The image holds the server, built with every optional component
+(`FEATURES`; [BUILDING.md](docs/BUILDING.md)), and the stock files. Your board directory
 (`BOARD`, default `~/code/disflux_bbs`) is mounted beside them. SSH is
 on port 2222 and telnet on 23. Logs are in `docker logs fluxbbs`.
 [SYSOP.md](docs/SYSOP.md#running-in-a-container) has the details.
@@ -113,6 +118,7 @@ Everything in detail: [docs/FEATURES.md](docs/FEATURES.md).
 | [CODES.md](docs/CODES.md) | Display codes |
 | [ARTWORK.md](docs/ARTWORK.md) | Screens to replace with your own art |
 | [AGENTS.md](docs/AGENTS.md) | the guide for an AI agent calling in as the SysOp's assistant (setting one up is in SYSOP.md) |
+| [BUILDING.md](docs/BUILDING.md) | The core board and its optional components, and how to build either |
 | [DEVELOPMENT.md](docs/DEVELOPMENT.md) | Code layout and tests |
 
 ## Status

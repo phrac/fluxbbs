@@ -60,6 +60,10 @@ const fn set(key: char, label: &'static str, len: usize, info: &'static str, kin
 const TEXT: Field = Field::TEXT;
 const ACS: Field = Field::LOWER;
 
+/// The screen savers, by name in the TOML and as shown.
+pub(crate) const SAVERS: [(&str, &str); 4] = [("random", "Random"), ("rain", "Digital rain"), ("stars", "Starfield"), ("fire", "Fire")];
+const SAVER_LABELS: [&str; 4] = ["Random", "Digital rain", "Starfield", "Fire"];
+
 const CHARSETS: [&str; 3] = ["Auto (by TERM)", "CP437 always", "UTF-8 always"];
 const SUMMARY_AT: [&str; 3] = ["Off", "First", "Last"];
 const ALIAS_FORMATS: [&str; 8] =
@@ -85,14 +89,15 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
     vec![
         ("Main BBS Configuration", false, vec![
             set('A', "BBS name", 40, "Name of this BBS.", Text(|c| &mut c.bbs.name, TEXT)),
-            set('I', "Short name", 20, "A short form of the name, for a logo font too wide for the full name (the art generators and screen saver fall back to it). Blank: always the full name.", Text(|c| &mut c.bbs.short_name, TEXT.max(20))),
+            set('I', "Short name", 20, "Short form of the board's name, used where a logo font is too wide for the full name. Blank: none.", Text(|c| &mut c.bbs.short_name, TEXT.max(20))),
+            set('K', "Super short name", 2, "Two characters at most, used where even the short name is too wide. Blank: none.", Text(|c| &mut c.bbs.super_short_name, TEXT.max(2))),
             set('B', "Location", 40, "Where the BBS is.", Text(|c| &mut c.bbs.location, TEXT)),
             set('C', "Address", 40, "How to reach it (host, or a phone number).", Text(|c| &mut c.bbs.phone, TEXT)),
             set('D', "SysOp alias", 36, "The SysOp's handle.", Text(|c| &mut c.bbs.sysop_alias, TEXT)),
             set('E', "SysOp name", 36, "The SysOp's real name.", Text(|c| &mut c.bbs.sysop_name, TEXT)),
             set('F', "Max nodes", 3, "Callers online at once (takes effect on restart).", Num(|c| c.bbs.max_nodes as u64, |c, v| c.bbs.max_nodes = v as u16, 1, 250)),
             set('G', "Idle timeout", 6, "Disconnect after this many idle seconds (0 = never).", Num(|c| c.bbs.inactivity_seconds, |c, v| c.bbs.inactivity_seconds = v, 0, 86_400)),
-            set('J', "No-idle ACS", 20, "Callers matching this ACS are never timed out for being idle (e.g. FX for flag X, or s255 for SysOps). Blank: applies to all.", Text(|c| &mut c.bbs.idle_exempt_acs, ACS)),
+            set('J', "No-idle ACS", 20, "Callers matching this ACS never time out when idle (FX: users with flag X; s255: SysOps). Blank: no one.", Text(|c| &mut c.bbs.idle_exempt_acs, ACS)),
             set('H', "Time zone", 32, "Zone the board keeps time in (America/Chicago, EST, UTC-6); blank for the host's clock.", Text(|c| &mut c.bbs.time_zone, TEXT)),
         ]),
         ("SSH, Telnet and Terminal", true, vec![
@@ -109,11 +114,12 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('G', "Telnet", 3, "Also accept plain (unencrypted) telnet? (restart)", Bool(|c| &mut c.telnet.enabled)),
             set('H', "Telnet listen", 40, "Address and port for telnet, e.g. 0.0.0.0:2323 (restart).", Text(|c| &mut c.telnet.listen, TEXT)),
             set('I', "Screen saver", 5, "Seconds idle on a menu before the screen saver (0 = none); for callers whose menus animate.", Num(|c| c.terminal.screensaver_seconds, |c, v| c.terminal.screensaver_seconds = v, 0, 86_400)),
-            set('K', "Saver font", 40, "The TheDraw font (.TDF, relative to the board) the saver spells its message in; pick from a list with a preview. Blank: plain letters.", SaverFont(false)),
-            set('L', "Saver face", 12, "The face in that file (blank: the first); picked with the font.", SaverFont(true)),
+            set('K', "Saver font", 40, "The TheDraw font the screen saver spells its message in; opens a list of the board's fonts with previews. Blank: plain letters.", SaverFont(false)),
+            set('L', "Saver face", 12, "The face within that font file, picked from the same list as the font.", SaverFont(true)),
             set('M', "Logoff flicker", 5, "Milliseconds the picture flickers before it switches off at logoff (0 = none); the TvOffLater string shows after.", Num(|c| c.terminal.logoff_flicker_ms, |c, v| c.terminal.logoff_flicker_ms = v, 0, 60_000)),
             set('N', "Glint seconds", 4, "Seconds between a menu's glints; every effect is paced to it, as the menus time them for 10 (0 = as they say).", Num(|c| c.terminal.glint_seconds, |c, v| c.terminal.glint_seconds = v, 0, 3600)),
-            set('O', "Saver message", 40, "What the screen saver spells out of the rain (blank: the board's name); in a font too wide for it, falls back to the short name.", Text(|c| &mut c.terminal.screensaver_message, TEXT)),
+            set('O', "Saver message", 40, "What the screen saver spells out of the rain. Blank: the board's name.", Text(|c| &mut c.terminal.screensaver_message, TEXT)),
+            set('P', "Saver style", 14, "Which screen saver callers get unless they pick their own: digital rain, a starfield, fire, or a different one each time.", Choice(|c| SAVERS.iter().position(|s| s.0 == c.terminal.screensaver_style).unwrap_or(0), |c, v| c.terminal.screensaver_style = SAVERS[v].0.into(), &SAVER_LABELS)),
             set('J', "256-color TERMs", 50, "CP437 terminals with 256 colors but not 24-bit: sent the nearest of the 256.", List(|c| &mut c.terminal.palette256_terms)),
         ]),
         ("Access and Logon", false, vec![
@@ -633,6 +639,8 @@ impl Session {
     async fn config_section(&mut self, title: &str, settings: &[Setting], cfg: &mut Config) -> io::Result<()> {
         let mut f = Form::new(title);
         f.value_col(24);
+        // New: the highlighted setting's description shows as the bar moves.
+        f.hints();
         for s in settings {
             f.item(s.key, s.label, s.len, shown(&s.kind, cfg), s.info);
         }
@@ -685,13 +693,15 @@ impl Session {
                     put(cfg, pick);
                 }
                 Kind::SaverFont(face) => {
-                    if self.plain() {
-                        // No preview without ANSI: typed, as before.
+                    if self.plain() || !cfg!(feature = "screensavers") {
+                        // No preview without ANSI (or the screen savers
+                        // built in): typed, as before.
                         let field = if *face { TEXT.max(12) } else { TEXT };
                         if let Some(v) = self.cfg_text(&mut f, key, field).await? {
                             if *face { cfg.terminal.screensaver_face = v } else { cfg.terminal.screensaver_font = v }
                         }
                     } else {
+                        #[cfg(feature = "screensavers")]
                         self.saver_font_pick(cfg).await?;
                         for s in settings.iter().filter(|s| matches!(s.kind, Kind::SaverFont(_))) {
                             f.set(s.key, shown(&s.kind, cfg));

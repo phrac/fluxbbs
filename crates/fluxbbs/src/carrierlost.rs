@@ -5,7 +5,7 @@
 //! fence your bytes for file points and a place on the board, or let the
 //! trace reach 100 and lose the lot till tomorrow.
 //!
-//! It plays on the casino's pixel stage (`pixels`, `casino::Stage`): a
+//! It plays on the stage the games share (`pixels::Stage`): a
 //! CRT with a tuning track and bobbing signal columns, drawn in
 //! `carrierart.rs`. No typed commands and no AI: it's a reflex game, all
 //! period make-believe.
@@ -19,7 +19,7 @@ use rand::RngExt;
 use rusqlite::{Connection, OptionalExtension, params};
 
 use crate::carrierart::{self, Kind};
-use crate::casino::{Ink, Stage, ink, painted};
+use crate::pixels::{Ink, Stage, ink, painted};
 use crate::config::CarrierLost as Cfg;
 use crate::config::Prize;
 use crate::input::Key;
@@ -522,7 +522,7 @@ impl Session {
             tracing::error!("carrier: scoring: {e}");
         }
         let prize = self.cl_pay(p, run.haul);
-        let pt = self.casino_prize_text(prize);
+        let pt = self.winnings_text(prize);
         self.cl_say(st, "ClBanked", &[&run.haul.to_string(), &pt], BANK);
         self.cl_status(st, p, run.haul, run.trace);
         self.cl_anykey(st).await
@@ -740,7 +740,7 @@ impl Session {
         let at = crate::clock::now().naive_local().format("%Y-%m-%d %H:%M").to_string();
         let _ = self.state.carrier.add_score(&self.user.handle, haul, &at);
         let prize = self.cl_pay(p, haul);
-        let pt = self.casino_prize_text(prize);
+        let pt = self.winnings_text(prize);
         self.show_line(&self.strings().fmt("ClBanked", &[&haul.to_string(), &pt])).await
     }
 }

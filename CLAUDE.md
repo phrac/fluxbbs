@@ -108,8 +108,15 @@ git: copy `data/` and `files/` across if the board should move with you.
 
 ## Conventions
 
-- `cargo clippy --all-targets` must be clean. **Don't run `cargo fmt`**: the
+- `cargo clippy --all-targets` must be clean, both for the core board and
+  with `--features full`. **Don't run `cargo fmt`**: the
   code has never been rustfmt'd, and a format pass would rewrite every file.
+- Doors, the games, effects, screen savers, AI, FTN, MeshCore, PDFs, Lua
+  and the textfiles importer are optional components (Cargo features;
+  docs/BUILDING.md). A plain build is the core; disflux, the flagship,
+  runs `full` (the compose file and `tools/setup_host.sh` build it).
+  Keep new optional work behind a feature, with a stand-in where the
+  core calls into it, and check the core still builds on its own.
 - Comments are sparse and name the original procedure in backticks
   (`/// \`nodeChat\` (\`XC\`): ...`).
 - Live-editable settings follow one pattern: `BbsState` holds
@@ -126,12 +133,14 @@ git: copy `data/` and `files/` across if the board should move with you.
 
 ## Testing
 
-    cargo test
-    cargo test   # includes the legacy readers once original/stock exists
+    cargo test --features full   # includes the legacy readers once original/stock exists
+    cargo test                   # the core board alone
+    cargo clippy --all-targets --features full
     cargo clippy --all-targets
 
-Test features **live** as well: run the server (`cargo build`, then
-`./target/debug/fluxbbs` from the repo root; logs to stderr) and drive it
+Test features **live** as well: run the server (`cargo build --features
+full`, then `./target/debug/fluxbbs` from the repo root; logs to stderr)
+and drive it
 with the scripted callers in `tools/`:
 
     python3 tools/drive_ssh.py sysop syncterm 'in order=>@solve' \
@@ -145,8 +154,9 @@ none, not even `~/.ssh`'s), and `SSH_PASSWORD=1` uses password auth
 (answer ssh's `password:` prompt in a step). For uploads without lrzsz, `cargo build --release --examples`
 gives `target/release/examples/zsend FILE...`, a Zmodem sender on the
 same library (`'(?i)initiate=>!/abs/path/zsend a.zip'`, with `XFER_DIR`
-as its working directory). Remember `cargo build --release` for the
-server itself: `--examples` alone leaves a stale binary.
+as its working directory). Remember `cargo build --release --features
+full` for the server itself: `--examples` alone leaves a stale binary,
+and a plain build leaves out the optional components.
 
 Each step is `regex=>keys`: wait for the regex in the de-ANSI'd output, then
 send. `CPR=1` answers cursor position requests as a terminal does and

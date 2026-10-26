@@ -120,6 +120,23 @@ impl Font {
     }
 }
 
+impl Font {
+    /// The first of `texts` that sets no wider than `max` columns, and
+    /// which it was; the last of them (too wide, to be cut off) if none
+    /// fits.
+    pub fn set_fitting(&self, texts: &[String], max: u16) -> ((Vec<Cell>, u16, u16), String) {
+        let mut last = None;
+        for t in texts {
+            let set = self.set(t);
+            if set.1 <= max {
+                return (set, t.clone());
+            }
+            last = Some((set, t.clone()));
+        }
+        last.unwrap_or_else(|| ((Vec::new(), 0, 0), String::new()))
+    }
+}
+
 /// The DOS palette as RGB, by attribute color 0-15.
 pub fn rgb(color: u8) -> [u8; 3] {
     const PALETTE: [[u8; 3]; 16] = [

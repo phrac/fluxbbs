@@ -8,18 +8,23 @@
 #     docker run -v /path/to/board:/srv/board -w /srv/board \
 #         -p 2222:2222 -p 23:2323 fluxbbs
 #
-# deploy/docker-compose.yml does this for one board.
+# That's the core board. FEATURES picks optional components
+# (docs/BUILDING.md), e.g. --build-arg FEATURES=full for all of them,
+# or FEATURES="doors games effects". deploy/docker-compose.yml does
+# this for one board, with everything on.
 
 FROM rust:1-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY crates crates
-RUN cargo build --release -p fluxbbs \
+ARG FEATURES=""
+RUN cargo build --release -p fluxbbs ${FEATURES:+--features "$FEATURES"} \
     && strip target/release/fluxbbs
 
 FROM debian:bookworm-slim
-# CA certificates for HTTPS (the AI chat and web search clients);
-# Poppler's tools to show PDFs (pdftotext, pdftoppm, pdfinfo).
+# CA certificates for HTTPS (the AI chat, BBSLink and the textfiles
+# importer); Poppler's tools to show PDFs (pdftotext, pdftoppm,
+# pdfinfo), with the `pdf` component.
 RUN apt-get update \
     && apt-get install -y --no-install-recommends ca-certificates poppler-utils \
     && rm -rf /var/lib/apt/lists/* \

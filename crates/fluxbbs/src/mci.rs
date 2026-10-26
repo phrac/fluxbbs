@@ -262,6 +262,9 @@ impl Session {
             // 2.20: minutes in the time bank.
             b"TB" => u.bank_time.to_string(),
             // New: tarot readings and fortunes left today (∞: no limit).
+            #[cfg(not(feature = "tarot"))]
+            b"TR" | b"TF" => "0".into(),
+            #[cfg(feature = "tarot")]
             b"TR" | b"TF" => {
                 let ai = &self.state.config().ai;
                 let (kind, limit) = if code == *b"TR" { ("tarot", ai.tarot_daily) } else { ("fortune", ai.fortune_daily) };

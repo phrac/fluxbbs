@@ -107,6 +107,9 @@ pub struct User {
     pub md_theme: String,
     /// New: `off` stops menus animating; blank, they do.
     pub animate: String,
+    /// New: their screen saver (`rain`, `stars`, `fire`, `random`);
+    /// blank for the board's.
+    pub saver: String,
     /// New: the time zone times are shown to them in (an IANA name or
     /// an offset, as `clock::Zone::parse` reads it); blank for the board's.
     pub time_zone: String,
@@ -199,6 +202,7 @@ impl Default for User {
             code_theme: String::new(),
             md_theme: String::new(),
             animate: String::new(),
+            saver: String::new(),
             time_zone: String::new(),
             thread_sort: String::new(),
             area_sort: String::new(),
@@ -309,6 +313,7 @@ impl User {
                 code_theme,
                 md_theme,
                 animate,
+                saver,
             ],
             [
                 total_calls,
@@ -400,6 +405,7 @@ impl User {
                 code_theme,
                 md_theme,
                 animate,
+                saver,
                             total_calls,
                 calls_today,
                 time_today,

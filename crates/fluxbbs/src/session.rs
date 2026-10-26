@@ -177,6 +177,7 @@ pub struct Session {
     /// follow a lightbar menu (MATRIX) rather than scrolling it away.
     pub login_line: Option<u16>,
     /// Scripts running inside scripts (`%!` in a string a script shows).
+    #[cfg(feature = "lua")]
     pub(crate) script_depth: u8,
     /// Email tags for this call: what new email is tagged with (`E/`),
     /// and, when `use_tag` is on (`E+`), the only tag read (`E\`).
@@ -191,10 +192,13 @@ pub struct Session {
     /// Drawing the STOCK screen for `|SA`.
     including: bool,
     /// The AI chat's help bar, redrawn as the chat scrolls.
+    #[cfg(feature = "ai")]
     pub(crate) ai_bar: String,
     /// The colour the AI chat's text is in, to resume after the bar.
+    #[cfg(feature = "ai")]
     pub(crate) ai_ink: String,
     /// New: the style AI chat's text is in now (`markup.rs`).
+    #[cfg(feature = "ai")]
     pub(crate) ai_style: Option<(crate::markup::Ink, bool)>,
     /// New: a one-line note for the help line of the next list or menu
     /// (`Session::note`).
@@ -203,10 +207,13 @@ pub struct Session {
     /// empty answer isn't an Enter).
     pub(crate) escaped: bool,
     /// The context the AI conversation has used, for the bar (`AiContext`).
+    #[cfg(feature = "ai")]
     pub(crate) ai_ctx: String,
     /// The chat's rows under the header, kept to redraw them (new).
+    #[cfg(feature = "ai")]
     pub(crate) ai_win: Option<crate::aichat::AiWindow>,
     /// New: the chat screen's effects (AICHAT.FX), run while it waits.
+    #[cfg(feature = "ai")]
     pub(crate) ai_amb: Option<crate::ambient::Ambient>,
     /// New: the line the editor opens with in place of a hint (once).
     pub(crate) editor_note: Option<String>,
@@ -416,6 +423,7 @@ impl Session {
             nonstop: false,
             test_screen: false,
             login_line: None,
+            #[cfg(feature = "lua")]
             script_depth: 0,
             email_tag: 0,
             opened_areas: Default::default(),
@@ -423,13 +431,19 @@ impl Session {
             use_tag: false,
             pages: 0,
             including: false,
+            #[cfg(feature = "ai")]
             ai_bar: String::new(),
+            #[cfg(feature = "ai")]
             ai_ink: String::new(),
+            #[cfg(feature = "ai")]
             ai_style: None,
             note: None,
             escaped: false,
+            #[cfg(feature = "ai")]
             ai_ctx: String::new(),
+            #[cfg(feature = "ai")]
             ai_win: None,
+            #[cfg(feature = "ai")]
             ai_amb: None,
             editor_note: None,
             seen: Default::default(),
@@ -600,9 +614,16 @@ impl Session {
             self.show_file(file.trim()).await?;
             return Ok(());
         }
-        // `%!name args`: run a script instead (`iplExecute`).
+        // `%!name args`: run a script instead (`iplExecute`); without
+        // scripts built in (`lua`), nothing.
         if let Some(cmd) = s.strip_prefix("%!") {
+            #[cfg(feature = "lua")]
             return Box::pin(self.script_command(cmd)).await;
+            #[cfg(not(feature = "lua"))]
+            {
+                let _ = cmd;
+                return Ok(());
+            }
         }
         let (align, s) = match s.get(..2) {
             Some("%|") => (Some(true), &s[2..]),

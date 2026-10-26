@@ -20,8 +20,11 @@ if [ ! -f "$stock/INIQUITY.DAT" ]; then
     unzip -q -o "$tmp/release/newinst.exe" -d "$stock"
 fi
 
-echo "building"
-cargo build --release
+# FEATURES picks the optional components (docs/BUILDING.md); everything
+# by default, as the flagship board runs. FEATURES= builds the core.
+FEATURES=${FEATURES-full}
+echo "building${FEATURES:+ with $FEATURES}"
+cargo build --release ${FEATURES:+--features "$FEATURES"}
 
 if [ ! -f data/fluxbbs.db ] && [ ! -f data/iniquity.db ]; then
     # Import the stock install somewhere else and keep only its database
@@ -38,5 +41,5 @@ fi
 echo
 echo "ready:"
 echo "  ./target/release/fluxbbs                       # SSH :2222, telnet :2323"
-echo "  cargo test                                      # includes the legacy readers"
+echo "  cargo test --features full                       # includes the legacy readers"
 echo "  log in as SysOp / SYSOP (system password SYSTEM); change both before going public"

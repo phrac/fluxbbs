@@ -9,29 +9,47 @@
 mod acs;
 mod ambient;
 mod clock;
+#[cfg(feature = "ai")]
 mod aiboard;
+#[cfg(feature = "ai")]
 mod aichat;
 mod aimemory;
 mod backup;
+#[cfg(feature = "doors")]
 mod bbslink;
+#[cfg(feature = "tarot")]
 mod tarot;
+#[cfg(feature = "tarot")]
 mod tarotart;
+#[cfg(feature = "screensavers")]
 mod tdf;
+#[cfg(feature = "casino")]
 mod blackjack;
+#[cfg(feature = "carrierlost")]
 mod carrierart;
+#[cfg(feature = "carrierlost")]
 mod carrierlost;
+#[cfg(feature = "casino")]
 mod casino;
+#[cfg(feature = "casino")]
 mod casinobar;
+#[cfg(feature = "casino")]
 mod craps;
+#[cfg(feature = "casino")]
 mod poker;
+#[cfg(any(feature = "casino", feature = "carrierlost", feature = "effects"))]
 mod pixels;
+#[cfg(feature = "casino")]
 mod roulette;
+#[cfg(feature = "casino")]
 mod slotart;
+#[cfg(feature = "casino")]
 mod slots;
 mod links;
 mod regret;
 mod archview;
 mod attach;
+#[cfg(feature = "ftn")]
 mod binkp;
 mod boards;
 mod commands;
@@ -39,6 +57,7 @@ mod cfgedit;
 mod challenge;
 mod chat;
 mod config;
+#[cfg(feature = "doors")]
 mod doors;
 mod doorstats;
 mod engine;
@@ -56,6 +75,7 @@ mod mci;
 mod mentions;
 mod menu;
 mod menuedit;
+#[cfg(feature = "meshcore")]
 mod meshcore;
 mod messages;
 mod msgareas;
@@ -65,19 +85,26 @@ mod msgcenter;
 mod editor;
 mod extras;
 mod features;
+#[cfg(feature = "screensavers")]
 mod fontpick;
+#[cfg(feature = "screensavers")]
+mod savers;
 mod fileareas;
+#[cfg(feature = "ftn")]
 mod ftn;
+#[cfg(feature = "ftn")]
 mod ftntoss;
 mod filebase;
 mod files;
 mod transfer;
+#[cfg(feature = "effects")]
 mod tvoff;
 mod upltest;
 mod upscan;
 mod web;
 mod nodes;
 mod pager;
+#[cfg(feature = "pdf")]
 mod pdf;
 mod plain;
 mod plainmsg;
@@ -88,12 +115,14 @@ mod password;
 mod questions;
 mod qwk;
 mod scansel;
+#[cfg(feature = "lua")]
 mod scripts;
 mod session;
 mod ssh;
 mod sshkeys;
 mod sysop;
 mod telnet;
+#[cfg(feature = "textfiles")]
 mod textfiles;
 mod themes;
 mod timebank;
@@ -122,6 +151,21 @@ use strings::Strings;
 use sysdata::SysData;
 use users::UserStore;
 
+/// Posts on their way to the MeshCore bridge: the bridge's outbox, or
+/// without it built in (`meshcore`) one that lets them go.
+#[cfg(feature = "meshcore")]
+pub type MeshOutbox = meshcore::Outbox;
+
+#[cfg(not(feature = "meshcore"))]
+#[derive(Default)]
+pub struct MeshOutbox;
+
+#[cfg(not(feature = "meshcore"))]
+impl MeshOutbox {
+    pub fn post(&self, _m: &msgbase::Message) {}
+}
+
+
 /// State shared by every session.
 pub struct BbsState {
     /// Swapped whole by the system configuration editor.
@@ -146,6 +190,7 @@ pub struct BbsState {
     /// Infoform answers and new user votes.
     pub forms: infoform::FormStore,
     /// Carrier Lost's world (`AP`).
+    #[cfg(feature = "carrierlost")]
     pub carrier: carrierlost::CarrierStore,
     pub files: FileBase,
     pub sys: SysData,
@@ -157,7 +202,7 @@ pub struct BbsState {
     /// AI chat messages today: (user, day) -> count.
     pub ai_usage: std::sync::Mutex<std::collections::HashMap<(u32, chrono::NaiveDate), u32>>,
     /// Posts on their way to the MeshCore bridge.
-    pub mesh: meshcore::Outbox,
+    pub mesh: MeshOutbox,
     /// The `[dos] one_at_a_time` doors someone is in.
     pub doors_in_use: std::sync::Mutex<std::collections::HashSet<String>>,
     /// When the board started (its clock).
@@ -418,6 +463,7 @@ fn add_files(path: PathBuf) -> anyhow::Result<()> {
 /// `areafix` asks a hub's AreaFix to link (+) or unlink (-) echoes,
 /// `areafix NET %LIST` for what it carries. Without NET, AreaFix goes to
 /// the network the first tag's echo is on (else the first network).
+#[cfg(feature = "ftn")]
 async fn ftn_command(args: &[String]) -> anyhow::Result<()> {
     let (path, rest): (PathBuf, &[String]) = match args.split_last() {
         Some((last, rest)) if last.ends_with(".toml") => (last.into(), rest),
@@ -489,6 +535,7 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     let infoforms: infoform::Infoforms = extprog::load(&config.resolve(&config.paths.infoforms))?.unwrap_or_default();
     let questions: questions::Questions = extprog::load(&config.resolve(&config.paths.questions))?.unwrap_or_default();
     let forms = infoform::FormStore::open(&db)?;
+    #[cfg(feature = "carrierlost")]
     let carrier = carrierlost::CarrierStore::open(&db)?;
     let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
     let events: events::Events = extprog::load(&config.resolve(&config.paths.events))?.unwrap_or_default();
@@ -511,6 +558,7 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         themes: std::sync::RwLock::new(Arc::new(themes)),
         events: std::sync::RwLock::new(Arc::new(events)),
         forms,
+        #[cfg(feature = "carrierlost")]
         carrier,
         files,
         sys,
@@ -562,7 +610,10 @@ async fn main() -> anyhow::Result<()> {
         return add_files(args.get(1).map_or(config::default_path(), PathBuf::from));
     }
     if args.first().is_some_and(|a| a == "ftn") {
+        #[cfg(feature = "ftn")]
         return ftn_command(&args[1..]).await;
+        #[cfg(not(feature = "ftn"))]
+        anyhow::bail!("echomail isn't built into this board (build with --features ftn; docs/BUILDING.md)");
     }
     // New: `fluxbbs backup [DAYS] [DIR] [config]`.
     if args.first().is_some_and(|a| a == "backup") {
@@ -575,7 +626,10 @@ async fn main() -> anyhow::Result<()> {
         return Ok(());
     }
     if args.first().is_some_and(|a| a == "textfiles") {
+        #[cfg(feature = "textfiles")]
         return textfiles::from_args(&args[1..]).await;
+        #[cfg(not(feature = "textfiles"))]
+        anyhow::bail!("the textfiles importer isn't built into this board (build with --features textfiles; docs/BUILDING.md)");
     }
 
     let path = args.first().map(PathBuf::from).unwrap_or_else(config::default_path);
@@ -617,8 +671,11 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("ftn: {p}");
     }
     tokio::spawn(events::scheduler(state.clone()));
+    #[cfg(feature = "meshcore")]
     tokio::spawn(meshcore::run(state.clone()));
+    #[cfg(feature = "ftn")]
     tokio::spawn(binkp::run(state.clone()));
+    #[cfg(feature = "ftn")]
     tokio::spawn(binkp::listen(state.clone()));
 
     // Forget idle addresses now and then, and clear out abandoned
@@ -700,6 +757,7 @@ pub mod tests {
             themes: std::sync::RwLock::new(Arc::new(themes::Themes::default())),
             events: std::sync::RwLock::new(Arc::new(events::Events::default())),
             forms: infoform::FormStore::open_memory().unwrap(),
+            #[cfg(feature = "carrierlost")]
             carrier: carrierlost::CarrierStore::open_memory().unwrap(),
             files: FileBase::open_memory().unwrap(),
             sys: SysData::open_memory().unwrap(),

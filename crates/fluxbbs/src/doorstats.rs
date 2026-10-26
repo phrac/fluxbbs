@@ -52,6 +52,7 @@ impl Session {
 
     /// Log a play (not on a hidden call, nor while invisible: it would
     /// show who was on).
+    #[cfg_attr(not(any(feature = "doors", feature = "casino", feature = "carrierlost", feature = "tarot")), allow(dead_code))]
     pub(crate) fn record_play(&mut self, door: &str, started: NaiveDateTime) {
         let me = self.node.number();
         let invisible = self.state.nodes.online().iter().any(|(n, i)| *n == me && i.invisible);

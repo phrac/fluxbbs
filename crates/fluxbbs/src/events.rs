@@ -163,7 +163,10 @@ async fn run_command(state: &Arc<BbsState>, cmd: &str) -> anyhow::Result<()> {
             tracing::info!("event: packed file areas, {total} records removed");
             Ok(())
         }
+        #[cfg(feature = "doors")]
         dos if dos.starts_with("dos ") => crate::doors::run_dos_event(state, dos[4..].trim()).await,
+        #[cfg(not(feature = "doors"))]
+        dos if dos.starts_with("dos ") => anyhow::bail!("event {dos:?}: DOS doors aren't built into this board"),
         b if b == "backup" || b.starts_with("backup ") => {
             let (days, dir) = crate::backup::parse(&b.split_whitespace().skip(1).collect::<Vec<_>>())?;
             // The snapshot and the archive are file work: off the async threads.
@@ -355,6 +358,7 @@ mod tests {
         assert!(run_command(&state, "pack-messages").await.is_ok());
     }
 
+    #[cfg(feature = "doors")]
     #[tokio::test]
     async fn dos_commands_run_in_the_machine() {
         let root = std::env::temp_dir().join(format!("inq-dos-event-{}", std::process::id()));

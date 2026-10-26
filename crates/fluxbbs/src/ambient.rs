@@ -10,8 +10,11 @@
 //! off (user config).
 
 use std::io;
-use std::time::{Duration, Instant};
+use std::time::Duration;
+#[cfg(feature = "effects")]
+use std::time::Instant;
 
+#[cfg(feature = "effects")]
 use fluxbbs_term::Shown;
 use serde::{Deserialize, Serialize};
 
@@ -78,21 +81,25 @@ fn delay() -> f32 {
     1.5
 }
 
+#[cfg(feature = "effects")]
 fn hex(s: &str) -> Option<[u8; 3]> {
     let s = s.trim_start_matches('#');
     let v = u32::from_str_radix(s, 16).ok().filter(|_| s.len() == 6)?;
     Some([(v >> 16) as u8, (v >> 8) as u8, v as u8])
 }
 
+#[cfg(feature = "effects")]
 fn near(a: [u8; 3], b: [u8; 3]) -> bool {
     (0..3).map(|i| (a[i] as i32 - b[i] as i32).abs()).sum::<i32>() < 24
 }
 
 /// A steady pseudo-random 0..1.
+#[cfg(feature = "effects")]
 fn noise(a: i32, b: i32) -> f32 {
     crate::pixels::hash(a, b)
 }
 
+#[cfg(feature = "effects")]
 struct Target {
     x: u16,
     y: u16,
@@ -109,6 +116,7 @@ struct Target {
 /// Seconds into a `type` round that each cell shows (and the cursor
 /// reaches it): row by row, a pause at each line's end, the cursor
 /// ending after the last line.
+#[cfg(feature = "effects")]
 fn type_times(cells: &[(u16, u16, u8)], e: &Effect) -> std::collections::HashMap<(u16, u16), (f32, f32)> {
     let step = 1.0 / if e.amount > 0.0 { e.amount * 100.0 } else { 12.0 };
     let pause = (step * 6.0).min(0.6);
@@ -135,6 +143,7 @@ fn type_times(cells: &[(u16, u16, u8)], e: &Effect) -> std::collections::HashMap
     times
 }
 
+#[cfg(feature = "effects")]
 pub struct Ambient {
     targets: Vec<Target>,
     effects: Vec<Effect>,
@@ -147,28 +156,34 @@ pub struct Ambient {
     start: Instant,
 }
 
+#[cfg(feature = "effects")]
 fn box_line(ch: u8) -> bool {
     (0xB3..=0xDA).contains(&ch)
 }
 
+#[cfg(feature = "effects")]
 fn blank(c: &Shown) -> bool {
     c.ch == b' ' && c.bg.iter().map(|&v| v as u32).sum::<u32>() < 30
 }
 
 /// `c` lit `k` of the way toward white.
-fn lift(c: [u8; 3], k: f32) -> [u8; 3] {
+#[cfg(feature = "effects")]
+pub(crate) fn lift(c: [u8; 3], k: f32) -> [u8; 3] {
     toward(c, [255, 255, 255], k)
 }
 
+#[cfg(feature = "effects")]
 fn toward(c: [u8; 3], to: [u8; 3], k: f32) -> [u8; 3] {
     let k = k.clamp(0.0, 1.0);
     [0, 1, 2].map(|i| (c[i] as f32 + (to[i] as f32 - c[i] as f32) * k).round() as u8)
 }
 
-fn times(c: [u8; 3], f: f32) -> [u8; 3] {
+#[cfg(feature = "effects")]
+pub(crate) fn times(c: [u8; 3], f: f32) -> [u8; 3] {
     c.map(|v| (v as f32 * f).round().clamp(0.0, 255.0) as u8)
 }
 
+#[cfg(feature = "effects")]
 impl Ambient {
     /// The cells the effects work on, as the screen shows them now.
     pub fn new(screen: &fluxbbs_term::Screen, effects: &[Effect]) -> Option<Ambient> {
@@ -527,6 +542,33 @@ impl Ambient {
     }
 }
 
+/// Without the `effects` component nothing animates: a stand-in that
+/// never starts.
+#[cfg(not(feature = "effects"))]
+pub struct Ambient;
+
+#[cfg(not(feature = "effects"))]
+impl Ambient {
+    pub fn new(_screen: &fluxbbs_term::Screen, _effects: &[Effect]) -> Option<Ambient> {
+        None
+    }
+
+    pub fn restore(&mut self) -> Vec<u8> {
+        Vec::new()
+    }
+
+    pub fn frame(&mut self) -> Vec<u8> {
+        Vec::new()
+    }
+}
+
+#[cfg(feature = "effects")]
+/// What falls: digits, letters, and CP437's Greek and math signs.
+pub(crate) fn rain_glyph(r: f32) -> u8 {
+    const SET: &[u8] = b"0123456789ABCDEFGHJKLMNPQRSTUVWXYZ0123456789\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf7";
+    SET[((r * SET.len() as f32) as usize).min(SET.len() - 1)]
+}
+
 /// Effects kept beside a screen (`NAME.FX`, a TOML file of `[[effect]]`),
 /// for the screen's `|PK` wait.
 #[derive(Deserialize)]
@@ -569,7 +611,8 @@ impl Session {
 
     /// Do this caller's screen and settings allow animating?
     pub(crate) fn animating(&self) -> bool {
-        !self.plain()
+        cfg!(feature = "effects")
+            && !self.plain()
             && self.user.animate != "off"
             && (self.screen.truecolor() || self.screen.palette256() || self.screen.charset() == fluxbbs_term::Charset::Utf8)
     }
@@ -582,7 +625,8 @@ impl Session {
     pub(crate) async fn read_key_ambient(&mut self, amb: &mut Option<Ambient>, saver: bool) -> io::Result<Option<crate::input::Key>> {
         let since = tokio::time::Instant::now();
         let idle = self.state.config().bbs.inactivity_seconds;
-        let saver_after = if saver { self.state.config().terminal.screensaver_seconds } else { 0 };
+        // No screen saver unless one's built in (`screensavers`).
+        let saver_after = if saver && cfg!(feature = "screensavers") { self.state.config().terminal.screensaver_seconds } else { 0 };
         if amb.is_some() || saver_after > 0 {
             let waker = self.node.waker();
             loop {
@@ -597,6 +641,7 @@ impl Session {
                     break;
                 }
                 if saver_after > 0 && since.elapsed() >= Duration::from_secs(saver_after) {
+                    #[cfg(feature = "screensavers")]
                     self.screensaver(since, idle).await?;
                     // The saver ends at the inactivity timeout too: the
                     // caller goes, as they would from a prompt.
@@ -653,6 +698,13 @@ impl Session {
         Ok(())
     }
 
+    /// Without screen savers built in (`screensavers`), Backspace on a
+    /// menu has nothing to start.
+    #[cfg(not(feature = "screensavers"))]
+    pub(crate) async fn screensaver_now(&mut self) -> io::Result<bool> {
+        Ok(false)
+    }
+
     /// New: run effects over what's on screen for `secs` seconds, not
     /// waiting for a key (a key pressed meanwhile cuts it short and is
     /// kept). For a moment's animation inside a screen, where
@@ -690,299 +742,10 @@ impl Session {
         }
         Ok(())
     }
-
-    /// New: the screen saver on demand (Backspace on a lightbar menu),
-    /// for callers whose menus animate; false if it can't run here.
-    pub(crate) async fn screensaver_now(&mut self) -> io::Result<bool> {
-        if !self.animating() {
-            return Ok(false);
-        }
-        let idle = self.state.config().bbs.inactivity_seconds;
-        self.screensaver(tokio::time::Instant::now(), idle).await?;
-        Ok(true)
-    }
-
-    /// The screen saver: digital rain in the colors of the screen it
-    /// covers, the board's name showing through as the drops pass (set
-    /// in a TheDraw font, if the board names one), until Enter or Esc
-    /// (or something for the caller, or the inactivity timeout).
-    async fn screensaver(&mut self, since: tokio::time::Instant, idle: u64) -> io::Result<()> {
-        tracing::debug!("{}: screen saver", self.user.handle);
-        let rows = self.screen.rows();
-        let cfg = self.state.config();
-        // New: the saver spells out a custom message if set, else the
-        // board's name; either falls back to the short name when it's set
-        // in a font too wide for 80 columns (or, in plain letters, too
-        // long to fit).
-        let name = cfg.bbs.name.clone();
-        let short = cfg.bbs.short_name.trim();
-        let msg = cfg.terminal.screensaver_message.trim();
-        let text = if msg.is_empty() { name.clone() } else { msg.to_string() };
-        let palette = rain_palette(&self.screen);
-        let font = cfg.terminal.screensaver_font.trim();
-        let word = if font.is_empty() {
-            None
-        } else {
-            let fonts = crate::tdf::read(&cfg.resolve(std::path::Path::new(font)));
-            let face = cfg.terminal.screensaver_face.trim();
-            fonts.iter().find(|f| face.is_empty() || f.name.eq_ignore_ascii_case(face)).map(|f| {
-                let set = f.set(&text);
-                if set.1 > 80 && !short.is_empty() { f.set(short) } else { set }
-            })
-        };
-        // The plain-letters fallback text, shortened if it can't fit.
-        let plain = if font.is_empty() && text.chars().count() * 2 > 80 && !short.is_empty() { short } else { text.as_str() };
-        let mut rain = Rain::new(rows.saturating_sub(1).max(1), plain, word, palette);
-        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-        self.clear_screen();
-        self.screen.write_bytes(b"\x1b[?25l");
-        let notice = crate::editor::strip_colours(self.strings().get("ScreenSaverExit"));
-        let col = (80usize.saturating_sub(notice.chars().count()) / 2 + 1) as u16;
-        let mut bar = format!("\x1b[{rows};1H\x1b[0m\x1b[K\x1b[{rows};{col}H\x1b[38;2;255;150;235;48;2;45;5;55m").into_bytes();
-        bar.extend(fluxbbs_term::cp437::encode(&notice));
-        bar.extend(b"\x1b[0m");
-        self.screen.write_bytes(&bar);
-        self.cursor_asks = self.cursor_asks.min(self.cursor_reports);
-        let waker = self.node.waker();
-        let mut last = std::time::Instant::now();
-        loop {
-            if self.key_waiting().await? {
-                match self.read_key().await? {
-                    crate::input::Key::Enter | crate::input::Key::Esc => break,
-                    _ => continue,
-                }
-            }
-            if (idle > 0 && since.elapsed() >= Duration::from_secs(idle)) || self.node.has_messages() {
-                break;
-            }
-            let dt = last.elapsed().as_secs_f32().min(0.25);
-            last = std::time::Instant::now();
-            let out = rain.step(dt);
-            if !out.is_empty() {
-                self.screen.write_bytes(&out);
-                self.screen.write_bytes(b"\x1b[0m");
-                self.screen.goto(1, rows);
-                // One frame on the way at a time, on a slow line.
-                self.sync_output(Duration::from_secs(3), 1).await?;
-                self.flush().await?;
-            }
-            tokio::select! {
-                _ = tokio::time::sleep(Duration::from_millis(80)) => {}
-                _ = waker.notified() => break,
-            }
-        }
-        self.screen.write_bytes(b"\x1b[0m\x1b[?25h");
-        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-        self.clear_screen();
-        self.full_screen_done();
-        Ok(())
-    }
 }
 
-// ---- the screen saver ------------------------------------------------------
-
-/// The rain's colors, the head of a drop first, in the board's pinks:
-/// what the rain falls in where the screen it covers has no color.
-const RAIN: [[u8; 3]; 6] = [[255, 235, 255], [255, 120, 240], [235, 60, 205], [165, 25, 160], [95, 10, 100], [50, 5, 60]];
-
-/// The rain's colors from what's on screen: the color most of the
-/// screen's colored cells are drawn in, from a bright head down to a
-/// dark tail; the pinks where nothing on screen has a color.
-fn rain_palette(screen: &fluxbbs_term::Screen) -> [[u8; 3]; 6] {
-    let mut counts: std::collections::HashMap<[u8; 3], u32> = std::collections::HashMap::new();
-    for y in 1..=screen.rows() {
-        for x in 1..=80 {
-            let Some(c) = screen.shown(x, y) else { continue };
-            for col in [c.fg, c.bg] {
-                let (hi, lo) = (*col.iter().max().unwrap_or(&0), *col.iter().min().unwrap_or(&0));
-                if hi >= 100 && hi - lo >= 70 {
-                    *counts.entry(col).or_default() += 1;
-                }
-            }
-        }
-    }
-    let Some((base, _)) = counts.into_iter().max_by_key(|&(c, n)| (n, c)) else { return RAIN };
-    let hi = *base.iter().max().unwrap_or(&1) as f32;
-    let base = times(base, 235.0 / hi.max(1.0));
-    [lift(base, 0.85), lift(base, 0.35), base, times(base, 0.7), times(base, 0.4), times(base, 0.2)]
-}
-
-/// What falls: digits, letters, and CP437's Greek and math signs.
-fn rain_glyph(r: f32) -> u8 {
-    const SET: &[u8] = b"0123456789ABCDEFGHJKLMNPQRSTUVWXYZ0123456789\xe0\xe1\xe2\xe3\xe4\xe5\xe6\xe7\xe8\xe9\xea\xeb\xec\xed\xee\xef\xf0\xf1\xf2\xf3\xf7";
-    SET[((r * SET.len() as f32) as usize).min(SET.len() - 1)]
-}
-
-#[derive(Clone, Copy)]
-struct Drop {
-    head: f32,
-    speed: f32,
-    len: f32,
-    wait: f32,
-}
-
-/// A cell of the name: column, row, character, its own color if set
-/// in a font, and when a drop last lit it (`NEVER`: it's not showing).
-type WordCell = (u16, u16, u8, Option<[u8; 3]>, f32);
-const NEVER: f32 = -1.0;
-
-struct Rain {
-    rows: u16,
-    drops: Vec<Drop>,
-    glyphs: Vec<u8>,
-    sent: Vec<Option<(u8, [u8; 3])>>,
-    /// The name, across the middle: where each of its cells is, what it
-    /// shows, its own color if set in a font, and when a drop last lit
-    /// it.
-    word: Vec<WordCell>,
-    palette: [[u8; 3]; 6],
-    /// The name fills in as drops cross its cells; full, it holds a
-    /// moment, then the drops take it away again, and so on.
-    filling: bool,
-    filled_at: f32,
-    t: f32,
-    seed: u32,
-}
-
-impl Rain {
-    /// `word`: the name set in a font (its cells, width and height), or
-    /// None for plain spaced letters.
-    fn new(rows: u16, name: &str, word: Option<(Vec<crate::tdf::Cell>, u16, u16)>, palette: [[u8; 3]; 6]) -> Rain {
-        let mut seed = 0x9E37_79B9u32;
-        let mut rnd = move || {
-            seed ^= seed << 13;
-            seed ^= seed >> 17;
-            seed ^= seed << 5;
-            (seed >> 8) as f32 / (1u32 << 24) as f32
-        };
-        let drops = (0..80)
-            .map(|_| Drop { head: -rnd() * rows as f32, speed: 7.0 + rnd() * 13.0, len: 6.0 + rnd() * 14.0, wait: rnd() * 4.0 })
-            .collect();
-        let glyphs = (0..80 * rows as usize).map(|_| rain_glyph(rnd())).collect();
-        let word = match word {
-            Some((cells, w, h)) if !cells.is_empty() => {
-                let (x0, y0) = ((80u16.saturating_sub(w) / 2 + 1), (rows.saturating_sub(h) / 2 + 1).max(1));
-                cells
-                    .iter()
-                    .filter(|c| y0 as u32 + c.y as u32 <= rows as u32 && x0 as u32 + c.x as u32 <= 80)
-                    .map(|c| (x0 + c.x, y0 + c.y, c.ch, Some(crate::tdf::rgb(c.fg)), NEVER))
-                    .collect()
-            }
-            _ => {
-                let text: Vec<u8> = fluxbbs_term::cp437::encode(name.to_lowercase().split("").collect::<Vec<_>>().join(" ").trim());
-                let x0 = (80usize.saturating_sub(text.len()) / 2 + 1) as u16;
-                text.iter().enumerate().filter(|(_, c)| **c != b' ').map(|(i, &c)| (x0 + i as u16, rows / 2, c, None, NEVER)).collect()
-            }
-        };
-        Rain { rows, drops, glyphs, sent: vec![None; 80 * rows as usize], word, palette, filling: true, filled_at: 0.0, t: 0.0, seed: 0x1234_5678 }
-    }
-
-    fn rnd(&mut self) -> f32 {
-        self.seed ^= self.seed << 13;
-        self.seed ^= self.seed >> 17;
-        self.seed ^= self.seed << 5;
-        (self.seed >> 8) as f32 / (1u32 << 24) as f32
-    }
-
-    /// Move the rain on `dt` seconds; the ANSI for what changed.
-    fn step(&mut self, dt: f32) -> Vec<u8> {
-        self.t += dt;
-        let rows = self.rows as f32;
-        for x in 0..80 {
-            let mut d = self.drops[x];
-            if d.wait > 0.0 {
-                d.wait -= dt;
-            } else {
-                let before = d.head.floor() as i32;
-                d.head += d.speed * dt;
-                // A new glyph in each cell the head reaches.
-                for y in (before + 1).max(0)..=(d.head.floor() as i32).min(self.rows as i32 - 1) {
-                    let r = self.rnd();
-                    self.glyphs[y as usize * 80 + x] = rain_glyph(r);
-                }
-                if d.head - d.len > rows {
-                    d = Drop { head: 0.0, speed: 7.0 + self.rnd() * 13.0, len: 6.0 + self.rnd() * 14.0, wait: self.rnd() * 3.0 };
-                }
-            }
-            self.drops[x] = d;
-        }
-        // Full: hold it, then let the drops take it; empty: fill again.
-        if self.filling && self.word.iter().all(|w| w.4 >= 0.0) {
-            self.filling = false;
-            self.filled_at = self.t;
-        } else if !self.filling && self.word.iter().all(|w| w.4 < 0.0) {
-            self.filling = true;
-        }
-        // Now and then a glyph in a trail changes.
-        for _ in 0..6 {
-            let i = (self.rnd() * self.glyphs.len() as f32) as usize % self.glyphs.len();
-            let r = self.rnd();
-            self.glyphs[i] = rain_glyph(r);
-        }
-        let mut out = Vec::new();
-        let mut at: Option<(u16, u16)> = None;
-        for y in 0..self.rows {
-            for x in 0..80u16 {
-                let d = self.drops[x as usize];
-                let behind = d.head - (y as f32 + 0.5);
-                let mut level = if d.wait <= 0.0 && behind >= 0.0 && behind < d.len {
-                    if behind < 1.0 { Some(0u8) } else { Some((1.0 + (behind - 1.0) / (d.len - 1.0).max(1.0) * 5.0).min(5.0) as u8) }
-                } else {
-                    None
-                };
-                let mut glyph = self.glyphs[y as usize * 80 + x as usize];
-                // The name assembles out of the rain: a cell of it stays
-                // once a drop has passed over it (until the drops take it
-                // away again), in its own color if it's set in a font
-                // (brightening again under each drop that follows), else
-                // in the rain's, fading from bright to the tail's tone.
-                let mut own = None;
-                let (filling, hold_over, t) = (self.filling, self.t - self.filled_at > 3.0, self.t);
-                if let Some(w) = self.word.iter_mut().find(|w| w.0 == x + 1 && w.1 == y + 1) {
-                    // Under a drop: filling, the cell comes on (and
-                    // brightens again under each later drop); emptying,
-                    // once the full name has held a moment, it goes.
-                    if level.is_some() {
-                        if filling {
-                            w.4 = t;
-                        } else if hold_over {
-                            w.4 = NEVER;
-                        }
-                    }
-                    let age = t - w.4;
-                    if w.4 >= 0.0 {
-                        glyph = w.2;
-                        let lit = if age < 2.5 { 1 } else { (2 + ((age - 2.5) / 0.7) as u8).min(3) };
-                        level = Some(level.map_or(lit, |l| l.min(lit)));
-                        if let Some(c) = w.3 {
-                            own = Some(if age < 0.4 { lift(c, 0.6) } else { c });
-                        }
-                    }
-                }
-                let cell = level.map(|l| (glyph, own.unwrap_or(self.palette[l as usize])));
-                let i = y as usize * 80 + x as usize;
-                if self.sent[i] == cell || (self.sent[i].is_none() && cell.is_none()) {
-                    continue;
-                }
-                self.sent[i] = cell;
-                if at != Some((x, y)) {
-                    out.extend(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
-                }
-                match cell {
-                    Some((g, c)) => {
-                        out.extend(format!("\x1b[38;2;{};{};{};48;2;0;0;0m", c[0], c[1], c[2]).as_bytes());
-                        out.push(g);
-                    }
-                    None => out.extend(b"\x1b[48;2;0;0;0m "),
-                }
-                at = Some((x + 1, y));
-            }
-        }
-        out
-    }
-}
-
-#[cfg(test)]
+// The effects' own tests (the saver's are in `savers`).
+#[cfg(all(test, feature = "effects"))]
 mod tests {
     use super::*;
     use fluxbbs_term::{Charset, Screen};
@@ -1096,47 +859,6 @@ mod tests {
         let a = Ambient::new(&s, &[e]).unwrap();
         let seen: std::collections::HashSet<_> = (0..60).map(|i| a.shade(&a.targets[0], i as f32 * 0.1, &Default::default()).fg).collect();
         assert!(seen.len() == 2, "lit and out: {seen:?}");
-    }
-
-    #[test]
-    fn the_name_fills_from_the_rain_then_empties() {
-        let cells: Vec<crate::tdf::Cell> = (0..30u16).map(|i| crate::tdf::Cell { x: i % 10, y: i / 10, ch: b'#', fg: 10, bg: 0 }).collect();
-        let mut rain = Rain::new(24, "x", Some((cells, 10, 3)), RAIN);
-        let lit = |r: &Rain| r.word.iter().filter(|w| w.4 >= 0.0).count();
-        let mut history = Vec::new();
-        for i in 0..(40.0 / 0.08) as usize {
-            rain.step(0.08);
-            if i % 25 == 0 {
-                history.push((lit(&rain), rain.filling));
-            }
-        }
-        let full_at = history.iter().position(|&(n, _)| n == 30);
-        assert!(full_at.is_some_and(|i| i <= 6), "fills within a dozen seconds: {history:?}");
-        let after = &history[full_at.unwrap()..];
-        let emptied = after.iter().position(|&(n, _)| n < 10);
-        assert!(emptied.is_some(), "then the drops take it away: {history:?}");
-        assert!(after[emptied.unwrap()..].iter().any(|&(n, _)| n == 30), "and it fills again: {history:?}");
-    }
-
-    #[test]
-    fn the_board_name_in_a_real_font_fills_in_seconds() {
-        let path = std::path::Path::new("/home/derek/code/disflux_bbs/art/fonts/AMNESIA.TDF");
-        if !path.exists() {
-            return;
-        }
-        let fonts = crate::tdf::read(path);
-        let word = fonts[0].set("disflux");
-        let total = word.0.len();
-        let mut rain = Rain::new(24, "disflux", Some(word), RAIN);
-        let mut lit_at = Vec::new();
-        for i in 0..(30.0 / 0.08) as usize {
-            rain.step(0.08);
-            if i % 25 == 24 {
-                lit_at.push(rain.word.iter().filter(|w| w.4 >= 0.0).count());
-            }
-        }
-        println!("of {total} cells, lit every 2 s: {lit_at:?}");
-        assert!(lit_at[4] > total / 2, "half the name within 10 s: {lit_at:?}");
     }
 
     #[test]

@@ -167,23 +167,7 @@ fn trailing_codes(s: &str) -> String {
     s.get(end_visible..).unwrap_or_default().to_string()
 }
 
-/// Text without its ANSI escape sequences (which take no room).
-pub(crate) fn strip_escapes(b: &[u8]) -> Vec<u8> {
-    let mut out = Vec::new();
-    let mut i = 0;
-    while i < b.len() {
-        if b[i] == 0x1b && b.get(i + 1) == Some(&b'[') {
-            i += 2;
-            while i < b.len() && !(0x40..=0x7e).contains(&b[i]) {
-                i += 1;
-            }
-        } else {
-            out.push(b[i]);
-        }
-        i += 1;
-    }
-    out
-}
+pub(crate) use crate::editor::strip_escapes;
 
 /// An address shown short: no scheme, at most 60 characters.
 fn squish_url(url: &str) -> String {
@@ -622,22 +606,6 @@ impl Session {
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
         self.screen.goto(x, y);
         self.flush().await
-    }
-
-    /// Count a message against the day's limit; false if it's used up.
-    pub(crate) fn ai_count(&mut self, limit: u32) -> bool {
-        if limit == 0 || self.is_sysop() {
-            return true;
-        }
-        let key = (self.user.id, crate::clock::now().date_naive());
-        let mut used = self.state.ai_usage.lock().unwrap();
-        used.retain(|(_, day), _| *day == key.1);
-        let n = used.entry(key).or_insert(0);
-        if *n >= limit {
-            return false;
-        }
-        *n += 1;
-        true
     }
 
     /// A line of up to MAX_INPUT characters, wrapping onto the lines below

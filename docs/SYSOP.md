@@ -129,10 +129,28 @@ restart.
 ### The board's short name
 
 `*C`, Main BBS Configuration, `I` (`[bbs] short_name`) is a short form
-of the board's name for places the full name won't fit. A logo font
-too wide for the full name falls back to it: the screen saver does, and
-so can a board's own art generators (disflux's read it from the TOML).
+of the board's name for places the full name won't fit, and `K`
+(`super_short_name`, two characters at most) a last resort where even
+that won't. A logo font too wide for the full name falls back to the
+short name, then the super short one: the screen saver does, and so
+can a board's own art generators (disflux's read them from the TOML).
 Blank, the full name is always used.
+
+### Settings explained as you go
+
+In each `*C` section, the description of the setting under the bar
+shows at the bottom as you move it, and stays there while you edit it;
+one too long for the line goes on over a second.
+
+### Screen savers
+
+`*C`, SSH, Telnet and Terminal, `P` (`[terminal] screensaver_style`)
+picks the screen saver: the digital rain, a warp starfield, the
+demoscene fire, or `random`, a different one each time (and what a
+board that hasn't chosen gets). Callers can pick their own in their
+configuration (`X`, on disflux's screen `d`); one who hasn't gets the
+board's. Each spells out the board's name, or the saver message (`O`),
+in the saver's font (`K`, `L`).
 
 ### Callers who never time out
 

@@ -185,6 +185,7 @@ pub fn set_board(name: &str) {
     };
     *BOARD.write().unwrap_or_else(|e| e.into_inner()) = zone;
     // Doors see board time too.
+    #[cfg(feature = "doors")]
     fluxbbs_dos::set_clock(from_utc);
 }
 

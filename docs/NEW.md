@@ -120,7 +120,19 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   short name. TheDraw fonts are read by `tdf.rs`.
   ([ARTWORK](ARTWORK.md#animation-new))
 - A short name for the board (`[bbs] short_name`), for logo fonts too
-  wide for the full name. ([SYSOP](SYSOP.md#the-boards-short-name))
+  wide for the full name, and a super short one (two characters) for
+  where even that won't fit. ([SYSOP](SYSOP.md#the-boards-short-name))
+- `*C` shows the description of the setting under the bar as you move
+  it, over two lines when it's long, and keeps it up while you edit.
+- Optional components: doors, the games, effects, screen savers, AI,
+  echomail, MeshCore, PDFs, Lua and the textfiles importer are Cargo
+  features; a plain build is the core board, `--features full` all of
+  it. A part left out answers as one switched off and drops out of the
+  menus; its settings still load. ([BUILDING](BUILDING.md))
+- More screen savers: a warp starfield and the demoscene fire beside the
+  digital rain, the board's default in `*C` (`screensaver_style`;
+  random if it isn't set) and each caller's own pick in their
+  configuration (`X`). ([SYSOP](SYSOP.md#screen-savers))
 - An ACS for callers who never time out for being idle
   (`[bbs] idle_exempt_acs`, e.g. a user flag).
   ([SYSOP](SYSOP.md#callers-who-never-time-out))
