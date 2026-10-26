@@ -110,7 +110,7 @@ impl Session {
             let mut rows = Vec::new();
             for c in &menu.commands {
                 // A key once: the menu's own command and GLOBAL's may share it.
-                if c.hidden || c.desc.is_empty() || c.keys == FIRST_CMD || !self.acs(&c.acs) || listed.contains(&c.keys.as_str()) {
+                if c.hidden || c.dark || c.desc.is_empty() || c.keys == FIRST_CMD || !self.acs(&c.acs) || listed.contains(&c.keys.as_str()) {
                     continue;
                 }
                 listed.push(&c.keys);
@@ -131,7 +131,7 @@ impl Session {
         // A lightbar menu's Enter picks what the bar starts on, its first
         // option, as in ANSI; the prompt says which.
         let first = (menu.menu_type == crate::menu::MenuType::Lightbar)
-            .then(|| menu.commands.iter().find(|c| !c.hidden && !c.desc.is_empty() && c.keys != FIRST_CMD && self.acs(&c.acs)))
+            .then(|| menu.commands.iter().find(|c| !c.hidden && !c.dark && !c.desc.is_empty() && c.keys != FIRST_CMD && self.acs(&c.acs)))
             .flatten()
             .map(|c| c.keys.clone());
         match &first {

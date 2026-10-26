@@ -40,7 +40,13 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
         preferred: preferred(state.config().ssh.legacy_algorithms),
         auth_rejection_time: Duration::from_secs(1),
         auth_rejection_time_initial: Some(Duration::ZERO),
-        inactivity_timeout: None,
+        // A connection that sends nothing for ten minutes (one stuck
+        // before the login, a dead link) goes; a keepalive a minute is a
+        // nudge, never a reason to drop (SyncTERM's cryptlib may not
+        // answer them). Idle callers go by the BBS's own timeout.
+        inactivity_timeout: Some(Duration::from_secs(600)),
+        keepalive_interval: Some(Duration::from_secs(60)),
+        keepalive_max: 0,
         nodelay: true,
         ..Default::default()
     };
@@ -121,7 +127,7 @@ struct Connection {
 
 fn dims(cols: u32, rows: u32) -> (u16, u16) {
     let clamp = |v: u32, d: u16| if v == 0 { d } else { v.min(u16::MAX as u32) as u16 };
-    (clamp(cols, 80), clamp(rows, 25))
+    crate::telnet::clamp_size(clamp(cols, 80), clamp(rows, 25))
 }
 
 impl Connection {

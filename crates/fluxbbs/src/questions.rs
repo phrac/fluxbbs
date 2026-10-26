@@ -138,7 +138,8 @@ impl Session {
         self.newline();
         self.say_line("NuAnswersHead").await?;
         for (q, a) in qs.iter().zip(answers.iter().chain(std::iter::repeat(&String::new()))) {
-            let a = if a.is_empty() { "-".to_string() } else { a.clone() };
+            // The answer as typed, its codes shown rather than run.
+            let a = if a.is_empty() { "-".to_string() } else { fluxbbs_term::lit(a) };
             self.show_line(&format!(" |U1{}|U2: |U3{a}", q.prompt)).await?;
         }
         self.flush().await?;
@@ -195,7 +196,8 @@ impl Session {
             let mut list = self.state.questions().list.clone();
             let n = list.len() as u32;
             let idx = num as usize - 1;
-            let mut q = list[idx].clone();
+            // Another node may have shortened the list meanwhile.
+            let Some(mut q) = list.get(idx).cloned() else { return Ok(()) };
             let mut form = Form::new(&format!("{} New User Question Editor", self.state.config().bbs.name));
             form.label("Current question", 12, format!("{num} of {n}"));
             form.item('A', "Prompt", 60, &q.prompt, "What's asked (codes are fine).");

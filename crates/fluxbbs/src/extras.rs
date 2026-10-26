@@ -244,6 +244,16 @@ impl Session {
             Some(r) => self.repeat_end(r).await?,
             None => self.rule().await?,
         }
+        // The list may have scrolled since that row was drawn: find it
+        // again by what it shows, and skip the effect if it's gone.
+        let mine = mine.and_then(|_| {
+            let (num, handle) = calls.iter().find(|c| c.user_id == me && Some(c.call_num) == newest).map(|c| (c.call_num.to_string(), fluxbbs_term::cp437::encode(&c.handle)))?;
+            (1..=self.screen.rows()).find(|&y| {
+                let text: Vec<u8> = (1..=80).map(|x| self.screen.shown(x, y).map_or(b' ', |s| s.ch)).collect();
+                let has = |needle: &[u8]| !needle.is_empty() && text.windows(needle.len()).any(|w| w == needle);
+                has(num.as_bytes()) && has(&handle)
+            })
+        });
         if let Some(y) = mine {
             use crate::ambient::Effect;
             let row = |kind: &str, delay: f32, amount: f32, tint: &str| Effect {

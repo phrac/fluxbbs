@@ -100,7 +100,9 @@ impl Parser {
                     State::Sub
                 }
                 (State::SubIac, IAC) => {
-                    self.sub.push(IAC);
+                    if self.sub.len() < 256 {
+                        self.sub.push(IAC);
+                    }
                     State::Sub
                 }
                 (State::SubIac, SE) => {
@@ -113,6 +115,12 @@ impl Parser {
             };
         }
     }
+}
+
+/// A size a screen can be: no bigger than the buffers are worth (a
+/// NAWS or SSH size is whatever the client says).
+pub fn clamp_size(w: u16, h: u16) -> (u16, u16) {
+    (w.clamp(1, 400), h.clamp(1, 200))
 }
 
 fn subnegotiation(sub: &[u8]) -> Option<Event> {
@@ -174,11 +182,14 @@ impl TelnetStream {
         for e in events {
             match e {
                 Event::Size(w, h) if w > 0 && h > 0 => {
-                    let _ = self.size.send((w, h));
+                    let _ = self.size.send(clamp_size(w, h));
                 }
                 Event::Size(..) => {}
                 Event::TermType(t) => self.term = Some(t),
-                Event::Option(verb, opt) => self.output.extend(reply(verb, opt)),
+                // Answers wait in the queue the writer bounds; a client
+                // that floods requests and never reads gets no more.
+                Event::Option(verb, opt) if self.output.len() < 64 * 1024 => self.output.extend(reply(verb, opt)),
+                Event::Option(..) => {}
             }
         }
     }

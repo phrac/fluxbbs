@@ -53,7 +53,9 @@ pub fn read(path: &Path) -> Vec<Font> {
             let width = data[o];
             let mut q = o + 2;
             let (mut rows, mut row) = (Vec::new(), Vec::new());
-            while q < data.len() && data[q] != 0 {
+            // No glyph is taller than a screen; a hostile file can't
+            // make one that is.
+            while q < data.len() && data[q] != 0 && rows.len() < 64 {
                 if data[q] == 0x0D {
                     rows.push(std::mem::take(&mut row));
                     q += 1;
@@ -84,11 +86,16 @@ impl Font {
     pub fn set(&self, word: &str) -> (Vec<Cell>, u16, u16) {
         let mut cells = Vec::new();
         let mut x0 = 0u16;
-        let glyphs: Vec<&Glyph> = word
+        // A space (no glyph in any face) is a gap of two columns.
+        let glyphs: Vec<Option<&Glyph>> = word
             .chars()
-            .filter_map(|c| self.glyphs.get(&c).or_else(|| self.glyphs.get(&c.to_ascii_uppercase())))
+            .filter_map(|c| if c == ' ' { Some(None) } else { self.glyphs.get(&c).or_else(|| self.glyphs.get(&c.to_ascii_uppercase())).map(Some) })
             .collect();
         for (gi, g) in glyphs.iter().enumerate() {
+            let Some(g) = g else {
+                x0 = x0.saturating_add(2);
+                continue;
+            };
             for (y, row) in g.rows.iter().enumerate() {
                 for (x, &(ch, attr)) in row.iter().take(g.width as usize).enumerate() {
                     let (fg, bg) = (attr & 15, (attr >> 4) & 7);
@@ -97,7 +104,7 @@ impl Font {
                     }
                 }
             }
-            x0 += g.width as u16 + if gi + 1 < glyphs.len() { self.spacing as u16 } else { 0 };
+            x0 = x0.saturating_add(g.width as u16 + if gi + 1 < glyphs.len() { self.spacing as u16 } else { 0 });
         }
         if cells.is_empty() {
             return (cells, 0, 0);
@@ -166,6 +173,37 @@ mod tests {
         assert!(cells.contains(&Cell { x: 3, y: 0, ch: 0xDB, fg: 15, bg: 0 }));
         assert!(!cells.iter().any(|c| c.x == 1 && c.y == 1), "a blank cell isn't drawn");
         assert_eq!(fonts[0].set("ab").0.len(), cells.len(), "lowercase takes the capitals");
+        assert_eq!(fonts[0].set("A B").1, 6, "a space is a two-column gap");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_glyph_is_no_taller_than_a_screen() {
+        // A face whose `A` is 10,000 rows of one block: read, but cut.
+        let mut d = b"\x13TheDraw FONTS file\x1a".to_vec();
+        d.extend(b"\x55\xaa\x00\xff");
+        d.push(4);
+        d.extend(b"Tall        ");
+        d.extend([0, 0, 0, 0]);
+        d.extend([1, 1]);
+        let mut a = vec![1u8, 1];
+        for _ in 0..10_000 {
+            a.extend([0xDB, 0x0D]);
+        }
+        a.push(0);
+        d.extend((a.len() as u16).to_le_bytes());
+        let mut offs = [0xFFFFu16; 94];
+        offs[(b'A' - 33) as usize] = 0;
+        for o in offs {
+            d.extend(o.to_le_bytes());
+        }
+        d.extend(a);
+        let dir = std::env::temp_dir().join(format!("fluxbbs-tdf-tall-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("TALL.TDF");
+        std::fs::write(&path, d).unwrap();
+        let fonts = read(&path);
+        assert_eq!(fonts[0].set("A").2, 64);
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

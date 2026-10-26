@@ -566,16 +566,16 @@ impl Session {
         if self.screen.where_x() > 1 {
             self.ai_nl().await?;
         }
-        // New: the header's effects (AICHAT.FX) run while the chat waits.
-        self.ai_amb = if self.animating() {
-            self.find_text_file("AICHAT").and_then(|p| crate::ambient::sidecar(&p)).and_then(|fx| crate::ambient::Ambient::new(&self.screen, &self.paced(&fx)))
-        } else {
-            None
-        };
         // A header too tall to leave a few rows scrolls with the chat.
         let (top, rows) = (self.screen.where_y(), self.screen.rows());
+        self.ai_amb = None;
         if top + 4 < rows {
             self.ai_win = Some(AiWindow { top, lines: Vec::new(), cur: Vec::new(), pausing: false, since: 0 });
+            // New: the header's effects (AICHAT.FX) run while the chat
+            // waits (only with the header staying put above the chat).
+            if self.animating() {
+                self.ai_amb = self.find_text_file("AICHAT").and_then(|p| crate::ambient::sidecar(&p)).and_then(|fx| crate::ambient::Ambient::new(&self.screen, &self.paced(&fx)));
+            }
         }
         self.ai_bar(cfg).await
     }
@@ -793,19 +793,31 @@ impl Session {
             let mut named = false;
             // New: a pulse of dots while the first words are on their way.
             let mut tick = 0usize;
+            let mut pulse = tokio::time::interval(std::time::Duration::from_millis(220));
+            pulse.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            pulse.tick().await;
             'stream: loop {
                 let chunk = tokio::select! {
                     c = rx.recv() => match c {
                         Some(c) => c,
                         None => break 'stream,
                     },
-                    _ = tokio::time::sleep(std::time::Duration::from_millis(220)), if !named => {
+                    _ = pulse.tick(), if !named => {
                         self.ai_thinking(tick).await?;
                         tick += 1;
                         continue;
                     }
                 };
-                buf.extend_from_slice(&chunk.map_err(io_err)?);
+                let chunk = match chunk {
+                    Ok(c) => c,
+                    Err(e) => {
+                        if tick > 0 && !named {
+                            self.ai_thinking_done().await?;
+                        }
+                        return Err(io_err(e));
+                    }
+                };
+                buf.extend_from_slice(&chunk);
                 // Server-sent events: one `data: {...}` per line.
                 while let Some(i) = buf.iter().position(|&b| b == b'\n') {
                     let line: Vec<u8> = buf.drain(..=i).collect();
@@ -866,6 +878,11 @@ impl Session {
                         }
                     }
                 }
+            }
+            // The dots go whatever ended the stream (words, a search, an
+            // empty reply).
+            if tick > 0 && !named {
+                self.ai_thinking_done().await?;
             }
             let rest = md.finish();
             // A reply too short to wrap hasn't put the name up yet.

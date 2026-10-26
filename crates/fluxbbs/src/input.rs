@@ -257,10 +257,16 @@ impl Session {
             let expecting = self.cursor_asks > self.cursor_reports;
             let (keys, reports, tail, da) = strip_cursor_reports(&data, expecting);
             self.cursor_reports += reports;
-            self.device_attrs.extend(da.iter().map(|a| String::from_utf8_lossy(a).into_owned()));
+            // A terminal answers a few times at most; a flood of answers
+            // is kept from filling memory.
+            if self.device_attrs.len() < 32 {
+                self.device_attrs.extend(da.iter().take(32 - self.device_attrs.len()).map(|a| String::from_utf8_lossy(a).into_owned()));
+            }
             let keys = if self.screen.charset() == fluxbbs_term::Charset::Utf8 { utf8_keys(&keys, &mut self.utf8_tail) } else { keys };
             self.input.extend(keys);
-            self.report_tail = tail;
+            // No real report is this long: an unfinished one that keeps
+            // growing is garbage, not a report.
+            self.report_tail = if tail.len() > 1024 { Vec::new() } else { tail };
         }
     }
 
@@ -362,6 +368,9 @@ impl Session {
                     (b'~', b"6") => Key::PgDn,
                     _ => return Ok(None),
                 }));
+            }
+            if params.len() >= 16 {
+                return Ok(None);
             }
             params.push(b);
         }

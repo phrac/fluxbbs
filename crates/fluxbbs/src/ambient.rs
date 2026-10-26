@@ -245,15 +245,19 @@ impl Ambient {
 
     /// Where the dust is at `t`: the cells a mote's in.
     fn motes(e: &Effect, i: usize, t: f32) -> Vec<(u16, u16)> {
-        let (w, h) = ((e.cols[1] - e.cols[0] + 1) as f32, (e.rows[1] - e.rows[0] + 1) as f32);
+        // The area as given, whichever way round, and no bigger than a
+        // screen can be.
+        let (c0, c1) = (e.cols[0].min(e.cols[1]).max(1), e.cols[0].max(e.cols[1]).min(80));
+        let (r0, r1) = (e.rows[0].min(e.rows[1]).max(1), e.rows[0].max(e.rows[1]).min(60));
+        let (w, h) = ((c1 - c0 + 1) as f32, (r1 - r0 + 1) as f32);
         let n = ((w * h) / 7.0).ceil().max(1.0) as i32;
         (0..n)
             .map(|k| {
                 let seed = i as i32 * 101 + k;
-                let x = e.cols[0] as f32 + noise(seed, 1) * w + (t * 0.5 + k as f32).sin() * 1.2;
+                let x = c0 as f32 + noise(seed, 1) * w + (t * 0.5 + k as f32).sin() * 1.2;
                 let fall = t * (0.35 + noise(seed, 3) * 0.5);
-                let y = e.rows[0] as f32 + (noise(seed, 2) * h + fall).rem_euclid(h);
-                (x.round().clamp(e.cols[0] as f32, e.cols[1] as f32) as u16, y.floor() as u16)
+                let y = r0 as f32 + (noise(seed, 2) * h + fall).rem_euclid(h);
+                (x.round().clamp(c0 as f32, c1 as f32) as u16, y.floor() as u16)
             })
             .collect()
     }
@@ -360,14 +364,18 @@ impl Ambient {
             }
             "type" => {
                 let Some((shows, cursor)) = g.typed else { return b };
-                let local = t.rem_euclid(e.every.max(1.0)) - e.delay;
+                // Seconds into this round's typing, which starts `delay`
+                // seconds into each round (a delay past `every` wraps,
+                // so the text isn't hidden for good).
+                let every = e.every.max(1.0);
+                let local = t.rem_euclid(every) - e.delay.rem_euclid(every);
                 if local >= shows {
                     return b;
                 }
                 // The cursor: steady while it types, blinking once done
                 // until the next `type` starts.
                 let done = shows.is_infinite();
-                let moved_on = || self.effects[i + 1..].iter().any(|f| f.kind == "type" && t.rem_euclid(f.every.max(1.0)) - f.delay >= 0.0);
+                let moved_on = || self.effects[i + 1..].iter().any(|f| f.kind == "type" && t.rem_euclid(f.every.max(1.0)) - f.delay.rem_euclid(f.every.max(1.0)) >= 0.0);
                 if let Some(c) = hex(&e.tint)
                     && !(done && moved_on())
                     && local >= cursor
@@ -428,12 +436,15 @@ impl Ambient {
             msg = message(round + 1);
         }
         let n = msg.len().min(cells.len());
-        // This round's letter cells: the n with the lowest draw.
+        // This round's letter cells: the n with the lowest draw (ties
+        // broken by place, so exactly n are lit and the letter index
+        // never runs past the message).
         let draws: Vec<f32> = (0..cells.len()).map(|k| noise(round.wrapping_mul(7919) + k as i32, 17)).collect();
-        let mut sorted = draws.clone();
-        sorted.sort_by(f32::total_cmp);
-        let lit = |k: usize| n > 0 && draws[k] <= sorted[n - 1];
-        let letter = lit(me).then(|| msg[(0..me).filter(|&k| lit(k)).count()]);
+        let mut order: Vec<usize> = (0..cells.len()).collect();
+        order.sort_by(|&a, &b| draws[a].total_cmp(&draws[b]).then(a.cmp(&b)));
+        let rank_of = |k: usize| order.iter().position(|&o| o == k).unwrap_or(usize::MAX);
+        let lit = |k: usize| rank_of(k) < n;
+        let letter = lit(me).then(|| msg[(0..me).filter(|&k| lit(k)).count().min(n - 1)]);
         // The colors the area was drawn in.
         let bases = || self.targets.iter().filter(|o| o.effects.contains(&i)).map(|o| o.base.fg);
         let sum = |c: [u8; 3]| c.iter().map(|&v| v as u32).sum::<u32>();
@@ -483,8 +494,13 @@ impl Ambient {
     /// The ANSI for what's changed since the last frame.
     pub fn frame(&mut self) -> Vec<u8> {
         let t = self.start.elapsed().as_secs_f32();
-        let dust: std::collections::HashSet<(u16, u16)> =
-            self.effects.iter().enumerate().filter(|(_, e)| e.kind == "dust" && t >= e.delay).flat_map(|(i, e)| Self::motes(e, i, t)).collect();
+        let dust: std::collections::HashSet<(u16, u16)> = self
+            .effects
+            .iter()
+            .enumerate()
+            .filter(|(i, e)| e.kind == "dust" && t >= e.delay && self.targets.iter().any(|g| g.effects.contains(i)))
+            .flat_map(|(i, e)| Self::motes(e, i, t))
+            .collect();
         let cells: Vec<Shown> = self.targets.iter().map(|g| self.shade(g, t, &dust)).collect();
         let mut out = Vec::new();
         let mut at: Option<(u16, u16)> = None;
@@ -571,15 +587,22 @@ impl Session {
             let waker = self.node.waker();
             loop {
                 if self.key_waiting().await? {
+                    self.restore_effects(amb.as_mut()).await?;
                     break;
                 }
                 let stale = idle > 0 && since.elapsed() >= Duration::from_secs(idle);
                 if stale || self.node.has_messages() {
+                    self.restore_effects(amb.as_mut()).await?;
                     *amb = None;
                     break;
                 }
                 if saver_after > 0 && since.elapsed() >= Duration::from_secs(saver_after) {
                     self.screensaver(since, idle).await?;
+                    // The saver ends at the inactivity timeout too: the
+                    // caller goes, as they would from a prompt.
+                    if idle > 0 && since.elapsed() >= Duration::from_secs(idle) && !self.key_waiting().await? {
+                        return Err(io::Error::new(io::ErrorKind::TimedOut, "inactivity timeout"));
+                    }
                     return Ok(None);
                 }
                 if let Some(a) = amb.as_mut() {
@@ -601,6 +624,7 @@ impl Session {
                     _ = tokio::time::sleep(Duration::from_millis(70)) => {}
                     _ = waker.notified() => {
                         // Something for the caller: the usual wait shows it.
+                        self.restore_effects(amb.as_mut()).await?;
                         *amb = None;
                         break;
                     }
@@ -611,6 +635,22 @@ impl Session {
         let k = self.read_key().await;
         self.idle_since = None;
         k.map(Some)
+    }
+
+    /// Put the cells an animation changed back as they were drawn, when
+    /// its wait ends (a key, a message), so nothing is left mid-effect.
+    async fn restore_effects(&mut self, amb: Option<&mut Ambient>) -> io::Result<()> {
+        let Some(a) = amb else { return Ok(()) };
+        let out = a.restore();
+        if !out.is_empty() {
+            let (x, y, color) = (self.screen.where_x(), self.screen.where_y(), self.screen.color());
+            self.screen.write_bytes(&out);
+            self.screen.write_bytes(b"\x1b[0m");
+            self.screen.goto(x, y);
+            self.screen.set_color(color);
+            self.flush().await?;
+        }
+        Ok(())
     }
 
     /// New: run effects over what's on screen for `secs` seconds, not
@@ -812,7 +852,7 @@ impl Rain {
                 let (x0, y0) = ((80u16.saturating_sub(w) / 2 + 1), (rows.saturating_sub(h) / 2 + 1).max(1));
                 cells
                     .iter()
-                    .filter(|c| y0 + c.y <= rows && x0 + c.x <= 80)
+                    .filter(|c| y0 as u32 + c.y as u32 <= rows as u32 && x0 as u32 + c.x as u32 <= 80)
                     .map(|c| (x0 + c.x, y0 + c.y, c.ch, Some(crate::tdf::rgb(c.fg)), NEVER))
                     .collect()
             }
@@ -1092,6 +1132,26 @@ mod tests {
         let e = Effect { cols: [30, 40], ..fx("dust", [5, 15]) };
         for t in [0.0, 3.3, 17.0] {
             assert!(Ambient::motes(&e, 0, t).iter().all(|&(x, y)| (30..=40).contains(&x) && (5..=15).contains(&y)));
+        }
+        // Bounds given backwards, or past the screen, are taken as meant.
+        let e = Effect { cols: [40, 30], ..fx("dust", [900, 5]) };
+        assert!(Ambient::motes(&e, 0, 1.0).iter().all(|&(x, y)| (30..=40).contains(&x) && (5..=60).contains(&y)));
+    }
+
+    #[test]
+    fn a_long_decode_row_lights_exactly_its_message() {
+        // 76 letters, 16-bit draws: ties are certain over enough rounds;
+        // each round still lights exactly the message's letters.
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.write_bytes(b"\x1b[2J\x1b[38;2;85;85;85;48;2;0;0;0m");
+        s.write_bytes(&[b'A'; 76]);
+        let msgs: Vec<String> = (0..40).map(|i| format!("MSG{i:02}")).collect();
+        let e = Effect { cols: [1, 76], every: 4.0, delay: 0.0, amount: 1.0, tint: "#ff55ff".into(), messages: msgs, ..fx("decode", [1, 1]) };
+        let a = Ambient::new(&s, &[e]).unwrap();
+        for round in 0..400 {
+            let t = round as f32 * 4.0 + 3.5;
+            let lit: Vec<u8> = a.targets.iter().map(|g| a.shade(g, t, &Default::default())).filter(|s| s.fg != [85, 85, 85]).map(|s| s.ch).collect();
+            assert_eq!(lit.len(), 5, "round {round}: {}", String::from_utf8_lossy(&lit));
         }
     }
 }

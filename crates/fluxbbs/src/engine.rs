@@ -48,10 +48,8 @@ fn ansi_width(s: &str) -> usize {
 }
 
 fn bar_move(places: &[Option<(i32, i32)>], cur: usize, key: Key) -> usize {
-    let n = places.len();
-    let (next, prev) = ((cur + 1) % n, (cur + n - 1) % n);
     let Some((cx, cy)) = places[cur] else {
-        return if matches!(key, Key::Up | Key::Left) { prev } else { next };
+        return step(places, cur, matches!(key, Key::Up | Key::Left));
     };
     let others = places.iter().enumerate().filter_map(|(i, p)| p.map(|(x, y)| (i, x, y)));
     let found = match key {
@@ -64,9 +62,24 @@ fn bar_move(places: &[Option<(i32, i32)>], cur: usize, key: Key) -> usize {
     };
     match found {
         Some((i, _, _)) => i,
-        None if matches!(key, Key::Up | Key::Left) => prev,
-        None => next,
+        None => step(places, cur, matches!(key, Key::Up | Key::Left)),
     }
+}
+
+/// The next (or previous) option in order, wrapping: the next placed
+/// one when any is (dark slots have no place, so they're passed over),
+/// else simply the next.
+fn step(places: &[Option<(i32, i32)>], from: usize, back: bool) -> usize {
+    let n = places.len();
+    let next = |k: usize| if back { (k + n - 1) % n } else { (k + 1) % n };
+    let mut k = from;
+    for _ in 0..n {
+        k = next(k);
+        if places[k].is_some() {
+            return k;
+        }
+    }
+    next(from)
 }
 
 #[derive(Default)]
@@ -122,16 +135,21 @@ impl Session {
         // game's own menu).
         let cfg = self.state.config();
         for c in &mut menu.commands {
-            c.dark = !crate::features::command_on(&cfg, &c.command) || ((c.command == "-/" || c.command == "-^") && Self::menu_dark(&cfg, &dir, &c.param));
+            // A menu change on entry (the logon sequence's last step) is
+            // never darkened: the caller must get somewhere.
+            let way_in = (c.command == "-/" || c.command == "-^") && c.keys != FIRST_CMD;
+            c.dark = !crate::features::command_on(&cfg, &c.command) || (way_in && Self::menu_dark(&cfg, &dir, &c.param));
         }
         Some(menu)
     }
 
     /// Does a menu have real commands (not screens, pauses or menu
-    /// changes) and all of them switched off?
-    fn menu_dark(cfg: &crate::config::Config, dir: &[std::path::PathBuf], name: &str) -> bool {
-        let Ok(m) = Menu::load(dir, name.trim()) else { return false };
-        let real: Vec<&crate::menu::Command> = m.commands.iter().filter(|c| !c.command.starts_with('-')).collect();
+    /// changes; a script is one) and all of them switched off?
+    fn menu_dark(cfg: &crate::config::Config, dir: &[std::path::PathBuf], param: &str) -> bool {
+        // The parameter is `MENU[;C][;KEYS]`.
+        let name = param.split(';').next().unwrap_or("").trim();
+        let Ok(m) = Menu::load(dir, name) else { return false };
+        let real: Vec<&crate::menu::Command> = m.commands.iter().filter(|c| !c.command.starts_with('-') || c.command == "-X").collect();
         !real.is_empty() && real.iter().all(|c| !crate::features::command_on(cfg, &c.command))
     }
 
@@ -677,7 +695,7 @@ impl Session {
         let key = |codes: &[&str], to_menu: &str| {
             menu.commands
                 .iter()
-                .filter(|c| !c.hidden && c.keys != FIRST_CMD && self.acs(&c.acs))
+                .filter(|c| !c.hidden && !c.dark && c.keys != FIRST_CMD && self.acs(&c.acs))
                 .find(|c| codes.contains(&c.command.as_str()) || (c.command.starts_with('-') && c.param.eq_ignore_ascii_case(to_menu)))
                 .map(|c| self.strings().fmt("HintKey", &[&c.keys.to_ascii_lowercase()]))
                 .unwrap_or_default()
@@ -888,5 +906,10 @@ mod tests {
         assert_eq!(bar_move(&row, 1, Key::Down), 2);
         assert_eq!(bar_move(&row, 1, Key::Up), 0);
         assert_eq!(bar_move(&[None, None], 0, Key::Down), 1);
+        // Dark (unplaced) slots are passed over, both ways.
+        let dark = [Some((2, 10)), None, Some((2, 12)), None];
+        assert_eq!(bar_move(&dark, 2, Key::Down), 0);
+        assert_eq!(bar_move(&dark, 0, Key::Up), 2);
+        assert_eq!(bar_move(&dark, 1, Key::Down), 2);
     }
 }
