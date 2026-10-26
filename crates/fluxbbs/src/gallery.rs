@@ -410,6 +410,16 @@ impl Session {
         }
         loop {
             let (_, place, _) = path.last().cloned().expect("root");
+            // New: the file area being browsed (or the one an open archive is
+            // in) becomes the current one, so leaving stays there. Not one
+            // with a password: `FA` asks for that.
+            if let Some(n) = path.iter().rev().find_map(|(_, p, _)| if let Place::Area(n) = p { Some(*n) } else { None })
+                && n != self.user.cur_file_area
+                && self.farea_visible(n)
+                && self.farea(n).is_some_and(|a| a.area.password.is_empty())
+            {
+                self.user.cur_file_area = n;
+            }
             let items = self.gallery_list(&place, mode).await?;
             if let Some(name) = focus.take()
                 && let Some(i) = items.iter().position(|it| match it {

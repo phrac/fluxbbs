@@ -43,6 +43,9 @@ parent = "ZINES"
   sub-areas like any other area.
 - `FA` lists every area, with sub-areas indented.
 - `[`/`]`, numbering and `*F` follow the tree.
+- The file browser (`FW`) makes each area it opens the current one,
+  so `q` leaves you in the last area you were in (not one with a
+  password; `FA` asks for that).
 
 ### Sorting and moving in `*F`
 
