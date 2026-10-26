@@ -970,6 +970,10 @@ pub struct Terminal {
     /// New: milliseconds the picture flickers before it switches off at
     /// logoff (0: straight to the switch-off).
     pub logoff_flicker_ms: u64,
+    /// New: seconds between a menu's glints. Menus and screens time
+    /// their effects for a 10-second glint; all of them are paced to
+    /// this (0: as they say).
+    pub glint_seconds: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1427,6 +1431,7 @@ impl Default for Terminal {
             screensaver_font: String::new(),
             screensaver_face: String::new(),
             logoff_flicker_ms: 3500,
+            glint_seconds: 12,
         }
     }
 }

@@ -566,12 +566,42 @@ impl Session {
         if self.screen.where_x() > 1 {
             self.ai_nl().await?;
         }
+        // New: the header's effects (AICHAT.FX) run while the chat waits.
+        self.ai_amb = if self.animating() {
+            self.find_text_file("AICHAT").and_then(|p| crate::ambient::sidecar(&p)).and_then(|fx| crate::ambient::Ambient::new(&self.screen, &self.paced(&fx)))
+        } else {
+            None
+        };
         // A header too tall to leave a few rows scrolls with the chat.
         let (top, rows) = (self.screen.where_y(), self.screen.rows());
         if top + 4 < rows {
             self.ai_win = Some(AiWindow { top, lines: Vec::new(), cur: Vec::new(), pausing: false, since: 0 });
         }
         self.ai_bar(cfg).await
+    }
+
+    /// New: dots pulsing at the start of the reply's line while the
+    /// model thinks (`AiThinking`), on the row the cursor's on; the row
+    /// is cleared again when the words come.
+    async fn ai_thinking(&mut self, tick: usize) -> io::Result<()> {
+        let (x, y) = (self.screen.where_x(), self.screen.where_y());
+        let dots = ["·", "··", "···", "····", "···", "··"][tick % 6];
+        let s = self.strings().fmt("AiThinking", &[dots]);
+        self.screen.goto(1, y);
+        self.screen.clear_eol();
+        self.show(&s).await?;
+        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+        self.screen.goto(x, y);
+        self.flush().await
+    }
+
+    async fn ai_thinking_done(&mut self) -> io::Result<()> {
+        let (x, y) = (self.screen.where_x(), self.screen.where_y());
+        self.screen.goto(1, y);
+        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+        self.screen.clear_eol();
+        self.screen.goto(x, y);
+        Ok(())
     }
 
     /// The help bar on the bottom line, with the messages left today.
@@ -617,7 +647,11 @@ impl Session {
         // Where each character went, to back up over the wrap.
         let mut at: Vec<(u16, u16)> = Vec::new();
         loop {
-            let mut key = self.read_key().await?;
+            // The header animates between keys.
+            let mut amb = self.ai_amb.take();
+            let key = self.read_key_ambient(&mut amb, false).await;
+            self.ai_amb = amb;
+            let Some(mut key) = key? else { continue };
             if looks_back(key) {
                 let Some(k) = self.ai_look_back(key).await? else { continue };
                 key = k;
@@ -757,7 +791,20 @@ impl Session {
             self.ai_style = None;
             let mut begun = false;
             let mut named = false;
-            'stream: while let Some(chunk) = rx.recv().await {
+            // New: a pulse of dots while the first words are on their way.
+            let mut tick = 0usize;
+            'stream: loop {
+                let chunk = tokio::select! {
+                    c = rx.recv() => match c {
+                        Some(c) => c,
+                        None => break 'stream,
+                    },
+                    _ = tokio::time::sleep(std::time::Duration::from_millis(220)), if !named => {
+                        self.ai_thinking(tick).await?;
+                        tick += 1;
+                        continue;
+                    }
+                };
                 buf.extend_from_slice(&chunk.map_err(io_err)?);
                 // Server-sent events: one `data: {...}` per line.
                 while let Some(i) = buf.iter().position(|&b| b == b'\n') {
@@ -792,6 +839,9 @@ impl Session {
                         // The name goes up with the first words, not before
                         // a search.
                         if !out.is_empty() && !named {
+                            if tick > 0 {
+                                self.ai_thinking_done().await?;
+                            }
                             self.ai_show(&name).await?;
                             self.ai_ink = trailing_codes(&name);
                             named = true;

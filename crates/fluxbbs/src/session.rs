@@ -206,6 +206,8 @@ pub struct Session {
     pub(crate) ai_ctx: String,
     /// The chat's rows under the header, kept to redraw them (new).
     pub(crate) ai_win: Option<crate::aichat::AiWindow>,
+    /// New: the chat screen's effects (AICHAT.FX), run while it waits.
+    pub(crate) ai_amb: Option<crate::ambient::Ambient>,
     /// New: the line the editor opens with in place of a hint (once).
     pub(crate) editor_note: Option<String>,
     /// New: what this call did, for the board's memory of the caller.
@@ -428,6 +430,7 @@ impl Session {
             escaped: false,
             ai_ctx: String::new(),
             ai_win: None,
+            ai_amb: None,
             editor_note: None,
             seen: Default::default(),
         }
@@ -860,7 +863,7 @@ impl Session {
             Control::ReadKey if !self.plain() => match self.screen_fx.take() {
                 Some(fx) => {
                     self.flush().await?;
-                    let mut amb = crate::ambient::Ambient::new(&self.screen, &fx);
+                    let mut amb = crate::ambient::Ambient::new(&self.screen, &self.paced(&fx));
                     self.read_key_ambient(&mut amb, false).await?;
                     self.screen_fx = Some(fx);
                 }

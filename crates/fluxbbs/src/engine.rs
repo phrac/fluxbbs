@@ -547,7 +547,7 @@ impl Session {
         }
         // New: the screen animates while it waits, if the menu says how.
         let mut ambient = if !menu.effects.is_empty() && menu.clear_before && self.animating() {
-            crate::ambient::Ambient::new(&self.screen, &menu.effects)
+            crate::ambient::Ambient::new(&self.screen, &self.paced(&menu.effects))
         } else {
             None
         };

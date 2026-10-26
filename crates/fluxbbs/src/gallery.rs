@@ -554,6 +554,8 @@ impl Session {
         let mut redraw = true;
         // A word in place of the info line, after a key that can't act.
         let mut note: Option<String> = None;
+        // New: the screen's effects (GALLERY.FX) run while it waits.
+        let mut amb: Option<crate::ambient::Ambient> = None;
         loop {
             let height = (l.bot - l.top + 1) as usize;
             if cur < first || cur >= first + height {
@@ -613,6 +615,11 @@ impl Session {
                 self.lister_scroll(&l, first, last, items.len().max(1));
                 self.lister_menu(&l, &mut menu);
                 redraw = false;
+                amb = if from_screen && self.animating() {
+                    self.find_text_file(screen).and_then(|p| crate::ambient::sidecar(&p)).and_then(|fx| crate::ambient::Ambient::new(&self.screen, &self.paced(&fx)))
+                } else {
+                    None
+                };
             }
             let info = match note.take() {
                 Some(n) => n,
@@ -620,7 +627,10 @@ impl Session {
             };
             self.lister_info(&l, &info).await?;
             self.lister_park(&l);
-            let key = self.read_key().await?;
+            let Some(key) = self.read_key_ambient(&mut amb, false).await? else {
+                redraw = true;
+                continue;
+            };
             let prev = cur;
             let height = (l.bot - l.top + 1) as usize;
             let choice = match key {
@@ -751,8 +761,17 @@ impl Session {
             self.screen.set_color(l.cl[0]);
             self.write(&resize(&size, (desc_x - x).saturating_sub(1) as usize));
         }
+        // New: the piece's group and date (its SAUCE) at the far right,
+        // so the row reaches the edge.
+        let tail = match item {
+            Item::Art { sauce: Some(s), .. } => {
+                let year: String = s.date.chars().take(4).collect();
+                [s.group.as_str(), year.as_str()].iter().filter(|p| !p.is_empty()).copied().collect::<Vec<_>>().join(" · ")
+            }
+            _ => String::new(),
+        };
         self.screen.goto(desc_x, y);
-        let room = 79usize.saturating_sub(desc_x as usize);
+        let room = 79usize.saturating_sub(desc_x as usize).saturating_sub(if tail.is_empty() { 0 } else { tail.chars().count() + 2 });
         self.screen.set_color(l.cl[0]);
         let title: String = title.chars().take(room).collect();
         self.write(&title);
@@ -763,6 +782,12 @@ impl Session {
         }
         self.screen.set_color(l.cl[0]);
         self.screen.clear_eol();
+        if !tail.is_empty() {
+            self.screen.goto((80 - tail.chars().count()) as u16, y);
+            self.screen.set_color(l.cl[1]);
+            self.write(&tail);
+            self.screen.set_color(l.cl[0]);
+        }
     }
 
     /// A PDF: its text (or with `pages`, its pages), switching between the

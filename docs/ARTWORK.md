@@ -130,7 +130,9 @@ delay = 6.0
   falls over the screen, in the color most of that screen is drawn in
   (pink on a pink menu, green on a green one; pinks where the screen
   has no color). The board's name assembles out of the rain across the
-  middle, each cell of it staying once a drop has passed over it: in
+  middle, each cell of it staying once a drop has passed over it;
+  full, it holds a moment, then the drops take it away again, and it
+  starts over: in
   plain letters, or set in a TheDraw font if `screensaver_font` names
   a `.TDF` file (`screensaver_face` the face in it, else its first),
   each cell in the font's own color. Backspace on any lightbar menu
@@ -140,7 +142,9 @@ delay = 6.0
   only for callers whose menus animate.
 - **Any screen can animate too**, while it waits at a `|PK`. Put its
   effects in a file beside it with the same name and `.FX` (say
-  `PRELOGON.FX`), as `[[effect]]` entries like these.
+  `PRELOGON.FX`), as `[[effect]]` entries like these. The art gallery's
+  list and the AI chat do the same with `GALLERY.FX` and `AICHAT.FX`
+  while they wait for keys.
 - **More kinds, for scenes:**
   - `flicker`: firelight; cells brighten and dim, warmer as they
     brighten (`amount` 0.3 to start).
@@ -164,6 +168,11 @@ delay = 6.0
     letter.
   - `roll`: a bright bar rolls down the area once every `every`
     seconds, as on an old tube.
+  - `wave`: a glint rippled into bands. `drips`: a bright drop runs
+    down each column, the columns a little apart. `sparkle`: cells
+    flash here and there for a few seconds. `breathe`: the whole area
+    dims and comes back. `random`: one of those or a glint, drawn each
+    time the screen comes up, so a menu looks different call to call.
   - `decode`: the letters in the area scramble, matrix style, and
     settle into the next of `messages = ["...", ...]`, every `every`
     seconds, `delay` in; the scramble lasts `amount` seconds (2 to

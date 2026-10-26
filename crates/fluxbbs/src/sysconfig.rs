@@ -106,6 +106,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('K', "Saver font", 40, "A TheDraw font file (.TDF, relative to the board) the saver sets the board's name in; blank for plain letters.", Text(|c| &mut c.terminal.screensaver_font, TEXT.max(200))),
             set('L', "Saver face", 12, "The face in that file (blank: the first).", Text(|c| &mut c.terminal.screensaver_face, TEXT.max(12))),
             set('M', "Logoff flicker", 5, "Milliseconds the picture flickers before it switches off at logoff (0 = none); the TvOffLater string shows after.", Num(|c| c.terminal.logoff_flicker_ms, |c, v| c.terminal.logoff_flicker_ms = v, 0, 60_000)),
+            set('N', "Glint seconds", 4, "Seconds between a menu's glints; every effect is paced to it, as the menus time them for 10 (0 = as they say).", Num(|c| c.terminal.glint_seconds, |c, v| c.terminal.glint_seconds = v, 0, 3600)),
             set('J', "256-color TERMs", 50, "CP437 terminals with 256 colors but not 24-bit: sent the nearest of the 256.", List(|c| &mut c.terminal.palette256_terms)),
         ]),
         ("Access and Logon", false, vec![

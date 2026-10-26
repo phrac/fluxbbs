@@ -35,7 +35,9 @@ pub struct Effect {
     /// `decode`: the area's letters scrambling and settling into the next
     /// of `messages`, its letters at cells picked afresh each round and
     /// the rest noise, `delay` into every `every` seconds, the scramble
-    /// lasting `amount` seconds (2 to start).
+    /// lasting `amount` seconds (2 to start). `wave`, `drips`, `sparkle`
+    /// and `breathe`: other ways over a logo; `random`: one of those or
+    /// a glint, drawn each time the screen comes up.
     pub kind: String,
     /// The screen rows it covers, first and last (1-based), and the
     /// columns.
@@ -60,6 +62,9 @@ pub struct Effect {
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub messages: Vec<String>,
 }
+
+/// What `random` draws from.
+const RANDOM_KINDS: [&str; 5] = ["glint", "wave", "drips", "sparkle", "breathe"];
 
 fn all_cols() -> [u16; 2] {
     [1, 80]
@@ -176,7 +181,7 @@ impl Ambient {
                 for x in e.cols[0].max(1)..=e.cols[1].min(80) {
                     let Some(c) = screen.shown(x, y) else { continue };
                     let wanted = match e.kind.as_str() {
-                        "glint" | "flicker" => !blank(&c),
+                        "glint" | "flicker" | "wave" | "drips" | "sparkle" | "breathe" => !blank(&c),
                         "ripple" => box_line(c.ch),
                         "pulse" | "blink" => matches.is_some_and(|m| near(c.fg, m) || near(c.bg, m)),
                         "dust" | "type" | "roll" => true,
@@ -269,6 +274,55 @@ impl Ambient {
         let phase = since.rem_euclid(e.every.max(0.5));
         let q = |k: f32, steps: f32| (k * steps).round() / steps;
         let (fg, bg) = match e.kind.as_str() {
+            // New: more ways across a logo, so a menu can draw one at
+            // random (`random`). A wave: a sweep rippled into bands. Drips:
+            // a bright drop running down each column, columns a little
+            // apart. Sparkle: cells flashing here and there. Breathe: the
+            // whole thing dimming and coming back.
+            "wave" => {
+                let (c0, c1) = (e.cols[0] as f32, e.cols[1] as f32);
+                let run = 2.2;
+                if since < 0.0 || phase > run {
+                    return b;
+                }
+                let at = c0 - 14.0 + phase / run * (c1 - c0 + 28.0);
+                let d = g.x as f32 + (g.y - e.rows[0]) as f32 * 1.2 - at;
+                let amount = if e.amount > 0.0 { e.amount } else { 0.7 };
+                let k = q(amount * (-(d / 9.0).powi(2)).exp() * (0.5 + 0.5 * (d * 0.9).cos()), 8.0);
+                let fg = if b.ch == b' ' { b.fg } else { lift(b.fg, k) };
+                let lit_bg = b.bg.iter().map(|&v| v as u32).sum::<u32>() >= 30;
+                (fg, if lit_bg { lift(b.bg, k * 0.5) } else { b.bg })
+            }
+            "drips" => {
+                let run = 2.4;
+                if since < 0.0 || phase > run {
+                    return b;
+                }
+                let span = (e.rows[1] - e.rows[0] + 1) as f32 + 4.0;
+                let start = noise(g.x as i32, 41) * 0.8;
+                let head = e.rows[0] as f32 - 2.0 + ((phase - start) / (run - 0.8)).clamp(0.0, 1.0) * span;
+                let behind = head - g.y as f32;
+                let amount = if e.amount > 0.0 { e.amount } else { 0.8 };
+                let k = if (0.0..3.0).contains(&behind) { q(amount * (1.0 - behind / 3.0), 8.0) } else { 0.0 };
+                let fg = if b.ch == b' ' { b.fg } else { lift(b.fg, k) };
+                (fg, lift(b.bg, k * 0.4))
+            }
+            "sparkle" => {
+                if since < 0.0 || phase > 3.0 {
+                    return b;
+                }
+                let tick = (t * 8.0) as i32;
+                let amount = if e.amount > 0.0 { e.amount } else { 0.9 };
+                let on = noise(tick, g.x as i32 * 7 + g.y as i32 * 131) < 0.04;
+                let k = if on { amount } else { 0.0 };
+                (lift(b.fg, k), lift(b.bg, k * 0.5))
+            }
+            "breathe" => {
+                let amount = if e.amount > 0.0 { e.amount } else { 0.6 };
+                let wave = if since < 0.0 { 0.0 } else { (0.5 - 0.5 * (phase / e.every.max(0.5) * 2.0 * std::f32::consts::PI).cos()).powi(2) };
+                let k = q(1.0 - amount * wave, 12.0);
+                (times(b.fg, k), times(b.bg, k))
+            }
             "glint" | "ripple" => {
                 let k = if since < 0.0 { 0.0 } else { q(Self::sweep(e, g.x, g.y, phase), 8.0) };
                 let fg = if b.ch == b' ' { b.fg } else { lift(b.fg, k) };
@@ -478,6 +532,25 @@ pub fn sidecar(screen: &std::path::Path) -> Option<Vec<Effect>> {
 }
 
 impl Session {
+    /// New: a screen's effects paced to the board's `glint_seconds`:
+    /// menus and screens time them for a glint every 10 seconds, so
+    /// every `every` and `delay` is scaled by `glint_seconds / 10`,
+    /// which keeps the decodes in step with the glints.
+    pub(crate) fn paced(&self, effects: &[Effect]) -> Vec<Effect> {
+        use rand::RngExt;
+        let glint = self.state.config().terminal.glint_seconds;
+        let k = if glint == 0 { 1.0 } else { glint as f32 / 10.0 };
+        effects
+            .iter()
+            .map(|e| {
+                // `random`: one of the ways across a logo, drawn each
+                // time the screen comes up.
+                let kind = if e.kind == "random" { RANDOM_KINDS[rand::rng().random_range(0..RANDOM_KINDS.len())].to_string() } else { e.kind.clone() };
+                Effect { kind, every: e.every * k, delay: e.delay * k, ..e.clone() }
+            })
+            .collect()
+    }
+
     /// Do this caller's screen and settings allow animating?
     pub(crate) fn animating(&self) -> bool {
         !self.plain()
@@ -697,8 +770,9 @@ struct Drop {
 }
 
 /// A cell of the name: column, row, character, its own color if set
-/// in a font, and when a drop last lit it.
+/// in a font, and when a drop last lit it (`NEVER`: it's not showing).
 type WordCell = (u16, u16, u8, Option<[u8; 3]>, f32);
+const NEVER: f32 = -1.0;
 
 struct Rain {
     rows: u16,
@@ -710,6 +784,10 @@ struct Rain {
     /// it.
     word: Vec<WordCell>,
     palette: [[u8; 3]; 6],
+    /// The name fills in as drops cross its cells; full, it holds a
+    /// moment, then the drops take it away again, and so on.
+    filling: bool,
+    filled_at: f32,
     t: f32,
     seed: u32,
 }
@@ -735,16 +813,16 @@ impl Rain {
                 cells
                     .iter()
                     .filter(|c| y0 + c.y <= rows && x0 + c.x <= 80)
-                    .map(|c| (x0 + c.x, y0 + c.y, c.ch, Some(crate::tdf::rgb(c.fg)), -100.0))
+                    .map(|c| (x0 + c.x, y0 + c.y, c.ch, Some(crate::tdf::rgb(c.fg)), NEVER))
                     .collect()
             }
             _ => {
                 let text: Vec<u8> = fluxbbs_term::cp437::encode(name.to_lowercase().split("").collect::<Vec<_>>().join(" ").trim());
                 let x0 = (80usize.saturating_sub(text.len()) / 2 + 1) as u16;
-                text.iter().enumerate().filter(|(_, c)| **c != b' ').map(|(i, &c)| (x0 + i as u16, rows / 2, c, None, -100.0)).collect()
+                text.iter().enumerate().filter(|(_, c)| **c != b' ').map(|(i, &c)| (x0 + i as u16, rows / 2, c, None, NEVER)).collect()
             }
         };
-        Rain { rows, drops, glyphs, sent: vec![None; 80 * rows as usize], word, palette, t: 0.0, seed: 0x1234_5678 }
+        Rain { rows, drops, glyphs, sent: vec![None; 80 * rows as usize], word, palette, filling: true, filled_at: 0.0, t: 0.0, seed: 0x1234_5678 }
     }
 
     fn rnd(&mut self) -> f32 {
@@ -769,17 +847,19 @@ impl Rain {
                 for y in (before + 1).max(0)..=(d.head.floor() as i32).min(self.rows as i32 - 1) {
                     let r = self.rnd();
                     self.glyphs[y as usize * 80 + x] = rain_glyph(r);
-                    for w in &mut self.word {
-                        if w.0 as usize == x + 1 && w.1 as i32 == y + 1 {
-                            w.4 = self.t;
-                        }
-                    }
                 }
                 if d.head - d.len > rows {
                     d = Drop { head: 0.0, speed: 7.0 + self.rnd() * 13.0, len: 6.0 + self.rnd() * 14.0, wait: self.rnd() * 3.0 };
                 }
             }
             self.drops[x] = d;
+        }
+        // Full: hold it, then let the drops take it; empty: fill again.
+        if self.filling && self.word.iter().all(|w| w.4 >= 0.0) {
+            self.filling = false;
+            self.filled_at = self.t;
+        } else if !self.filling && self.word.iter().all(|w| w.4 < 0.0) {
+            self.filling = true;
         }
         // Now and then a glyph in a trail changes.
         for _ in 0..6 {
@@ -800,14 +880,25 @@ impl Rain {
                 };
                 let mut glyph = self.glyphs[y as usize * 80 + x as usize];
                 // The name assembles out of the rain: a cell of it stays
-                // once a drop has passed over it, in its own color if
-                // it's set in a font (brightening again under each drop
-                // that follows), else in the rain's, fading from bright
-                // to the tail's tone and staying there.
+                // once a drop has passed over it (until the drops take it
+                // away again), in its own color if it's set in a font
+                // (brightening again under each drop that follows), else
+                // in the rain's, fading from bright to the tail's tone.
                 let mut own = None;
-                if let Some(w) = self.word.iter().find(|w| w.0 == x + 1 && w.1 == y + 1) {
-                    let age = self.t - w.4;
-                    if age >= 0.0 {
+                let (filling, hold_over, t) = (self.filling, self.t - self.filled_at > 3.0, self.t);
+                if let Some(w) = self.word.iter_mut().find(|w| w.0 == x + 1 && w.1 == y + 1) {
+                    // Under a drop: filling, the cell comes on (and
+                    // brightens again under each later drop); emptying,
+                    // once the full name has held a moment, it goes.
+                    if level.is_some() {
+                        if filling {
+                            w.4 = t;
+                        } else if hold_over {
+                            w.4 = NEVER;
+                        }
+                    }
+                    let age = t - w.4;
+                    if w.4 >= 0.0 {
                         glyph = w.2;
                         let lit = if age < 2.5 { 1 } else { (2 + ((age - 2.5) / 0.7) as u8).min(3) };
                         level = Some(level.map_or(lit, |l| l.min(lit)));
@@ -953,6 +1044,47 @@ mod tests {
         let a = Ambient::new(&s, &[e]).unwrap();
         let seen: std::collections::HashSet<_> = (0..60).map(|i| a.shade(&a.targets[0], i as f32 * 0.1, &Default::default()).fg).collect();
         assert!(seen.len() == 2, "lit and out: {seen:?}");
+    }
+
+    #[test]
+    fn the_name_fills_from_the_rain_then_empties() {
+        let cells: Vec<crate::tdf::Cell> = (0..30u16).map(|i| crate::tdf::Cell { x: i % 10, y: i / 10, ch: b'#', fg: 10, bg: 0 }).collect();
+        let mut rain = Rain::new(24, "x", Some((cells, 10, 3)), RAIN);
+        let lit = |r: &Rain| r.word.iter().filter(|w| w.4 >= 0.0).count();
+        let mut history = Vec::new();
+        for i in 0..(40.0 / 0.08) as usize {
+            rain.step(0.08);
+            if i % 25 == 0 {
+                history.push((lit(&rain), rain.filling));
+            }
+        }
+        let full_at = history.iter().position(|&(n, _)| n == 30);
+        assert!(full_at.is_some_and(|i| i <= 6), "fills within a dozen seconds: {history:?}");
+        let after = &history[full_at.unwrap()..];
+        let emptied = after.iter().position(|&(n, _)| n < 10);
+        assert!(emptied.is_some(), "then the drops take it away: {history:?}");
+        assert!(after[emptied.unwrap()..].iter().any(|&(n, _)| n == 30), "and it fills again: {history:?}");
+    }
+
+    #[test]
+    fn the_board_name_in_a_real_font_fills_in_seconds() {
+        let path = std::path::Path::new("/home/derek/code/disflux_bbs/art/fonts/AMNESIA.TDF");
+        if !path.exists() {
+            return;
+        }
+        let fonts = crate::tdf::read(path);
+        let word = fonts[0].set("disflux");
+        let total = word.0.len();
+        let mut rain = Rain::new(24, "disflux", Some(word), RAIN);
+        let mut lit_at = Vec::new();
+        for i in 0..(30.0 / 0.08) as usize {
+            rain.step(0.08);
+            if i % 25 == 24 {
+                lit_at.push(rain.word.iter().filter(|w| w.4 >= 0.0).count());
+            }
+        }
+        println!("of {total} cells, lit every 2 s: {lit_at:?}");
+        assert!(lit_at[4] > total / 2, "half the name within 10 s: {lit_at:?}");
     }
 
     #[test]

@@ -98,6 +98,17 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   SysOp's edits (level, flags, daily time) stay while they're online.
 - The session reads such an edit at once and tells the caller what
   changed; more daily time is more time today too.
+- More ways over a logo than the glint (`wave`, `drips`, `sparkle`,
+  `breathe`), and `random` draws one of them each time a screen comes
+  up. ([ARTWORK](ARTWORK.md#animation-new))
+- The art gallery's list and the AI chat animate while they wait, from
+  `GALLERY.FX` and `AICHAT.FX` beside their screens; and the chat
+  pulses dots (`AiThinking`) on the reply's line until the first words
+  come.
+- `glint_seconds` (`*C`, SSH, Telnet and Terminal; 12 to start) paces
+  every menu's and screen's effects: they're timed for a glint every
+  10 seconds, and all their timings scale to this, so the hidden
+  messages keep decoding as the glint passes.
 - The screen saver's rain falls in the color of the screen it covers,
   Backspace on any lightbar menu starts it at once, and the board's
   name assembles out of it, set in a TheDraw font if one is named
