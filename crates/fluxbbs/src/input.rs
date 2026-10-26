@@ -189,7 +189,16 @@ impl Session {
                     let cfg = self.state.config();
                     // Shorter before logging in, so idle connections from
                     // bots don't hold nodes.
-                    let idle = if self.logged_in { cfg.bbs.inactivity_seconds } else { cfg.security.prelogin_idle_seconds };
+                    // New: callers matching `idle_exempt_acs` are never
+                    // timed out (a flag ACS like `FX`, or `s255`).
+                    let exempt = self.logged_in && !cfg.bbs.idle_exempt_acs.trim().is_empty() && self.acs(&cfg.bbs.idle_exempt_acs);
+                    let idle = if exempt {
+                        0
+                    } else if self.logged_in {
+                        cfg.bbs.inactivity_seconds
+                    } else {
+                        cfg.security.prelogin_idle_seconds
+                    };
                     let since = self.idle_since.take().unwrap_or_else(tokio::time::Instant::now);
                     let deadline = (idle > 0).then(|| since + Duration::from_secs(idle));
                     // Wait for the caller, showing node messages as they

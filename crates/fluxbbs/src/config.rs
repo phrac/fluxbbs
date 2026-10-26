@@ -66,6 +66,11 @@ pub struct Config {
 #[serde(default, deny_unknown_fields)]
 pub struct Bbs {
     pub name: String,
+    /// New: a short form of the board's name, for places the full name
+    /// won't fit, such as a logo font too wide for the long name (the
+    /// art generators and the screen saver fall back to this). Blank:
+    /// always use the full name.
+    pub short_name: String,
     pub location: String,
     pub phone: String,
     pub sysop_alias: String,
@@ -73,6 +78,10 @@ pub struct Bbs {
     pub max_nodes: u16,
     /// Disconnect after this many idle seconds (0 = never).
     pub inactivity_seconds: u64,
+    /// New: callers matching this ACS are never disconnected for being
+    /// idle (e.g. `FX` for users with flag X, or `s255` for SysOps).
+    /// Blank: the idle timeout applies to everyone.
+    pub idle_exempt_acs: String,
     /// New: the zone the board keeps time in (an IANA name such as
     /// `America/Chicago`); blank for the host's clock.
     pub time_zone: String,
@@ -955,6 +964,10 @@ pub struct Terminal {
     /// the first). Blank: the name in plain letters.
     pub screensaver_font: String,
     pub screensaver_face: String,
+    /// New: what the screen saver spells out of the rain (blank: the
+    /// board's name). Set in a font too wide for it, the saver falls
+    /// back to `[bbs] short_name`.
+    pub screensaver_message: String,
     /// New: milliseconds the picture flickers before it switches off at
     /// logoff (0: straight to the switch-off).
     pub logoff_flicker_ms: u64,
@@ -1359,12 +1372,14 @@ impl Default for Bbs {
     fn default() -> Self {
         Self {
             name: "flux/bbs".into(),
+            short_name: String::new(),
             location: String::new(),
             phone: String::new(),
             sysop_alias: "SysOp".into(),
             sysop_name: String::new(),
             max_nodes: 16,
             inactivity_seconds: 300,
+            idle_exempt_acs: String::new(),
             time_zone: String::new(),
         }
     }
@@ -1418,6 +1433,7 @@ impl Default for Terminal {
             screensaver_seconds: 60,
             screensaver_font: String::new(),
             screensaver_face: String::new(),
+            screensaver_message: String::new(),
             logoff_flicker_ms: 3500,
             glint_seconds: 12,
         }

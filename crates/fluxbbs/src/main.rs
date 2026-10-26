@@ -65,6 +65,7 @@ mod msgcenter;
 mod editor;
 mod extras;
 mod features;
+mod fontpick;
 mod fileareas;
 mod ftn;
 mod ftntoss;

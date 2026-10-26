@@ -111,10 +111,19 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   messages keep decoding as the glint passes.
 - The screen saver's rain falls in the color of the screen it covers,
   Backspace on any lightbar menu starts it at once, and the board's
-  name assembles out of it, set in a TheDraw font if one is named
+  name (or a message of the SysOp's, `screensaver_message`) assembles
+  out of it, set in a TheDraw font if one is named
   (`screensaver_font`, `screensaver_face`; `*C`, SSH, Telnet and
-  Terminal). TheDraw fonts are read by `tdf.rs`.
+  Terminal). `*C` picks the font and face from a list of every face in
+  the board's `.TDF` files, with the saver's text previewed in the one
+  under the bar. Too wide for the screen, it falls back to the board's
+  short name. TheDraw fonts are read by `tdf.rs`.
   ([ARTWORK](ARTWORK.md#animation-new))
+- A short name for the board (`[bbs] short_name`), for logo fonts too
+  wide for the full name. ([SYSOP](SYSOP.md#the-boards-short-name))
+- An ACS for callers who never time out for being idle
+  (`[bbs] idle_exempt_acs`, e.g. a user flag).
+  ([SYSOP](SYSOP.md#callers-who-never-time-out))
 - The last callers list draws the caller's own call (the newest of
   theirs) highlighted (`LASTCHIL`), and, animating, types it in and
   runs a glint across it: that last call is this one.

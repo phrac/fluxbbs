@@ -129,13 +129,19 @@ delay = 6.0
   to start; `*C`, SSH, Telnet and Terminal; 0 for none), digital rain
   falls over the screen, in the color most of that screen is drawn in
   (pink on a pink menu, green on a green one; pinks where the screen
-  has no color). The board's name assembles out of the rain across the
+  has no color). The board's name (or `screensaver_message`, `*C`
+  field `O`, if set) assembles out of the rain across the
   middle, each cell of it staying once a drop has passed over it;
   full, it holds a moment, then the drops take it away again, and it
   starts over: in
   plain letters, or set in a TheDraw font if `screensaver_font` names
   a `.TDF` file (`screensaver_face` the face in it, else its first),
-  each cell in the font's own color. Backspace on any lightbar menu
+  each cell in the font's own color. In `*C`, `K` or `L` opens a list
+  of every face in every `.TDF` under the board (not under `files/`,
+  `data/` and the like), with the saver's text set in the face under
+  the bar; Enter sets both. Set in a face too wide for 80 columns, the
+  text falls back to the board's short name (`[bbs] short_name`).
+  Backspace on any lightbar menu
   starts it at once. Enter or Esc
   (`ScreenSaverExit` says so at the bottom) brings the menu back. Like
   the effects, it runs on any lightbar menu that clears the screen,

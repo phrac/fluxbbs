@@ -126,6 +126,22 @@ Files that don't exist yet use built-in defaults; the editors create
 them. Most changes apply at once. SSH, telnet and path settings need a
 restart.
 
+### The board's short name
+
+`*C`, Main BBS Configuration, `I` (`[bbs] short_name`) is a short form
+of the board's name for places the full name won't fit. A logo font
+too wide for the full name falls back to it: the screen saver does, and
+so can a board's own art generators (disflux's read it from the TOML).
+Blank, the full name is always used.
+
+### Callers who never time out
+
+`*C`, Main BBS Configuration, `J` (`[bbs] idle_exempt_acs`) is an ACS;
+callers who match it are never disconnected for being idle. Give the
+users who should stay on a flag and use that flag's ACS (`FX` for flag
+`X`), or `s255` for SysOps. Blank, the idle timeout (`G`) applies to
+everyone.
+
 ### Turning parts of the board off
 
 `*C`, Features (`[features]` in the TOML) switches whole parts on and

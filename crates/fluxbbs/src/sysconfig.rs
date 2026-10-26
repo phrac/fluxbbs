@@ -30,6 +30,9 @@ enum Kind {
     Choice(fn(&Config) -> usize, fn(&mut Config, usize), &'static [&'static str]),
     /// Minutes and file points.
     Prize(fn(&mut Config) -> &mut crate::config::Prize),
+    /// New: the screen saver's font (false) or face (true), both picked
+    /// from a list of the board's fonts with a preview (`fontpick`).
+    SaverFont(bool),
 }
 
 fn prize_shown(p: &crate::config::Prize) -> String {
@@ -72,6 +75,7 @@ fn shown(kind: &Kind, c: &mut Config) -> String {
         Kind::Char(get) | Kind::Letter(get) => get(c).to_string(),
         Kind::Choice(get, _, labels) => labels.get(get(c)).copied().unwrap_or("?").into(),
         Kind::Prize(get) => prize_shown(get(c)),
+        Kind::SaverFont(face) => if *face { c.terminal.screensaver_face.clone() } else { c.terminal.screensaver_font.clone() },
     }
 }
 
@@ -81,12 +85,14 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
     vec![
         ("Main BBS Configuration", false, vec![
             set('A', "BBS name", 40, "Name of this BBS.", Text(|c| &mut c.bbs.name, TEXT)),
+            set('I', "Short name", 20, "A short form of the name, for a logo font too wide for the full name (the art generators and screen saver fall back to it). Blank: always the full name.", Text(|c| &mut c.bbs.short_name, TEXT.max(20))),
             set('B', "Location", 40, "Where the BBS is.", Text(|c| &mut c.bbs.location, TEXT)),
             set('C', "Address", 40, "How to reach it (host, or a phone number).", Text(|c| &mut c.bbs.phone, TEXT)),
             set('D', "SysOp alias", 36, "The SysOp's handle.", Text(|c| &mut c.bbs.sysop_alias, TEXT)),
             set('E', "SysOp name", 36, "The SysOp's real name.", Text(|c| &mut c.bbs.sysop_name, TEXT)),
             set('F', "Max nodes", 3, "Callers online at once (takes effect on restart).", Num(|c| c.bbs.max_nodes as u64, |c, v| c.bbs.max_nodes = v as u16, 1, 250)),
             set('G', "Idle timeout", 6, "Disconnect after this many idle seconds (0 = never).", Num(|c| c.bbs.inactivity_seconds, |c, v| c.bbs.inactivity_seconds = v, 0, 86_400)),
+            set('J', "No-idle ACS", 20, "Callers matching this ACS are never timed out for being idle (e.g. FX for flag X, or s255 for SysOps). Blank: applies to all.", Text(|c| &mut c.bbs.idle_exempt_acs, ACS)),
             set('H', "Time zone", 32, "Zone the board keeps time in (America/Chicago, EST, UTC-6); blank for the host's clock.", Text(|c| &mut c.bbs.time_zone, TEXT)),
         ]),
         ("SSH, Telnet and Terminal", true, vec![
@@ -103,10 +109,11 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('G', "Telnet", 3, "Also accept plain (unencrypted) telnet? (restart)", Bool(|c| &mut c.telnet.enabled)),
             set('H', "Telnet listen", 40, "Address and port for telnet, e.g. 0.0.0.0:2323 (restart).", Text(|c| &mut c.telnet.listen, TEXT)),
             set('I', "Screen saver", 5, "Seconds idle on a menu before the screen saver (0 = none); for callers whose menus animate.", Num(|c| c.terminal.screensaver_seconds, |c, v| c.terminal.screensaver_seconds = v, 0, 86_400)),
-            set('K', "Saver font", 40, "A TheDraw font file (.TDF, relative to the board) the saver sets the board's name in; blank for plain letters.", Text(|c| &mut c.terminal.screensaver_font, TEXT.max(200))),
-            set('L', "Saver face", 12, "The face in that file (blank: the first).", Text(|c| &mut c.terminal.screensaver_face, TEXT.max(12))),
+            set('K', "Saver font", 40, "The TheDraw font (.TDF, relative to the board) the saver spells its message in; pick from a list with a preview. Blank: plain letters.", SaverFont(false)),
+            set('L', "Saver face", 12, "The face in that file (blank: the first); picked with the font.", SaverFont(true)),
             set('M', "Logoff flicker", 5, "Milliseconds the picture flickers before it switches off at logoff (0 = none); the TvOffLater string shows after.", Num(|c| c.terminal.logoff_flicker_ms, |c, v| c.terminal.logoff_flicker_ms = v, 0, 60_000)),
             set('N', "Glint seconds", 4, "Seconds between a menu's glints; every effect is paced to it, as the menus time them for 10 (0 = as they say).", Num(|c| c.terminal.glint_seconds, |c, v| c.terminal.glint_seconds = v, 0, 3600)),
+            set('O', "Saver message", 40, "What the screen saver spells out of the rain (blank: the board's name); in a font too wide for it, falls back to the short name.", Text(|c| &mut c.terminal.screensaver_message, TEXT)),
             set('J', "256-color TERMs", 50, "CP437 terminals with 256 colors but not 24-bit: sent the nearest of the 256.", List(|c| &mut c.terminal.palette256_terms)),
         ]),
         ("Access and Logon", false, vec![
@@ -676,6 +683,21 @@ impl Session {
                 Kind::Choice(get, put, labels) => {
                     let pick = self.cfg_option(&mut f, key, labels, get(cfg)).await?;
                     put(cfg, pick);
+                }
+                Kind::SaverFont(face) => {
+                    if self.plain() {
+                        // No preview without ANSI: typed, as before.
+                        let field = if *face { TEXT.max(12) } else { TEXT };
+                        if let Some(v) = self.cfg_text(&mut f, key, field).await? {
+                            if *face { cfg.terminal.screensaver_face = v } else { cfg.terminal.screensaver_font = v }
+                        }
+                    } else {
+                        self.saver_font_pick(cfg).await?;
+                        for s in settings.iter().filter(|s| matches!(s.kind, Kind::SaverFont(_))) {
+                            f.set(s.key, shown(&s.kind, cfg));
+                        }
+                        self.cfg_draw(&f);
+                    }
                 }
                 Kind::Prize(get) => {
                     // Edited as two numbers, shown in words.

@@ -710,7 +710,14 @@ impl Session {
         tracing::debug!("{}: screen saver", self.user.handle);
         let rows = self.screen.rows();
         let cfg = self.state.config();
+        // New: the saver spells out a custom message if set, else the
+        // board's name; either falls back to the short name when it's set
+        // in a font too wide for 80 columns (or, in plain letters, too
+        // long to fit).
         let name = cfg.bbs.name.clone();
+        let short = cfg.bbs.short_name.trim();
+        let msg = cfg.terminal.screensaver_message.trim();
+        let text = if msg.is_empty() { name.clone() } else { msg.to_string() };
         let palette = rain_palette(&self.screen);
         let font = cfg.terminal.screensaver_font.trim();
         let word = if font.is_empty() {
@@ -718,9 +725,14 @@ impl Session {
         } else {
             let fonts = crate::tdf::read(&cfg.resolve(std::path::Path::new(font)));
             let face = cfg.terminal.screensaver_face.trim();
-            fonts.iter().find(|f| face.is_empty() || f.name.eq_ignore_ascii_case(face)).map(|f| f.set(&name))
+            fonts.iter().find(|f| face.is_empty() || f.name.eq_ignore_ascii_case(face)).map(|f| {
+                let set = f.set(&text);
+                if set.1 > 80 && !short.is_empty() { f.set(short) } else { set }
+            })
         };
-        let mut rain = Rain::new(rows.saturating_sub(1).max(1), &name, word, palette);
+        // The plain-letters fallback text, shortened if it can't fit.
+        let plain = if font.is_empty() && text.chars().count() * 2 > 80 && !short.is_empty() { short } else { text.as_str() };
+        let mut rain = Rain::new(rows.saturating_sub(1).max(1), plain, word, palette);
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
         self.clear_screen();
         self.screen.write_bytes(b"\x1b[?25l");
