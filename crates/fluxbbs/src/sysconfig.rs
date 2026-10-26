@@ -375,7 +375,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('M', "Free logon pulls", 3, "A free pull on each call (the logon sequence's slots step), at most this many a day.", Num(|c| c.slots.free_per_day as u64, |c, v| c.slots.free_per_day = v as u32, 0, 999)),
         ]),
         ("Casino, Temple and Carrier Lost", false, vec![
-            set('A', "Chips a day", 6, "The free stack each caller gets a day for blackjack and craps.", Num(|c| c.casino.daily_chips as u64, |c, v| c.casino.daily_chips = v as u32, 1, 1_000_000)),
+            set('A', "Chips a day", 6, "The free stack each caller gets a day at the casino tables.", Num(|c| c.casino.daily_chips as u64, |c, v| c.casino.daily_chips = v as u32, 1, 1_000_000)),
             set('B', "Smallest bet", 6, "The table minimum, in chips.", Num(|c| c.casino.min_bet as u64, |c, v| c.casino.min_bet = v as u32, 1, 1_000_000)),
             set('C', "Biggest bet", 6, "The table maximum, in chips.", Num(|c| c.casino.max_bet as u64, |c, v| c.casino.max_bet = v as u32, 1, 1_000_000)),
             set('D', "Chips a point", 6, "Leaving a table up pays a file point per this many chips won (0 = none).", Num(|c| c.casino.chips_per_point as u64, |c, v| c.casino.chips_per_point = v as u32, 0, 1_000_000)),
@@ -398,7 +398,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
         ("Features", false, vec![
             set('A', "Tarot", 3, "The tarot and fortunes (AT).", Bool(|c| &mut c.features.tarot)),
             set('B', "Slot machine", 3, "The slots (AL).", Bool(|c| &mut c.features.slots)),
-            set('C', "Casino", 3, "Blackjack, craps and roulette (AC).", Bool(|c| &mut c.features.casino)),
+            set('C', "Casino", 3, "Video poker, blackjack, roulette and craps (AC).", Bool(|c| &mut c.features.casino)),
             set('D', "The temple", 3, "The temple (AD).", Bool(|c| &mut c.features.temple)),
             set('E', "Carrier Lost", 3, "Carrier Lost (AP).", Bool(|c| &mut c.features.carrier_lost)),
             set('F', "Art gallery", 3, "The art gallery (AG).", Bool(|c| &mut c.features.gallery)),

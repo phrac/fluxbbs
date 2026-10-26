@@ -752,7 +752,7 @@ CasinoKeys = "|U5[|U3arrows|U5]|U1walk |U5[|U3enter|U5]|U1play |U5[|U3q|U5]|U1le
 CasinoCashOut = "you left the table up %S1 chips: %S2"
 CasinoDown = "you left the table down %S1 chips; %S2 left for today"
 CasinoBroke = "you're out of chips for today. the house opens fresh tomorrow."
-CasinoPlainPrompt = "|U1casino|U2: |U3%S1|U1 chips|U2. |U1s|U2)|U1lots b|U2)|U1lackjack r|U2)|U1oulette c|U2)|U1raps d|U2)|U1rinks p|U2)|U1layers club q|U2)|U1uit|U2> |U3"
+CasinoPlainPrompt = "|U1casino|U2: |U3%S1|U1 chips|U2. |U1s|U2)|U1lots v|U2)|U1ideo poker b|U2)|U1lackjack r|U2)|U1oulette c|U2)|U1raps d|U2)|U1rinks p|U2)|U1layers club q|U2)|U1uit|U2> |U3"
 BjHello = "blackjack pays 3 to 2. dealer stands on all 17s. place your bet."
 BjBetKeys = "|U5[|U3+/-|U5]|U1bet |U5[|U3enter|U5]|U1deal |U5[|U3q|U5]|U1leave "
 BjShuffle = "shuffling up a fresh shoe..."
@@ -958,3 +958,13 @@ AiThinking = "|U5  %S1 |U4thinking"
 
 FsMention = "|U1@ |U3%S1 |U2· tab completes"
 FsHint10 = "|U2∙ |U1@handle in a post tells them. tab completes the name|U2 ∙"
+
+# Video poker (in the casino). PokerWin: %S1 the hand, %S2 the chips.
+# PokerPlainPrompt: %S1 chips, %S2 a coin, %S3 the most coins.
+PokerHello = "jacks or better. a coin a line, five coins for the royal. deal when ready."
+PokerBetKeys = "|U5[|U3+/-|U5]|U1coins |U5[|U3m|U5]|U1ax |U5[|U3enter|U5]|U1deal |U5[|U3q|U5]|U1leave "
+PokerHoldKeys = "|U5[|U31-5|U5]|U1hold |U5[|U3enter|U5]|U1draw "
+PokerWin = "%S1! pays %S2"
+PokerLose = "nothing. deal again?"
+PokerPlainPrompt = "|U1video poker|U2: |U3%S1|U1 chips, a coin is |U3%S2|U2. |U1coins (1-%S3), m max, q quits|U2> |U3"
+PokerPlainHold = "|U1hold which (1-5, enter for none)|U2> |U3"

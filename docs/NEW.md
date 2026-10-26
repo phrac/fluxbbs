@@ -306,7 +306,7 @@ All in [FEATURES](FEATURES.md#message-center).
   and what each line pays (minutes and file points) are in `*C`.
   ([FEATURES](FEATURES.md#slot-machine))
 - A casino (`AC`): a lobby under a neon sign, with the slot machine,
-  blackjack, roulette and craps, a bar (drinks poured on the house, a
+  video poker, blackjack, roulette and craps, a bar (drinks poured on the house, a
   smoke, the bartender's gossip) and a players club whose comps (the
   buffet, a suite, show tickets) come with play. Pixel-art cards slide out of the shoe and chips
   move to whoever won them; red dice tumble and bounce off the back
@@ -467,7 +467,7 @@ All in [DOORS](DOORS.md).
 | `AG` | art gallery |
 | `AI` | AI chat |
 | `AT` (+ `day` `three` `fortune`) | tarot and fortunes |
-| `AC` (+ `slots` `blackjack` `roulette` `craps` `bar` `club`) | the casino |
+| `AC` (+ `slots` `poker` `blackjack` `roulette` `craps` `bar` `club`) | the casino |
 | `AL` (+ `free`) | the slot machine; `free`, the day's free pull |
 | `AD` | the temple |
 | `AP` | Carrier Lost (the dial-up game) |

@@ -927,11 +927,11 @@ instead.
 ## Casino
 
 `AC` (the stock door menu's `$`) is the casino: a lobby under a neon
-sign, with the slot machine, blackjack, roulette and craps on the floor,
-and the bar and the players club through the doors. Walk with the
-arrows and Enter, or press `s`, `b`, `r`, `c`, `d` (drinks) or `p`.
-`AC slots`, `AC blackjack`, `AC roulette`, `AC craps`, `AC bar` and
-`AC club` go straight there. Like the slots,
+sign, with the slot machine, video poker, blackjack, roulette and craps
+on the floor, and the bar and the players club through the doors. Walk
+with the arrows and Enter, or press `s`, `v`, `b`, `r`, `c`, `d`
+(drinks) or `p`. `AC slots`, `AC poker`, `AC blackjack`, `AC roulette`,
+`AC craps`, `AC bar` and `AC club` go straight there. Like the slots,
 the tables are drawn in half-block pixels, and plain-text callers get a
 line at a time.
 
@@ -943,6 +943,25 @@ minute per `chips_per_minute`, 5). Your stack then goes back to the
 day's. Down, what's left is all you have till tomorrow, so nobody loses
 anything real. Winnings left at a table when the day ends are paid the
 next time you come in. Bets run from `min_bet` to `max_bet` (5 to 50).
+
+### Video poker
+
+- **The machine.** A blue screen in a cabinet: the pay table across the
+  top, five cards under it. The column for the coins you're playing is
+  lit, and the line that paid flashes.
+- **The game.** Jacks or Better, one hand at a time from a fresh deck.
+  Cards turn over one after another on the deal; `1` to `5` hold
+  cards, Enter draws, and the held ones stay while the rest turn.
+- **The coins.** A coin is the tables' smallest bet (`min_bet`), and a
+  hand takes one to five of them (`+`/`-`, or the number; `m` puts in
+  the most and deals). The table is the full-pay 9/6 one: a pair of
+  jacks or better returns the coins, two pair 2 to 1, three of a kind
+  3, a straight 4, a flush 6, a full house 9, four of a kind 25, a
+  straight flush 50, and a royal flush 250, or 800 a coin (4000) with
+  all five in.
+- **Keys.** `+`/`-` or `1`-`5` set the coins, `m` max, Enter deals;
+  then `1`-`5` hold and Enter draws. `q` leaves between hands.
+- **Plain text.** Coins are typed, then the cards to hold by number.
 
 ### Blackjack
 

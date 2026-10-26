@@ -25,6 +25,7 @@ mod carrierlost;
 mod casino;
 mod casinobar;
 mod craps;
+mod poker;
 mod pixels;
 mod roulette;
 mod slotart;

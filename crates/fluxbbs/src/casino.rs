@@ -1,5 +1,6 @@
 //! New: the casino (`AC`): a lobby under a neon sign, and the slot
-//! machine (`slots`), blackjack (`blackjack`) and craps (`craps`) off it.
+//! machine (`slots`), video poker (`poker`), blackjack (`blackjack`),
+//! roulette (`roulette`) and craps (`craps`) off it.
 //! Its games share a stage: a canvas of half-block pixels on rows 1 to 22
 //! (`pixels`), a message line under it and a status line at the bottom.
 //!
@@ -236,8 +237,15 @@ impl Session {
 /// The places off the lobby, in the order the arrows walk them: key,
 /// name, where (the games on the floor; the bar and the club by the
 /// doors at the bottom).
-const GAMES: [(char, &str, f32); 6] =
-    [('D', "bar", 8.0), ('S', "slots", 9.0), ('B', "blackjack", 31.0), ('R', "roulette", 53.0), ('C', "craps", 71.0), ('P', "players club", 70.0)];
+const GAMES: [(char, &str, f32); 7] = [
+    ('D', "bar", 8.0),
+    ('S', "slots", 9.0),
+    ('V', "video poker", 24.0),
+    ('B', "blackjack", 39.0),
+    ('R', "roulette", 58.0),
+    ('C', "craps", 72.0),
+    ('P', "players club", 70.0),
+];
 
 /// The room without what moves: the wall, the carpet, the sign's glow.
 fn lobby_room() -> &'static Canvas {
@@ -347,9 +355,10 @@ fn draw_lobby(cv: &mut Canvas, t: f32, pick: usize) {
         }
     }
     draw_slot_machine(cv, GAMES[1].2, t);
-    draw_bj_table(cv, GAMES[2].2);
-    draw_wheel_table(cv, GAMES[3].2, t);
-    draw_dice_table(cv, GAMES[4].2);
+    draw_poker_machine(cv, GAMES[2].2, t);
+    draw_bj_table(cv, GAMES[3].2);
+    draw_wheel_table(cv, GAMES[4].2, t);
+    draw_dice_table(cv, GAMES[5].2);
     for (i, &(key, name, x)) in GAMES.iter().enumerate() {
         let s = format!("{} {name}", key.to_ascii_lowercase());
         let (fg, bg) = if i == pick { (rgb(255, 255, 255), Some(rgb(150, 40, 120))) } else { (rgb(170, 140, 170), None) };
@@ -445,6 +454,26 @@ fn draw_slot_machine(cv: &mut Canvas, cx: f32, t: f32) {
     }
 }
 
+/// A video poker cabinet: a lit marquee, a blue screen with five cards
+/// on it, a row of buttons.
+fn draw_poker_machine(cv: &mut Canvas, cx: f32, t: f32) {
+    let x0 = cx as i32 - 3;
+    cv.rect(x0, 21, 7, 17, rgb(38, 36, 52));
+    let lamp = if (t * 2.0 + 1.0) as i32 % 2 == 0 { rgb(255, 220, 90) } else { rgb(160, 90, 30) };
+    cv.rect(x0 + 1, 21, 5, 1, lamp);
+    cv.rect(x0 + 1, 23, 5, 7, rgb(10, 18, 135));
+    for k in 0..5 {
+        cv.set(x0 + 1 + k, 24, rgb(255, 215, 60));
+        let card = if k % 2 == 1 { rgb(230, 60, 70) } else { rgb(245, 245, 240) };
+        cv.set(x0 + 1 + k, 26, card);
+        cv.set(x0 + 1 + k, 27, card);
+    }
+    for k in 0..5 {
+        cv.set(x0 + 1 + k, 32, if k == 4 { rgb(230, 40, 40) } else { rgb(255, 210, 70) });
+    }
+    cv.rect(x0 + 1, 34, 5, 4, rgb(24, 22, 34));
+}
+
 /// A half-moon of felt with two cards on it: blackjack.
 fn draw_bj_table(cv: &mut Canvas, cx: f32) {
     for y in 32..40 {
@@ -479,12 +508,12 @@ fn draw_dice_table(cv: &mut Canvas, cx: f32) {
 }
 
 impl Session {
-    /// `AC`: the casino. `AC slots`, `AC blackjack`, `AC roulette`, `AC
-    /// craps`, `AC bar` or `AC club` goes straight there.
+    /// `AC`: the casino. `AC slots`, `AC poker`, `AC blackjack`, `AC
+    /// roulette`, `AC craps`, `AC bar` or `AC club` goes straight there.
     pub async fn casino(&mut self, param: &str) -> io::Result<()> {
         let cfg = self.state.config().casino.clone();
         let p = param.trim().to_ascii_lowercase();
-        if let Some(i) = GAMES.iter().position(|g| g.1 == p || (p == "club" && g.0 == 'P')) {
+        if let Some(i) = GAMES.iter().position(|g| g.1 == p || (p == "club" && g.0 == 'P') || (p == "poker" && g.0 == 'V')) {
             self.casino_game(&cfg, i).await?;
             return Ok(());
         }
@@ -563,11 +592,13 @@ impl Session {
         let begun = crate::clock::now().naive_local();
         let before = purse.chips;
         match name {
+            "video poker" => self.video_poker(cfg, &mut purse).await?,
             "blackjack" => self.blackjack(cfg, &mut purse).await?,
             "roulette" => self.roulette(cfg, &mut purse).await?,
             _ => self.craps(cfg, &mut purse).await?,
         }
         let title = match name {
+            "video poker" => "Video Poker",
             "blackjack" => "Blackjack",
             "roulette" => "Roulette",
             _ => "Craps",
