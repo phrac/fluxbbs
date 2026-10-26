@@ -65,22 +65,51 @@ fn dealer_draws(cards: &[Card], hit_soft_17: bool) -> bool {
     t < 17 || (t == 17 && soft && hit_soft_17)
 }
 
+/// The cards still to come, the cut card, and the cards on the table
+/// this round (what a mid-hand shuffle leaves out).
 struct Shoe {
     cards: Vec<Card>,
     cut: usize,
+    decks: u32,
+    round: Vec<Card>,
+}
+
+fn decks(n: u32) -> Vec<Card> {
+    (0..n.max(1)).flat_map(|_| (0..4u8).flat_map(|suit| (1..=13u8).map(move |rank| Card { rank, suit }))).collect()
 }
 
 impl Shoe {
     fn new(decks: u32) -> Shoe {
-        let mut cards: Vec<Card> =
-            (0..decks.max(1)).flat_map(|_| (0..4u8).flat_map(|suit| (1..=13u8).map(move |rank| Card { rank, suit }))).collect();
+        let mut cards = self::decks(decks);
         cards.shuffle(&mut rand::rng());
         let cut = cards.len() / 4;
-        Shoe { cards, cut }
+        Shoe { cards, cut, decks, round: Vec::new() }
     }
 
+    fn new_round(&mut self) {
+        self.round.clear();
+    }
+
+    /// The next card. A shoe that runs dry mid-hand (a single deck, a
+    /// long hand) is shuffled up again from everything not on the table.
     fn draw(&mut self) -> Card {
-        self.cards.pop().unwrap_or(Card { rank: 10, suit: 0 })
+        if self.cards.is_empty() {
+            let mut rest = self::decks(self.decks);
+            for c in &self.round {
+                if let Some(i) = rest.iter().position(|r| r == c) {
+                    rest.swap_remove(i);
+                }
+            }
+            if rest.is_empty() {
+                rest = self::decks(self.decks);
+            }
+            rest.shuffle(&mut rand::rng());
+            self.cards = rest;
+            tracing::info!("blackjack: the shoe ran dry mid-hand; shuffled the discards");
+        }
+        let c = self.cards.pop().expect("a card");
+        self.round.push(c);
+        c
     }
 }
 
@@ -745,6 +774,7 @@ impl Session {
 
     async fn bj_round(&mut self, cfg: &Casino, purse: &mut Purse, st: &mut Stage, tb: &mut Table, shoe: &mut Shoe, bet: u32) -> io::Result<()> {
         let now = st.t();
+        shoe.new_round();
         tb.hands = vec![Vec::new()];
         tb.bets = vec![bet];
         tb.piles.push(Pile { amount: bet, from: BANK, to: CIRCLE, t0: now, dur: 0.35, gone: f32::MAX });
@@ -955,6 +985,7 @@ impl Session {
                 continue;
             }
             purse.stake(bet);
+            shoe.new_round();
             let mut hands = vec![vec![shoe.draw()]];
             let mut dealer = vec![shoe.draw()];
             hands[0].push(shoe.draw());
@@ -1068,5 +1099,22 @@ mod tests {
         let s = Shoe::new(6);
         assert_eq!(s.cards.len(), 312);
         assert_eq!(s.cards.iter().filter(|c| c.rank == 1 && c.suit == 2).count(), 6);
+    }
+
+    #[test]
+    fn a_dry_shoe_shuffles_what_is_not_on_the_table() {
+        let mut s = Shoe::new(1);
+        s.new_round();
+        let table: Vec<Card> = (0..10).map(|_| s.draw()).collect();
+        s.cards.clear();
+        let rest: Vec<Card> = (0..42).map(|_| s.draw()).collect();
+        assert!(rest.iter().all(|c| !table.contains(c)), "the cards on the table stay out");
+        let mut all: Vec<Card> = table.iter().chain(&rest).copied().collect();
+        all.sort_by_key(|c| (c.suit, c.rank));
+        all.dedup();
+        assert_eq!(all.len(), 52, "the rest of the deck, each card once");
+        assert_eq!(s.cards.len(), 0);
+        s.draw();
+        assert_eq!(s.cards.len(), 51, "a whole fresh deck when even that runs out");
     }
 }
