@@ -156,6 +156,11 @@ struct Run {
     cur: usize,
     hs_kind: Kind,
     hs_tier: u32,
+    // What the last drawn frame put on screen, so a keypress is judged
+    // against what the caller actually saw, not against a needle that
+    // has crept on in the moment since.
+    shown_needle: f32,
+    shown_bars: [f32; 3],
 }
 
 impl Run {
@@ -174,6 +179,8 @@ impl Run {
             cur: 0,
             hs_kind: Kind::Unix,
             hs_tier: 1,
+            shown_needle: 0.0,
+            shown_bars: [0.5; 3],
         };
         r.new_exchange();
         r
@@ -210,7 +217,7 @@ impl Run {
 
     /// How fast the needle sweeps: a touch quicker as the night wears on.
     fn needle_speed(&self) -> f32 {
-        0.45 + 0.03 * self.found as f32
+        (0.38 + 0.015 * self.found as f32).min(0.7)
     }
 
     /// The needle's place, 0..1, a triangle wave of time.
@@ -297,7 +304,7 @@ impl Session {
         let mut run = Run::new();
         loop {
             // Draw and wait for a key, animating meanwhile.
-            let key = self.cl_wait(st, p, &run).await?;
+            let key = self.cl_wait(st, p, &mut run).await?;
             let Some(key) = key else { return Ok(()) };
             if self.escaped {
                 return self.cl_cash_out(st, p, &run).await;
@@ -334,7 +341,7 @@ impl Session {
 
     /// Draw the current phase and wait for a key, animating until one
     /// comes or the caller's long gone. `None` means they vanished.
-    async fn cl_wait(&mut self, st: &mut Stage, p: &Player, run: &Run) -> io::Result<Option<Key>> {
+    async fn cl_wait(&mut self, st: &mut Stage, p: &Player, run: &mut Run) -> io::Result<Option<Key>> {
         let since = Instant::now();
         loop {
             self.cl_frame(st, p, run).await?;
@@ -344,16 +351,18 @@ impl Session {
             if since.elapsed() > Duration::from_secs(900) {
                 return Ok(None);
             }
-            tokio::time::sleep(self.idle_pause(90)).await;
+            tokio::time::sleep(self.idle_pause(45)).await;
         }
     }
 
-    async fn cl_frame(&mut self, st: &mut Stage, p: &Player, run: &Run) -> io::Result<()> {
+    async fn cl_frame(&mut self, st: &mut Stage, p: &Player, run: &mut Run) -> io::Result<()> {
         let t = st.t();
         match run.phase {
             Phase::Dial => {
                 let tint = rgb(90, 255, 120);
-                carrierart::draw_dial(&mut st.cv, t, tint, &run.dial_view(), run.needle(t), run.found);
+                let needle = run.needle(t);
+                run.shown_needle = needle;
+                carrierart::draw_dial(&mut st.cv, t, tint, &run.dial_view(), needle, run.found);
             }
             Phase::Handshake => {
                 let k = kind_rgb(run.hs_kind);
@@ -364,11 +373,12 @@ impl Session {
                         *b = 0.5 + 0.5 * (t * run.speed[i] + run.phase_off[i]).sin();
                     }
                 }
+                run.shown_bars = bars;
                 carrierart::draw_handshake(&mut st.cv, t, tint, &bars, &run.locked, run.cur, run.zone(p.gear));
             }
         }
         carrierart::vignette(&mut st.cv);
-        self.stage_show(st, false).await?;
+        self.stage_show(st, true).await?;
         self.cl_status(st, p, run.haul, run.trace);
         Ok(())
     }
@@ -380,8 +390,8 @@ impl Session {
             return Ok(false);
         }
         p.dials += 1;
-        let t = st.t();
-        let needle = run.needle(t);
+        // Judge against the needle on the frame the caller last saw.
+        let needle = run.shown_needle;
         // The nearest carrier the needle's close to.
         let hit = run
             .notches
@@ -389,7 +399,7 @@ impl Session {
             .enumerate()
             .filter(|(_, n)| !n.taken)
             .min_by(|(_, a), (_, b)| (a.pos - needle).abs().total_cmp(&(b.pos - needle).abs()))
-            .filter(|(_, n)| (n.pos - needle).abs() < 0.05);
+            .filter(|(_, n)| (n.pos - needle).abs() < 0.07);
         match hit {
             Some((i, n)) if n.live => {
                 let (kind, tier) = (n.kind, n.tier);
@@ -441,8 +451,7 @@ impl Session {
     /// Lock the current signal. Returns true if the resolved handshake
     /// busted the caller.
     async fn cl_lock(&mut self, st: &mut Stage, p: &mut Player, run: &mut Run) -> io::Result<bool> {
-        let t = st.t();
-        let v = 0.5 + 0.5 * (t * run.speed[run.cur] + run.phase_off[run.cur]).sin();
+        let v = run.shown_bars[run.cur];
         let hit = (v - 0.5).abs() <= run.zone(p.gear);
         run.bars[run.cur] = v;
         run.locked[run.cur] = Some(hit);
