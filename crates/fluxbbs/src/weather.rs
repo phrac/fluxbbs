@@ -169,9 +169,22 @@ fn split_place(q: &str) -> (String, String) {
     (town.trim().to_string(), region.to_string())
 }
 
-/// The state `q` names when it's only a state ("Nebraska", "NE, USA"):
-/// the geocoder reads it as a town of that name, likely in another state.
-fn state_only(q: &str) -> Option<&'static str> {
+/// Countries the geocoder reads as towns ("USA" is Uşak, Turkey;
+/// "England" a town in Arkansas). Others it knows as countries.
+const COUNTRIES: &[(&str, &str)] = &[
+    ("usa", "the United States"), ("us", "the United States"), ("america", "the United States"),
+    ("united states of america", "the United States"),
+    ("uk", "the United Kingdom"), ("great britain", "the United Kingdom"), ("britain", "the United Kingdom"),
+    ("england", "England"), ("scotland", "Scotland"), ("wales", "Wales"), ("northern ireland", "Northern Ireland"),
+];
+
+/// The state or country `q` names when it's only that ("Nebraska", "NE,
+/// USA", "USA"): the geocoder reads it as a town of that name elsewhere.
+fn region_only(q: &str) -> Option<&'static str> {
+    let bare = q.trim().replace('.', "").to_ascii_lowercase();
+    if let Some((_, c)) = COUNTRIES.iter().find(|(k, _)| *k == bare) {
+        return Some(c);
+    }
     let (town, region) = q.split_once(',').map_or((q, ""), |(a, b)| (a, b));
     let region = region.trim().trim_end_matches('.').to_ascii_lowercase().replace('.', "");
     if !["", "us", "usa", "united states", "united states of america", "america"].contains(&region.as_str()) {
@@ -181,21 +194,33 @@ fn state_only(q: &str) -> Option<&'static str> {
     STATES.iter().find(|(ab, full)| ab.eq_ignore_ascii_case(&town) || full.eq_ignore_ascii_case(&town)).map(|(_, full)| *full)
 }
 
+/// What a place typed or in a profile comes to.
+#[derive(Debug, PartialEq)]
+enum Found {
+    At(Place),
+    /// Only a state or a country: too wide for a forecast, so ask the town.
+    Region(String),
+    Nowhere,
+}
+
 /// The best of the geocoder's answers for `region` (blank: the first).
-fn pick(results: &[Value], region: &str) -> Option<Place> {
+fn pick(results: &[Value], region: &str) -> Option<Found> {
     let fits = |r: &&Value| {
         region.is_empty()
             || ["admin1", "country", "country_code", "admin2"].iter().any(|k| r[*k].as_str().is_some_and(|v| v.eq_ignore_ascii_case(region)))
     };
     let r = results.iter().find(fits)?;
     let mut name = r["name"].as_str()?.to_string();
+    if r["feature_code"].as_str().is_some_and(|c| c.starts_with("PCL")) {
+        return Some(Found::Region(name));
+    }
     let region = r["admin1"].as_str().or(r["country"].as_str()).unwrap_or_default();
     if let Some((ab, _)) = STATES.iter().find(|(_, full)| full.eq_ignore_ascii_case(region)).filter(|_| r["country_code"].as_str() == Some("US")) {
         name = format!("{name}, {ab}");
     } else if !region.is_empty() {
         name = format!("{name}, {region}");
     }
-    Some(Place { name, lat: r["latitude"].as_f64()?, lon: r["longitude"].as_f64()? })
+    Some(Found::At(Place { name, lat: r["latitude"].as_f64()?, lon: r["longitude"].as_f64()? }))
 }
 
 fn client() -> anyhow::Result<reqwest::Client> {
@@ -203,10 +228,13 @@ fn client() -> anyhow::Result<reqwest::Client> {
 }
 
 /// Where `q` is.
-async fn geocode(q: &str) -> anyhow::Result<Option<Place>> {
+async fn geocode(q: &str) -> anyhow::Result<Found> {
+    if let Some(state) = region_only(q) {
+        return Ok(Found::Region(state.into()));
+    }
     let (town, region) = split_place(q);
     if town.is_empty() {
-        return Ok(None);
+        return Ok(Found::Nowhere);
     }
     let url = reqwest::Url::parse_with_params(
         "https://geocoding-api.open-meteo.com/v1/search",
@@ -214,7 +242,7 @@ async fn geocode(q: &str) -> anyhow::Result<Option<Place>> {
     )?;
     let v: Value = client()?.get(url).send().await?.error_for_status()?.json().await?;
     let results = v["results"].as_array().cloned().unwrap_or_default();
-    Ok(pick(&results, &region).or_else(|| pick(&results, "")))
+    Ok(pick(&results, &region).or_else(|| pick(&results, "")).unwrap_or(Found::Nowhere))
 }
 
 /// The forecast for `p`.
@@ -568,8 +596,8 @@ impl Session {
             return Ok(Some(p));
         }
         let from_profile = [self.user.location.clone(), self.state.config().weather.place.clone()];
-        for q in from_profile.iter().filter(|q| !q.trim().is_empty() && state_only(q).is_none()) {
-            if let Ok(Some(p)) = geocode(q).await {
+        for q in from_profile.iter().filter(|q| !q.trim().is_empty()) {
+            if let Ok(Found::At(p)) = geocode(q).await {
                 return Ok(Some(p));
             }
         }
@@ -578,14 +606,14 @@ impl Session {
 
     /// Find `q`, saying so if it can't be.
     async fn weather_find(&mut self, q: &str) -> io::Result<Option<Place>> {
-        if let Some(state) = state_only(q) {
-            let s = self.strings().fmt("WxWhichTown", &[state]);
-            self.show_line(&s).await?;
-            return Ok(None);
-        }
         match geocode(q).await {
-            Ok(Some(p)) => Ok(Some(p)),
-            Ok(None) => {
+            Ok(Found::At(p)) => Ok(Some(p)),
+            Ok(Found::Region(r)) => {
+                let s = self.strings().fmt("WxWhichTown", &[&r]);
+                self.show_line(&s).await?;
+                Ok(None)
+            }
+            Ok(Found::Nowhere) => {
                 let s = self.strings().fmt("WxNoPlace", &[q]);
                 self.show_line(&s).await?;
                 Ok(None)
@@ -663,20 +691,20 @@ impl Session {
                     self.screen.goto(1, MSG_ROW);
                     self.say("WxWhere").await?;
                     let q = self.read_string(ReadOpts::new(40)).await?;
-                    if let Some(state) = state_only(q.trim()) {
-                        let s = crate::editor::strip_colours(&self.strings().fmt("WxWhichTown", &[state]));
-                        self.stage_line(MSG_ROW, &painted(&s, [255, 140, 120]), st.truecolor);
-                        tokio::time::sleep(Duration::from_millis(1500)).await;
-                    } else if !q.trim().is_empty() {
+                    if !q.trim().is_empty() {
                         match geocode(q.trim()).await {
-                            Ok(Some(p)) => {
+                            Ok(Found::At(p)) => {
                                 if self.user.id != 0 {
                                     self.state.weather.set_place(self.user.id, &p);
                                 }
                                 *place = p;
                             }
-                            _ => {
-                                let s = crate::editor::strip_colours(&self.strings().fmt("WxNoPlace", &[q.trim()]));
+                            found => {
+                                let s = match found {
+                                    Ok(Found::Region(r)) => self.strings().fmt("WxWhichTown", &[&r]),
+                                    _ => self.strings().fmt("WxNoPlace", &[q.trim()]),
+                                };
+                                let s = crate::editor::strip_colours(&s);
                                 self.stage_line(MSG_ROW, &painted(&s, [255, 140, 120]), st.truecolor);
                                 tokio::time::sleep(Duration::from_millis(1500)).await;
                             }
@@ -805,16 +833,26 @@ mod tests {
                 {"name":"Lincoln","admin1":"Nebraska","country":"United States","country_code":"US","latitude":40.8,"longitude":-96.7}]"#,
         )
         .unwrap();
-        assert_eq!(pick(&results, "Nebraska").unwrap(), Place { name: "Lincoln, NE".into(), lat: 40.8, lon: -96.7 });
-        assert_eq!(pick(&results, "").unwrap().name, "Lincoln, England");
+        assert_eq!(pick(&results, "Nebraska").unwrap(), Found::At(Place { name: "Lincoln, NE".into(), lat: 40.8, lon: -96.7 }));
+        assert!(matches!(pick(&results, "").unwrap(), Found::At(p) if p.name == "Lincoln, England"));
+        let results: Vec<Value> = serde_json::from_str(
+            r#"[{"name":"Canada","feature_code":"PCLI","country":"Canada","country_code":"CA","latitude":60.1,"longitude":-113.6},
+                {"name":"Canada","feature_code":"PPL","admin1":"Kentucky","country":"United States","country_code":"US","latitude":37.6,"longitude":-82.3}]"#,
+        )
+        .unwrap();
+        assert_eq!(pick(&results, "").unwrap(), Found::Region("Canada".into()));
+        assert!(matches!(pick(&results, "Kentucky").unwrap(), Found::At(p) if p.name == "Canada, KY"));
         assert!(pick(&results, "Texas").is_none());
-        assert_eq!(state_only("Nebraska"), Some("Nebraska"));
-        assert_eq!(state_only(" ne "), Some("Nebraska"));
-        assert_eq!(state_only("Nebraska, USA"), Some("Nebraska"));
-        assert_eq!(state_only("N.Y., U.S.A."), Some("New York"));
-        assert_eq!(state_only("Firth, NE"), None);
-        assert_eq!(state_only("Nebraska City"), None);
-        assert_eq!(state_only("Georgia, Europe"), None);
+        assert_eq!(region_only("Nebraska"), Some("Nebraska"));
+        assert_eq!(region_only(" ne "), Some("Nebraska"));
+        assert_eq!(region_only("Nebraska, USA"), Some("Nebraska"));
+        assert_eq!(region_only("N.Y., U.S.A."), Some("New York"));
+        assert_eq!(region_only("Firth, NE"), None);
+        assert_eq!(region_only("Nebraska City"), None);
+        assert_eq!(region_only("Georgia, Europe"), None);
+        assert_eq!(region_only("U.S.A."), Some("the United States"));
+        assert_eq!(region_only(" england "), Some("England"));
+        assert_eq!(region_only("London, England"), None);
     }
 
     #[test]
@@ -866,7 +904,8 @@ mod tests {
     #[ignore]
     async fn live_weather() {
         let dir = std::path::PathBuf::from(std::env::var("WX_OUT").expect("WX_OUT"));
-        let p = geocode("Lincoln, NE").await.unwrap().expect("found");
+        let Found::At(p) = geocode("Lincoln, NE").await.unwrap() else { panic!("not found") };
+        assert_eq!(geocode("France").await.unwrap(), Found::Region("France".into()));
         assert_eq!(p.name, "Lincoln, NE");
         let f = fetch(&p, Units::Us).await.unwrap();
         assert_eq!(f.days.len(), 7);

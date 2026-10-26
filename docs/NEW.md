@@ -129,7 +129,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   animated half-block pixels, the temperature large, the next 24 hours
   and the week, from Open-Meteo; `f` has the AI read it like a TV
   forecaster. A caller's place is kept; `WX <place>` shows a fixed one.
-  A profile location that's only a state isn't used: it asks the town.
+  A profile location that's only a state or a country isn't used: it
+  asks the town.
   ([BUILDING](BUILDING.md))
 - Email addresses confirmed by a code (the `email` component, off until
   `[email] enabled`): a logon step asks for an address, mails a
