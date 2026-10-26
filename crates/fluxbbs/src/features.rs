@@ -15,7 +15,6 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
         "AT" => "tarot",
         "AL" => "slots",
         "AC" => "casino",
-        "AD" => "temple",
         "AP" => "carrier_lost",
         "AG" => "gallery",
         "MH" | "MX" => "message_center",

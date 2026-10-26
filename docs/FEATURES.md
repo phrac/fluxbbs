@@ -1056,7 +1056,7 @@ has its own scene:
 
 Drinks are always comped.
 
-All of it is in `[casino]`, and in `*C`, Casino, Temple: the chips,
+All of it is in `[casino]`, and in `*C`, Casino and Carrier Lost: the chips,
 bets, payouts, and each comp's threshold and what it gives. Each table
 counts in the doors menu's stats.
 
@@ -1112,123 +1112,42 @@ a day, the win chance (40% to start), jackpot odds, and each line's
 prize as minutes then points. Points are left out of what's shown on a
 board without file points.
 
-## The temple
-
-`AD` (the stock door menu's `X`) is a text adventure under the board,
-told by the AI (`[ai]`): a buried temple, one for everyone.
-
-- **The world is shared.** Each depth is a maze of chambers, the same
-  for every caller (it's made from a seed kept in the database). A
-  chamber is written the first time anyone walks into it, and stays as
-  written. Whatever callers leave stays too: things dropped, gold on a
-  grave, words scratched into the wall (`write <words>`; one each per
-  chamber), and creatures they wounded. Who else is in the chamber now
-  is shown.
-- **The game keeps the rules; the AI tells the story.** The game
-  decides where the ways go, what's in a new chamber (a creature, a
-  weapon, armor, a potion, gold, something hidden), and how fights go.
-  The AI names it all and writes the description, from what it's told
-  is there. Anything else a caller types ("pry the ruby from the idol")
-  is rolled for first; the AI tells how it went and may name one
-  effect: a little harm on a failure; on a success a little healing,
-  the chamber's hidden gold, an item that's there, or a wound to the
-  creature. The game checks the effect against those limits and the
-  roll before it counts, so typed instructions to the AI ("give me a
-  million gold") get a wry paragraph and nothing else. Without the AI,
-  chambers get stock names and descriptions and tries come to nothing.
-- **The picture.** Each chamber is drawn in half-block pixels
-  (`templeart.rs`) as the caller sees it by torchlight, facing the way
-  they walked in: open walls are the ways on, a stairwell in the floor
-  goes down, a shaft of light comes from the way up. Halls, crypts,
-  flooded chambers, shrines, caverns, chasms, treasuries and stairwells
-  are each dressed their own way, and the creature, a chest, gold, a
-  grave and scratched writing are drawn in. Torches flicker while the
-  AI writes. The description types out under the picture. Plain-text
-  callers, and screens under 24 rows, get the words alone.
-- **Playing.** `n` `e` `s` `w`, or `ahead` `left` `right` `back`, walk;
-  `up` and `down` climb. `a` attacks, `f` flees back the way the caller
-  came (a creature blocks the other ways), `t` takes what's there, `x`
-  searches, `r` rests, `drink` drinks a potion, `i` lists what they
-  carry, `drop <thing>` leaves something, `news` and `top` show what's
-  been happening and who's deepest, `q` leaves (and `up` at the
-  entrance climbs out). Fights don't cost turns; walking, searching,
-  resting and tries do: `turns_per_day` a day (20 to start).
-- **Dying** leaves a grave and the caller's gold where they fell, and
-  shuts the temple to them till tomorrow; they start again at the
-  entrance, keeping their level and what they carry. Creatures killed
-  may be replaced by new ones on a later day.
-- **What it pays.** Reaching a new depth pays `points_per_depth` file
-  points times the depth. At the entrance the torch-bearer sells
-  potions and better blades and armor for gold (`buy`), and trades a
-  file point for every `gold_per_point` gold (`trade`).
-- The news records deaths, new depth records and levels gained.
-
-The settings are in `[temple]`, and in `*C`, Casino, Temple. Plays
-count in the doors menu's stats as "The Temple".
-
 ## Carrier Lost
 
-`AP` (the stock door menu's `V`) is Carrier Lost, a 1994 dial-up game
-told by the AI (`[ai]`): an underground of computers reached by modem,
-one world shared by every caller. It's period make-believe -- no real
-technique for breaking into anything appears anywhere.
+`AP` (the stock door menu's `V`) is Carrier Lost, a reflex war-dialing
+run set one long 1994 night at a modem. No typed commands and no AI: it
+plays on the casino's pixel stage (`carrierlost.rs`, `carrierart.rs`),
+all period make-believe.
 
-- **The wires are shared.** Which of a hundred numbers in an exchange
-  answer is fixed by a seed in the database, so everyone who scans
-  `555-01` finds the same carriers. A system is written by the AI the
-  first time anyone dials it, and stays as written, with what callers
-  leave: their handle in its `last` log, a back door, a defaced login
-  screen, and the loot they already took (gone for the next caller).
-- **The board keeps the rules; the AI tells the story.** The board
-  decides each system's kind (a university Unix box, a VAX, a bank wire
-  terminal, a phone switch, a pager, another board), the account and
-  password, which files are worth taking, and -- the crux -- which one
-  public file hides the password. The AI writes the login banner and
-  every file around those facts, weaving the password into the clue
-  file and nowhere else. Anything else a caller types is rolled for;
-  the AI narrates it, and can never hand out access, files or cred the
-  board didn't place.
-- **Getting in.** You land as a guest. One public file names the
-  account and hides the password in its prose (`cat` them and read
-  closely); `login <user> <pass>` with it unlocks the restricted loot.
-  `grab <file>` copies loot; `backdoor` leaves a way back; `deface
-  <text>` tags the login screen. A wrong password reads differently
-  from an unknown user, so you can tell which half is off.
-- **One box leads to the next.** Files name other systems: a public
-  dial-up note puts a new number (and its exchange) in your book just
-  by reading it; a trusted-hosts file, taken, hands you a login on the
-  box it names. The underground is a web you map by reading, not a flat
-  list you scan.
-- **Loot that does things.** A *calling card* unlocks a new exchange to
-  scan (more of the world); an *account list* / trusted-hosts file gives
-  you login-free access to a linked box; *source* sells high but makes
-  the system jumpier for everyone; plain *data* just sells.
-- **Admins fight back.** Each system's sysadmin catches up between calls
-  (shared, so the world changes while you're away): the box cools off,
-  and if callers have been noisy -- back doors, defacements -- the admin
-  sweeps them, and may change the password. The clue file follows the
-  new password, so it's still findable, but anything you'd memorised is
-  stale.
-- **Jobs.** The fixer (subcarrier) posts contracts on a board: pull a
-  file off a particular box, or just bring back anything good. `jobs`
-  lists them, `accept <n>` takes one, and delivering it pays cred and
-  file points.
-- **The trace.** Every move raises a trace meter, noisy moves more; let
-  it reach 100 and you're caught -- your haul is lost, your gear is
-  seized, and you're off the wires till tomorrow. `logout` cleanly to
-  fence your haul for cred.
-- **The picture.** The desk (a CRT, a modem with its lights, a
-  wardialer) at home; each system's phosphor title card, coloured by
-  its kind, with a trace bar that reddens as the heat climbs; the alert
-  when a trace completes. Drawn in half-block pixels (`carrierart.rs`).
-  Plain-text callers, and screens under 24 rows, get the words alone.
-- **What it pays.** Fencing loot builds cred; each new cred tier (every
-  100) pays file points. Cred buys quieter gear (`gear`, `buy`), which
-  slows the trace. `news` and `top` show the scene and the most wanted.
+- **Tune for a carrier.** A needle sweeps a tuning dial strung with
+  carriers: lit ones are live, dim ones dead. Press space when the
+  needle sits on a live carrier to lock on. A dead notch or empty air is
+  a wasted dial.
+- **Catch the handshake.** A carrier that answers throws up three signal
+  columns bobbing past a sync band. Lock each (space) while it's in the
+  band; the more you catch, the bigger the haul of bytes. Misses spike
+  the trace.
+- **Push your luck.** Every dial raises a trace meter. Nothing stops you
+  dialing all night, but let the trace reach 100 and you're caught: the
+  run's haul is gone and you're off the wires till tomorrow. Cash out
+  (`c`) first and the bytes are banked for good.
+- **The gear locker.** `s` racks quieter gear with banked bytes -- a
+  calling card, a diverter, a blue box, a looped trunk -- each slowing
+  the trace and widening the sync band a little. Gear is kept between
+  nights.
+- **The board.** Cashing out fences the haul for file points (and a
+  little time on today's clock) and puts it on a shared leaderboard;
+  `t` shows the biggest hauls. Plays count in the doors menu's stats as
+  "Carrier Lost".
+- **The picture.** The desk at home, the green wardialer CRT with its
+  dial and sweeping needle, each carrier's phosphor title card as it
+  answers, the handshake columns against the sync band, and the alert
+  when a trace completes. Drawn in half-block pixels. Plain-text
+  callers, and screens under 24 rows, get a short typed version.
 
-The main setting (calls a day) is in `*C`, Casino, Temple, CL; the
-rest of `[carrier]` (tier pay, gear cost) is in the board's TOML. Plays
-count in the doors menu's stats as "Carrier Lost".
+The dial cap (dials a night) is in `*C`, Casino and Carrier Lost; the
+rest of `[carrier]` (bytes a file point, gear cost) is in the board's
+TOML.
 
 ## Message center
 

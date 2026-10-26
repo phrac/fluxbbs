@@ -82,8 +82,7 @@ on port 2222 and telnet on 23. Logs are in `docker logs fluxbbs`.
 - [AI chat](docs/FEATURES.md#ai-chat) that can search the web and knows its way around the board,
   and a [tarot and fortune door](docs/FEATURES.md#tarot-and-fortunes) it reads for
 - A [casino](docs/FEATURES.md#casino): slots, video poker, blackjack, roulette and craps, a bar and a players club, paying minutes and file points
-- [The temple](docs/FEATURES.md#the-temple): a shared adventure under the board, written by the AI as callers explore it, in pixel pictures
-- [Carrier Lost](docs/FEATURES.md#carrier-lost): a 1994 dial-up game, a shared underground the AI writes system by system as callers dial in, in phosphor pixel art
+- [Carrier Lost](docs/FEATURES.md#carrier-lost): a reflex war-dialing run on a pixel CRT; tune for a carrier, catch the handshake, push the trace meter, cash out to a shared leaderboard
 - [Request boards](docs/FEATURES.md#request-boards) with points for fills, and
   [file links](docs/FEATURES.md#file-links) in messages
 - A [JSON feed](docs/SYSOP.md#website-feed) for the board's website

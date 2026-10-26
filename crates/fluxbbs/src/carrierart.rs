@@ -25,21 +25,6 @@ pub enum Kind {
 impl Kind {
     pub const ALL: [Kind; 6] = [Kind::Unix, Kind::Vax, Kind::Bank, Kind::Switch, Kind::Pager, Kind::Bbs];
 
-    pub fn name(self) -> &'static str {
-        match self {
-            Kind::Unix => "unix",
-            Kind::Vax => "vax",
-            Kind::Bank => "bank",
-            Kind::Switch => "switch",
-            Kind::Pager => "pager",
-            Kind::Bbs => "bbs",
-        }
-    }
-
-    pub fn from_name(s: &str) -> Kind {
-        Kind::ALL.into_iter().find(|k| k.name() == s).unwrap_or(Kind::Unix)
-    }
-
     /// The phosphor the system's screen glows in.
     fn phosphor(self) -> Rgb {
         match self {
@@ -294,6 +279,103 @@ pub fn vignette(cv: &mut Canvas) {
     }
 }
 
+/// The glass rectangle `crt` leaves, in pixels (x, y, w, h).
+pub const GLASS: (i32, i32, i32, i32) = (7, 2, 66, 18);
+
+/// A row of the glass, as a text-cell row (0-based).
+fn grow(dy: usize) -> usize {
+    (GLASS.1 as usize) / 2 + dy
+}
+
+/// The dial: a tuning track across the glass with carrier notches and a
+/// sweeping needle. `notches` is (position 0..1, state: 0 dead, 1 live,
+/// 2 taken); `needle` is 0..1 across the track.
+pub fn draw_dial(cv: &mut Canvas, t: f32, tint: Rgb, notches: &[(f32, u8)], needle: f32, found: u32) {
+    cv.clear_labels();
+    crt(cv, tint);
+    let (gx, _, gw, _) = GLASS;
+    let (x0, x1) = (gx + 5, gx + gw - 5);
+    let span = (x1 - x0) as f32;
+    centre(cv, gx as usize, gw as usize, grow(0), "W A R D I A L E R", tint);
+    centre(cv, gx as usize, gw as usize, grow(1), "scanning the exchange", scale(tint, 0.7));
+    let ytk = 11;
+    // The track.
+    for x in x0..=x1 {
+        cv.set(x, ytk, scale(tint, 0.35));
+        cv.set(x, ytk + 1, scale(tint, 0.18));
+    }
+    // Tick marks along it.
+    let mut m = x0;
+    while m <= x1 {
+        cv.set(m, ytk - 2, scale(tint, 0.3));
+        m += 4;
+    }
+    // The carriers.
+    for &(pos, state) in notches {
+        let x = x0 + (pos.clamp(0.0, 1.0) * span) as i32;
+        let c = match state {
+            1 => rgb(90, 255, 120),
+            2 => scale(tint, 0.2),
+            _ => scale(rgb(120, 90, 90), 0.5),
+        };
+        let h = if state == 1 { 4 } else { 2 };
+        let glow = if state == 1 { 0.6 + 0.4 * (t * 5.0 + pos * 9.0).sin().abs() } else { 1.0 };
+        for dy in -h..=h {
+            cv.set(x, ytk + dy, scale(c, glow));
+        }
+    }
+    // The needle.
+    let nx = x0 + (needle.clamp(0.0, 1.0) * span) as i32;
+    for y in (ytk - 4)..=(ytk + 6) {
+        cv.blend(nx, y, rgb(255, 255, 255), 0.9);
+    }
+    cv.blend(nx - 1, ytk - 4, rgb(255, 255, 255), 0.4);
+    cv.blend(nx + 1, ytk - 4, rgb(255, 255, 255), 0.4);
+    centre(cv, gx as usize, gw as usize, grow(7), &format!("carriers raised tonight: {found}"), scale(tint, 0.75));
+}
+
+/// The handshake: three signal columns bobbing, a sync band across the
+/// middle, lock each in the band. `bars` is each column's value 0..1,
+/// `locked` whether each has been locked and if it hit, `cur` the column
+/// being aimed at, `zone` the half-height of the band.
+pub fn draw_handshake(cv: &mut Canvas, t: f32, tint: Rgb, bars: &[f32; 3], locked: &[Option<bool>; 3], cur: usize, zone: f32) {
+    cv.clear_labels();
+    crt(cv, tint);
+    let (gx, gy, gw, gh) = GLASS;
+    centre(cv, gx as usize, gw as usize, grow(0), "H A N D S H A K E", tint);
+    let (top, bot) = (gy + 3, gy + gh - 2);
+    let band_mid = (top + bot) / 2;
+    let half = (zone * (bot - top) as f32 / 2.0).max(1.0) as i32;
+    // The sync band.
+    for y in (band_mid - half)..=(band_mid + half) {
+        for x in (gx + 3)..(gx + gw - 3) {
+            cv.blend(x, y, tint, 0.18);
+        }
+    }
+    for x in (gx + 3)..(gx + gw - 3) {
+        cv.blend(x, band_mid - half, tint, 0.5);
+        cv.blend(x, band_mid + half, tint, 0.5);
+    }
+    let cols = [gx + gw / 4 - 3, gx + gw / 2 - 3, gx + 3 * gw / 4 - 3];
+    for (i, &cx) in cols.iter().enumerate() {
+        let v = bars[i].clamp(0.0, 1.0);
+        let y = bot - (v * (bot - top) as f32) as i32;
+        let c = match locked[i] {
+            Some(true) => rgb(90, 255, 130),
+            Some(false) => rgb(255, 80, 80),
+            None if i == cur => mix(tint, rgb(255, 255, 255), 0.3 + 0.3 * (t * 6.0).sin().abs()),
+            None => scale(tint, 0.5),
+        };
+        // The column's slider block.
+        cv.rect(cx, y - 1, 6, 3, c);
+        // A faint shaft.
+        for yy in top..bot {
+            cv.blend(cx + 2, yy, tint, 0.1);
+            cv.blend(cx + 3, yy, tint, 0.1);
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -313,9 +395,16 @@ mod tests {
         shots.push(("dialing".into(), cv));
         for (i, k) in Kind::ALL.into_iter().enumerate() {
             let mut cv = Canvas::new(W, H);
-            draw_system(&mut cv, 1.0, k, &format!("{}-net", k.name()), (i as u32 * 17) % 100, i == 5);
-            shots.push((format!("sys-{}", k.name()), cv));
+            draw_system(&mut cv, 1.0, k, &format!("node-{i}"), (i as u32 * 17) % 100, i == 5);
+            shots.push((format!("sys-{i}"), cv));
         }
+        let mut cv = Canvas::new(W, H);
+        let notches = [(0.12, 1u8), (0.3, 0u8), (0.5, 1u8), (0.68, 2u8), (0.86, 1u8)];
+        draw_dial(&mut cv, 0.7, rgb(90, 255, 120), &notches, 0.5, 4);
+        shots.push(("dial".into(), cv));
+        let mut cv = Canvas::new(W, H);
+        draw_handshake(&mut cv, 0.4, rgb(130, 215, 255), &[0.52, 0.2, 0.8], &[Some(true), Some(false), None], 2, 0.2);
+        shots.push(("handshake".into(), cv));
         let mut cv = Canvas::new(W, H);
         draw_busted(&mut cv, 0.5);
         shots.push(("busted".into(), cv));

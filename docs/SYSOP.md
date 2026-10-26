@@ -129,7 +129,7 @@ restart.
 ### Turning parts of the board off
 
 `*C`, Features (`[features]` in the TOML) switches whole parts on and
-off, each game on its own: tarot, slots, casino, the temple, Carrier
+off, each game on its own: tarot, slots, casino, Carrier
 Lost, the art gallery, the message center, the time bank, the voting
 booth, the BBS list, infoforms, QWK mail, the automessage, menu
 scripts. Everything is on to start. A part that's off:

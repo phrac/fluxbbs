@@ -124,7 +124,7 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   share ("top 8%"), for a stats screen that compares.
   ([CODES](CODES.md))
 - `*C`, Features: whole parts of the board switch off, each game on
-  its own (tarot, slots, casino, temple, Carrier Lost, gallery, message
+  its own (tarot, slots, casino, Carrier Lost, gallery, message
   center, time bank, voting, BBS list, infoforms, QWK, automessage,
   scripts). Off, a part refuses its commands and drops out of every
   menu as it loads. ([SYSOP](SYSOP.md#turning-parts-of-the-board-off))
@@ -182,7 +182,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   (`FB`) takes up to 1,000 files, adds by wildcard or numbers (`w`) and
   deletes them all (`k`). ([FILES](FILES.md#deleting-in-bulk))
 - The file browser (`FW`, L on the file menu): areas as folders; ZIP,
-  tar and tar.gz opened in place; text and ANSI in a viewer.
+  tar and tar.gz opened in place; text and ANSI in a viewer. The area
+  being browsed becomes the current one, so leaving stays there.
 - In the browser, pictures show as ANSI (half-blocks, 24-bit) and
   animated GIFs play.
 - `FW newest`, `hot`, `heavy`, `dig`, `kingpin` open the browser on
@@ -314,27 +315,15 @@ All in [FEATURES](FEATURES.md#message-center).
   pay out in file points and minutes. A free slot pull on the first
   call of the day is a logon sequence step.
   ([FEATURES](FEATURES.md#casino))
-- The temple (`AD`): a text adventure under the board that the AI
-  tells, in one world shared by every caller. Chambers are written by
-  the AI the first time anyone enters them and stay as written, with
-  what callers leave: graves, dropped gold, words scratched on the
-  walls. The game keeps the rules (the maze, fights, health, what's in
-  each chamber) and checks whatever the AI says a free-form try does
-  against them. Each chamber is drawn in half-block pixels by
-  torchlight. Turns a day; new depths pay file points.
-  ([FEATURES](FEATURES.md#the-temple))
-- Carrier Lost (`AP`): a 1994 dial-up game the AI tells, one
-  underground shared by every caller. You war-dial exchanges, and the
-  AI writes each system (a Unix box, a VAX, a bank terminal, a phone
-  switch) the first time it's dialled, hiding the password in a public
-  file for you to find. Grab loot, leave back doors, deface login
-  screens; a trace meter climbs as you work and busts you (off till
-  tomorrow) at 100. Systems link to each other (read a file, learn a
-  number or a login); loot does things (calling cards open new
-  exchanges, trusted-hosts files hand you logins, source runs hot);
-  admins sweep back doors and rotate passwords between calls; the fixer
-  posts jobs. Pixel title cards per system; loot fences for cred, cred
-  pays file points. ([FEATURES](FEATURES.md#carrier-lost))
+- Carrier Lost (`AP`): a reflex war-dialing run on the pixel stage.
+  Tune a dial until the needle sits on a live carrier and lock on, then
+  catch a three-signal handshake in its sync band for a haul of bytes.
+  Every dial raises a trace meter; cash out to fence the bytes for file
+  points and a spot on a shared leaderboard, or let the trace hit 100
+  and lose the run till tomorrow. Banked bytes buy quieter gear that
+  slows the trace. No typed commands and no AI; a short typed version
+  for plain terminals. (Replaces the earlier AI-told dial-up adventure.)
+  ([FEATURES](FEATURES.md#carrier-lost))
 
 ### Mentions
 
@@ -469,7 +458,6 @@ All in [DOORS](DOORS.md).
 | `AT` (+ `day` `three` `fortune`) | tarot and fortunes |
 | `AC` (+ `slots` `poker` `blackjack` `roulette` `craps` `bar` `club`) | the casino |
 | `AL` (+ `free`) | the slot machine; `free`, the day's free pull |
-| `AD` | the temple |
 | `AP` | Carrier Lost (the dial-up game) |
 | `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |

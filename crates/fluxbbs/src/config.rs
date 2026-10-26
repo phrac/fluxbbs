@@ -37,7 +37,10 @@ pub struct Config {
     pub bbslink: BbsLink,
     pub slots: Slots,
     pub casino: Casino,
-    pub temple: Temple,
+    /// The temple (`AD`) is gone; an old board's `[temple]` is read and
+    /// dropped.
+    #[serde(skip_serializing)]
+    pub temple: Option<toml::Value>,
     pub carrier: CarrierLost,
     /// New: which parts of the board are on.
     pub features: Features,
@@ -163,7 +166,9 @@ pub struct Features {
     pub tarot: bool,
     pub slots: bool,
     pub casino: bool,
-    pub temple: bool,
+    /// Retired with the temple; read and dropped.
+    #[serde(skip_serializing)]
+    pub temple: Option<bool>,
     pub carrier_lost: bool,
     pub gallery: bool,
     pub message_center: bool,
@@ -182,7 +187,7 @@ impl Default for Features {
             tarot: true,
             slots: true,
             casino: true,
-            temple: true,
+            temple: None,
             carrier_lost: true,
             gallery: true,
             message_center: true,
@@ -199,12 +204,11 @@ impl Default for Features {
 
 impl Features {
     /// Each feature's name (as in the TOML) and whether it's on.
-    pub fn all(&self) -> [(&'static str, bool); 14] {
+    pub fn all(&self) -> [(&'static str, bool); 13] {
         [
             ("tarot", self.tarot),
             ("slots", self.slots),
             ("casino", self.casino),
-            ("temple", self.temple),
             ("carrier_lost", self.carrier_lost),
             ("gallery", self.gallery),
             ("message_center", self.message_center),
@@ -497,41 +501,25 @@ impl Default for Casino {
     }
 }
 
-/// The temple under the board (new, `temple.rs`).
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default, deny_unknown_fields)]
-pub struct Temple {
-    /// Turns a caller has a day: walking, searching, resting, trying
-    /// things (0: no limit).
-    pub turns_per_day: u32,
-    /// Reaching a new depth pays this many file points a depth (depth 3:
-    /// three times this).
-    pub points_per_depth: u32,
-    /// The torch-bearer trades a file point for this much gold (0: no trading).
-    pub gold_per_point: u32,
-}
-
-impl Default for Temple {
-    fn default() -> Self {
-        Self { turns_per_day: 20, points_per_depth: 5, gold_per_point: 10 }
-    }
-}
-
 /// Carrier Lost (new, `carrierlost.rs`), the 1994 dial-up game.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default, deny_unknown_fields)]
 pub struct CarrierLost {
-    /// Scans and dials a caller has a day (0: no limit).
-    pub actions_per_day: u32,
-    /// File points for reaching a new cred tier (each 100 cred), per tier.
-    pub points_per_tier: u32,
-    /// Cred a gear upgrade costs, times the next level.
+    /// Dials a caller has in a night (0: no limit). The old
+    /// `actions_per_day` is read as this.
+    #[serde(alias = "actions_per_day")]
+    pub dials_per_day: u32,
+    /// Bytes fenced per file point when cashing out. The old
+    /// `points_per_tier` is read as this.
+    #[serde(alias = "points_per_tier")]
+    pub bytes_per_point: u32,
+    /// Bytes a gear upgrade costs, times the next level.
     pub gear_cost: u32,
 }
 
 impl Default for CarrierLost {
     fn default() -> Self {
-        Self { actions_per_day: 25, points_per_tier: 5, gear_cost: 120 }
+        Self { dials_per_day: 40, bytes_per_point: 60, gear_cost: 150 }
     }
 }
 
@@ -1624,3 +1612,16 @@ fn renamed(dir: &Path, new: &str, old: &str) -> PathBuf {
 }
 
 
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_board_from_before_the_temple_went_still_loads() {
+        let c: Config = toml::from_str("[temple]\nturns_per_day = 5\n\n[features]\ntemple = false\ntarot = false\n").unwrap();
+        assert!(!c.features.tarot);
+        let out = toml::to_string(&c).unwrap();
+        assert!(!out.contains("temple"), "the temple's keys aren't written back");
+    }
+}

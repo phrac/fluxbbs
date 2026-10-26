@@ -17,8 +17,6 @@ mod bbslink;
 mod tarot;
 mod tarotart;
 mod tdf;
-mod temple;
-mod templeart;
 mod blackjack;
 mod carrierart;
 mod carrierlost;
@@ -146,8 +144,6 @@ pub struct BbsState {
     events: std::sync::RwLock<Arc<events::Events>>,
     /// Infoform answers and new user votes.
     pub forms: infoform::FormStore,
-    /// The temple's world (`AD`).
-    pub temple: temple::TempleStore,
     /// Carrier Lost's world (`AP`).
     pub carrier: carrierlost::CarrierStore,
     pub files: FileBase,
@@ -492,7 +488,6 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     let infoforms: infoform::Infoforms = extprog::load(&config.resolve(&config.paths.infoforms))?.unwrap_or_default();
     let questions: questions::Questions = extprog::load(&config.resolve(&config.paths.questions))?.unwrap_or_default();
     let forms = infoform::FormStore::open(&db)?;
-    let temple = temple::TempleStore::open(&db)?;
     let carrier = carrierlost::CarrierStore::open(&db)?;
     let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
     let events: events::Events = extprog::load(&config.resolve(&config.paths.events))?.unwrap_or_default();
@@ -515,7 +510,6 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         themes: std::sync::RwLock::new(Arc::new(themes)),
         events: std::sync::RwLock::new(Arc::new(events)),
         forms,
-        temple,
         carrier,
         files,
         sys,
@@ -705,7 +699,6 @@ pub mod tests {
             themes: std::sync::RwLock::new(Arc::new(themes::Themes::default())),
             events: std::sync::RwLock::new(Arc::new(events::Events::default())),
             forms: infoform::FormStore::open_memory().unwrap(),
-            temple: temple::TempleStore::open_memory().unwrap(),
             carrier: carrierlost::CarrierStore::open_memory().unwrap(),
             files: FileBase::open_memory().unwrap(),
             sys: SysData::open_memory().unwrap(),
