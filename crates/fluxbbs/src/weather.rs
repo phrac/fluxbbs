@@ -166,31 +166,48 @@ fn split_place(q: &str) -> (String, String) {
     let (town, region) = q.split_once(',').map_or((q, ""), |(a, b)| (a, b));
     let region = region.trim();
     let region = STATES.iter().find(|(ab, _)| ab.eq_ignore_ascii_case(region)).map_or(region, |(_, full)| full);
+    let region = country_alias(region).unwrap_or(region);
     (town.trim().to_string(), region.to_string())
 }
 
-/// Countries the geocoder reads as towns ("USA" is Uşak, Turkey;
-/// "England" a town in Arkansas). Others it knows as countries.
-const COUNTRIES: &[(&str, &str)] = &[
-    ("usa", "the United States"), ("us", "the United States"), ("america", "the United States"),
-    ("united states of america", "the United States"),
-    ("uk", "the United Kingdom"), ("great britain", "the United Kingdom"), ("britain", "the United Kingdom"),
-    ("england", "England"), ("scotland", "Scotland"), ("wales", "Wales"), ("northern ireland", "Northern Ireland"),
+/// Ways of writing the two countries the geocoder reads as towns ("USA"
+/// is Uşak, Turkey), as their codes.
+const COUNTRY_ALIASES: &[(&str, &str)] = &[
+    ("us", "US"), ("usa", "US"), ("america", "US"), ("united states", "US"), ("united states of america", "US"),
+    ("uk", "GB"), ("gb", "GB"), ("britain", "GB"), ("great britain", "GB"), ("united kingdom", "GB"),
 ];
 
+/// The UK's nations, which the geocoder reads as towns ("England" is in
+/// Arkansas).
+const UK_NATIONS: &[&str] = &["England", "Scotland", "Wales", "Northern Ireland"];
+
+/// `s`'s country code, if it's one of `COUNTRY_ALIASES`.
+fn country_alias(s: &str) -> Option<&'static str> {
+    let bare = s.trim().replace('.', "").to_ascii_lowercase();
+    COUNTRY_ALIASES.iter().find(|(k, _)| *k == bare).map(|(_, code)| *code)
+}
+
 /// The state or country `q` names when it's only that ("Nebraska", "NE,
-/// USA", "USA"): the geocoder reads it as a town of that name elsewhere.
+/// USA", "USA", "England, UK"): the geocoder reads these as towns.
 fn region_only(q: &str) -> Option<&'static str> {
-    let bare = q.trim().replace('.', "").to_ascii_lowercase();
-    if let Some((_, c)) = COUNTRIES.iter().find(|(k, _)| *k == bare) {
-        return Some(c);
-    }
     let (town, region) = q.split_once(',').map_or((q, ""), |(a, b)| (a, b));
-    let region = region.trim().trim_end_matches('.').to_ascii_lowercase().replace('.', "");
-    if !["", "us", "usa", "united states", "united states of america", "america"].contains(&region.as_str()) {
+    let within = if region.trim().is_empty() { None } else { Some(country_alias(region)?) };
+    let town = town.trim().replace('.', "");
+    if within.is_none() {
+        match country_alias(&town) {
+            Some("US") => return Some("the United States"),
+            Some(_) => return Some("the United Kingdom"),
+            None => {}
+        }
+    }
+    if within != Some("US")
+        && let Some(n) = UK_NATIONS.iter().find(|n| n.eq_ignore_ascii_case(&town))
+    {
+        return Some(n);
+    }
+    if within == Some("GB") {
         return None;
     }
-    let town = town.trim().replace('.', "");
     STATES.iter().find(|(ab, full)| ab.eq_ignore_ascii_case(&town) || full.eq_ignore_ascii_case(&town)).map(|(_, full)| *full)
 }
 
@@ -209,11 +226,20 @@ fn pick(results: &[Value], region: &str) -> Option<Found> {
         region.is_empty()
             || ["admin1", "country", "country_code", "admin2"].iter().any(|k| r[*k].as_str().is_some_and(|v| v.eq_ignore_ascii_case(region)))
     };
-    let r = results.iter().find(fits)?;
-    let mut name = r["name"].as_str()?.to_string();
-    if r["feature_code"].as_str().is_some_and(|c| c.starts_with("PCL")) {
-        return Some(Found::Region(name));
+    let country = |r: &Value| r["feature_code"].as_str().is_some_and(|c| c.starts_with("PCL"));
+    let mut r = results.iter().find(fits)?;
+    if country(r) {
+        // A country named like its capital (Luxembourg, Kuwait) is the
+        // capital; a hamlet called France isn't France.
+        let city = results.iter().find(|c| {
+            c["feature_code"] == "PPLC" && c["country_code"] == r["country_code"] && c["name"] == r["name"]
+        });
+        match city {
+            Some(c) => r = c,
+            None => return Some(Found::Region(r["name"].as_str()?.to_string())),
+        }
     }
+    let mut name = r["name"].as_str()?.to_string();
     let region = r["admin1"].as_str().or(r["country"].as_str()).unwrap_or_default();
     if let Some((ab, _)) = STATES.iter().find(|(_, full)| full.eq_ignore_ascii_case(region)).filter(|_| r["country_code"].as_str() == Some("US")) {
         name = format!("{name}, {ab}");
@@ -608,20 +634,22 @@ impl Session {
     async fn weather_find(&mut self, q: &str) -> io::Result<Option<Place>> {
         match geocode(q).await {
             Ok(Found::At(p)) => Ok(Some(p)),
-            Ok(Found::Region(r)) => {
-                let s = self.strings().fmt("WxWhichTown", &[&r]);
+            miss => {
+                let s = self.weather_miss(q, miss);
                 self.show_line(&s).await?;
                 Ok(None)
             }
-            Ok(Found::Nowhere) => {
-                let s = self.strings().fmt("WxNoPlace", &[q]);
-                self.show_line(&s).await?;
-                Ok(None)
-            }
+        }
+    }
+
+    /// What to say when `q` gave no place.
+    fn weather_miss(&self, q: &str, found: anyhow::Result<Found>) -> String {
+        match found {
+            Ok(Found::Region(r)) => self.strings().fmt("WxWhichTown", &[&r]),
+            Ok(_) => self.strings().fmt("WxNoPlace", &[q]),
             Err(e) => {
                 tracing::warn!("weather: finding {q:?}: {e:#}");
-                self.say_line("WxDown").await?;
-                Ok(None)
+                self.strings().get("WxDown").to_string()
             }
         }
     }
@@ -699,12 +727,8 @@ impl Session {
                                 }
                                 *place = p;
                             }
-                            found => {
-                                let s = match found {
-                                    Ok(Found::Region(r)) => self.strings().fmt("WxWhichTown", &[&r]),
-                                    _ => self.strings().fmt("WxNoPlace", &[q.trim()]),
-                                };
-                                let s = crate::editor::strip_colours(&s);
+                            miss => {
+                                let s = crate::editor::strip_colours(&self.weather_miss(q.trim(), miss));
                                 self.stage_line(MSG_ROW, &painted(&s, [255, 140, 120]), st.truecolor);
                                 tokio::time::sleep(Duration::from_millis(1500)).await;
                             }
@@ -842,6 +866,14 @@ mod tests {
         .unwrap();
         assert_eq!(pick(&results, "").unwrap(), Found::Region("Canada".into()));
         assert!(matches!(pick(&results, "Kentucky").unwrap(), Found::At(p) if p.name == "Canada, KY"));
+        let results: Vec<Value> = serde_json::from_str(
+            r#"[{"name":"Luxembourg","feature_code":"PCLI","country":"Luxembourg","country_code":"LU","latitude":49.75,"longitude":6.17},
+                {"name":"Luxembourg","feature_code":"PPLC","admin1":"Luxembourg","country":"Luxembourg","country_code":"LU","latitude":49.61,"longitude":6.13}]"#,
+        )
+        .unwrap();
+        for region in ["", "Luxembourg"] {
+            assert_eq!(pick(&results, region).unwrap(), Found::At(Place { name: "Luxembourg, Luxembourg".into(), lat: 49.61, lon: 6.13 }));
+        }
         assert!(pick(&results, "Texas").is_none());
         assert_eq!(region_only("Nebraska"), Some("Nebraska"));
         assert_eq!(region_only(" ne "), Some("Nebraska"));
@@ -851,8 +883,16 @@ mod tests {
         assert_eq!(region_only("Nebraska City"), None);
         assert_eq!(region_only("Georgia, Europe"), None);
         assert_eq!(region_only("U.S.A."), Some("the United States"));
+        assert_eq!(region_only("United States"), Some("the United States"));
+        assert_eq!(region_only("UK"), Some("the United Kingdom"));
         assert_eq!(region_only(" england "), Some("England"));
+        assert_eq!(region_only("England, UK"), Some("England"));
+        assert_eq!(region_only("Wales, Great Britain"), Some("Wales"));
+        assert_eq!(region_only("England, USA"), None, "a town of that name");
+        assert_eq!(region_only("Nebraska, UK"), None);
         assert_eq!(region_only("London, England"), None);
+        assert_eq!(split_place("London, UK"), ("London".into(), "GB".into()));
+        assert_eq!(split_place("Firth, U.S.A."), ("Firth".into(), "US".into()));
     }
 
     #[test]
@@ -906,6 +946,9 @@ mod tests {
         let dir = std::path::PathBuf::from(std::env::var("WX_OUT").expect("WX_OUT"));
         let Found::At(p) = geocode("Lincoln, NE").await.unwrap() else { panic!("not found") };
         assert_eq!(geocode("France").await.unwrap(), Found::Region("France".into()));
+        assert!(matches!(geocode("Luxembourg").await.unwrap(), Found::At(_)), "the capital");
+        assert_eq!(geocode("Kuwait").await.unwrap(), Found::Region("Kuwait".into()), "its capital is Kuwait City");
+        assert!(matches!(geocode("London, UK").await.unwrap(), Found::At(p) if p.name == "London, England"));
         assert_eq!(p.name, "Lincoln, NE");
         let f = fetch(&p, Units::Us).await.unwrap();
         assert_eq!(f.days.len(), 7);
