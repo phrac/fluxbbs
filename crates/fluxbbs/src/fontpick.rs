@@ -48,6 +48,13 @@ fn tdf_files(root: &Path) -> Vec<PathBuf> {
     out
 }
 
+/// Where to look for the board's fonts. A board started from its own
+/// directory with no path (as in the container) has an empty root, which
+/// resolves files fine but can't be listed; that's the current directory.
+fn font_root(root: &Path) -> PathBuf {
+    if root.as_os_str().is_empty() { PathBuf::from(".") } else { root.to_path_buf() }
+}
+
 /// Every face in the board's font files, file by file.
 fn faces(root: &Path) -> Vec<Face> {
     let mut out = Vec::new();
@@ -86,7 +93,7 @@ impl Session {
     /// both in `cfg`; returns whether anything changed. Plain-text
     /// callers type them instead (the caller handles that).
     pub(crate) async fn saver_font_pick(&mut self, cfg: &mut Config) -> io::Result<bool> {
-        let root = cfg.root.clone();
+        let root = font_root(&cfg.root);
         let list = faces(&root);
         // The first row is "no font": the name in plain letters.
         let cur_file = cfg.terminal.screensaver_font.trim().to_string();
@@ -246,5 +253,13 @@ mod tests {
         let got: Vec<String> = tdf_files(&root).iter().map(|p| p.strip_prefix(&root).unwrap().display().to_string()).collect();
         assert_eq!(got, ["art/fonts/ONE.TDF", "fonts/two.tdf"]);
         let _ = std::fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn an_empty_root_is_the_current_directory() {
+        assert_eq!(font_root(Path::new("")), PathBuf::from("."));
+        assert_eq!(font_root(Path::new("/srv/board")), PathBuf::from("/srv/board"));
+        // Paths found from "." come back relative to the board, as typed.
+        assert_eq!(Path::new("./art/fonts/X.TDF").strip_prefix(".").unwrap(), Path::new("art/fonts/X.TDF"));
     }
 }
