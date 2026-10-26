@@ -888,3 +888,4 @@ EmailBody = "Hello %S2,\n\nYour code for %S1 is %S3. It's good for %S4 minutes.\
 WxWhere = "|U1Where are you |U2(|U1a town, or town, state|U2)|U1? |U3"
 WxNoPlace = "|U4Can't find |U3%S1|U5."
 WxDown = "|U4The weather service isn't answering just now|U5."
+WxWhichTown = "|U4Which town in |U3%S1|U4? |U5(|U4town, state|U5)"

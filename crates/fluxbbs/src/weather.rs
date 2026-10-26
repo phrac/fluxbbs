@@ -169,6 +169,18 @@ fn split_place(q: &str) -> (String, String) {
     (town.trim().to_string(), region.to_string())
 }
 
+/// The state `q` names when it's only a state ("Nebraska", "NE, USA"):
+/// the geocoder reads it as a town of that name, likely in another state.
+fn state_only(q: &str) -> Option<&'static str> {
+    let (town, region) = q.split_once(',').map_or((q, ""), |(a, b)| (a, b));
+    let region = region.trim().trim_end_matches('.').to_ascii_lowercase().replace('.', "");
+    if !["", "us", "usa", "united states", "united states of america", "america"].contains(&region.as_str()) {
+        return None;
+    }
+    let town = town.trim().replace('.', "");
+    STATES.iter().find(|(ab, full)| ab.eq_ignore_ascii_case(&town) || full.eq_ignore_ascii_case(&town)).map(|(_, full)| *full)
+}
+
 /// The best of the geocoder's answers for `region` (blank: the first).
 fn pick(results: &[Value], region: &str) -> Option<Place> {
     let fits = |r: &&Value| {
@@ -556,7 +568,7 @@ impl Session {
             return Ok(Some(p));
         }
         let from_profile = [self.user.location.clone(), self.state.config().weather.place.clone()];
-        for q in from_profile.iter().filter(|q| !q.trim().is_empty()) {
+        for q in from_profile.iter().filter(|q| !q.trim().is_empty() && state_only(q).is_none()) {
             if let Ok(Some(p)) = geocode(q).await {
                 return Ok(Some(p));
             }
@@ -566,6 +578,11 @@ impl Session {
 
     /// Find `q`, saying so if it can't be.
     async fn weather_find(&mut self, q: &str) -> io::Result<Option<Place>> {
+        if let Some(state) = state_only(q) {
+            let s = self.strings().fmt("WxWhichTown", &[state]);
+            self.show_line(&s).await?;
+            return Ok(None);
+        }
         match geocode(q).await {
             Ok(Some(p)) => Ok(Some(p)),
             Ok(None) => {
@@ -646,7 +663,11 @@ impl Session {
                     self.screen.goto(1, MSG_ROW);
                     self.say("WxWhere").await?;
                     let q = self.read_string(ReadOpts::new(40)).await?;
-                    if !q.trim().is_empty() {
+                    if let Some(state) = state_only(q.trim()) {
+                        let s = crate::editor::strip_colours(&self.strings().fmt("WxWhichTown", &[state]));
+                        self.stage_line(MSG_ROW, &painted(&s, [255, 140, 120]), st.truecolor);
+                        tokio::time::sleep(Duration::from_millis(1500)).await;
+                    } else if !q.trim().is_empty() {
                         match geocode(q.trim()).await {
                             Ok(Some(p)) => {
                                 if self.user.id != 0 {
@@ -787,6 +808,13 @@ mod tests {
         assert_eq!(pick(&results, "Nebraska").unwrap(), Place { name: "Lincoln, NE".into(), lat: 40.8, lon: -96.7 });
         assert_eq!(pick(&results, "").unwrap().name, "Lincoln, England");
         assert!(pick(&results, "Texas").is_none());
+        assert_eq!(state_only("Nebraska"), Some("Nebraska"));
+        assert_eq!(state_only(" ne "), Some("Nebraska"));
+        assert_eq!(state_only("Nebraska, USA"), Some("Nebraska"));
+        assert_eq!(state_only("N.Y., U.S.A."), Some("New York"));
+        assert_eq!(state_only("Firth, NE"), None);
+        assert_eq!(state_only("Nebraska City"), None);
+        assert_eq!(state_only("Georgia, Europe"), None);
     }
 
     #[test]
