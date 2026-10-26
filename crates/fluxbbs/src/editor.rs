@@ -335,6 +335,27 @@ struct View {
     has_header: bool,
 }
 
+/// What's typed after the `@` the cursor is in (none if the cursor isn't
+/// in one, or nothing's typed yet).
+fn mention_prefix(d: &Draft) -> Option<String> {
+    let line: Vec<char> = d.line(d.row)?.chars().collect();
+    let col = d.col.min(line.len());
+    let at = (0..col).rev().find(|&i| line[i] == '@')?;
+    if at > 0 && line[at - 1].is_alphanumeric() {
+        return None;
+    }
+    let typed: String = line[at + 1..col].iter().collect();
+    (!typed.is_empty() && !typed.ends_with("  ")).then_some(typed)
+}
+
+/// How many characters are typed after the `@`, and the names they
+/// begin (there's more of each to come).
+fn mention_matches<'a>(names: &'a [String], d: &Draft) -> (usize, Vec<&'a String>) {
+    let Some(typed) = mention_prefix(d) else { return (0, Vec::new()) };
+    let (lower, n) = (typed.to_lowercase(), typed.chars().count());
+    (n, names.iter().filter(|h| h.to_lowercase().starts_with(&lower) && h.chars().count() > n).collect())
+}
+
 fn is_quote(line: &str) -> bool {
     line.chars().take(3).any(|c| c == '>')
 }
@@ -508,13 +529,30 @@ impl Session {
             }
         let mut v = self.fs_draw(&ctx, &d).await?;
         let mut hinted = self.fs_hint(&d, &mut v).await?;
+        // New: `@` completes to a real handle (or a group a co-SysOp may
+        // name); the best match shows dimmed after the cursor, Tab takes it.
+        let names = self.mention_names();
+        let mut ghost: Option<usize> = None;
         let saved = loop {
             let key = self.read_key().await?;
             if std::mem::take(&mut hinted) {
                 self.fs_info_clear(&d, &v);
                 self.fs_render(&d, &mut v, Redraw::Cursor);
             }
+            if let Some(row) = ghost.take()
+                && (v.first..v.first + v.rows as usize).contains(&row)
+            {
+                self.fs_line(&d, &v, row);
+            }
+            let (typed, matches) = mention_matches(&names, &d);
             let change = match key {
+                Key::Tab if !matches.is_empty() => {
+                    let row = d.row;
+                    for c in matches[0].chars().skip(typed) {
+                        d.type_char(c);
+                    }
+                    Redraw::From(row)
+                }
                 Key::Left => {
                     d.left();
                     Redraw::Cursor
@@ -578,6 +616,23 @@ impl Session {
                 _ => Redraw::Cursor,
             };
             self.fs_render(&d, &mut v, change);
+            let (typed, matches) = mention_matches(&names, &d);
+            if let Some(first) = matches.first() {
+                let rest: String = first.chars().skip(typed).take(WIDTH.saturating_sub(d.col)).collect();
+                let (x, y, color) = (self.screen.where_x(), self.screen.where_y(), self.screen.color());
+                self.screen.set_color(v.quote);
+                self.write(&on_screen(&rest));
+                ghost = Some(d.row);
+                let list = matches.iter().take(6).map(|h| format!("@{}", fluxbbs_term::lit(h))).collect::<Vec<_>>().join(" |U2· |U3");
+                self.screen.goto(1, v.info);
+                self.set_slot(Slot::Text);
+                self.screen.clear_eol();
+                let s = self.strings().fmt("FsMention", &[&list]);
+                self.show(&s).await?;
+                hinted = true;
+                self.screen.goto(x, y);
+                self.screen.set_color(color);
+            }
         };
         if !self.goto_pos(*b"30") {
             self.screen.goto(1, v.top + v.rows);
@@ -588,6 +643,16 @@ impl Session {
             return Ok(None);
         }
         Ok(Some(EditResult { lines: d.text(), subject: ctx.subject, anonymous: ctx.anonymous, autosig: ctx.autosig }))
+    }
+
+    /// What `@` may complete to: every other caller's handle, and the
+    /// groups (`@all`...) if this caller may name them.
+    fn mention_names(&self) -> Vec<String> {
+        let mut names: Vec<String> = self.state.users.handles().unwrap_or_default().into_iter().filter(|h| !h.eq_ignore_ascii_case(&self.user.handle)).collect();
+        if crate::mentions::may_group(&self.state, &self.user) {
+            names.extend(crate::mentions::GROUPS.iter().map(|g| g.to_string()));
+        }
+        names
     }
 
     /// `fsDrawScreen`: the header, then the visible text.
@@ -1012,5 +1077,27 @@ mod tests {
         m.lines[1] = "> older".into();
         assert_eq!(quote_lines(&m, 1, 1, ""), vec![">> older"]);
         assert_eq!(quote_range(&m, 1), Some((2, 2)));
+    }
+
+    #[test]
+    fn at_completes_to_a_handle() {
+        let names: Vec<String> = ["Dark Angel", "phrac", "phreak", "all"].iter().map(|s| s.to_string()).collect();
+        let mut d = Draft::new(&["hey @ph".to_string()]);
+        d.end();
+        let (n, m) = mention_matches(&names, &d);
+        assert_eq!((n, m), (2, vec![&names[1], &names[2]]));
+        // Case doesn't matter; a name with a space completes too.
+        let mut d = Draft::new(&["@dark a".to_string()]);
+        d.end();
+        assert_eq!(mention_matches(&names, &d).1, vec![&names[0]]);
+        // Nothing typed yet, a complete name, an address, or not at the cursor.
+        for line in ["@", "@phrac", "me@phrac", "@phrac is here"] {
+            let mut d = Draft::new(&[line.to_string()]);
+            d.end();
+            assert!(mention_matches(&names, &d).1.is_empty(), "{line}");
+        }
+        let mut d = Draft::new(&["@ph later".to_string()]);
+        d.end();
+        assert!(mention_matches(&names, &d).1.is_empty(), "the cursor has moved on");
     }
 }

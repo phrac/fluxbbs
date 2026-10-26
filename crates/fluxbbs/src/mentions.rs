@@ -11,15 +11,15 @@ use crate::msgbase::Message;
 use crate::nodes::NodeEvent;
 use crate::user::User;
 
-/// Could `u`, not necessarily on, read `area`? Its ACS, in their current
-/// conference or any other they may join; never a passworded area.
-pub fn may_read(state: &BbsState, u: &User, area: &MsgArea) -> bool {
-    if !area.password.is_empty() {
-        return false;
-    }
+/// Group names a co-SysOp (`[acs] cosysop`) may write after `@`: everyone
+/// who can read the area, the co-SysOps among them, or those on now.
+pub const GROUPS: [&str; 3] = ["all", "mods", "here"];
+
+/// `u`'s ACS environment as if they were on now (they may not be).
+fn env_for(state: &BbsState, u: &User) -> AcsEnv {
     let now = crate::clock::now();
     let level_req = state.level(u.level).map_or(0, |l| l.post_call as u32);
-    let env = AcsEnv {
+    AcsEnv {
         age: u.age(now.date_naive()),
         conf_msg: u.conf_msg,
         conf_file: u.conf_file,
@@ -37,7 +37,16 @@ pub fn may_read(state: &BbsState, u: &User, area: &MsgArea) -> bool {
         minute_of_day: now.hour() * 60 + now.minute(),
         ratio_ok: (u.posts * 100).checked_div(u.total_calls).unwrap_or(0) >= level_req,
         ..AcsEnv::default()
-    };
+    }
+}
+
+/// Could `u`, not necessarily on, read `area`? Its ACS, in their current
+/// conference or any other they may join; never a passworded area.
+pub fn may_read(state: &BbsState, u: &User, area: &MsgArea) -> bool {
+    if !area.password.is_empty() {
+        return false;
+    }
+    let env = env_for(state, u);
     if acs::check(&area.acs, &env) {
         return true;
     }
@@ -45,6 +54,23 @@ pub fn may_read(state: &BbsState, u: &User, area: &MsgArea) -> bool {
         let env = AcsEnv { conf_msg: i as u32 + 1, ..env.clone() };
         acs::check(&c.acs, &env) && acs::check(&area.acs, &env)
     })
+}
+
+/// May `u` mention a group (`@all`...)? Co-SysOps and up.
+pub fn may_group(state: &BbsState, u: &User) -> bool {
+    acs::check(&state.config().acs.cosysop, &env_for(state, u))
+}
+
+/// Who a group mention in `area` reaches (not the poster), or none for
+/// a name that isn't a group.
+fn group_members(state: &BbsState, group: &str, area: &MsgArea, poster: u32) -> Vec<User> {
+    let readers = |us: Vec<User>| -> Vec<User> { us.into_iter().filter(|u| !u.deleted && u.id != poster && may_read(state, u, area)).collect() };
+    match group.to_ascii_lowercase().as_str() {
+        "all" => readers(state.users.list().unwrap_or_default()),
+        "mods" => readers(state.users.list().unwrap_or_default()).into_iter().filter(|u| may_group(state, u)).collect(),
+        "here" => readers(state.nodes.online().into_iter().filter_map(|(_, n)| state.users.find(&n.user, false).ok().flatten()).collect()),
+        _ => Vec::new(),
+    }
 }
 
 /// The names written after `@` in `lines`, each with up to two more
@@ -93,35 +119,53 @@ pub fn record(state: &BbsState, m: &Message, area: &str, from_node: usize) {
         return;
     }
     let Some(where_) = state.areas().areas.iter().find(|a| a.file.eq_ignore_ascii_case(&m.area)).cloned() else { return };
+    let poster = state.users.get(m.from.user_id).ok().flatten();
+    let groups_ok = poster.as_ref().is_some_and(|p| may_group(state, p));
     let mut told: Vec<u32> = Vec::new();
     for names in candidates(&m.lines) {
+        // A group (the one-word name is the last), for those allowed one.
+        let word = names.last().map(|n| n.to_ascii_lowercase()).unwrap_or_default();
+        if groups_ok && GROUPS.contains(&word.as_str()) {
+            for u in group_members(state, &word, &where_, m.from.user_id) {
+                tell(state, m, area, from_node, &u, &mut told);
+            }
+            continue;
+        }
         // "@5" isn't user number 5.
         let Some(u) = names.iter().filter(|n| !n.chars().all(|c| c.is_ascii_digit())).find_map(|n| state.users.find(n, false).ok().flatten()) else { continue };
-        if u.id == m.from.user_id || told.contains(&u.id) {
+        if u.id == m.from.user_id {
             continue;
         }
         // Not a word to someone who can't read it.
         if !may_read(state, &u, &where_) {
             continue;
         }
-        told.push(u.id);
-        // Told already (the post was edited since): not again.
-        match state.msgs.add_mention(u.id, m.id) {
-            Ok(true) => {}
-            Ok(false) => continue,
-            Err(e) => {
-                tracing::warn!("mention of {}: {e}", u.handle);
-                continue;
-            }
+        tell(state, m, area, from_node, &u, &mut told);
+    }
+}
+
+/// Note that `m` mentions `u` and say so if they're on, once a post.
+fn tell(state: &BbsState, m: &Message, area: &str, from_node: usize, u: &User, told: &mut Vec<u32>) {
+    if told.contains(&u.id) {
+        return;
+    }
+    told.push(u.id);
+    // Told already (the post was edited since): not again.
+    match state.msgs.add_mention(u.id, m.id) {
+        Ok(true) => {}
+        Ok(false) => return,
+        Err(e) => {
+            tracing::warn!("mention of {}: {e}", u.handle);
+            return;
         }
-        tracing::info!("{} mentioned {} in {area}", m.from.name, u.handle);
-        if let Some(node) = state.nodes.find_user(&u.handle) {
-            let text = state.strings().fmt("MentionNotice", &[area, &m.subject]);
-            let from = if m.anonymous { "anonymous".to_string() } else { m.from.name.clone() };
-            // An anonymous writer's node would give them away.
-            let from_node = if m.anonymous { 0 } else { from_node };
-            state.nodes.send(node, NodeEvent::Message { from: from_node, user: from, text, broadcast: false });
-        }
+    }
+    tracing::info!("{} mentioned {} in {area}", m.from.name, u.handle);
+    if let Some(node) = state.nodes.find_user(&u.handle) {
+        let text = state.strings().fmt("MentionNotice", &[area, &m.subject]);
+        let from = if m.anonymous { "anonymous".to_string() } else { m.from.name.clone() };
+        // An anonymous writer's node would give them away.
+        let from_node = if m.anonymous { 0 } else { from_node };
+        state.nodes.send(node, NodeEvent::Message { from: from_node, user: from, text, broadcast: false });
     }
 }
 

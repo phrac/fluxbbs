@@ -341,6 +341,8 @@ All in [FEATURES](FEATURES.md#message-center).
 - `@handle` in a public post tells that caller: by node message if
   they're on, and at their next logon. ([FEATURES](FEATURES.md#message-center))
 - `M@` reads them.
+- The editor completes `@` to a real handle (Tab takes the dimmed
+  suggestion); co-SysOps can write `@all`, `@mods` or `@here`.
 
 ### QWK
 

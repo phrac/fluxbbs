@@ -955,3 +955,6 @@ NuAnswersHead = "|U1the application|U2:"
 FeatureOff = "|U4that part of the board is switched off|U5."
 TvOffLater = "|08later"
 AiThinking = "|U5  %S1 |U4thinking"
+
+FsMention = "|U1@ |U3%S1 |U2· tab completes"
+FsHint10 = "|U2∙ |U1@handle in a post tells them. tab completes the name|U2 ∙"

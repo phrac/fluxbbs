@@ -455,6 +455,14 @@ impl UserStore {
         Ok(users)
     }
 
+    /// Every live user's handle, in alphabetical order.
+    pub fn handles(&self) -> anyhow::Result<Vec<String>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT handle FROM users WHERE NOT deleted ORDER BY handle COLLATE NOCASE")?;
+        let names = stmt.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(names)
+    }
+
     pub fn count(&self) -> anyhow::Result<u32> {
         let db = self.db.lock().unwrap();
         Ok(db.query_row("SELECT COUNT(*) FROM users WHERE NOT deleted", [], |r| r.get(0))?)

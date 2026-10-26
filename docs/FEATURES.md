@@ -1615,6 +1615,14 @@ for yourself.
 Handles with spaces work (`@Dark Angel`); punctuation ends a name. Only
 callers who could read the area are told, and `@5` isn't user number 5.
 
+In the full-screen editor, `@` completes: as you type after it, the best
+matching handle shows dimmed after the cursor and the matches on the
+status line (`FsMention`); Tab takes the first. Co-SysOps (`[acs]
+cosysop`) can also name a group: `@all` tells everyone who can read the
+area, `@mods` the co-SysOps among them, `@here` those on right now.
+Anyone else writing `@all` tells nobody (those names are reserved, so
+no one can register them).
+
 ### The message base on screens
 
 Screens can show what's in the message base, with `%MG`...`%MJ` (see

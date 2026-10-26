@@ -1,6 +1,6 @@
 """Drive an ssh session through a pty: drive_ssh.py USER TERM 'expect=>send' ...
 Each step waits (up to 8s) for the regex in the de-ANSI'd output, then sends.
-Sends understand \\r, \\e (ESC) and {UP}/{DOWN}/{LEFT}/{RIGHT}; '@solve' answers
+Sends understand \\r, \\e (ESC), \\t and {UP}/{DOWN}/{LEFT}/{RIGHT}; '@solve' answers
 the bot check by replaying its cursor moves (as a terminal would).
 CPR=1 answers cursor position requests (ESC[6n) as a terminal does;
 READ_BPS=n reads the output at n bytes a second, like a slow link;
@@ -81,7 +81,7 @@ def solve(wrong=False):
         os.write(fd, b'\x1b' if k == 'ESC' else k.encode())
         time.sleep(0.15)
 
-keys = {'\\!': '!', '{UP}': '\x1b[A', '{DOWN}': '\x1b[B', '{LEFT}': '\x1b[D', '{RIGHT}': '\x1b[C', '\\r': '\r', '\\e': '\x1b', '\\x18': '\x18', '\\x0b': '\x0b', '\\x15': '\x15'}
+keys = {'\\!': '!', '{UP}': '\x1b[A', '{DOWN}': '\x1b[B', '{LEFT}': '\x1b[D', '{RIGHT}': '\x1b[C', '\\r': '\r', '\\e': '\x1b', '\\t': '\t', '\\x18': '\x18', '\\x0b': '\x0b', '\\x15': '\x15'}
 cmark = 0
 for step in steps:
     pat, _, send = step.partition('=>')
