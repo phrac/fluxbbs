@@ -190,8 +190,12 @@ async fn send(cfg: &Cfg, to: &str, subject: String, body: String) -> anyhow::Res
     if cfg.smtp_host.trim().is_empty() || cfg.from.trim().is_empty() {
         anyhow::bail!("[email] smtp_host and from must be set");
     }
+    let from: lettre::message::Mailbox = cfg.from.parse()?;
+    // Greet the server as the sender's own domain: a relay that trusts
+    // the board's address (Google's) wants a real name here.
+    let helo = lettre::transport::smtp::extension::ClientId::Domain(from.email.domain().to_string());
     let msg = Message::builder()
-        .from(cfg.from.parse()?)
+        .from(from)
         .to(to.parse()?)
         .subject(subject)
         .header(ContentType::TEXT_PLAIN)
@@ -203,6 +207,7 @@ async fn send(cfg: &Cfg, to: &str, subject: String, body: String) -> anyhow::Res
         _ => AsyncSmtpTransport::<Tokio1Executor>::starttls_relay(host)?,
     }
     .port(cfg.smtp_port)
+    .hello_name(helo)
     .timeout(Some(Duration::from_secs(20)));
     if !cfg.smtp_user.is_empty() {
         let pw = std::env::var(&cfg.smtp_password_env).unwrap_or_default();

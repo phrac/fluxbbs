@@ -7,3 +7,7 @@ original/stock/
 doors/
 tools/proto.log
 backups/
+
+# Secrets for the container (the SMTP password for [email]): never committed.
+deploy/.env
+.env
