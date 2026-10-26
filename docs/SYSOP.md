@@ -117,7 +117,7 @@ Logs go to `docker logs fluxbbs`.
 | `themes.toml`, `themes/` | screen themes | `*T` |
 | `strings.toml` | prompt strings that differ from stock | `*E` |
 | `menus/*.toml` | menus | `*#` |
-| `text/` | screens (ANSI/ASCII) | your art tools; see [ARTWORK.md](ARTWORK.md) |
+| `text/` | screens (ANSI/ASCII) | your art tools; see [ARTWORK.md](ARTWORK.md). `*W` shows any of them |
 | `scripts/` | Lua scripts (`-X`, `%!`) | any editor; see [SCRIPTING.md](SCRIPTING.md) |
 | `events.toml` | scheduled events | `*V` |
 | `logon.toml` | the logon sequence | `*O` |

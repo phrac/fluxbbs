@@ -446,6 +446,9 @@ All in [DOORS](DOORS.md).
   (`backup`) or by hand (`fluxbbs backup`), old ones removed.
   ([SYSOP](SYSOP.md#backups))
 - `*G` security: bans and recent failures, and lifting a ban.
+- `*W` screen viewer: every screen with its random variants and weekday
+  overrides, and any one shown as a caller sees it, effects and all.
+  ([ARTWORK](ARTWORK.md#trying-a-screen))
 - `*F` as a bar list in tree order (see [Files](#files)).
 - `*U`'s flags field explains each flag (see
   [Passwords and accounts](#passwords-and-accounts)).
@@ -480,6 +483,7 @@ All in [DOORS](DOORS.md).
 | `D0`, `D4` | door with no drop file, with DOOR32.SYS |
 | `*G` | security log and bans |
 | `*O` | logon sequence |
+| `*W` | screen viewer: any screen or variant, as callers see it |
 
 ### New display codes
 

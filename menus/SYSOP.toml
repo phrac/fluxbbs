@@ -243,6 +243,15 @@ on = "|B1Event editor"
 off = "|B0Event editor"
 
 [[command]]
+keys = "W"
+command = "*W"
+acs = "s250"
+desc = "Screen viewer"
+help = "[sysop] Show any screen, or one of its variants"
+on = "|B1Screen viewer"
+off = "|B0Screen viewer"
+
+[[command]]
 keys = "X"
 command = "*X"
 acs = "s250"

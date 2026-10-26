@@ -263,6 +263,7 @@ impl Session {
             "*I" if self.is_sysop() => self.infoform_editor().await?,
             "*P" if self.is_sysop() => self.question_editor().await?,
             "*T" if self.is_sysop() => self.theme_editor().await?,
+            "*W" if self.is_sysop() => self.screen_viewer().await?,
             "AG" => self.art_gallery().await?,
             "UT" => self.choose_theme().await?,
             "UK" => self.ssh_keys_edit().await?,

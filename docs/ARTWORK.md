@@ -498,3 +498,7 @@ contain positioning or data codes too. Keep them, as with list screens.
 - **Preview:** `python3 tools/ansi2png.py text/NAME.ANS out.png` renders
   a file roughly as a terminal would.
 - **Live:** save it and call the board; it's used on the next display.
+- **On the board:** `*W` on the SysOp menu lists every screen with its
+  variants and where it comes from (the board's own or stock), and shows
+  any one as a caller sees it, effects and all: a bare name draws a
+  random variant as a call would, `NAME.AN2` shows that file.

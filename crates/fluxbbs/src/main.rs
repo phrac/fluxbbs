@@ -101,6 +101,7 @@ mod strings;
 mod sysconfig;
 mod sysdata;
 mod sysmisc;
+mod screenview;
 mod user;
 mod useredit;
 mod users;

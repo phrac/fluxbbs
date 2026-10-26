@@ -949,15 +949,22 @@ impl Session {
         if self.plain() {
             return Ok(false);
         }
-        let Some(data) = self.read_text_file(name).await? else {
+        let Some(path) = self.find_text_file(name) else {
             return Ok(false);
         };
-        let fx = self.find_text_file(name).and_then(|p| crate::ambient::sidecar(&p)).filter(|_| self.animating());
+        self.show_path(&path, waves).await?;
+        Ok(true)
+    }
+
+    /// A screen file as found, with its effects (`NAME.FX`) at its pauses.
+    pub(crate) async fn show_path(&mut self, path: &Path, waves: &Waves) -> io::Result<()> {
+        // Screens made with modern tools (UTF-8, LF) work too.
+        let data = fluxbbs_term::cp437::dos_art(&tokio::fs::read(path).await?).into_owned();
+        let fx = crate::ambient::sidecar(path).filter(|_| self.animating());
         let outer = std::mem::replace(&mut self.screen_fx, fx);
         let r = self.display(&data, Source::File, Some(waves), false).await;
         self.screen_fx = outer;
-        r?;
-        Ok(true)
+        r
     }
 
     async fn read_text_file(&mut self, name: &str) -> io::Result<Option<Vec<u8>>> {
@@ -1276,21 +1283,28 @@ impl Session {
         if name.is_empty() {
             return None;
         }
-        let cfg = self.state.config();
-        let set = |p: &PathBuf| (!p.as_os_str().is_empty()).then(|| cfg.resolve(p));
-        let dirs: Vec<PathBuf> = self
-            .theme_dir()
-            .into_iter()
-            .chain([cfg.resolve(&cfg.paths.text)])
-            .chain(set(&cfg.paths.stock_text))
-            .chain(set(&cfg.paths.stock_theme))
-            .collect();
+        let dirs = self.text_dirs();
         if name.contains('.') {
             return dirs.iter().find_map(|d| find_ci(d, name));
         }
         dirs.iter()
             .find_map(|d| find_ansi(d, name))
             .or_else(|| dirs.iter().find_map(|d| find_ci(d, &format!("{name}.ASC"))))
+    }
+}
+
+impl Session {
+    /// Where screens are looked for, in order: the caller's theme, the
+    /// board's text directory, the stock screens, the stock theme.
+    pub(crate) fn text_dirs(&self) -> Vec<PathBuf> {
+        let cfg = self.state.config();
+        let set = |p: &PathBuf| (!p.as_os_str().is_empty()).then(|| cfg.resolve(p));
+        self.theme_dir()
+            .into_iter()
+            .chain([cfg.resolve(&cfg.paths.text)])
+            .chain(set(&cfg.paths.stock_text))
+            .chain(set(&cfg.paths.stock_theme))
+            .collect()
     }
 }
 
