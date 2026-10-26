@@ -135,6 +135,10 @@ pub struct Ambient {
     effects: Vec<Effect>,
     /// For each effect, a `decode`'s letter cells in reading order.
     letters: Vec<Vec<(u16, u16)>>,
+    /// What those cells spelled as drawn: all of them, and the bright
+    /// ones (the phrase hidden in noise), so a round doesn't settle into
+    /// what's already there.
+    drawn: Vec<(Vec<u8>, Vec<u8>)>,
     start: Instant,
 }
 
@@ -207,10 +211,18 @@ impl Ambient {
         }
         // In screen order, so a frame's cells run on from one another.
         targets.sort_by_key(|g| (g.y, g.x));
-        let letters = (0..effects.len())
+        let letters: Vec<Vec<(u16, u16)>> = (0..effects.len())
             .map(|i| if effects[i].kind == "decode" { targets.iter().filter(|g| g.effects.contains(&i)).map(|g| (g.x, g.y)).collect() } else { Vec::new() })
             .collect();
-        (!targets.is_empty()).then(|| Ambient { targets, effects: effects.to_vec(), letters, start: Instant::now() })
+        let sum = |c: [u8; 3]| c.iter().map(|&v| v as u32).sum::<u32>();
+        let drawn = (0..effects.len())
+            .map(|i| {
+                let bases: Vec<Shown> = targets.iter().filter(|g| g.effects.contains(&i)).map(|g| g.base).collect();
+                let bright = bases.iter().map(|b| sum(b.fg)).max().unwrap_or(0);
+                (bases.iter().map(|b| b.ch).collect(), bases.iter().filter(|b| sum(b.fg) == bright).map(|b| b.ch).collect())
+            })
+            .collect();
+        (!targets.is_empty()).then(|| Ambient { targets, effects: effects.to_vec(), letters, drawn, start: Instant::now() })
     }
 
     /// How lit cell (`x`, `y`) of a glint or ripple is at `t`, 0 to 1.
@@ -353,7 +365,14 @@ impl Ambient {
         let phase = since - round as f32 * every;
         let dur = if e.amount > 0.0 { e.amount } else { 2.0 };
         let Some(me) = cells.iter().position(|&p| p == (g.x, g.y)) else { return b };
-        let msg: Vec<u8> = fluxbbs_term::cp437::encode(&e.messages[round.rem_euclid(e.messages.len() as i32) as usize]).into_iter().filter(|&c| c != b' ').collect();
+        let message = |r: i32| -> Vec<u8> { fluxbbs_term::cp437::encode(&e.messages[r.rem_euclid(e.messages.len() as i32) as usize]).into_iter().filter(|&c| c != b' ').collect() };
+        // Not back into what the screen already says (the first round
+        // would, when the list starts with it).
+        let mut msg = message(round);
+        let (all, bright) = &self.drawn[i];
+        if msg == *if msg.len() >= cells.len() { all } else { bright } {
+            msg = message(round + 1);
+        }
         let n = msg.len().min(cells.len());
         // This round's letter cells: the n with the lowest draw.
         let draws: Vec<f32> = (0..cells.len()).map(|k| noise(round.wrapping_mul(7919) + k as i32, 17)).collect();
@@ -380,6 +399,31 @@ impl Ambient {
                 Shown { ch: SET[((r * SET.len() as f32) as usize).min(SET.len() - 1)], fg: dim, bg: b.bg }
             }
         }
+    }
+
+    /// The ANSI that puts every cell back as it was drawn, after a
+    /// moment's animation.
+    pub fn restore(&mut self) -> Vec<u8> {
+        let mut out = Vec::new();
+        let mut at: Option<(u16, u16)> = None;
+        let mut pen = None;
+        for g in &mut self.targets {
+            if g.last.is_none_or(|l| l == g.base) {
+                continue;
+            }
+            g.last = Some(g.base);
+            if at != Some((g.x, g.y)) {
+                out.extend(format!("\x1b[{};{}H", g.y, g.x).as_bytes());
+            }
+            let (fg, bg) = (g.base.fg, g.base.bg);
+            if pen != Some((fg, bg)) {
+                out.extend(format!("\x1b[38;2;{};{};{};48;2;{};{};{}m", fg[0], fg[1], fg[2], bg[0], bg[1], bg[2]).as_bytes());
+                pen = Some((fg, bg));
+            }
+            out.push(g.base.ch);
+            at = Some((g.x + 1, g.y));
+        }
+        out
     }
 
     /// The ANSI for what's changed since the last frame.
@@ -496,14 +540,74 @@ impl Session {
         k.map(Some)
     }
 
-    /// The screen saver: digital rain in the board's colors, its name
-    /// showing through as the drops pass, until Enter or Esc (or
-    /// something for the caller, or the inactivity timeout).
+    /// New: run effects over what's on screen for `secs` seconds, not
+    /// waiting for a key (a key pressed meanwhile cuts it short and is
+    /// kept). For a moment's animation inside a screen, where
+    /// `read_key_ambient` would wait.
+    pub(crate) async fn play_effects(&mut self, effects: &[Effect], secs: f32) -> io::Result<()> {
+        if !self.animating() {
+            return Ok(());
+        }
+        let Some(mut amb) = Ambient::new(&self.screen, effects) else { return Ok(()) };
+        let start = tokio::time::Instant::now();
+        while start.elapsed().as_secs_f32() < secs {
+            if self.key_waiting().await? || self.node.has_messages() {
+                break;
+            }
+            let out = amb.frame();
+            if !out.is_empty() {
+                let (x, y, color) = (self.screen.where_x(), self.screen.where_y(), self.screen.color());
+                self.screen.write_bytes(&out);
+                self.screen.write_bytes(b"\x1b[0m");
+                self.screen.goto(x, y);
+                self.screen.set_color(color);
+                self.sync_output(Duration::from_secs(3), 1).await?;
+                self.flush().await?;
+            }
+            tokio::time::sleep(Duration::from_millis(70)).await;
+        }
+        let out = amb.restore();
+        if !out.is_empty() {
+            let (x, y, color) = (self.screen.where_x(), self.screen.where_y(), self.screen.color());
+            self.screen.write_bytes(&out);
+            self.screen.write_bytes(b"\x1b[0m");
+            self.screen.goto(x, y);
+            self.screen.set_color(color);
+            self.flush().await?;
+        }
+        Ok(())
+    }
+
+    /// New: the screen saver on demand (Backspace on a lightbar menu),
+    /// for callers whose menus animate; false if it can't run here.
+    pub(crate) async fn screensaver_now(&mut self) -> io::Result<bool> {
+        if !self.animating() {
+            return Ok(false);
+        }
+        let idle = self.state.config().bbs.inactivity_seconds;
+        self.screensaver(tokio::time::Instant::now(), idle).await?;
+        Ok(true)
+    }
+
+    /// The screen saver: digital rain in the colors of the screen it
+    /// covers, the board's name showing through as the drops pass (set
+    /// in a TheDraw font, if the board names one), until Enter or Esc
+    /// (or something for the caller, or the inactivity timeout).
     async fn screensaver(&mut self, since: tokio::time::Instant, idle: u64) -> io::Result<()> {
         tracing::debug!("{}: screen saver", self.user.handle);
         let rows = self.screen.rows();
-        let name = self.state.config().bbs.name.clone();
-        let mut rain = Rain::new(rows.saturating_sub(1).max(1), &name);
+        let cfg = self.state.config();
+        let name = cfg.bbs.name.clone();
+        let palette = rain_palette(&self.screen);
+        let font = cfg.terminal.screensaver_font.trim();
+        let word = if font.is_empty() {
+            None
+        } else {
+            let fonts = crate::tdf::read(&cfg.resolve(std::path::Path::new(font)));
+            let face = cfg.terminal.screensaver_face.trim();
+            fonts.iter().find(|f| face.is_empty() || f.name.eq_ignore_ascii_case(face)).map(|f| f.set(&name))
+        };
+        let mut rain = Rain::new(rows.saturating_sub(1).max(1), &name, word, palette);
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
         self.clear_screen();
         self.screen.write_bytes(b"\x1b[?25l");
@@ -552,8 +656,31 @@ impl Session {
 
 // ---- the screen saver ------------------------------------------------------
 
-/// The rain's colors, the head of a drop first, in the board's pinks.
+/// The rain's colors, the head of a drop first, in the board's pinks:
+/// what the rain falls in where the screen it covers has no color.
 const RAIN: [[u8; 3]; 6] = [[255, 235, 255], [255, 120, 240], [235, 60, 205], [165, 25, 160], [95, 10, 100], [50, 5, 60]];
+
+/// The rain's colors from what's on screen: the color most of the
+/// screen's colored cells are drawn in, from a bright head down to a
+/// dark tail; the pinks where nothing on screen has a color.
+fn rain_palette(screen: &fluxbbs_term::Screen) -> [[u8; 3]; 6] {
+    let mut counts: std::collections::HashMap<[u8; 3], u32> = std::collections::HashMap::new();
+    for y in 1..=screen.rows() {
+        for x in 1..=80 {
+            let Some(c) = screen.shown(x, y) else { continue };
+            for col in [c.fg, c.bg] {
+                let (hi, lo) = (*col.iter().max().unwrap_or(&0), *col.iter().min().unwrap_or(&0));
+                if hi >= 100 && hi - lo >= 70 {
+                    *counts.entry(col).or_default() += 1;
+                }
+            }
+        }
+    }
+    let Some((base, _)) = counts.into_iter().max_by_key(|&(c, n)| (n, c)) else { return RAIN };
+    let hi = *base.iter().max().unwrap_or(&1) as f32;
+    let base = times(base, 235.0 / hi.max(1.0));
+    [lift(base, 0.85), lift(base, 0.35), base, times(base, 0.7), times(base, 0.4), times(base, 0.2)]
+}
 
 /// What falls: digits, letters, and CP437's Greek and math signs.
 fn rain_glyph(r: f32) -> u8 {
@@ -569,20 +696,28 @@ struct Drop {
     wait: f32,
 }
 
+/// A cell of the name: column, row, character, its own color if set
+/// in a font, and when a drop last lit it.
+type WordCell = (u16, u16, u8, Option<[u8; 3]>, f32);
+
 struct Rain {
     rows: u16,
     drops: Vec<Drop>,
     glyphs: Vec<u8>,
-    sent: Vec<Option<(u8, u8)>>,
-    /// The name, across the middle: where each letter is, and when a
-    /// drop last lit it.
-    word: Vec<(u16, u16, u8, f32)>,
+    sent: Vec<Option<(u8, [u8; 3])>>,
+    /// The name, across the middle: where each of its cells is, what it
+    /// shows, its own color if set in a font, and when a drop last lit
+    /// it.
+    word: Vec<WordCell>,
+    palette: [[u8; 3]; 6],
     t: f32,
     seed: u32,
 }
 
 impl Rain {
-    fn new(rows: u16, name: &str) -> Rain {
+    /// `word`: the name set in a font (its cells, width and height), or
+    /// None for plain spaced letters.
+    fn new(rows: u16, name: &str, word: Option<(Vec<crate::tdf::Cell>, u16, u16)>, palette: [[u8; 3]; 6]) -> Rain {
         let mut seed = 0x9E37_79B9u32;
         let mut rnd = move || {
             seed ^= seed << 13;
@@ -594,10 +729,22 @@ impl Rain {
             .map(|_| Drop { head: -rnd() * rows as f32, speed: 7.0 + rnd() * 13.0, len: 6.0 + rnd() * 14.0, wait: rnd() * 4.0 })
             .collect();
         let glyphs = (0..80 * rows as usize).map(|_| rain_glyph(rnd())).collect();
-        let text: Vec<u8> = fluxbbs_term::cp437::encode(name.to_lowercase().split("").collect::<Vec<_>>().join(" ").trim());
-        let x0 = (80usize.saturating_sub(text.len()) / 2 + 1) as u16;
-        let word = text.iter().enumerate().filter(|(_, c)| **c != b' ').map(|(i, &c)| (x0 + i as u16, rows / 2, c, -100.0)).collect();
-        Rain { rows, drops, glyphs, sent: vec![None; 80 * rows as usize], word, t: 0.0, seed: 0x1234_5678 }
+        let word = match word {
+            Some((cells, w, h)) if !cells.is_empty() => {
+                let (x0, y0) = ((80u16.saturating_sub(w) / 2 + 1), (rows.saturating_sub(h) / 2 + 1).max(1));
+                cells
+                    .iter()
+                    .filter(|c| y0 + c.y <= rows && x0 + c.x <= 80)
+                    .map(|c| (x0 + c.x, y0 + c.y, c.ch, Some(crate::tdf::rgb(c.fg)), -100.0))
+                    .collect()
+            }
+            _ => {
+                let text: Vec<u8> = fluxbbs_term::cp437::encode(name.to_lowercase().split("").collect::<Vec<_>>().join(" ").trim());
+                let x0 = (80usize.saturating_sub(text.len()) / 2 + 1) as u16;
+                text.iter().enumerate().filter(|(_, c)| **c != b' ').map(|(i, &c)| (x0 + i as u16, rows / 2, c, None, -100.0)).collect()
+            }
+        };
+        Rain { rows, drops, glyphs, sent: vec![None; 80 * rows as usize], word, palette, t: 0.0, seed: 0x1234_5678 }
     }
 
     fn rnd(&mut self) -> f32 {
@@ -624,7 +771,7 @@ impl Rain {
                     self.glyphs[y as usize * 80 + x] = rain_glyph(r);
                     for w in &mut self.word {
                         if w.0 as usize == x + 1 && w.1 as i32 == y + 1 {
-                            w.3 = self.t;
+                            w.4 = self.t;
                         }
                     }
                 }
@@ -652,16 +799,24 @@ impl Rain {
                     None
                 };
                 let mut glyph = self.glyphs[y as usize * 80 + x as usize];
-                // The name shows where a drop has just passed over it.
+                // The name assembles out of the rain: a cell of it stays
+                // once a drop has passed over it, in its own color if
+                // it's set in a font (brightening again under each drop
+                // that follows), else in the rain's, fading from bright
+                // to the tail's tone and staying there.
+                let mut own = None;
                 if let Some(w) = self.word.iter().find(|w| w.0 == x + 1 && w.1 == y + 1) {
-                    let age = self.t - w.3;
-                    if age < 4.5 {
+                    let age = self.t - w.4;
+                    if age >= 0.0 {
                         glyph = w.2;
-                        let lit = if age < 2.5 { 1 } else { 2 + ((age - 2.5) / 0.7) as u8 };
-                        level = Some(level.map_or(lit, |l| l.min(lit)).min(5));
+                        let lit = if age < 2.5 { 1 } else { (2 + ((age - 2.5) / 0.7) as u8).min(3) };
+                        level = Some(level.map_or(lit, |l| l.min(lit)));
+                        if let Some(c) = w.3 {
+                            own = Some(if age < 0.4 { lift(c, 0.6) } else { c });
+                        }
                     }
                 }
-                let cell = level.map(|l| (glyph, l));
+                let cell = level.map(|l| (glyph, own.unwrap_or(self.palette[l as usize])));
                 let i = y as usize * 80 + x as usize;
                 if self.sent[i] == cell || (self.sent[i].is_none() && cell.is_none()) {
                     continue;
@@ -671,8 +826,7 @@ impl Rain {
                     out.extend(format!("\x1b[{};{}H", y + 1, x + 1).as_bytes());
                 }
                 match cell {
-                    Some((g, l)) => {
-                        let c = RAIN[l as usize];
+                    Some((g, c)) => {
                         out.extend(format!("\x1b[38;2;{};{};{};48;2;0;0;0m", c[0], c[1], c[2]).as_bytes());
                         out.push(g);
                     }
@@ -778,6 +932,17 @@ mod tests {
         assert_eq!(lit(11.0 + 1.5), b"QRS", "then the next");
         assert!(row(11.0 + 1.5).iter().all(|s| s.fg == [255, 85, 255] || s.fg == [85, 85, 85]), "the rest noise in the dim color");
         assert!(row(1.05) != row(1.15), "scrambling at the start of a round");
+    }
+
+    #[test]
+    fn a_decode_never_settles_into_what_is_drawn() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.write_bytes(b"\x1b[2J\x1b[38;2;255;85;255;48;2;0;0;0mI\x1b[2;1HN\x1b[3;1HS\x1b[4;1HI\x1b[5;1HD\x1b[6;1HE");
+        let e = Effect { cols: [1, 1], every: 10.0, delay: 1.0, amount: 1.0, messages: vec!["INSIDE".into(), "SILENT".into()], ..fx("decode", [1, 6]) };
+        let a = Ambient::new(&s, &[e]).unwrap();
+        let word = |t: f32| a.targets.iter().map(|g| a.shade(g, t, &Default::default()).ch).collect::<Vec<u8>>();
+        assert_eq!(word(1.0 + 1.5), b"SILENT", "the first round skips the word already there");
+        assert_eq!(word(11.0 + 1.5), b"SILENT", "and so does the second, whose message is that word");
     }
 
     #[test]

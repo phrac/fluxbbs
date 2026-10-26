@@ -3,7 +3,7 @@
 use chrono::{Datelike};
 
 use crate::session::Session;
-use crate::user::fmt_date;
+use crate::user::{User, fmt_date};
 
 /// Codes the original understood that have no data behind them yet
 /// (message/file areas, conferences, history, system stats). They render
@@ -11,6 +11,26 @@ use crate::user::fmt_date;
 const PENDING: &[&[u8; 2]] = &[
     b"BR", b"LA", b"LD",
 ];
+
+/// 1st, 2nd, 3rd, 4th... 11th, 12th, 13th, 21st.
+fn ordinal(n: usize) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (1, 11) | (2, 12) | (3, 13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
+/// Ten cells, filled from the left by how far up the field the rank is:
+/// first of n fills them all, last leaves one.
+fn rank_bar(rank: usize, n: usize) -> String {
+    let n = n.max(1);
+    let filled = ((n + 1 - rank.clamp(1, n)) * 10).div_ceil(n).clamp(1, 10);
+    "█".repeat(filled) + &"░".repeat(10 - filled)
+}
 
 fn yes_no(b: bool) -> String {
     if b { "Yes" } else { "No" }.into()
@@ -69,6 +89,21 @@ pub(crate) fn dig(s: &crate::filebase::FileStats) -> Option<&crate::filebase::Fi
 }
 
 impl Session {
+    /// New: the caller's place among everyone (not deleted) by one
+    /// counter: (rank from 1, how many). Ties share the better place.
+    fn rank_among_users(&self, what: u8) -> (usize, usize) {
+        let value = |u: &User| match what {
+            b'C' => u.total_calls,
+            b'P' => u.posts,
+            b'U' => u.uploads,
+            b'D' => u.downloads,
+            _ => u.file_points,
+        };
+        let mine = value(&self.user);
+        let others: Vec<u32> = self.state.users.list().unwrap_or_default().iter().filter(|u| !u.deleted && u.id != self.user.id).map(value).collect();
+        (1 + others.iter().filter(|&&v| v > mine).count(), others.len() + 1)
+    }
+
     /// The file stats, worked out again once they're a minute old; `shown`
     /// keeps the ones on screen however old (to act on what was shown).
     pub(crate) fn file_stats(&self, shown: bool) -> std::sync::Arc<crate::filebase::FileStats> {
@@ -237,6 +272,18 @@ impl Session {
             b"TM" => now.format("%H:%M").to_string(),
             b"TT" => u.time_per_day.to_string(),
             b"TU" => self.state.users.count().unwrap_or(0).to_string(),
+            // New: how the caller compares to everyone, by calls (C),
+            // posts (P), uploads (U), downloads (D) and file points (F):
+            // R their rank ("3rd of 41"), O a ten-cell bar of it, K the
+            // share they're in ("top 8%"). (%G is the door stats'.)
+            [kind @ (b'R' | b'O' | b'K'), what @ (b'C' | b'P' | b'U' | b'D' | b'F')] => {
+                let (rank, n) = self.rank_among_users(*what);
+                match kind {
+                    b'R' => format!("{} of {n}", ordinal(rank)),
+                    b'O' => rank_bar(rank, n),
+                    _ => format!("top {}%", (rank * 100).div_ceil(n.max(1)).max(1)),
+                }
+            }
             b"TC" | b"TD" | b"TE" | b"TP" | b"TZ" => {
                 let t = self.state.sys.totals().unwrap_or_default();
                 match &code {

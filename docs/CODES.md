@@ -132,6 +132,9 @@ characters are letters, as the original did.
 | `%DL` | downloads |
 | `%DK` | download kb |
 | `%FP` | file points |
+| `%RC` `%RP` `%RU` `%RD` `%RF` | new: rank among all callers by calls, posts, uploads, downloads, file points ("3rd of 41") |
+| `%OC` `%OP` `%OU` `%OD` `%OF` | new: a ten-cell bar of that rank (`██████░░░░`) |
+| `%KC` `%KP` `%KU` `%KD` `%KF` | new: the share that rank is in ("top 8%") |
 | `%TL` | minutes left |
 | `%TT` | minutes per day |
 | `%TB` | minutes in the time bank (2.20) |

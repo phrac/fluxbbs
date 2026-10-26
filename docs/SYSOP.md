@@ -126,6 +126,25 @@ Files that don't exist yet use built-in defaults; the editors create
 them. Most changes apply at once. SSH, telnet and path settings need a
 restart.
 
+### Turning parts of the board off
+
+`*C`, Features (`[features]` in the TOML) switches whole parts on and
+off, each game on its own: tarot, slots, casino, the temple, Carrier
+Lost, the art gallery, the message center, the time bank, the voting
+booth, the BBS list, infoforms, QWK mail, the automessage, menu
+scripts. Everything is on to start. A part that's off:
+
+- answers its commands with the `FeatureOff` string (`*E`) instead
+  of running, wherever they're typed or scripted;
+- is left out of every menu as it loads, so lightbars, the generic
+  lists, `/?` help and the logon sequence skip its entries, without
+  editing a menu. Its slot on a lightbar screen stays empty, as an
+  entry the caller's access doesn't allow does.
+
+AI chat, BBSLink, new user voting, MeshCore and FTN keep the switches
+in their own sections and count the same way (an AI menu entry
+disappears when AI chat is off). The DOS machine goes by `[dos]`.
+
 ### Running a board outside the repo
 
 Paths in `fluxbbs.toml` are relative to that file. So a board can live

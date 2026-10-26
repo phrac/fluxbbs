@@ -127,8 +127,14 @@ delay = 6.0
   field `W`). Never in plain text.
 - **The screen saver.** After `screensaver_seconds` idle on a menu (60
   to start; `*C`, SSH, Telnet and Terminal; 0 for none), digital rain
-  in pinks and magentas falls over the screen. The board's name shows
-  through across the middle as drops pass over it. Enter or Esc
+  falls over the screen, in the color most of that screen is drawn in
+  (pink on a pink menu, green on a green one; pinks where the screen
+  has no color). The board's name assembles out of the rain across the
+  middle, each cell of it staying once a drop has passed over it: in
+  plain letters, or set in a TheDraw font if `screensaver_font` names
+  a `.TDF` file (`screensaver_face` the face in it, else its first),
+  each cell in the font's own color. Backspace on any lightbar menu
+  starts it at once. Enter or Esc
   (`ScreenSaverExit` says so at the bottom) brings the menu back. Like
   the effects, it runs on any lightbar menu that clears the screen,
   only for callers whose menus animate.

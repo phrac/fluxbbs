@@ -24,6 +24,11 @@ impl Session {
         let num = |s: &str| s.trim().parse::<u16>().unwrap_or(0);
         let mut known = true;
         self.menu.reload = false;
+        // New: a part of the board that's switched off ([features]).
+        if !crate::features::command_on(&self.state.config(), &code) {
+            self.say_line("FeatureOff").await?;
+            return Ok(());
+        }
 
         match code.as_str() {
             // -- input string and OK flag

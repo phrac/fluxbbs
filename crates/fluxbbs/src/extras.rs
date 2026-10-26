@@ -182,7 +182,13 @@ impl Session {
             self.state.sys.calls(Some(self.state.config().logon.last_callers), None)
         }
         .map_err(io_err)?;
-        let mut rep = self.repeat_begin("LASTC", false).await?;
+        // New: the caller's own call, the newest of theirs, is drawn
+        // highlighted (LASTCHIL) and then, animating, types itself in
+        // with a glint across it: that last call is this one.
+        let me = self.user.id;
+        let newest = if self.hidden_call { None } else { calls.iter().filter(|c| c.user_id == me).map(|c| c.call_num).max() };
+        let mut mine: Option<u16> = None;
+        let mut rep = self.repeat_begin("LASTC", true).await?;
         if rep.is_none() {
             self.clear_screen();
             self.newline();
@@ -195,6 +201,10 @@ impl Session {
             let at = self.local(c.at);
             let time = at.format("%-I:%M%P").to_string();
             let new = if c.new_user { "Yes" } else { "No" };
+            let own = c.user_id == me && Some(c.call_num) == newest;
+            if own {
+                mine = Some(self.screen.where_y());
+            }
             let more = match rep.as_mut() {
                 Some(r) => {
                     let w = waves([
@@ -208,11 +218,12 @@ impl Session {
                         ("NU", new.into()),
                         ("AC", c.area_code.clone()),
                     ]);
-                    self.repeat_row(r, &w, false).await?
+                    self.repeat_row(r, &w, own).await?
                 }
                 None => {
                     let line = format!(
-                        "|U1 {} {} {} {} {} {}",
+                        "{} {} {} {} {} {} {}",
+                        if own { "|U3" } else { "|U1" },
                         resize(&c.call_num.to_string(), 5),
                         lit(&resize(&c.handle, 24)),
                         lit(&resize(&c.location, 21)),
@@ -230,9 +241,25 @@ impl Session {
             }
         }
         match rep {
-            Some(r) => self.repeat_end(r).await,
-            None => self.rule().await,
+            Some(r) => self.repeat_end(r).await?,
+            None => self.rule().await?,
         }
+        if let Some(y) = mine {
+            use crate::ambient::Effect;
+            let row = |kind: &str, delay: f32, amount: f32, tint: &str| Effect {
+                kind: kind.into(),
+                rows: [y, y],
+                cols: [1, 80],
+                every: 60.0,
+                delay,
+                amount,
+                tint: tint.into(),
+                matches: String::new(),
+                messages: Vec::new(),
+            };
+            self.play_effects(&[row("type", 0.0, 0.6, "#ffffff"), row("glint", 1.6, 0.9, "")], 3.4).await?;
+        }
+        Ok(())
     }
 
     /// `hisView` (`LH`): one line per day.

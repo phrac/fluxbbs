@@ -103,6 +103,8 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('G', "Telnet", 3, "Also accept plain (unencrypted) telnet? (restart)", Bool(|c| &mut c.telnet.enabled)),
             set('H', "Telnet listen", 40, "Address and port for telnet, e.g. 0.0.0.0:2323 (restart).", Text(|c| &mut c.telnet.listen, TEXT)),
             set('I', "Screen saver", 5, "Seconds idle on a menu before the screen saver (0 = none); for callers whose menus animate.", Num(|c| c.terminal.screensaver_seconds, |c, v| c.terminal.screensaver_seconds = v, 0, 86_400)),
+            set('K', "Saver font", 40, "A TheDraw font file (.TDF, relative to the board) the saver sets the board's name in; blank for plain letters.", Text(|c| &mut c.terminal.screensaver_font, TEXT.max(200))),
+            set('L', "Saver face", 12, "The face in that file (blank: the first).", Text(|c| &mut c.terminal.screensaver_face, TEXT.max(12))),
             set('J', "256-color TERMs", 50, "CP437 terminals with 256 colors but not 24-bit: sent the nearest of the 256.", List(|c| &mut c.terminal.palette256_terms)),
         ]),
         ("Access and Logon", false, vec![
@@ -390,6 +392,23 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('Q', "Temple gold a point", 6, "The torch-bearer trades a file point for this much gold (0 = no trading).", Num(|c| c.temple.gold_per_point as u64, |c, v| c.temple.gold_per_point = v as u32, 0, 1_000_000)),
             set('R', "Carrier calls a day", 4, "Carrier Lost (AP): scans and dials a caller has a day (0 = no limit). [carrier] points_per_tier and gear_cost are in the TOML.", Num(|c| c.carrier.actions_per_day as u64, |c, v| c.carrier.actions_per_day = v as u32, 0, 9999)),
         ]),
+        // New: what's on. Off, a part refuses its commands and leaves menus.
+        ("Features", false, vec![
+            set('A', "Tarot", 3, "The tarot and fortunes (AT).", Bool(|c| &mut c.features.tarot)),
+            set('B', "Slot machine", 3, "The slots (AL).", Bool(|c| &mut c.features.slots)),
+            set('C', "Casino", 3, "Blackjack, craps and roulette (AC).", Bool(|c| &mut c.features.casino)),
+            set('D', "The temple", 3, "The temple (AD).", Bool(|c| &mut c.features.temple)),
+            set('E', "Carrier Lost", 3, "Carrier Lost (AP).", Bool(|c| &mut c.features.carrier_lost)),
+            set('F', "Art gallery", 3, "The art gallery (AG).", Bool(|c| &mut c.features.gallery)),
+            set('G', "Message center", 3, "The message center (MH) and its newest/unread entries (MX).", Bool(|c| &mut c.features.message_center)),
+            set('H', "Time bank", 3, "The time bank (!D !W !E !I !V).", Bool(|c| &mut c.features.time_bank)),
+            set('I', "Voting booth", 3, "The voting booth (VV VA VR VN VD).", Bool(|c| &mut c.features.voting)),
+            set('J', "BBS list", 3, "The BBS list (BA BL BS BD BC).", Bool(|c| &mut c.features.bbs_list)),
+            set('K', "Infoforms", 3, "Infoforms (IN IM); new user voting has its own switch.", Bool(|c| &mut c.features.infoforms)),
+            set('L', "QWK mail", 3, "Offline mail packets (QD QU).", Bool(|c| &mut c.features.qwk)),
+            set('M', "Automessage", 3, "The automessage (AS AW AR).", Bool(|c| &mut c.features.automessage)),
+            set('N', "Scripts", 3, "Lua scripts from menus (-X).", Bool(|c| &mut c.features.scripts)),
+        ]),
     ]
 }
 
@@ -458,7 +477,8 @@ const GROUPS: &[Group] = &[
         ('E', "Prompts", "Yes/no prompts and bars, password echo, pauses"),
         ('H', "Website Feed", "The status feed for a website: who's on, last callers, new files"),
         ('R', "Wait-For-Call", "The local wait-for-call screen"),
-        ('Z', "Default Colors", "The color scheme new callers start with"),
+        ('Z', "Features", "Which parts of the board are on: games, gallery, voting, time bank..."),
+        ('-', "Default Colors", "The color scheme new callers start with"),
     ]),
     ("callers", &[
         ('C', "Access and Logon", "SysOp access, the matrix, logon tries, system password, time per call"),
@@ -523,6 +543,7 @@ impl Session {
             ("ai", if cfg.ai.enabled { cfg.ai.model.clone() } else { "off".into() }),
             ("ftn", ftn),
             ("meshcore", if cfg.meshcore.enabled { cfg.meshcore.address.clone() } else { "off".into() }),
+            ("off", { let off = cfg.features.off(); if off.is_empty() { "nothing".to_string() } else { off.join(", ") } }),
             ("config", tail(&self.config_path().display().to_string(), 40)),
         ];
         let (x, y) = (28, GROUP_AT[3].1);
@@ -556,6 +577,10 @@ impl Session {
                         'T' => on_off(cfg.meshcore.enabled),
                         'U' => on_off(cfg.ftn.enabled),
                         'W' => on_off(cfg.bbslink.enabled),
+                        'Z' => {
+                            let off = cfg.features.off().len();
+                            if off == 0 { "all" } else { "some" }
+                        }
                         _ => "",
                     };
                     // Rows count from the form's first (screen row 4).
@@ -574,10 +599,10 @@ impl Session {
             self.config_status(&cfg);
             let Some(key) = self.cfg_command(&mut f).await? else { break };
             at = key;
-            let i = (key as u8 - b'A') as usize;
-            match secs.get(i) {
+            match key.is_ascii_uppercase().then(|| secs.get((key as u8 - b'A') as usize)).flatten() {
                 Some((title, _, settings)) => self.config_section(title, settings, &mut cfg).await?,
-                None => self.palette_editor(&mut cfg.colors).await?,
+                None if key == '-' => self.palette_editor(&mut cfg.colors).await?,
+                None => {}
             }
         }
         self.screen.goto(1, self.screen.rows());
@@ -698,7 +723,9 @@ mod tests {
     fn every_section_is_in_a_group() {
         let mut keys: Vec<char> = GROUPS.iter().flat_map(|(_, items)| items.iter().map(|i| i.0)).collect();
         keys.sort();
-        let want: Vec<char> = (0..=sections().len() as u8).map(|i| (b'A' + i) as char).collect();
+        // A letter a section, and the palette on '-'.
+        let mut want: Vec<char> = (0..sections().len() as u8).map(|i| (b'A' + i) as char).collect();
+        want.insert(0, '-');
         assert_eq!(keys, want);
         assert!(GROUPS.iter().all(|(t, items)| t.len() <= 20 && items.iter().all(|i| i.1.len() <= 21 && i.2.len() <= 72)));
     }

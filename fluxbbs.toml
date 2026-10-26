@@ -315,3 +315,23 @@ limit_dl_kb = 64000
 note = "SysOp access"
 uldl_ratio = 64000
 kb_ratio = 64000
+
+# Which parts of the board are on (*C, Features). A part that's off
+# answers its commands with FeatureOff and menus leave its entries out.
+# AI chat, BBSLink, new user voting, MeshCore and FTN have switches of
+# their own in their sections; the DOS machine goes by [dos].
+[features]
+tarot = true
+slots = true
+casino = true
+temple = true
+carrier_lost = true
+gallery = true
+message_center = true
+time_bank = true
+voting = true
+bbs_list = true
+infoforms = true
+qwk = true
+automessage = true
+scripts = true

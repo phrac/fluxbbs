@@ -98,6 +98,25 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   SysOp's edits (level, flags, daily time) stay while they're online.
 - The session reads such an edit at once and tells the caller what
   changed; more daily time is more time today too.
+- The screen saver's rain falls in the color of the screen it covers,
+  Backspace on any lightbar menu starts it at once, and the board's
+  name assembles out of it, set in a TheDraw font if one is named
+  (`screensaver_font`, `screensaver_face`; `*C`, SSH, Telnet and
+  Terminal). TheDraw fonts are read by `tdf.rs`.
+  ([ARTWORK](ARTWORK.md#animation-new))
+- The last callers list draws the caller's own call (the newest of
+  theirs) highlighted (`LASTCHIL`), and, animating, types it in and
+  runs a glint across it: that last call is this one.
+- `%RC` `%RP` `%RU` `%RD` `%RF` rank the caller among everyone by
+  calls, posts, uploads, downloads and file points ("3rd of 41"),
+  `%O`+letter draws a ten-cell bar of it and `%K`+letter says the
+  share ("top 8%"), for a stats screen that compares.
+  ([CODES](CODES.md))
+- `*C`, Features: whole parts of the board switch off, each game on
+  its own (tarot, slots, casino, temple, Carrier Lost, gallery, message
+  center, time bank, voting, BBS list, infoforms, QWK, automessage,
+  scripts). Off, a part refuses its commands and drops out of every
+  menu as it loads. ([SYSOP](SYSOP.md#turning-parts-of-the-board-off))
 - `*P`: the SysOp's own questions for new users (text, yes/no, a
   number or a choice; required or not), asked after the stock ones
   when someone applies. The answers are kept with the infoform

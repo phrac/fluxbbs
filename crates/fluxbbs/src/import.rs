@@ -664,6 +664,7 @@ fn convert_menu(m: &LegacyMenu) -> Menu {
                 hidden: c.hidden,
                 on: c.on.clone(),
                 off: c.off.clone(),
+                dark: false,
             })
             .collect(),
     }

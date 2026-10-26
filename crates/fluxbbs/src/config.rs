@@ -39,6 +39,8 @@ pub struct Config {
     pub casino: Casino,
     pub temple: Temple,
     pub carrier: CarrierLost,
+    /// New: which parts of the board are on.
+    pub features: Features,
     /// External transfer protocols, in addition to built-in Zmodem. Only
     /// used until protocols.toml exists (the protocol editor writes it).
     #[serde(rename = "protocol", default, skip_serializing_if = "Vec::is_empty")]
@@ -149,6 +151,81 @@ pub struct Passwords {
 impl Default for Passwords {
     fn default() -> Self {
         Self { min_length: 8, refuse_common: true, enforce_at_login: true }
+    }
+}
+
+/// New: which parts of the board are on (`[features]`). Off, a part
+/// answers its commands with `FeatureOff` and menus leave its entries
+/// out. All on to start. Each game is its own switch.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Features {
+    pub tarot: bool,
+    pub slots: bool,
+    pub casino: bool,
+    pub temple: bool,
+    pub carrier_lost: bool,
+    pub gallery: bool,
+    pub message_center: bool,
+    pub time_bank: bool,
+    pub voting: bool,
+    pub bbs_list: bool,
+    pub infoforms: bool,
+    pub qwk: bool,
+    pub automessage: bool,
+    pub scripts: bool,
+}
+
+impl Default for Features {
+    fn default() -> Self {
+        Features {
+            tarot: true,
+            slots: true,
+            casino: true,
+            temple: true,
+            carrier_lost: true,
+            gallery: true,
+            message_center: true,
+            time_bank: true,
+            voting: true,
+            bbs_list: true,
+            infoforms: true,
+            qwk: true,
+            automessage: true,
+            scripts: true,
+        }
+    }
+}
+
+impl Features {
+    /// Each feature's name (as in the TOML) and whether it's on.
+    pub fn all(&self) -> [(&'static str, bool); 14] {
+        [
+            ("tarot", self.tarot),
+            ("slots", self.slots),
+            ("casino", self.casino),
+            ("temple", self.temple),
+            ("carrier_lost", self.carrier_lost),
+            ("gallery", self.gallery),
+            ("message_center", self.message_center),
+            ("time_bank", self.time_bank),
+            ("voting", self.voting),
+            ("bbs_list", self.bbs_list),
+            ("infoforms", self.infoforms),
+            ("qwk", self.qwk),
+            ("automessage", self.automessage),
+            ("scripts", self.scripts),
+        ]
+    }
+
+    /// Is the feature of that name on? An unknown name is.
+    pub fn on(&self, name: &str) -> bool {
+        self.all().iter().find(|(n, _)| *n == name).is_none_or(|(_, on)| *on)
+    }
+
+    /// The names of the features that are off.
+    pub fn off(&self) -> Vec<&'static str> {
+        self.all().iter().filter(|(_, on)| !on).map(|(n, _)| *n).collect()
     }
 }
 
@@ -885,6 +962,11 @@ pub struct Terminal {
     /// New: seconds idle on a lightbar menu before the screen saver (0:
     /// none); only where menus animate.
     pub screensaver_seconds: u64,
+    /// New: a TheDraw font file (`.TDF`, relative to the board) the
+    /// screen saver sets the board's name in, and the face in it (blank:
+    /// the first). Blank: the name in plain letters.
+    pub screensaver_font: String,
+    pub screensaver_face: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1339,6 +1421,8 @@ impl Default for Terminal {
             // NetRunner: 256 colours, no 24-bit.
             palette256_terms: vec!["ansi-256color".into()],
             screensaver_seconds: 60,
+            screensaver_font: String::new(),
+            screensaver_face: String::new(),
         }
     }
 }

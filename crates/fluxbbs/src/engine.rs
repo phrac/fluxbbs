@@ -25,6 +25,28 @@ const MAX_BAR: usize = 29;
 /// right along the row, up and down to the nearest option below or above
 /// (rows count more than columns). Where there's nothing that way, it
 /// steps through them in order.
+/// How many columns a lightbar option's text takes: its characters
+/// less its escape sequences and pipe codes.
+fn ansi_width(s: &str) -> usize {
+    let mut plain = String::new();
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\x1b' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        plain.push(c);
+    }
+    crate::editor::strip_codes(&plain).chars().count()
+}
+
 fn bar_move(places: &[Option<(i32, i32)>], cur: usize, key: Key) -> usize {
     let n = places.len();
     let (next, prev) = ((cur + 1) % n, (cur + n - 1) % n);
@@ -95,7 +117,22 @@ impl Session {
             && let Ok(global) = Menu::load(&dir, "GLOBAL") {
                 menu.commands.extend(global.commands);
             }
+        // New: the entries of parts that are switched off ([features])
+        // go dark, as does the way into a menu with nothing left on (a
+        // game's own menu).
+        let cfg = self.state.config();
+        for c in &mut menu.commands {
+            c.dark = !crate::features::command_on(&cfg, &c.command) || ((c.command == "-/" || c.command == "-^") && Self::menu_dark(&cfg, &dir, &c.param));
+        }
         Some(menu)
+    }
+
+    /// Does a menu have real commands (not screens, pauses or menu
+    /// changes) and all of them switched off?
+    fn menu_dark(cfg: &crate::config::Config, dir: &[std::path::PathBuf], name: &str) -> bool {
+        let Ok(m) = Menu::load(dir, name.trim()) else { return false };
+        let real: Vec<&crate::menu::Command> = m.commands.iter().filter(|c| !c.command.starts_with('-')).collect();
+        !real.is_empty() && real.iter().all(|c| !crate::features::command_on(cfg, &c.command))
     }
 
     /// `menuRead`: load the current menu, falling back if it's missing.
@@ -178,7 +215,7 @@ impl Session {
 
     /// After entering a menu, queue its FIRSTCMD commands.
     pub fn queue_first_cmd(&mut self) {
-        let first = self.menu.commands().iter().any(|c| c.keys == FIRST_CMD && self.acs(&c.acs));
+        let first = self.menu.commands().iter().any(|c| c.keys == FIRST_CMD && !c.dark && self.acs(&c.acs));
         if first && self.menu.next_cmd.is_empty() {
             self.menu.next_cmd = FIRST_CMD.into();
         }
@@ -303,7 +340,7 @@ impl Session {
         let mut on_line = 0;
         let mut max_right = 0;
         for c in &menu.commands {
-            if c.hidden || c.desc.is_empty() || c.keys == FIRST_CMD || !self.acs(&c.acs) {
+            if c.hidden || c.dark || c.desc.is_empty() || c.keys == FIRST_CMD || !self.acs(&c.acs) {
                 continue;
             }
             on_line += 1;
@@ -466,13 +503,29 @@ impl Session {
         for n in 1..=items.len() {
             self.lightbar_item(menu, &items, n, false, has_help, &mut help_len).await?;
         }
-        let places: Vec<Option<(i32, i32)>> =
-            (1..=items.len()).map(|n| self.positions.get(&pos_code(n as u8)).map(|p| (p.0 as i32, p.1 as i32))).collect();
-        let keys: Vec<String> = menu.commands.iter().filter(|c| c.keys != FIRST_CMD && self.acs(&c.acs)).map(|c| c.keys.to_uppercase()).collect();
+        // A dark slot (its part switched off) keeps its place but has no
+        // position to move to, so the bar passes it by.
+        let lit = |n: usize| !menu.commands[items[n - 1]].dark;
+        let places: Vec<Option<(i32, i32)>> = (1..=items.len())
+            .map(|n| if lit(n) { self.positions.get(&pos_code(n as u8)).map(|p| (p.0 as i32, p.1 as i32)) } else { None })
+            .collect();
+        let first_lit = (1..=items.len()).find(|&n| lit(n)).unwrap_or(1);
+        let last_lit = (1..=items.len()).rev().find(|&n| lit(n)).unwrap_or(1);
+        let after = |cur: usize| {
+            let mut n = cur;
+            for _ in 0..items.len() {
+                n = if n == items.len() { 1 } else { n + 1 };
+                if lit(n) {
+                    break;
+                }
+            }
+            n
+        };
+        let keys: Vec<String> = menu.commands.iter().filter(|c| c.keys != FIRST_CMD && !c.dark && self.acs(&c.acs)).map(|c| c.keys.to_uppercase()).collect();
         let allowed = |k: &str| keys.iter().any(|c| c == k);
         // With a `#` command, digits are a number rather than arrows.
         let has_number = allowed("#");
-        let mut cur = 1;
+        let mut cur = first_lit;
         self.lightbar_item(menu, &items, cur, true, has_help, &mut help_len).await?;
         // New: a note (`Session::note`), else a hint for this caller, in
         // the help line till they move.
@@ -502,6 +555,11 @@ impl Session {
             // After the screen saver, the menu's drawn again.
             let saver = menu.clear_before && self.animating();
             let Some(key) = self.read_key_ambient(&mut ambient, saver).await? else { break "?".to_string() };
+            // New: Backspace brings the screen saver on at once (where
+            // it can run); the menu's drawn again after.
+            if key == Key::Backspace && saver && self.screensaver_now().await? {
+                break "?".to_string();
+            }
             if let Some(c) = key.upper().filter(|c| c.is_ascii_graphic()) {
                 let k = c.to_string();
                 if allowed(&k) {
@@ -526,11 +584,11 @@ impl Session {
                 Key::Char(b'2') if !has_number => Some(bar_move(&places, cur - 1, Key::Down) + 1),
                 Key::Char(b'4') if !has_number => Some(bar_move(&places, cur - 1, Key::Left) + 1),
                 Key::Char(b'6') if !has_number => Some(bar_move(&places, cur - 1, Key::Right) + 1),
-                Key::Char(b' ') => Some(if cur == items.len() { 1 } else { cur + 1 }),
-                Key::Home | Key::PgUp => Some(1),
-                Key::Char(b'7' | b'9') if !has_number => Some(1),
-                Key::End | Key::PgDn => Some(items.len()),
-                Key::Char(b'1' | b'3') if !has_number => Some(items.len()),
+                Key::Char(b' ') => Some(after(cur)),
+                Key::Home | Key::PgUp => Some(first_lit),
+                Key::Char(b'7' | b'9') if !has_number => Some(first_lit),
+                Key::End | Key::PgDn => Some(last_lit),
+                Key::Char(b'1' | b'3') if !has_number => Some(last_lit),
                 Key::Enter => {
                     let k = menu.commands[items[cur - 1]].keys.to_uppercase();
                     if k == "#" {
@@ -589,7 +647,9 @@ impl Session {
             (false, _, false) => &c.off,
             _ => &c.desc,
         };
-        self.show(&text.clone()).await?;
+        // A dark slot: blank, as wide as the option would be.
+        let text = if c.dark { " ".repeat(ansi_width(text).max(1)) } else { text.clone() };
+        self.show(&text).await?;
         if hi && has_help {
             self.goto_pos(LIGHTBAR_HELP);
             self.write(&" ".repeat(*help_len));
@@ -686,7 +746,7 @@ impl Session {
         let number = keys.chars().all(|c| c.is_ascii_digit());
         for c in &commands {
             let by_number = number && c.keys == "#";
-            if !c.keys.eq_ignore_ascii_case(keys) && !by_number {
+            if (!c.keys.eq_ignore_ascii_case(keys) && !by_number) || c.dark {
                 continue;
             }
             exists = true;
@@ -759,7 +819,7 @@ impl Session {
         self.newline();
         self.set_slot(Slot::Text);
         let mut lines = 3;
-        for c in commands.iter().filter(|c| !c.hidden && c.keys != FIRST_CMD) {
+        for c in commands.iter().filter(|c| !c.hidden && !c.dark && c.keys != FIRST_CMD) {
             if !self.acs(&c.acs) {
                 continue;
             }
@@ -799,6 +859,12 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn an_option_is_as_wide_as_its_letters() {
+        assert_eq!(ansi_width(" \x1b[0;1;30m(\x1b[0;1;31mt\x1b[0;1;30m) \x1b[38;2;255;85;85mt\x1b[38;2;250;80;80marot  \x1b[0m"), 12);
+        assert_eq!(ansi_width("|B1Tarot"), 5);
+    }
 
     #[test]
     fn bar_moves_by_place() {

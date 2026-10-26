@@ -116,6 +116,11 @@ pub struct Command {
     pub on: String,
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub off: String,
+    /// New: its part of the board is switched off ([features]): the
+    /// entry keeps its place on a lightbar but draws blank, can't be
+    /// picked, and is left out of lists and help. Set as the menu loads.
+    #[serde(skip)]
+    pub dark: bool,
 }
 
 pub const FIRST_CMD: &str = "FIRSTCMD";
