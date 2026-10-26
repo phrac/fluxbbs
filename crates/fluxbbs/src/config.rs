@@ -967,6 +967,9 @@ pub struct Terminal {
     /// the first). Blank: the name in plain letters.
     pub screensaver_font: String,
     pub screensaver_face: String,
+    /// New: milliseconds the picture flickers before it switches off at
+    /// logoff (0: straight to the switch-off).
+    pub logoff_flicker_ms: u64,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1423,6 +1426,7 @@ impl Default for Terminal {
             screensaver_seconds: 60,
             screensaver_font: String::new(),
             screensaver_face: String::new(),
+            logoff_flicker_ms: 3500,
         }
     }
 }

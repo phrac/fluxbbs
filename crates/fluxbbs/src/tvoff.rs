@@ -66,9 +66,15 @@ impl Session {
         self.screen.write_bytes(b"\x1b[?25l");
 
         // The flicker: the picture surging and dipping, a bright bar
-        // rolling down it.
-        for (i, k) in [1.45f32, 0.4, 1.25, 0.65, 1.1].into_iter().enumerate() {
-            let bar = i * rows / 5;
+        // rolling down it, for as long as the board says
+        // (`logoff_flicker_ms`, 3.5 s to start).
+        let flicker = Duration::from_millis(self.state.config().terminal.logoff_flicker_ms);
+        let start = std::time::Instant::now();
+        let mut i = 0usize;
+        while start.elapsed() < flicker {
+            let swing = [1.45f32, 0.4, 1.25, 0.65, 1.1, 0.85, 1.35, 0.5][i % 8];
+            let k = swing * (0.85 + 0.3 * crate::pixels::hash(i as i32, 7));
+            let bar = (i * 3) % rows;
             let frame: Vec<Vec<Shown>> = screen
                 .iter()
                 .enumerate()
@@ -77,7 +83,8 @@ impl Session {
                     row.iter().map(|c| Shown { ch: c.ch, fg: scale(c.fg, k), bg: scale(c.bg, k) }).collect()
                 })
                 .collect();
-            self.tv_frame(&paint(&frame), 60).await?;
+            self.tv_frame(&paint(&frame), 70).await?;
+            i += 1;
         }
 
         // Squashed into a band about the middle, going white as it goes.
@@ -114,6 +121,15 @@ impl Session {
             self.tv_frame(&paint(&blank), ms).await?;
         }
         self.screen.write_bytes(b"\x1b[0m\x1b[2J\x1b[H\x1b[?25h");
+        // A last word on the dark screen (`TvOffLater`, blank for none).
+        let later = self.strings().get("TvOffLater").to_string();
+        if !later.trim().is_empty() {
+            let width = crate::editor::strip_codes(&later).chars().count() as u16;
+            self.screen.goto((80u16.saturating_sub(width)) / 2 + 1, (rows as u16 / 2).max(1));
+            self.show(&later).await?;
+            self.flush().await?;
+            tokio::time::sleep(Duration::from_millis(1500)).await;
+        }
         self.flush().await
     }
 

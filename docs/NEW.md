@@ -137,9 +137,11 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   message that scrambles and settles into the next).
 - Logging off (`/G`, or the goodbye menu's logoff, which now thanks the
   caller the same way instead of clearing the screen) switches the screen off
-  as an old TV did: what's showing flickers, squashes to a bright line,
-  shrinks to a dot that fades, then the line drops. Not for plain-text
-  callers or those who turned animation off.
+  as an old TV did: what's showing flickers (`logoff_flicker_ms`, 3.5 s
+  to start; `*C`, SSH, Telnet and Terminal), squashes to a bright
+  line, shrinks to a dot that fades, a last word shows on the dark
+  (`TvOffLater`, `*E`), then the line drops. Not for plain-text callers
+  or those who turned animation off.
   ([ARTWORK](ARTWORK.md#animation-new))
 - Lightbar menus also take their commands' keys: hot keys, `/X`, and
   digits for `#` typed on the help line. ([ARTWORK](ARTWORK.md#lightbar-menus))
