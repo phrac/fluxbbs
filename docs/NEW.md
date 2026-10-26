@@ -220,7 +220,7 @@ For a board with hundreds of areas and tens of thousands of files:
   (the original named each as it read it).
 - `FN` over all areas passes silently over areas with nothing new.
 - The viewer (`V` in the lister, `FV`) shows any file that reads as
-  text, whatever it's called.
+  text, whatever it's called; `b` goes back from it, as from the lists.
 - `%FE` counts the file areas.
 - Before logon, the file figures are a new caller's.
 - The top uploader (`%FK`) is always a caller, never an archive's name.

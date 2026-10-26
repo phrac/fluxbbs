@@ -305,8 +305,9 @@ impl Session {
                 Key::Esc => break,
                 k => match k.upper() {
                     Some(' ' | 'N') => (top + height).min(last_top),
-                    Some('B' | 'P') => top.saturating_sub(height),
-                    Some('Q' | 'X') => break,
+                    Some('P') => top.saturating_sub(height),
+                    // New: `b` goes back, as it does on the lists.
+                    Some('B' | 'Q' | 'X') => break,
                     _ => top,
                 },
             };

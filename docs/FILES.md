@@ -240,7 +240,8 @@ docker compose -f deploy/docker-compose.yml up -d
 - A newscan of all areas (`FN`) passes over areas with nothing new
   without a word.
 - The viewer shows any file that reads as text, whatever its extension
-  (`.ana`, `.hum`, none at all).
+  (`.ana`, `.hum`, none at all). Arrows, PgUp/PgDn, space and Home/End
+  move; `b`, `q` or Esc go back.
 
 ## File transfers
 
