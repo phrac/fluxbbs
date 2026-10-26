@@ -124,6 +124,16 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   where even that won't fit. ([SYSOP](SYSOP.md#the-boards-short-name))
 - `*C` shows the description of the setting under the bar as you move
   it, over two lines when it's long, and keeps it up while you edit.
+- The weather (`WX`; the `weather` component), after Lone Wolf
+  Software's AI-WX door but our own: the sky over the caller's place in
+  animated half-block pixels, the temperature large, the next 24 hours
+  and the week, from Open-Meteo; `f` has the AI read it like a TV
+  forecaster. A caller's place is kept; `WX <place>` shows a fixed one.
+  ([BUILDING](BUILDING.md))
+- Email addresses confirmed by a code (the `email` component, off until
+  `[email] enabled`): a logon step asks for an address, mails a
+  six-digit code over SMTP and takes it back; a confirmed address can
+  raise the caller's level. ([SYSOP](SYSOP.md#email-addresses))
 - Optional components: doors, the games, effects, screen savers, AI,
   echomail, MeshCore, PDFs, Lua and the textfiles importer are Cargo
   features; a plain build is the core board, `--features full` all of

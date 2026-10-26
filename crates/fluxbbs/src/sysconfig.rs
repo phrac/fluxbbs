@@ -476,6 +476,25 @@ pub fn save_changes(path: &Path, old: &Config, new: &Config) -> anyhow::Result<(
     Ok(())
 }
 
+/// New: the `@` section, callers' email addresses (`[email]`; the
+/// `email` component).
+fn email_settings() -> Vec<Setting> {
+    use Kind::*;
+    let letter = Field { allowed: "ABCDEFGHIJKLMNOPQRSTUVWXYZ", ..Field::UPPER.max(1) };
+    vec![
+        set('A', "Email addresses", 3, "Ask callers for an email address and confirm it with a mailed code (the email component; the logon step `email`, *O).", Bool(|c| &mut c.email.enabled)),
+        set('B', "Required", 3, "Must callers give an address? Confirming it can wait; the level below is what waits on it.", Bool(|c| &mut c.email.required)),
+        set('C', "Level when confirmed", 1, "The access level a caller rises to once their address is confirmed (never lowers anyone). Blank: none.", Text(|c| &mut c.email.verified_level, letter)),
+        set('D', "Code minutes", 4, "Minutes a mailed code stays good.", Num(|c| c.email.code_minutes as u64, |c, v| c.email.code_minutes = v as u32, 1, 1440)),
+        set('E', "SMTP server", 40, "The mail server codes go out through.", Text(|c| &mut c.email.smtp_host, TEXT)),
+        set('F', "SMTP port", 5, "Its port: 587 for STARTTLS, 465 for TLS, 25 for a relay here.", Num(|c| c.email.smtp_port as u64, |c, v| c.email.smtp_port = v as u16, 1, 65535)),
+        set('G', "Security", 9, "starttls (most servers), tls (from the start, as on 465), or none (a relay on this host only).", Choice(|c| ["starttls", "tls", "none"].iter().position(|s| *s == c.email.smtp_security).unwrap_or(0), |c, v| c.email.smtp_security = ["starttls", "tls", "none"][v].into(), &["starttls", "tls", "none"])),
+        set('H', "SMTP user", 40, "The server login (blank: none).", Text(|c| &mut c.email.smtp_user, TEXT)),
+        set('I', "Password variable", 30, "The environment variable holding the SMTP password; the password itself never goes in the config.", Text(|c| &mut c.email.smtp_password_env, TEXT)),
+        set('J', "From", 50, "Who the mail is from, e.g. disflux <bbs@example.com>.", Text(|c| &mut c.email.from, TEXT)),
+    ]
+}
+
 /// New: the sections on the `*C` screen, in four groups: each one's key
 /// (its place in [`sections`]; the last, the default colors), a short
 /// name and what's in it.
@@ -498,6 +517,7 @@ const GROUPS: &[Group] = &[
         ('D', "New User Config", "New callers' settings, and which of them they're asked"),
         ('J', "New User Questions", "What new callers are asked: real name, birth date, phone..."),
         ('K', "New User Voting", "Callers voting new users in"),
+        ('@', "Email Addresses", "Callers' addresses confirmed by a code: SMTP server, level"),
     ]),
     ("messages & files", &[
         ('L', "Message System", "Message access, private replies, quoting, deleting"),
@@ -613,6 +633,7 @@ impl Session {
             match key.is_ascii_uppercase().then(|| secs.get((key as u8 - b'A') as usize)).flatten() {
                 Some((title, _, settings)) => self.config_section(title, settings, &mut cfg).await?,
                 None if key == '-' => self.palette_editor(&mut cfg.colors).await?,
+                None if key == '@' => self.config_section("Email Addresses", &email_settings(), &mut cfg).await?,
                 None => {}
             }
         }
@@ -753,9 +774,10 @@ mod tests {
     fn every_section_is_in_a_group() {
         let mut keys: Vec<char> = GROUPS.iter().flat_map(|(_, items)| items.iter().map(|i| i.0)).collect();
         keys.sort();
-        // A letter a section, and the palette on '-'.
+        // A letter a section, the palette on '-' and email on '@'.
         let mut want: Vec<char> = (0..sections().len() as u8).map(|i| (b'A' + i) as char).collect();
         want.insert(0, '-');
+        want.insert(1, '@');
         assert_eq!(keys, want);
         assert!(GROUPS.iter().all(|(t, items)| t.len() <= 20 && items.iter().all(|i| i.1.len() <= 21 && i.2.len() <= 72)));
     }

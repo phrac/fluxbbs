@@ -274,6 +274,12 @@ impl Session {
             "UT" => self.choose_theme().await?,
             "UK" => self.ssh_keys_edit().await?,
             "UF" => self.finger(param).await?,
+            // New: the caller's email address and its code.
+            #[cfg(feature = "email")]
+            "UV" => self.email_check(param).await?,
+            // New: the weather, where the caller is or where the menu says.
+            #[cfg(feature = "weather")]
+            "WX" => self.weather(param).await?,
             #[cfg(feature = "lua")]
             "-X" => Box::pin(self.script_command(param)).await?,
             "!D" => self.bank_transaction(crate::timebank::Unit::Minutes, true).await?,

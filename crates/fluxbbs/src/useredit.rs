@@ -61,7 +61,7 @@ fn num(get: Get<u64>, set: Set<u64>, max: u64) -> Kind {
 fn plain_fields() -> Vec<Spec> {
     use Kind::*;
     let text = Field::TEXT;
-    vec![
+    let mut v = vec![
         spec('C', "Real name", A1, 3, 22, "User's real first and last name.", Text(|u| u.real_name.clone(), |u, v| u.real_name = v, text.max(36))),
         spec('D', "Phone number", A2, 3, 13, "User's voice phone number.", Text(|u| u.phone.clone(), |u, v| u.phone = v, text.max(13))),
         spec('F', "Address", A1, 4, 22, "User's street address.", Text(|u| u.address.clone(), |u, v| u.address = v, text.max(36))),
@@ -97,7 +97,14 @@ fn plain_fields() -> Vec<Spec> {
         spec('@', "Theme", B3, 16, 10, "Screen theme (text library) directory; blank for the default.", Text(|u| u.theme.clone(), |u, v| u.theme = v, Field::TEXT.max(20))),
         spec('%', "\"Yes\" votes", B1, 17, 3, "Number of \"yes\" votes this user currently has (new user voting).", num(|u| u.vote_yes as u64, |u, v| u.vote_yes = v as u32, 255)),
         spec('$', "\"No\" votes", B2, 17, 3, "Number of \"no\" votes this user currently has (new user voting).", num(|u| u.vote_no as u64, |u, v| u.vote_no = v as u32, 255)),
-    ]
+    ];
+    // New: the address the email component confirms, and when (blank:
+    // not yet; clearing it makes them confirm again).
+    if cfg!(feature = "email") {
+        v.push(spec('K', "Email", A1, 19, 22, "User's email address (seen only by them and SysOps).", Text(|u| u.mail_address.clone(), |u, v| u.mail_address = v, Field::TEXT.max(60))));
+        v.push(spec('W', "Confirmed", A2, 19, 10, "Day the address was confirmed (yyyy-mm-dd); blank: not yet.", Text(|u| u.mail_verified.clone(), |u, v| u.mail_verified = v, Field { allowed: "0123456789-", ..Field::TEXT.max(10) })));
+    }
+    v
 }
 
 fn shown(kind: &Kind, u: &User) -> String {

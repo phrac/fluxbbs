@@ -37,7 +37,7 @@ mod casinobar;
 mod craps;
 #[cfg(feature = "casino")]
 mod poker;
-#[cfg(any(feature = "casino", feature = "carrierlost", feature = "effects"))]
+#[cfg(any(feature = "casino", feature = "carrierlost", feature = "effects", feature = "weather"))]
 mod pixels;
 #[cfg(feature = "casino")]
 mod roulette;
@@ -83,6 +83,8 @@ mod multinode;
 mod msgbase;
 mod msgcenter;
 mod editor;
+#[cfg(feature = "email")]
+mod emailver;
 mod extras;
 mod features;
 #[cfg(feature = "screensavers")]
@@ -101,6 +103,8 @@ mod transfer;
 mod tvoff;
 mod upltest;
 mod upscan;
+#[cfg(feature = "weather")]
+mod weather;
 mod web;
 mod nodes;
 mod pager;
@@ -203,6 +207,12 @@ pub struct BbsState {
     pub ai_usage: std::sync::Mutex<std::collections::HashMap<(u32, chrono::NaiveDate), u32>>,
     /// Posts on their way to the MeshCore bridge.
     pub mesh: MeshOutbox,
+    /// Codes out to confirm callers' email addresses (`UV`).
+    #[cfg(feature = "email")]
+    pub email: emailver::CodeStore,
+    /// Places callers picked for the weather, and recent forecasts.
+    #[cfg(feature = "weather")]
+    pub weather: weather::WeatherStore,
     /// The `[dos] one_at_a_time` doors someone is in.
     pub doors_in_use: std::sync::Mutex<std::collections::HashSet<String>>,
     /// When the board started (its clock).
@@ -537,6 +547,10 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     let forms = infoform::FormStore::open(&db)?;
     #[cfg(feature = "carrierlost")]
     let carrier = carrierlost::CarrierStore::open(&db)?;
+    #[cfg(feature = "email")]
+    let email = emailver::CodeStore::open(&db)?;
+    #[cfg(feature = "weather")]
+    let weather = weather::WeatherStore::open(&db)?;
     let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
     let events: events::Events = extprog::load(&config.resolve(&config.paths.events))?.unwrap_or_default();
     let files = FileBase::open(&db)?;
@@ -560,6 +574,10 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         forms,
         #[cfg(feature = "carrierlost")]
         carrier,
+        #[cfg(feature = "email")]
+        email,
+        #[cfg(feature = "weather")]
+        weather,
         files,
         sys,
         text_lock: std::sync::Mutex::new(()),
@@ -759,6 +777,10 @@ pub mod tests {
             forms: infoform::FormStore::open_memory().unwrap(),
             #[cfg(feature = "carrierlost")]
             carrier: carrierlost::CarrierStore::open_memory().unwrap(),
+            #[cfg(feature = "email")]
+            email: emailver::CodeStore::open_memory().unwrap(),
+            #[cfg(feature = "weather")]
+            weather: weather::WeatherStore::open_memory().unwrap(),
             files: FileBase::open_memory().unwrap(),
             sys: SysData::open_memory().unwrap(),
             text_lock: std::sync::Mutex::new(()),

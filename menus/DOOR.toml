@@ -193,9 +193,18 @@ keys = "V"
 command = "AP"
 acs = "s50"
 desc = "Carrier Lost"
-help = "Carrier Lost: a 1994 dial-up game the AI tells, one underground for everyone"
+help = "Carrier Lost: tune for a carrier, catch the handshake, cash out before the trace"
 on = "|B1Carrier Lost"
 off = "|B0Carrier Lost"
+
+[[command]]
+keys = "W"
+command = "WX"
+acs = "s50"
+desc = "Weather"
+help = "The weather where you are: the sky now, the next day and the week"
+on = "|B1Weather"
+off = "|B0Weather"
 
 [[command]]
 keys = "Q"

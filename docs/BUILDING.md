@@ -26,6 +26,8 @@ disflux, the flagship board, runs with all of them.
 | `pdf` | Showing PDFs in the file browser and art gallery | Poppler (`poppler-utils`) on the host |
 | `lua` | Lua scripts on menus (`-X`) and in screens (`%!`) | builds Lua itself (no system Lua needed) |
 | `textfiles` | The textfiles.com importer (`fluxbbs textfiles`) | HTTPS |
+| `weather` | The weather (`WX`, or `WX <place>` for a fixed one): the sky in animated pixels, the week, the next 24 hours; the AI reads it as a forecaster when `ai` is built and on. `[weather]`: `units`, `place`, `ai_forecast` | HTTPS to open-meteo.com (free, no key) |
+| `email` | Callers' email addresses, confirmed by a mailed code (`UV`, the `email` logon step, `*C` `@`); off until `[email] enabled` | an SMTP server |
 | `full` | All of the above | |
 
 Features combine freely: name as many as you like, space- or
@@ -47,10 +49,10 @@ comma-separated. `screensavers` brings `effects` with it, and `tarot`
   textfiles` stop with a note to build with the feature.
 - **Where it touches the core, the core goes on without it.** Without
   `effects` nothing animates; without `screensavers` Backspace on a
-  menu does nothing; without `pdf` a PDF is a file to download; without
-  `meshcore`
-  posts simply aren't bridged; without `lua` a `%!` line in a screen
-  shows nothing.
+  menu does nothing; without `pdf` a PDF is a file to download;
+  without `meshcore` posts simply aren't bridged; without `lua` a `%!`
+  line in a screen shows nothing; without `email` the `email` logon
+  step drops out.
 
 ## In a container
 

@@ -856,6 +856,11 @@ impl Session {
             // New: menus animating, or still.
             'W' => if u.animate == "off" { "off" } else { "on" }.into(),
             // New: their screen saver, or the board's.
+            // New: their email address, and whether it's confirmed.
+            'Y' if !self.email_on() => "off".into(),
+            'Y' if u.mail_address.is_empty() => "none".into(),
+            'Y' if u.mail_verified.is_empty() => format!("{} (unconfirmed)", squish(&u.mail_address, 14)),
+            'Y' => squish(&u.mail_address, 28),
             'X' => match crate::sysconfig::SAVERS.iter().find(|s| s.0 == u.saver) {
                 Some(s) => s.0.into(),
                 None => "board's".into(),
@@ -918,6 +923,9 @@ impl Session {
                 self.apply_text_mode();
             }
             'W' => self.user.animate = if self.user.animate == "off" { String::new() } else { "off".into() },
+            // Change or confirm it (`UV`).
+            #[cfg(feature = "email")]
+            'Y' if self.email_on() => self.email_check("").await?,
             // The board's, then each saver in turn, then the board's again.
             'X' => {
                 let names: Vec<&str> = std::iter::once("").chain(crate::sysconfig::SAVERS.iter().map(|s| s.0)).collect();
@@ -990,9 +998,14 @@ impl Session {
         Ok(())
     }
 
+    /// Does the board ask for email addresses (built in and switched on)?
+    fn email_on(&self) -> bool {
+        cfg!(feature = "email") && self.state.config().email.enabled
+    }
+
     /// User configuration without USERCFG.ANS.
     async fn user_config_plain(&mut self) -> io::Result<()> {
-        let items = [
+        let mut items = [
             ('A', 'P', "Password"),
             ('D', 'L', "Location"),
             ('E', 'A', "Address"),
@@ -1012,13 +1025,18 @@ impl Session {
             ('V', 'M', "Markdown theme"),
             ('W', 'V', "Animations"),
             ('X', 'D', "Screen saver"),
-        ];
+        ]
+        .to_vec();
+        // New: the email address, where the board asks for one.
+        if self.email_on() {
+            items.push(('Y', 'O', "Email address"));
+        }
         loop {
             self.newline();
             self.set_slot(Slot::Info);
             self.show_line("|U4 User configuration").await?;
             self.rule().await?;
-            for (f, k, name) in items {
+            for &(f, k, name) in &items {
                 let v = self.user_field(f);
                 self.show_line(&format!(" |U3{k}|U2) |U1{} |U6{v}", resize(name, 18))).await?;
             }
@@ -1034,7 +1052,7 @@ impl Session {
             self.newline();
             let Some(c) = key.upper().filter(|_| !matches!(key, Key::Enter | Key::Esc)) else { return Ok(()) };
             if let Some(&(f, _, name)) = items.iter().find(|(_, k, _)| *k == c) {
-                if !"AHIJKLMNRSTUVWX".contains(f) {
+                if !"AHIJKLMNRSTUVWXY".contains(f) {
                     self.show(&format!("|U1{name}|U2: |U3")).await?;
                 }
                 self.edit_user_field(f).await?;

@@ -40,7 +40,7 @@ pub struct Sequence {
 }
 
 /// The steps there are: kind, what the editor calls it.
-pub const KINDS: [(&str, &str); 15] = [
+pub const KINDS: [(&str, &str); 16] = [
     ("infoforms", "Infoforms to fill in"),
     ("mail", "Waiting mail"),
     ("newuser", "New users stop here (NEWUSER)"),
@@ -56,6 +56,7 @@ pub const KINDS: [(&str, &str); 15] = [
     ("screen", "Show a screen"),
     ("fastlogon", "Fast logon: offer to skip the rest"),
     ("slots", "A free slot pull (each call, a few a day)"),
+    ("email", "Email address, confirmed by a code ([email])"),
 ];
 
 /// STARTUP's stock order.
@@ -138,6 +139,7 @@ fn step_commands(s: &Step, menus: &[PathBuf], fallback: &str) -> Vec<Command> {
             .unwrap_or_default(),
         "screen" if !s.screen.is_empty() => vec![first("-F", &s.screen, "", "Show a screen")],
         "slots" => vec![first("AL", "free", "", "A free slot pull")],
+        "email" => vec![first("UV", "logon", "", "Email address and its code")],
         // New: a validated caller may go straight on to the main menu.
         "fastlogon" => vec![
             first("?N", "|u2:|u1:|u3: |u1Fast logon, straight to the main menu|u2? ", "s50", "Ask fast logon"),

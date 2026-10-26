@@ -110,6 +110,10 @@ pub struct User {
     /// New: their screen saver (`rain`, `stars`, `fire`, `random`);
     /// blank for the board's.
     pub saver: String,
+    /// New: their email address (`emailver`), shown to them and SysOps
+    /// only, and the day it was confirmed (blank: not yet).
+    pub mail_address: String,
+    pub mail_verified: String,
     /// New: the time zone times are shown to them in (an IANA name or
     /// an offset, as `clock::Zone::parse` reads it); blank for the board's.
     pub time_zone: String,
@@ -203,6 +207,8 @@ impl Default for User {
             md_theme: String::new(),
             animate: String::new(),
             saver: String::new(),
+            mail_address: String::new(),
+            mail_verified: String::new(),
             time_zone: String::new(),
             thread_sort: String::new(),
             area_sort: String::new(),
@@ -314,6 +320,8 @@ impl User {
                 md_theme,
                 animate,
                 saver,
+                mail_address,
+                mail_verified,
             ],
             [
                 total_calls,
@@ -406,6 +414,8 @@ impl User {
                 md_theme,
                 animate,
                 saver,
+                mail_address,
+                mail_verified,
                             total_calls,
                 calls_today,
                 time_today,

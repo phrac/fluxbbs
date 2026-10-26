@@ -92,7 +92,9 @@ CREATE TABLE IF NOT EXISTS users (
     code_theme    TEXT NOT NULL DEFAULT '',
     md_theme      TEXT NOT NULL DEFAULT '',
     animate       TEXT NOT NULL DEFAULT '',
-    saver         TEXT NOT NULL DEFAULT ''
+    saver         TEXT NOT NULL DEFAULT '',
+    mail_address  TEXT NOT NULL DEFAULT '',
+    mail_verified TEXT NOT NULL DEFAULT ''
 );
 -- New: a SysOp's private notes on a caller, dated, for SysOps only.
 CREATE TABLE IF NOT EXISTS user_notes (
@@ -117,7 +119,7 @@ const COLUMNS: &[&str] = &[
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
     "file_scan", "theme", "last_rep", "bank_time", "bank_kb", "bank_time_in", "bank_time_out",
     "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "last_call_at", "area_sort",
-    "fav_boards", "profile_header", "show_real_name", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate", "saver",
+    "fav_boards", "profile_header", "show_real_name", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate", "saver", "mail_address", "mail_verified",
 ];
 
 fn write(db: &Connection, u: &User) -> anyhow::Result<()> {
@@ -151,7 +153,7 @@ fn migrate(db: &Connection) -> rusqlite::Result<()> {
     if !have.iter().any(|c| c == "show_real_name") {
         db.execute("ALTER TABLE users ADD COLUMN show_real_name INTEGER NOT NULL DEFAULT 0", [])?;
     }
-    for col in ["ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "area_sort", "fav_boards", "profile_header", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate", "saver"] {
+    for col in ["ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "area_sort", "fav_boards", "profile_header", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate", "saver", "mail_address", "mail_verified"] {
         if !have.iter().any(|c| c == col) {
             db.execute(&format!("ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"), [])?;
         }
@@ -263,6 +265,8 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         md_theme: r.get("md_theme")?,
         animate: r.get("animate")?,
         saver: r.get("saver")?,
+        mail_address: r.get("mail_address")?,
+        mail_verified: r.get("mail_verified")?,
     })
 }
 
@@ -308,6 +312,8 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.md_theme.clone()),
         Box::new(u.animate.clone()),
         Box::new(u.saver.clone()),
+        Box::new(u.mail_address.clone()),
+        Box::new(u.mail_verified.clone()),
     ]
 }
 
@@ -469,6 +475,19 @@ impl UserStore {
     pub fn count(&self) -> anyhow::Result<u32> {
         let db = self.db.lock().unwrap();
         Ok(db.query_row("SELECT COUNT(*) FROM users WHERE NOT deleted", [], |r| r.get(0))?)
+    }
+
+    /// New: is `address` confirmed on a live account other than
+    /// `except`? (`emailver`: one address, one account.)
+    #[cfg_attr(not(feature = "email"), allow(dead_code))]
+    pub fn mail_taken(&self, address: &str, except: u32) -> anyhow::Result<bool> {
+        let db = self.db.lock().unwrap();
+        let n: i64 = db.query_row(
+            "SELECT COUNT(*) FROM users WHERE id != ?1 AND NOT deleted AND mail_verified != '' AND lower(mail_address) = lower(?2)",
+            rusqlite::params![except, address.trim()],
+            |r| r.get(0),
+        )?;
+        Ok(n > 0)
     }
 }
 

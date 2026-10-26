@@ -34,4 +34,7 @@ services:
     environment:
       # e.g. RUST_LOG=info,russh=trace to watch the SSH protocol.
       RUST_LOG: "${RUST_LOG:-info,russh=warn}"
+      # The SMTP password for [email], from the host's environment or a
+      # .env file here; never in the board's TOML.
+      FLUXBBS_SMTP_PASSWORD: "${FLUXBBS_SMTP_PASSWORD:-}"
     stop_grace_period: 15s

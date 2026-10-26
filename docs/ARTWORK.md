@@ -423,6 +423,7 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 | `~U?` / `~V?` | the code and Markdown color themes (nord, dracula, one dark, monokai, classic) | none |
 | `~W?` | menus animating: on or off (new; plain-text key `v`) | none |
 | `~X?` | the screen saver: `board's`, `random`, `rain`, `stars` or `fire` (new; plain-text key `d`) | none |
+| `~Y?` | the email address, `(unconfirmed)` until its code comes back (new, with `[email]` on; plain-text key `o`) | none |
 
 The second character is the field's key.
 

@@ -42,6 +42,10 @@ pub struct Config {
     #[serde(skip_serializing)]
     pub temple: Option<toml::Value>,
     pub carrier: CarrierLost,
+    /// New: callers' email addresses, confirmed by a code (`emailver`).
+    pub email: Email,
+    /// New: the weather door (`weather`).
+    pub weather: Weather,
     /// New: which parts of the board are on.
     pub features: Features,
     /// External transfer protocols, in addition to built-in Zmodem. Only
@@ -509,6 +513,71 @@ impl Default for Casino {
             suite_chips: 50,
             comp_show: 800,
             show_points: 25,
+        }
+    }
+}
+
+/// The weather (new, `weather.rs`, the `weather` component).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Weather {
+    /// `us` (°F, mph) or `metric` (°C, km/h).
+    pub units: String,
+    /// Where to show when a caller hasn't picked a place and their
+    /// profile has none (blank: ask them).
+    pub place: String,
+    /// May the AI read the forecast (`f`), when it's built and on?
+    pub ai_forecast: bool,
+}
+
+impl Default for Weather {
+    fn default() -> Self {
+        Self { units: "us".into(), place: String::new(), ai_forecast: true }
+    }
+}
+
+/// Callers' email addresses (new, `emailver.rs`, the `email` component):
+/// a caller gives one and confirms it with a code the board mails them,
+/// which can raise their level. Off to start.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Email {
+    pub enabled: bool,
+    /// Must callers give an address? (Confirming it may wait for a later
+    /// call; the level is what waits on it.)
+    pub required: bool,
+    /// The level a caller rises to once their address is confirmed (a
+    /// letter; blank: none). Never lowers anyone.
+    pub verified_level: String,
+    /// Minutes a code stays good.
+    pub code_minutes: u32,
+    /// The SMTP server and its port.
+    pub smtp_host: String,
+    pub smtp_port: u16,
+    /// `starttls`, `tls` (from the start, as on port 465) or `none` (a
+    /// relay on this host only).
+    pub smtp_security: String,
+    pub smtp_user: String,
+    /// The environment variable holding the SMTP password (the password
+    /// itself never goes in the TOML).
+    pub smtp_password_env: String,
+    /// Who the mail is from, e.g. `disflux <bbs@example.com>`.
+    pub from: String,
+}
+
+impl Default for Email {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            required: true,
+            verified_level: String::new(),
+            code_minutes: 30,
+            smtp_host: String::new(),
+            smtp_port: 587,
+            smtp_security: "starttls".into(),
+            smtp_user: String::new(),
+            smtp_password_env: "FLUXBBS_SMTP_PASSWORD".into(),
+            from: String::new(),
         }
     }
 }

@@ -312,6 +312,47 @@ until changed.
 - The purge takes accounts still at level A that never called back. It
   checks every 10 minutes.
 
+### Email addresses
+
+With the `email` component built ([BUILDING.md](BUILDING.md)), the
+board can ask callers for an email address and confirm it with a
+six-digit code it mails them. It's off to start: `*C`, `@` (`[email]`).
+
+1. Fill in the SMTP server, its port and security (`starttls` on 587,
+   `tls` on 465, `none` only for a relay on the same host), the login,
+   and the From address.
+2. Put the SMTP password in the environment variable named by
+   `smtp_password_env` (`FLUXBBS_SMTP_PASSWORD` to start), never in the
+   TOML. In the container, `deploy/docker-compose.yml` passes it
+   through from the host's environment or a `.env` file beside it.
+3. Add the `email` step to the logon sequence (`*O`), early, so new
+   callers meet it right after applying.
+4. Set `verified_level` to the level a confirmed address earns, and
+   leave new users at a level that can't post or upload, if confirming
+   should gate those. It only ever raises a caller.
+5. Turn `enabled` on.
+
+| Setting | What | Default |
+|---|---|---|
+| `enabled` | ask for and confirm addresses | off |
+| `required` | callers must give an address (confirming can wait for a later call) | on |
+| `verified_level` | the level a confirmed address raises a caller to (blank: none) | none |
+| `code_minutes` | how long a code is good | 30 |
+| `smtp_host`, `smtp_port`, `smtp_security`, `smtp_user`, `smtp_password_env`, `from` | how mail goes out | port 587, `starttls` |
+
+- **For callers:** the step asks for an address if there's none, mails
+  a code, and takes it back. Enter leaves it for the next call, `r`
+  sends it again and `c` changes the address. `UV` on a menu, or their
+  configuration (`Y`), shows the address and offers to change or
+  confirm it.
+- **Limits:** five wrong tries void a code. At most one goes out every
+  two minutes, and five a day, to a caller. An address confirmed on one
+  account can't be confirmed on another.
+- **Privacy:** an address is seen only by its caller and SysOps (`*U`,
+  `K` and `W`), never in user lists or finger.
+- **When mail can't go:** the caller is told it'll try again next call,
+  and the reason is logged.
+
 ### SSH keys and stored logins
 
 An SSH caller can come straight in after PRELOGON, with no bot check or
