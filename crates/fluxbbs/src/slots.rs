@@ -454,7 +454,9 @@ impl Session {
     }
 
     async fn slots_loop(&mut self, cfg: &Slots, game: &mut Game, ticker: &[(char, Rgb)]) -> io::Result<()> {
-        let idle_limit = match self.state.config().bbs.inactivity_seconds {
+        // Back to the menu after a while idle, even for callers who never
+        // time out, so the reels don't spin all night.
+        let idle_limit = match self.idle_limit() {
             0 => 900,
             n => n.min(900),
         };

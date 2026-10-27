@@ -169,6 +169,21 @@ enum Wait {
 }
 
 impl Session {
+    /// Seconds idle before the caller is let go (0: never): shorter
+    /// before logging in, so idle connections from bots don't hold nodes.
+    /// New: callers matching `idle_exempt_acs` are never timed out (a
+    /// flag ACS like `FX`, or `s255`).
+    pub(crate) fn idle_limit(&self) -> u64 {
+        let cfg = self.state.config();
+        if !self.logged_in {
+            cfg.security.prelogin_idle_seconds
+        } else if !cfg.bbs.idle_exempt_acs.trim().is_empty() && self.acs(&cfg.bbs.idle_exempt_acs) {
+            0
+        } else {
+            cfg.bbs.inactivity_seconds
+        }
+    }
+
     async fn next_byte(&mut self, wait: Wait) -> io::Result<Option<u8>> {
         loop {
             if let Some(b) = self.input.pop_front() {
@@ -186,19 +201,7 @@ impl Session {
                     Err(_) => return Ok(None),
                 },
                 Wait::Idle => {
-                    let cfg = self.state.config();
-                    // Shorter before logging in, so idle connections from
-                    // bots don't hold nodes.
-                    // New: callers matching `idle_exempt_acs` are never
-                    // timed out (a flag ACS like `FX`, or `s255`).
-                    let exempt = self.logged_in && !cfg.bbs.idle_exempt_acs.trim().is_empty() && self.acs(&cfg.bbs.idle_exempt_acs);
-                    let idle = if exempt {
-                        0
-                    } else if self.logged_in {
-                        cfg.bbs.inactivity_seconds
-                    } else {
-                        cfg.security.prelogin_idle_seconds
-                    };
+                    let idle = self.idle_limit();
                     let since = self.idle_since.take().unwrap_or_else(tokio::time::Instant::now);
                     let deadline = (idle > 0).then(|| since + Duration::from_secs(idle));
                     // Wait for the caller, showing node messages as they

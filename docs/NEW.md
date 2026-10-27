@@ -124,6 +124,10 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   where even that won't fit. ([SYSOP](SYSOP.md#the-boards-short-name))
 - `*C` shows the description of the setting under the bar as you move
   it, over two lines when it's long, and keeps it up while you edit.
+- `*C` reaches every setting in the config: the paths (`1`, in two
+  columns), QWK mail (`2`), DOS doors and the weather (`3`), Carrier
+  Lost's payouts, the status lights, the feed's new posts, and the
+  lists (FTN networks and echoes, MeshCore channels) as list editors.
 - The weather (`WX`; the `weather` component), after Lone Wolf
   Software's AI-WX door but our own: the sky over the caller's place in
   animated half-block pixels, the temperature large, the next 24 hours

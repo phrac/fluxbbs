@@ -368,8 +368,17 @@ impl BbsState {
 pub(crate) fn write_atomic(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
     let tmp = path.with_extension("toml.new");
     std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
+    keep_mode(path, &tmp);
     std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
     Ok(())
+}
+
+/// Give `new` the permissions `old` has, if it exists: a file the SysOp
+/// made private (it holds passwords) stays private when rewritten.
+pub(crate) fn keep_mode(old: &std::path::Path, new: &std::path::Path) {
+    if let Ok(m) = std::fs::metadata(old) {
+        let _ = std::fs::set_permissions(new, m.permissions());
+    }
 }
 
 /// `[newuser] purge_after_days`: delete accounts still at the new-user
@@ -466,6 +475,18 @@ fn add_files(path: PathBuf) -> anyhow::Result<()> {
     }
     println!("{total} file(s) added to {} file area(s)", fareas.areas.len());
     Ok(())
+}
+
+/// For `fluxbbs ftn ...`: `data/ftn/ftn.log`, opened to add to.
+fn ftn_log(args: &[String]) -> Option<std::fs::File> {
+    if args.first().is_none_or(|a| a != "ftn") {
+        return None;
+    }
+    let path = args.last().filter(|a| a.ends_with(".toml")).map(PathBuf::from).unwrap_or_else(config::default_path);
+    let cfg = Config::load(&path).ok()?;
+    let dir = cfg.resolve(&cfg.paths.data).join("ftn");
+    std::fs::create_dir_all(&dir).ok()?;
+    std::fs::OpenOptions::new().create(true).append(true).open(dir.join("ftn.log")).ok()
 }
 
 /// `fluxbbs ftn poll [NET]|toss|scan|areafix [NET] +TAG -TAG... [config]`:
@@ -610,6 +631,12 @@ async fn main() -> anyhow::Result<()> {
         let log = wfc::LogTail::new(&config.log_path());
         tracing_subscriber::fmt().with_env_filter(filter()).with_writer(log.clone()).with_ansi(false).without_time().with_target(false).init();
         Some(log)
+    } else if let Some(log) = ftn_log(&args) {
+        // `fluxbbs ftn` beside the board (docker exec) logs where the
+        // board's log can't see it: data/ftn/ftn.log keeps it too.
+        use tracing_subscriber::fmt::writer::MakeWriterExt;
+        tracing_subscriber::fmt().with_env_filter(filter()).with_ansi(false).with_writer(std::io::stderr.and(std::sync::Mutex::new(log))).init();
+        None
     } else {
         tracing_subscriber::fmt().with_env_filter(filter()).init();
         None

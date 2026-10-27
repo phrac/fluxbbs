@@ -624,7 +624,7 @@ impl Session {
     /// the animation stops and the usual wait takes over.
     pub(crate) async fn read_key_ambient(&mut self, amb: &mut Option<Ambient>, saver: bool) -> io::Result<Option<crate::input::Key>> {
         let since = tokio::time::Instant::now();
-        let idle = self.state.config().bbs.inactivity_seconds;
+        let idle = self.idle_limit();
         // No screen saver unless one's built in (`screensavers`).
         let saver_after = if saver && cfg!(feature = "screensavers") { self.state.config().terminal.screensaver_seconds } else { 0 };
         if amb.is_some() || saver_after > 0 {

@@ -94,8 +94,34 @@ fn cstr(b: &[u8], i: &mut usize, max: usize) -> Result<Vec<u8>, String> {
 
 /// Text as CP437 for a packet, without control bytes: CP437's glyphs for
 /// them (`♪` is CR, `☺` the kludge mark, `←` ESC) would turn into them.
+/// Tabs become spaces (to the next eighth column), so words don't run
+/// together; `ì` goes as `i`, since its CP437 byte (0x8D) is FTS-0001's
+/// soft CR, which some software drops.
 pub fn text_bytes(s: &str) -> Vec<u8> {
-    let mut e = fluxbbs_term::cp437::encode(s);
+    let mut out = String::with_capacity(s.len());
+    let mut col = 0;
+    for c in s.chars() {
+        match c {
+            '\t' => {
+                let n = 8 - col % 8;
+                out.extend(std::iter::repeat_n(' ', n));
+                col += n;
+            }
+            'ì' => {
+                out.push('i');
+                col += 1;
+            }
+            '\r' | '\n' => {
+                out.push(c);
+                col = 0;
+            }
+            _ => {
+                out.push(c);
+                col += 1;
+            }
+        }
+    }
+    let mut e = fluxbbs_term::cp437::encode(&out);
     e.retain(|&c| c >= 0x20);
     e
 }
@@ -117,7 +143,17 @@ pub fn parse_fts_date(s: &str) -> Option<NaiveDateTime> {
     };
     let month = MONTHS.iter().position(|x| x.eq_ignore_ascii_case(m))? as u32 + 1;
     let yy: i32 = y.parse().ok()?;
-    let year = if yy < 80 { 2000 + yy } else if yy < 100 { 1900 + yy } else { yy };
+    // Two digits; three from packers with the Y2K bug (126 is 2026).
+    let year = match yy {
+        0..80 => 2000 + yy,
+        80..200 => 1900 + yy,
+        _ => yy,
+    };
+    // A date no writer could have meant is no date (and far-off ones
+    // would overflow the time arithmetic after).
+    if !(1980..=2100).contains(&year) {
+        return None;
+    }
     let mut hms = t.split(':').map(|p| p.parse::<u32>().ok());
     let (h, mi, sec) = (hms.next()??, hms.next()??, hms.next().flatten().unwrap_or(0));
     chrono::NaiveDate::from_ymd_opt(year, month, d.parse().ok()?)?.and_hms_opt(h, mi, sec)
@@ -147,7 +183,10 @@ impl Packet {
                 orig.net = u16_at(b, 38);
             }
         }
-        let password = String::from_utf8_lossy(&b[26..34]).trim_end_matches('\0').to_string();
+        // Fixed fields end at their first NUL: some packers leave what was
+        // in the buffer after it.
+        let to_nul = |f: &[u8]| String::from_utf8_lossy(f.split(|&c| c == 0).next().unwrap_or(&[])).into_owned();
+        let password = to_nul(&b[26..34]);
         let created = chrono::NaiveDate::from_ymd_opt(u16_at(b, 4) as i32, u16_at(b, 6) as u32 + 1, u16_at(b, 8) as u32)
             .and_then(|d| d.and_hms_opt(u16_at(b, 10) as u32, u16_at(b, 12) as u32, u16_at(b, 14) as u32))
             .unwrap_or_default();
@@ -172,7 +211,7 @@ impl Packet {
             i += 14;
             // The date is a fixed 20 bytes, NUL-padded.
             let end = (i + 20).min(b.len());
-            m.datetime = String::from_utf8_lossy(&b[i..end]).trim_end_matches('\0').to_string();
+            m.datetime = to_nul(&b[i..end]);
             i = end;
             let (to, from, subject) = (cstr(b, &mut i, 36)?, cstr(b, &mut i, 36)?, cstr(b, &mut i, 72)?);
             m.text = cstr(b, &mut i, usize::MAX)?;
@@ -378,7 +417,8 @@ pub fn split_text(text: &[u8]) -> Parts {
     let lines = text_lines(text);
     let named = charset(&lines);
     let cs = named.unwrap_or(Charset::Cp437);
-    for (n, raw) in lines.iter().enumerate() {
+    let mut text_seen = false;
+    for raw in &lines {
         // A LF after the CR isn't text, nor a soft CR (0x8D) in text with
         // no CHRS (in CP437 it's `ì`).
         let raw: Vec<u8> = raw.iter().copied().filter(|&c| c != b'\n' && (named.is_some() || c != 0x8D)).collect();
@@ -389,9 +429,14 @@ pub fn split_text(text: &[u8]) -> Parts {
             _ => (false, raw),
         };
         let line = decode_line(&raw, cs);
-        if n == 0 && let Some(tag) = line.strip_prefix("AREA:") {
-            p.area = Some(tag.trim().to_string());
-            continue;
+        // AREA: leads (FTS-0004), though some packers put kludges first
+        // or write it in lower case.
+        if !kludge && !text_seen {
+            text_seen = true;
+            if line.get(..5).is_some_and(|h| h.eq_ignore_ascii_case("AREA:")) {
+                p.area = Some(line[5..].trim().to_string());
+                continue;
+            }
         }
         if kludge {
             // The name runs to a colon or a space, whichever is first (INTL,
@@ -494,6 +539,25 @@ mod tests {
         assert_eq!(parse_fts_date("05 Jan 26  21:03:09"), Some(t));
         assert_eq!(parse_fts_date("Mon  5 Jan 26 21:03"), Some(t.with_second(0).unwrap()));
         assert_eq!(parse_fts_date("05 Jan 99  21:03:09").unwrap().year(), 1999);
+        assert_eq!(parse_fts_date("05 Jan 126  21:03:09").unwrap().year(), 2026, "the Y2K bug's three digits");
+        assert_eq!(parse_fts_date("05 Jan 2026  21:03:09").unwrap().year(), 2026);
+        assert_eq!(parse_fts_date("31 Dec 262142  23:59:00"), None);
+        assert_eq!(parse_fts_date("01 Jan 1601  00:00:00"), None);
+        // Fixed fields end at their first NUL, whatever follows.
+        let mut b = Packet { password: "PW".into(), msgs: vec![PackedMsg { datetime: "05 Jan 26  21:03:09".into(), ..Default::default() }], ..Default::default() }.to_bytes();
+        b[29] = b'Z';
+        let at = b.windows(19).position(|w| w == b"05 Jan 26  21:03:09").unwrap();
+        b[at + 20 - 1] = b'Q';
+        b[at + 19] = 0;
+        let p = Packet::parse(&b).unwrap();
+        assert_eq!((p.password.as_str(), p.msgs[0].datetime.as_str()), ("PW", "05 Jan 26  21:03:09"));
+        // Tabs go as spaces, and ì as i (its byte is the soft CR).
+        assert_eq!(text_bytes("a\tb"), b"a       b");
+        assert_eq!(text_bytes("italiano ì"), b"italiano i");
+        // AREA: in lower case, or after kludges, is still the area.
+        assert_eq!(split_text(b"area:AGN_TST\rhi\r").area.as_deref(), Some("AGN_TST"));
+        assert_eq!(split_text(b"\x01MSGID: 1:2/3 4\rAREA:AGN_TST\rhi\r").area.as_deref(), Some("AGN_TST"));
+        assert_eq!(split_text(b"hi\rAREA:AGN_TST\r").area, None, "only before the text");
     }
 
     #[test]

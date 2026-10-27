@@ -165,7 +165,8 @@ pub fn toss(state: &BbsState) -> anyhow::Result<Tossed> {
             tracing::warn!("ftn: {} belongs to no network set up; tossing it by its packets' addresses", d.display());
             toss_dir(state, &d, &nets, &mut t)?;
         }
-        toss_dir(state, &inbound, &nets, &mut t)
+        toss_dir(state, &inbound, &nets, &mut t)?;
+        retoss_unknown(state, &nets, &mut t)
     })();
     if t != Tossed::default() {
         tracing::info!("ftn: tossed {t:?}");
@@ -212,6 +213,13 @@ fn toss_dir(state: &BbsState, dir: &Path, nets: &[(FtnNetwork, Addr, Addr)], t: 
                 continue;
             }
         };
+        // Empty: a bundle some mailers send with nothing in it, or one cut
+        // off. Nothing to keep.
+        if data.is_empty() {
+            tracing::info!("ftn: {name} is empty; removed");
+            std::fs::remove_file(&path)?;
+            continue;
+        }
         let result = if packet {
             toss_packet(state, &data, nets, t)
         } else if data.starts_with(b"PK\x03\x04") && bundled(&data) {
@@ -292,21 +300,100 @@ fn toss_packet(state: &BbsState, data: &[u8], nets: &[(FtnNetwork, Addr, Addr)],
         return Err(Fault::Bad(format!("wrong packet password from {}", pkt.orig)));
     }
     t.packets += 1;
-    let unknown = t.unknown;
+    // What can't be tossed is kept apart, so the rest of the packet isn't
+    // held up: echoes with no area here (until one's mapped), and netmail
+    // for others (for the SysOp, in bad).
+    let mut unknown: std::collections::BTreeMap<String, Vec<PackedMsg>> = Default::default();
+    let mut misrouted = Vec::new();
     let mut problems = Vec::new();
     for m in &pkt.msgs {
         let parts = ftn::split_text(&m.text);
         match &parts.area {
-            Some(tag) => toss_echo(state, &areas, tag, m, &parts, t)?,
-            None => toss_netmail(state, m, &parts, me, pkt.orig, t, &mut problems)?,
+            Some(tag) => {
+                if !toss_echo(state, &areas, tag, m, &parts, t)? {
+                    unknown.entry(tag.to_ascii_uppercase()).or_default().push(m.clone());
+                }
+            }
+            None => {
+                if let Some(why) = toss_netmail(state, m, &parts, me, pkt.orig, t)? {
+                    problems.push(why);
+                    misrouted.push(m.clone());
+                }
+            }
         }
     }
-    // Kept (in bad) until the echo is mapped to an area; then a retoss
-    // brings in what's missing, the rest being dupes.
-    if t.unknown > unknown {
-        problems.push(format!("{} message(s) for echoes with no area here", t.unknown - unknown));
+    let (inbound, _, bad) = dirs(state);
+    for (tag, msgs) in unknown {
+        let n = msgs.len();
+        let dir = inbound.parent().unwrap_or(&inbound).join("unknown");
+        // The network and echo in the name: kept until that echo has an
+        // area on that network.
+        // (Network names are letters, digits, `-` and `_` already.)
+        let name = format!("{}~{}-{:08x}.pkt", net.name, safe_tag(&tag), crate::clock::now().timestamp_millis() as u32);
+        save_packet(&dir, &name, &Packet { msgs, ..pkt.clone() }).map_err(Fault::Board)?;
+        tracing::warn!("ftn: {n} message(s) for {tag}, which has no area here; kept in ftn/unknown until it's mapped");
     }
-    if problems.is_empty() { Ok(()) } else { Err(Fault::Bad(problems.join("; "))) }
+    if !misrouted.is_empty() {
+        let name = format!("netmail-{:08x}.pkt", crate::clock::now().timestamp_millis() as u32);
+        save_packet(&bad, &name, &Packet { msgs: misrouted, ..pkt.clone() }).map_err(Fault::Board)?;
+        tracing::warn!("ftn: {}; kept in bad", problems.join("; "));
+        t.bad += 1;
+    }
+    Ok(())
+}
+
+/// An echo tag as part of a file name.
+fn safe_tag(tag: &str) -> String {
+    let s: String = tag.chars().filter(|c| c.is_ascii_alphanumeric() || "_.".contains(*c)).take(40).collect();
+    if s.is_empty() { "echo".into() } else { s }
+}
+
+/// Write `pkt` as `dir/name` (under a free name), whole before it's named.
+fn save_packet(dir: &Path, name: &str, pkt: &Packet) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dir)?;
+    let dest = free_name(dir, name);
+    let tmp = dest.with_extension("tmp");
+    write_private(&tmp, &pkt.to_bytes())?;
+    std::fs::rename(&tmp, &dest)?;
+    Ok(())
+}
+
+/// Write a file only its owner can read: packets carry the packet
+/// password, and an AreaFix request the AreaFix one.
+fn write_private(path: &Path, data: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut o = std::fs::OpenOptions::new();
+    o.write(true).create(true).truncate(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut o, 0o600);
+    o.open(path)?.write_all(data)
+}
+
+/// Toss again what was kept for echoes with no area, once they have one.
+fn retoss_unknown(state: &BbsState, nets: &[(FtnNetwork, Addr, Addr)], t: &mut Tossed) -> anyhow::Result<()> {
+    let (inbound, _, _) = dirs(state);
+    let dir = inbound.parent().unwrap_or(&inbound).join("unknown");
+    // Listed first: what's kept again as it's tossed isn't tossed twice.
+    let Ok(rd) = std::fs::read_dir(&dir) else { return Ok(()) };
+    let mut files: Vec<PathBuf> = rd.flatten().map(|e| e.path()).collect();
+    files.sort();
+    let ftn = state.config().ftn.clone();
+    for path in files {
+        let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+        let Some((net, rest)) = name.split_once('~') else { continue };
+        let Some((tag, _)) = rest.rsplit_once('-') else { continue };
+        let mapped = ftn.areas_of(net).iter().any(|a| safe_tag(&a.tag.to_ascii_uppercase()) == tag);
+        if !name.ends_with(".pkt") || !mapped {
+            continue;
+        }
+        let data = std::fs::read(&path)?;
+        match toss_packet(state, &data, nets, t) {
+            Ok(()) => std::fs::remove_file(&path)?,
+            Err(Fault::Bad(why)) => tracing::warn!("ftn: unknown/{name}: {why}"),
+            Err(Fault::Board(e)) => return Err(e.context(format!("ftn: tossing unknown/{name}"))),
+        }
+    }
+    Ok(())
 }
 
 /// When a message was written, in the board's time: FTN dates are the
@@ -315,8 +402,10 @@ fn toss_packet(state: &BbsState, data: &[u8], nets: &[(FtnNetwork, Addr, Addr)],
 fn posted(m: &PackedMsg, parts: &Parts) -> NaiveDateTime {
     let Some(t) = ftn::parse_fts_date(&m.datetime) else { return crate::clock::now().naive_local() };
     let Some(offset) = parts.kludge("TZUTC").and_then(tzutc_minutes) else { return t };
-    let utc = t - chrono::Duration::minutes(offset);
-    crate::clock::from_utc(utc)
+    match t.checked_sub_signed(chrono::Duration::minutes(offset)) {
+        Some(utc) => crate::clock::from_utc(utc),
+        None => t,
+    }
 }
 
 /// `-0500`, `0100`, `+1300` as minutes east of UTC.
@@ -357,21 +446,22 @@ fn party(name: &str) -> Party {
     Party { name: name.to_string(), alias: name.to_string(), real_name: name.to_string(), ..Party::default() }
 }
 
-fn toss_echo(state: &BbsState, areas: &[FtnArea], tag: &str, m: &PackedMsg, parts: &Parts, t: &mut Tossed) -> anyhow::Result<()> {
+/// Toss an echomail message; false if its echo has no area here.
+fn toss_echo(state: &BbsState, areas: &[FtnArea], tag: &str, m: &PackedMsg, parts: &Parts, t: &mut Tossed) -> anyhow::Result<bool> {
     let Some(map) = areas.iter().find(|a| a.tag.eq_ignore_ascii_case(tag)) else {
         t.unknown += 1;
-        return Ok(());
+        return Ok(false);
     };
     let area = map.area.as_str();
     if !state.areas().areas.iter().any(|a| a.file.eq_ignore_ascii_case(area)) {
         tracing::warn!("ftn: {tag} is mapped to message area {area}, which doesn't exist");
         t.unknown += 1;
-        return Ok(());
+        return Ok(false);
     }
     let msgid = dupe_key(m, parts);
     if state.msgs.ftn_known(area, &msgid)? {
         t.dupes += 1;
-        return Ok(());
+        return Ok(true);
     }
     let reply = parts.kludge("REPLY").filter(|r| !r.is_empty());
     let parent = match reply {
@@ -407,10 +497,10 @@ fn toss_echo(state: &BbsState, areas: &[FtnArea], tag: &str, m: &PackedMsg, part
     if let (None, Some(r)) = (parent, reply) {
         state.msgs.ftn_wait_reply(msg.id, area, r)?;
     }
-    let name = state.areas().areas.iter().find(|a| a.file.eq_ignore_ascii_case(area)).map(|a| a.name.clone()).unwrap_or_else(|| area.to_string());
-    crate::mentions::record(state, &msg, &name, 0);
+    // No @mentions from elsewhere: anyone on the network could ping a
+    // caller here.
     t.echomail += 1;
-    Ok(())
+    Ok(true)
 }
 
 /// What a message is known by for dupes: its MSGID, or for one without,
@@ -422,7 +512,9 @@ fn dupe_key(m: &PackedMsg, parts: &Parts) -> String {
     }
 }
 
-fn toss_netmail(state: &BbsState, m: &PackedMsg, parts: &Parts, me: Addr, pkt_orig: Addr, t: &mut Tossed, problems: &mut Vec<String>) -> anyhow::Result<()> {
+/// Toss a netmail; Some(why) if it isn't for us (it's kept for the
+/// SysOp).
+fn toss_netmail(state: &BbsState, m: &PackedMsg, parts: &Parts, me: Addr, pkt_orig: Addr, t: &mut Tossed) -> anyhow::Result<Option<String>> {
     // Who it's for and from: INTL (zones), FMPT/TOPT (points), else the
     // message header.
     let (mut orig, mut dest) = (Addr { zone: pkt_orig.zone, net: m.orig_net, node: m.orig_node, point: 0 }, Addr { zone: me.zone, net: m.dest_net, node: m.dest_node, point: 0 });
@@ -436,14 +528,13 @@ fn toss_netmail(state: &BbsState, m: &PackedMsg, parts: &Parts, me: Addr, pkt_or
     orig.point = parts.kludge("FMPT").and_then(|p| p.parse().ok()).unwrap_or(0);
     // Nothing is routed on from here: kept, in bad, for the SysOp.
     if dest != me {
-        problems.push(format!("netmail for {dest} from {orig}, not routed here"));
-        return Ok(());
+        return Ok(Some(format!("netmail for {dest} from {orig}, not routed here")));
     }
     let msgid = dupe_key(m, parts);
     let email = state.areas().email.file.clone();
     if state.msgs.ftn_known(&email, &msgid)? {
         t.dupes += 1;
-        return Ok(());
+        return Ok(None);
     }
     // To the user named (not by number), or the SysOp, still showing
     // whom it was for.
@@ -476,7 +567,7 @@ fn toss_netmail(state: &BbsState, m: &PackedMsg, parts: &Parts, me: Addr, pkt_or
     state.msgs.add_ftn(&mut msg, Some(&msgid))?;
     tracing::info!("ftn: netmail from {}@{orig} to {}", m.from, msg.to.name);
     t.netmail += 1;
-    Ok(())
+    Ok(None)
 }
 
 /// A new MSGID serial: never the same twice, kept with the messages.
@@ -501,6 +592,19 @@ fn origin_line(state: &BbsState, net: &FtnNetwork, me: Addr) -> String {
     let tail = format!(" ({me})");
     let room = 79usize.saturating_sub(" * Origin: ".len() + tail.len());
     format!(" * Origin: {}{tail}", text.chars().take(room).collect::<String>())
+}
+
+/// A line a caller wrote that would pass for a tear or origin line (or
+/// SEEN-BY, which the packet writer handles), changed as other tossers
+/// do so readers don't take it for the real one.
+fn defused(l: &str) -> String {
+    if l == "---" || l.starts_with("--- ") {
+        format!("-+-{}", &l[3..])
+    } else if let Some(rest) = l.strip_prefix(" * Origin:") {
+        format!(" + Origin:{rest}")
+    } else {
+        l.to_string()
+    }
 }
 
 fn tear_line() -> String {
@@ -531,10 +635,15 @@ fn scan_net(state: &BbsState, net: &FtnNetwork, me: Addr, hub: Addr) -> anyhow::
     let mut done = std::collections::HashSet::new();
     for map in &areas {
         let key = format!("sent:{}", map.area.to_ascii_uppercase());
-        // First time: start from what's there now.
-        let Some(after) = state.msgs.ftn_get(&key)? else {
-            state.msgs.ftn_set(&key, state.msgs.max_id()?)?;
-            continue;
+        // First time: start after the area's history, but send what was
+        // posted in the last day (while the echo was being set up).
+        let after = match state.msgs.ftn_get(&key)? {
+            Some(a) => a,
+            None => {
+                let a = state.msgs.ftn_start(&map.area, now - chrono::Duration::days(1))?;
+                state.msgs.ftn_set(&key, a)?;
+                a
+            }
         };
         let mut last = after;
         for m in state.msgs.ftn_unsent(&map.area, after)? {
@@ -561,7 +670,7 @@ fn scan_net(state: &BbsState, net: &FtnNetwork, me: Addr, hub: Addr) -> anyhow::
             kludges.push(("PID".into(), format!("fluxbbs {}", env!("CARGO_PKG_VERSION"))));
             kludges.push(("TZUTC".into(), tzutc(m.posted)));
             kludges.push(("CHRS".into(), "CP437 2".into()));
-            let mut body: Vec<String> = m.lines.iter().map(|l| crate::editor::strip_colours(l)).collect();
+            let mut body: Vec<String> = m.lines.iter().map(|l| defused(&crate::editor::strip_colours(l))).collect();
             if body.last().is_some_and(|l| !l.trim().is_empty()) {
                 body.push(String::new());
             }
@@ -589,10 +698,16 @@ fn scan_net(state: &BbsState, net: &FtnNetwork, me: Addr, hub: Addr) -> anyhow::
             });
             sent.push((m.id, msgid, map.area.clone()));
         }
+        // Not past a post that's deleted or private for now (a week at
+        // most): restored, it still goes.
+        if let Some(held) = state.msgs.ftn_held(&map.area, after, now - chrono::Duration::days(7))? {
+            last = last.min(held - 1);
+        }
         if last > after {
             marks.push((key, last));
         }
     }
+    state.msgs.ftn_forget_waits(now - chrono::Duration::days(30))?;
     let n = msgs.len();
     if n > 0 {
         write_packet(state, &net.name, &Packet { orig: me, dest: hub, password: net.packet_password.clone(), created: now, msgs })?;
@@ -660,7 +775,7 @@ fn write_packet(state: &BbsState, net: &str, pkt: &Packet) -> anyhow::Result<Pat
     };
     // Written whole before it's named, so the mailer never sends half.
     let tmp = path.with_extension("tmp");
-    std::fs::write(&tmp, pkt.to_bytes()).with_context(|| format!("writing {}", tmp.display()))?;
+    write_private(&tmp, &pkt.to_bytes()).with_context(|| format!("writing {}", tmp.display()))?;
     std::fs::rename(&tmp, &path)?;
     Ok(path)
 }
@@ -732,17 +847,52 @@ mod tests {
         let bundle = z.finish().unwrap().into_inner();
         std::fs::write(inbound.join("00000064.su0"), &bundle).unwrap();
         let t = toss(&state).unwrap();
-        assert_eq!((t.packets, t.echomail, t.unknown, t.bad), (2, 2, 1, 1), "the good packet is tossed all the same");
+        assert_eq!((t.packets, t.echomail, t.unknown, t.bad), (2, 2, 1, 0), "the good packet is tossed all the same");
         let msgs = state.msgs.all("GENERAL").unwrap();
         let (reply, parent) = (&msgs[0], &msgs[1]);
         assert_eq!((reply.reply_to, parent.replies), (parent.id, 1), "threaded once the parent came");
-        // The same name kept in bad again doesn't take the first's place.
-        std::fs::write(inbound.join("00000064.su0"), &bundle).unwrap();
-        toss(&state).unwrap();
-        assert!(bad.join("00000064.su0").exists() && bad.join("00000064-1.su0").exists());
-        // A bundle-named file that isn't a ZIP goes to bad too.
+        // The unmapped echo's message is kept apart, and comes in once the
+        // echo has an area.
+        let unknown = inbound.parent().unwrap().join("unknown");
+        let kept: Vec<_> = std::fs::read_dir(&unknown).unwrap().flatten().map(|e| e.file_name().to_string_lossy().into_owned()).collect();
+        assert!(kept.len() == 1 && kept[0].starts_with("fsxnet~FSX_BOT-"), "{kept:?}");
+        assert_eq!(toss(&state).unwrap().echomail, 0, "not retossed until mapped");
+        {
+            let mut cfg = (*state.config()).clone();
+            cfg.ftn.areas.push(FtnArea { tag: "FSX_BOT".into(), area: "GENERAL".into(), network: String::new() });
+            *state.config.write().unwrap() = std::sync::Arc::new(cfg);
+        }
+        assert_eq!(toss(&state).unwrap().echomail, 1);
+        assert_eq!(std::fs::read_dir(&unknown).unwrap().count(), 0);
+        // Files that can't be read here go to bad, and one of a name
+        // there already doesn't take its place.
         std::fs::write(inbound.join("00000064.mo1"), b"`\xeaARJ").unwrap();
         assert_eq!(toss(&state).unwrap().bad, 1);
+        std::fs::write(inbound.join("00000064.mo1"), b"`\xeaARJ").unwrap();
+        toss(&state).unwrap();
+        assert!(bad.join("00000064.mo1").exists() && bad.join("00000064-1.mo1").exists());
+        // An empty one is just removed.
+        std::fs::write(inbound.join("00000065.tu0"), b"").unwrap();
+        assert_eq!(toss(&state).unwrap(), Tossed::default());
+        assert!(!inbound.join("00000065.tu0").exists());
+        // A date no one could mean (and a TZUTC to push it over) is now.
+        let mut odd = echo("Mal", "far", "21:1/5 00000099", None, "x", "FSX_GEN");
+        odd.datetime = "31 Dec 262142 23:59".into();
+        let mut parts = ftn::split_text(&odd.text);
+        parts.kludges.push(("TZUTC".into(), "-1400".into()));
+        odd.text = ftn::join_text(&parts);
+        std::fs::write(inbound.join("00000066.pkt"), pkt(vec![odd])).unwrap();
+        assert_eq!(toss(&state).unwrap().echomail, 1, "tossed, not a panic");
+        let far = state.msgs.all("GENERAL").unwrap().into_iter().find(|m| m.subject == "far").unwrap();
+        assert!((far.posted - crate::clock::now().naive_local()).num_minutes().abs() < 5);
+        // Netmail for someone else is kept for the SysOp; the echomail in
+        // the same packet is tossed.
+        let parts = Parts { kludges: vec![("INTL".into(), "21:3/4 21:1/5".into()), ("MSGID".into(), "21:1/5 0000aaaa".into())], body: vec!["for 3/4".into()], ..Default::default() };
+        let stray = PackedMsg { orig_node: 5, dest_node: 4, orig_net: 1, dest_net: 3, datetime: "20 Oct 26  12:00:00".into(), to: "Someone".into(), from: "Al".into(), subject: "not you".into(), text: ftn::join_text(&parts), ..Default::default() };
+        std::fs::write(inbound.join("00000067.pkt"), pkt(vec![stray, echo("Al", "also", "21:1/5 0000aaab", None, "x", "FSX_GEN")])).unwrap();
+        let t = toss(&state).unwrap();
+        assert_eq!((t.echomail, t.bad), (1, 1));
+        assert!(std::fs::read_dir(&bad).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("netmail-")));
         assert_eq!(tzutc_minutes("-0500"), Some(-300));
         assert_eq!(tzutc_minutes("1300"), Some(780));
         assert_eq!(tzutc_minutes("+0545"), Some(345));
@@ -790,6 +940,53 @@ mod tests {
     }
 
     #[test]
+    fn first_scans_held_posts_and_typed_origin_lines() {
+        let (state, dir) = board();
+        let outbound = outbound_dir(&state, "fsxnet");
+        let post = |subject: &str, days_ago: i64, lines: Vec<&str>| {
+            let mut m = Message {
+                id: 0,
+                area: "GENERAL".into(),
+                num: 0,
+                from: party("phrac"),
+                to: party("All"),
+                subject: subject.into(),
+                posted: crate::clock::now().naive_local() - chrono::Duration::days(days_ago),
+                deleted: false,
+                private: false,
+                anonymous: false,
+                replies: 0,
+                sig_pos: 0,
+                tag: 0,
+                reply_to: 0,
+                lines: lines.into_iter().map(String::from).collect(),
+            };
+            state.msgs.add(&mut m).unwrap();
+            m
+        };
+        // History isn't sent on the first scan; a hello written while the
+        // echo was being set up is.
+        post("old", 30, vec!["old"]);
+        post("hello", 0, vec!["hi all", "--- not my tear", " * Origin: not mine (1:2/3)"]);
+        assert_eq!(scan(&state).unwrap(), 1);
+        let files = outbound_files(&outbound);
+        let out = Packet::parse(&std::fs::read(&files[0]).unwrap()).unwrap();
+        assert_eq!(out.msgs[0].subject, "hello");
+        let body = ftn::split_text(&out.msgs[0].text).body;
+        assert!(body.contains(&"-+- not my tear".to_string()) && body.contains(&" + Origin: not mine (1:2/3)".to_string()), "{body:?}");
+        std::fs::remove_file(&files[0]).unwrap();
+        // Deleted when scanned, restored after: it still goes.
+        let gone = post("second thoughts", 0, vec!["x"]);
+        state.msgs.set_deleted(gone.id, true).unwrap();
+        post("after it", 0, vec!["y"]);
+        assert_eq!(scan(&state).unwrap(), 1);
+        state.msgs.set_deleted(gone.id, false).unwrap();
+        assert_eq!(scan(&state).unwrap(), 1);
+        assert_eq!(scan(&state).unwrap(), 0);
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
     fn toss_and_scan() {
         let (state, dir) = board();
         let (inbound, _, _) = dirs(&state);
@@ -812,10 +1009,11 @@ mod tests {
         };
         std::fs::write(inbound.join("0000abcd.pkt"), pkt.to_bytes()).unwrap();
         let t = toss(&state).unwrap();
-        // FSX_OTHER has no area here: the packet is kept, in bad.
-        assert_eq!(t, Tossed { packets: 1, echomail: 2, netmail: 1, dupes: 1, unknown: 1, bad: 1 });
+        // FSX_OTHER has no area here: its message is kept apart, the rest
+        // tossed.
+        assert_eq!(t, Tossed { packets: 1, echomail: 2, netmail: 1, dupes: 1, unknown: 1, bad: 0 });
         assert!(std::fs::read_dir(&inbound).unwrap().next().is_none());
-        assert!(dirs(&state).2.join("0000abcd.pkt").exists());
+        assert!(std::fs::read_dir(inbound.parent().unwrap().join("unknown")).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("fsxnet~FSX_OTHER-")));
         let msgs = state.msgs.all("GENERAL").unwrap();
         assert_eq!(msgs.len(), 2);
         assert_eq!(msgs[1].reply_to, msgs[0].id);

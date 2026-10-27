@@ -112,7 +112,8 @@ const STAGGER: f32 = 0.14;
 /// The pay table's columns: the names, and the first amount column, 9
 /// apart and 7 wide.
 const NAME_COL: usize = 3;
-const PAY_COL: usize = 33;
+/// The first coin column: the name padded to 29 after `NAME_COL`.
+const PAY_COL: usize = NAME_COL + 29;
 
 fn image(c: Option<Card>) -> &'static [Option<Rgb>] {
     static IMAGES: OnceLock<Vec<Vec<Option<Rgb>>>> = OnceLock::new();

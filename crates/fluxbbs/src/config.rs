@@ -590,17 +590,19 @@ pub struct CarrierLost {
     /// `actions_per_day` is read as this.
     #[serde(alias = "actions_per_day")]
     pub dials_per_day: u32,
-    /// Bytes fenced per file point when cashing out. The old
-    /// `points_per_tier` is read as this.
-    #[serde(alias = "points_per_tier")]
+    /// Bytes fenced per file point when cashing out.
     pub bytes_per_point: u32,
     /// Bytes a gear upgrade costs, times the next level.
     pub gear_cost: u32,
+    /// The old game's points per cred tier: another measure, read and
+    /// dropped (taken as bytes per point, it paid twelve times over).
+    #[serde(skip_serializing)]
+    pub points_per_tier: Option<u32>,
 }
 
 impl Default for CarrierLost {
     fn default() -> Self {
-        Self { dials_per_day: 40, bytes_per_point: 60, gear_cost: 150 }
+        Self { dials_per_day: 40, bytes_per_point: 60, gear_cost: 150, points_per_tier: None }
     }
 }
 
@@ -1759,5 +1761,12 @@ mod tests {
         assert!(!c.features.tarot);
         let out = toml::to_string(&c).unwrap();
         assert!(!out.contains("temple"), "the temple's keys aren't written back");
+    }
+
+    #[test]
+    fn the_old_carrier_lost_reward_isnt_bytes_per_point() {
+        let c: Config = toml::from_str("[carrier]\nactions_per_day = 25\npoints_per_tier = 5\ngear_cost = 120\n").unwrap();
+        assert_eq!((c.carrier.dials_per_day, c.carrier.bytes_per_point), (25, 60));
+        assert!(!toml::to_string(&c).unwrap().contains("points_per_tier"));
     }
 }

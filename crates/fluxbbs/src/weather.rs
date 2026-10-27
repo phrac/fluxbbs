@@ -255,10 +255,16 @@ fn client() -> anyhow::Result<reqwest::Client> {
 
 /// Where `q` is.
 async fn geocode(q: &str) -> anyhow::Result<Found> {
-    if let Some(state) = region_only(q) {
-        return Ok(Found::Region(state.into()));
-    }
+    let wide = region_only(q);
     let (town, region) = split_place(q);
+    // A state spelled out may be its big city too ("New York"); an
+    // abbreviation or a country never is.
+    let spelled = |t: &str| STATES.iter().any(|(_, full)| full.eq_ignore_ascii_case(t));
+    if let Some(r) = wide
+        && !spelled(&town.replace('.', ""))
+    {
+        return Ok(Found::Region(r.into()));
+    }
     if town.is_empty() {
         return Ok(Found::Nowhere);
     }
@@ -268,7 +274,22 @@ async fn geocode(q: &str) -> anyhow::Result<Found> {
     )?;
     let v: Value = client()?.get(url).send().await?.error_for_status()?.json().await?;
     let results = v["results"].as_array().cloned().unwrap_or_default();
-    Ok(pick(&results, &region).or_else(|| pick(&results, "")).unwrap_or(Found::Nowhere))
+    if let Some(r) = wide {
+        return Ok(big_city(&results, &town).unwrap_or(Found::Region(r.into())));
+    }
+    // A region nothing matched is a miss, not the first town of that name
+    // anywhere ("Lincoln, Nebrasca" isn't Lincoln, England).
+    Ok(pick(&results, &region).unwrap_or(Found::Nowhere))
+}
+
+/// A US city of a million or more named `town`, as "New York" is.
+fn big_city(results: &[Value], town: &str) -> Option<Found> {
+    let r = results.iter().find(|r| {
+        r["name"].as_str().is_some_and(|n| n.eq_ignore_ascii_case(town))
+            && r["country_code"] == "US"
+            && r["population"].as_u64().is_some_and(|p| p >= 1_000_000)
+    })?;
+    pick(std::slice::from_ref(r), "")
 }
 
 /// The forecast for `p`.
@@ -866,6 +887,13 @@ mod tests {
         .unwrap();
         assert_eq!(pick(&results, "").unwrap(), Found::Region("Canada".into()));
         assert!(matches!(pick(&results, "Kentucky").unwrap(), Found::At(p) if p.name == "Canada, KY"));
+        let ny: Vec<Value> = serde_json::from_str(
+            r#"[{"name":"New York","feature_code":"PPL","admin1":"New York","country":"United States","country_code":"US","population":8804190,"latitude":40.71,"longitude":-74.01},
+                {"name":"Nebraska","feature_code":"PPL","admin1":"Indiana","country":"United States","country_code":"US","latitude":39.1,"longitude":-85.4}]"#,
+        )
+        .unwrap();
+        assert!(matches!(big_city(&ny, "new york"), Some(Found::At(p)) if p.name == "New York, NY"));
+        assert_eq!(big_city(&ny, "Nebraska"), None, "a hamlet isn't the state");
         let results: Vec<Value> = serde_json::from_str(
             r#"[{"name":"Luxembourg","feature_code":"PCLI","country":"Luxembourg","country_code":"LU","latitude":49.75,"longitude":6.17},
                 {"name":"Luxembourg","feature_code":"PPLC","admin1":"Luxembourg","country":"Luxembourg","country_code":"LU","latitude":49.61,"longitude":6.13}]"#,
@@ -949,6 +977,10 @@ mod tests {
         assert!(matches!(geocode("Luxembourg").await.unwrap(), Found::At(_)), "the capital");
         assert_eq!(geocode("Kuwait").await.unwrap(), Found::Region("Kuwait".into()), "its capital is Kuwait City");
         assert!(matches!(geocode("London, UK").await.unwrap(), Found::At(p) if p.name == "London, England"));
+        assert!(matches!(geocode("New York").await.unwrap(), Found::At(p) if p.name == "New York, NY"));
+        assert_eq!(geocode("Nebraska").await.unwrap(), Found::Region("Nebraska".into()));
+        assert_eq!(geocode("NY").await.unwrap(), Found::Region("New York".into()));
+        assert_eq!(geocode("Lincoln, Nebrasca").await.unwrap(), Found::Nowhere);
         assert_eq!(p.name, "Lincoln, NE");
         let f = fetch(&p, Units::Us).await.unwrap();
         assert_eq!(f.days.len(), 7);

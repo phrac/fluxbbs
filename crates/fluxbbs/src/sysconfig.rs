@@ -23,6 +23,8 @@ enum Kind {
     /// A comma-separated list.
     List(fn(&mut Config) -> &mut Vec<String>),
     Path(fn(&mut Config) -> &mut PathBuf),
+    /// A path that may be blank, for none.
+    PathOrNone(fn(&mut Config) -> &mut PathBuf),
     Char(fn(&mut Config) -> &mut char),
     /// A level letter, A-Z.
     Letter(fn(&mut Config) -> &mut char),
@@ -33,6 +35,110 @@ enum Kind {
     /// New: the screen saver's font (false) or face (true), both picked
     /// from a list of the board's fonts with a preview (`fontpick`).
     SaverFont(bool),
+    /// New: a list of entries, each edited on a screen of its own.
+    Table(Entries),
+}
+
+/// New: the lists in the config (`[[ftn.network]]`...), edited as the
+/// protocol editor edits protocols.
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Entries {
+    FtnNetworks,
+    FtnEchoes,
+    MeshChannels,
+}
+
+/// One field of a list entry.
+struct Col {
+    key: char,
+    label: &'static str,
+    len: usize,
+    info: &'static str,
+    kind: ColKind,
+}
+
+enum ColKind {
+    Text(fn(&mut Config, usize) -> &mut String, Field),
+    Bool(fn(&mut Config, usize) -> &mut bool),
+}
+
+const fn col(key: char, label: &'static str, len: usize, info: &'static str, kind: ColKind) -> Col {
+    Col { key, label, len, info, kind }
+}
+
+impl Entries {
+    /// What one is called, and the list's title.
+    fn names(self) -> (&'static str, &'static str) {
+        match self {
+            Entries::FtnNetworks => ("network", "FTN Networks"),
+            Entries::FtnEchoes => ("echo", "FTN Echoes"),
+            Entries::MeshChannels => ("channel", "MeshCore Channels"),
+        }
+    }
+
+    fn len(self, c: &Config) -> usize {
+        match self {
+            Entries::FtnNetworks => c.ftn.networks.len(),
+            Entries::FtnEchoes => c.ftn.areas.len(),
+            Entries::MeshChannels => c.meshcore.channels.len(),
+        }
+    }
+
+    /// The list's column heads, and entry `i` under them.
+    fn head(self) -> &'static str {
+        match self {
+            Entries::FtnNetworks => "Name          Address                  Hub          Hub host",
+            Entries::FtnEchoes => "Echo tag                  Message area  Network",
+            Entries::MeshChannels => "Channel               Message area  From mesh  To mesh",
+        }
+    }
+
+    fn line(self, c: &Config, i: usize) -> String {
+        let cut = |s: &str, n: usize| format!("{:<n$.n$}", s);
+        match self {
+            Entries::FtnNetworks => {
+                let n = &c.ftn.networks[i];
+                format!("{} {} {} {}", cut(&n.name, 13), cut(&n.address, 24), cut(&n.hub, 12), cut(&n.hub_host, 24))
+            }
+            Entries::FtnEchoes => {
+                let a = &c.ftn.areas[i];
+                let net = if a.network.is_empty() { "(the first)" } else { &a.network };
+                format!("{} {} {}", cut(&a.tag, 25), cut(&a.area, 13), cut(net, 20))
+            }
+            Entries::MeshChannels => {
+                let m = &c.meshcore.channels[i];
+                format!("{} {} {} {}", cut(&m.channel, 21), cut(&m.area, 13), cut(yes_no(m.from_mesh), 10), yes_no(m.to_mesh))
+            }
+        }
+    }
+
+    fn cols(self) -> Vec<Col> {
+        use ColKind::*;
+        let key = Field::UPPER.max(8);
+        match self {
+            Entries::FtnNetworks => vec![
+                col('A', "Name", 20, "What it's called here (agoranet): echoes name it, and its outbound is data/ftn/outbound/NAME. Blank: the address's domain.", Text(|c, i| &mut c.ftn.networks[i].name, TEXT.max(20))),
+                col('B', "Our address", 30, "This board's address on it, with the domain: 46:1/115@agoranet. Blank: not set up yet (it's left alone).", Text(|c, i| &mut c.ftn.networks[i].address, TEXT.max(40))),
+                col('C', "Hub address", 30, "The hub's FTN address, e.g. 46:1/100.", Text(|c, i| &mut c.ftn.networks[i].hub, TEXT.max(40))),
+                col('D', "Hub host", 40, "Where the hub's binkp mailer listens: host or host:port (24554 if none).", Text(|c, i| &mut c.ftn.networks[i].hub_host, TEXT.max(100))),
+                col('E', "Session password", 20, "The binkp session password the hub gave.", Text(|c, i| &mut c.ftn.networks[i].session_password, TEXT.max(40))),
+                col('F', "Packet password", 8, "The packet password (up to 8 characters); blank if none.", Text(|c, i| &mut c.ftn.networks[i].packet_password, TEXT.max(8))),
+                col('G', "AreaFix password", 20, "AreaFix's password; blank to use the session password.", Text(|c, i| &mut c.ftn.networks[i].areafix_password, TEXT.max(40))),
+                col('H', "Origin line", 50, "Text of the origin line on messages sent to it; blank for the FTN section's.", Text(|c, i| &mut c.ftn.networks[i].origin, TEXT.max(60))),
+            ],
+            Entries::FtnEchoes => vec![
+                col('A', "Echo tag", 30, "The echo's tag on the network (AGN_GEN).", Text(|c, i| &mut c.ftn.areas[i].tag, Field::UPPER.max(40))),
+                col('B', "Message area", 8, "Storage key of the message area it's tossed to (*M).", Text(|c, i| &mut c.ftn.areas[i].area, key)),
+                col('C', "Network", 20, "Which network it's on, by name; blank for the first (the FTN section's own).", Text(|c, i| &mut c.ftn.areas[i].network, TEXT.max(20))),
+            ],
+            Entries::MeshChannels => vec![
+                col('A', "Channel", 20, "The channel's name on the radio (Public).", Text(|c, i| &mut c.meshcore.channels[i].channel, TEXT.max(32))),
+                col('B', "Message area", 8, "Storage key of the message area it's bridged to (*M).", Text(|c, i| &mut c.meshcore.channels[i].area, key)),
+                col('C', "From the mesh", 3, "Post what's said on the channel in the area?", Bool(|c, i| &mut c.meshcore.channels[i].from_mesh)),
+                col('D', "To the mesh", 3, "Send what's posted in the area to the channel?", Bool(|c, i| &mut c.meshcore.channels[i].to_mesh)),
+            ],
+        }
+    }
 }
 
 fn prize_shown(p: &crate::config::Prize) -> String {
@@ -75,11 +181,20 @@ fn shown(kind: &Kind, c: &mut Config) -> String {
         Kind::Bool(get) => yes_no(*get(c)).into(),
         Kind::Num(get, ..) => get(c).to_string(),
         Kind::List(get) => get(c).join(", "),
-        Kind::Path(get) => get(c).display().to_string(),
+        Kind::Path(get) | Kind::PathOrNone(get) => get(c).display().to_string(),
         Kind::Char(get) | Kind::Letter(get) => get(c).to_string(),
         Kind::Choice(get, _, labels) => labels.get(get(c)).copied().unwrap_or("?").into(),
         Kind::Prize(get) => prize_shown(get(c)),
         Kind::SaverFont(face) => if *face { c.terminal.screensaver_face.clone() } else { c.terminal.screensaver_font.clone() },
+        Kind::Table(t) => {
+            let n = t.len(c);
+            let one = t.names().0;
+            match (n, one) {
+                (1, _) => format!("1 {one}"),
+                (_, "echo") => format!("{n} echoes"),
+                _ => format!("{n} {one}s"),
+            }
+        }
     }
 }
 
@@ -168,6 +283,9 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('F', "No bar", 50, "The yes/no bar with no selected.", Text(|c| &mut c.prompts.no_bar, TEXT.max(200))),
             set('G', "Password echo", 1, "Character shown for each typed password letter.", Char(|c| &mut c.prompts.password_echo)),
             set('H', "Erase pauses", 3, "Erase \"pause\" prompts after a key?", Bool(|c| &mut c.prompts.remove_pause)),
+            set('I', "Working light", 1, "Status screens' light for a step in progress (uploads being tested...).", Char(|c| &mut c.prompts.light)),
+            set('J', "Done light", 1, "Status screens' light for a step that worked.", Char(|c| &mut c.prompts.light_ok)),
+            set('K', "Failed light", 1, "Status screens' light for a step that failed.", Char(|c| &mut c.prompts.light_fail)),
         ]),
         ("Security", false, vec![
             set('A', "Bot check", 3, "Make every caller press a random key combination first?", Bool(|c| &mut c.security.challenge)),
@@ -198,6 +316,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('E', "Show SysOp", 3, "List the SysOp among who's online?", Bool(|c| &mut c.web.show_sysop)),
             set('F', "Last callers", 2, "How many recent callers to list.", Num(|c| c.web.last_callers as u64, |c, v| c.web.last_callers = v as u8, 0, 50)),
             set('G', "New files", 2, "How many new files to list.", Num(|c| c.web.new_files as u64, |c, v| c.web.new_files = v as u8, 0, 50)),
+            set('H', "New posts", 2, "How many of the latest public posts to list.", Num(|c| c.web.new_posts as u64, |c, v| c.web.new_posts = v as u8, 0, 50)),
         ]),
         ("Passwords and Sign-ups", false, vec![
             set('A', "Min. password length", 3, "Shortest password allowed.", Num(|c| c.passwords.min_length as u64, |c, v| c.passwords.min_length = v as u8, 1, 64)),
@@ -326,13 +445,14 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('Q', "Fortunes a day", 3, "Fortunes a caller may have a day (0 = no limit; SysOps have none).", Num(|c| c.ai.fortune_daily as u64, |c, v| c.ai.fortune_daily = v as u32, 0, 999)),
         ]),
         ("MeshCore", false, vec![
-            set('A', "Enabled", 3, "Bridge a MeshCore companion radio's channels to message areas? Channels: [[meshcore.channel]] in fluxbbs.toml.", Bool(|c| &mut c.meshcore.enabled)),
+            set('A', "Enabled", 3, "Bridge a MeshCore companion radio's channels to message areas (the channels are below)?", Bool(|c| &mut c.meshcore.enabled)),
             set('B', "Radio address", 40, "host:port of the radio (WiFi companion firmware: port 5000; a USB radio via ser2net).", Text(|c| &mut c.meshcore.address, TEXT.max(100))),
             set('C', "Reconnect (secs)", 4, "How long to wait between tries while the radio can't be reached.", Num(|c| c.meshcore.reconnect_seconds, |c, v| c.meshcore.reconnect_seconds = v, 5, 3600)),
             set('D', "Parts per post", 2, "Messages a long post may be split into on the mesh (each about 140 characters).", Num(|c| c.meshcore.max_parts as u64, |c, v| c.meshcore.max_parts = v as u8, 1, 10)),
+            set('E', "Channels", 14, "The radio channels bridged: each one's name, its message area, and which ways messages go.", Table(Entries::MeshChannels)),
         ]),
         ("FTN Echomail", false, vec![
-            set('A', "Enabled", 3, "Be a node of an FTN network (fsxNet...), polling the hub over binkp? Echoes: [[ftn.area]] in fluxbbs.toml.", Bool(|c| &mut c.ftn.enabled)),
+            set('A', "Enabled", 3, "Be a node of an FTN network (fsxNet...), polling the hub over binkp? Networks and echoes are at the bottom.", Bool(|c| &mut c.ftn.enabled)),
             set('B', "Our address", 30, "This board's address with the network's domain, e.g. 21:1/999@fsxnet.", Text(|c| &mut c.ftn.address, TEXT.max(40))),
             set('C', "Hub address", 30, "The hub's FTN address, e.g. 21:1/100.", Text(|c| &mut c.ftn.hub, TEXT.max(40))),
             set('D', "Hub host", 40, "Where the hub's binkp mailer listens: host or host:port (24554 if none).", Text(|c| &mut c.ftn.hub_host, TEXT.max(100))),
@@ -342,6 +462,9 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('H', "Origin line", 50, "Text of the origin line on messages sent; blank for the board's name.", Text(|c| &mut c.ftn.origin, TEXT.max(60))),
             set('I', "Poll minutes", 4, "Minutes between polls of the hub (0: only by hand, fluxbbs ftn poll).", Num(|c| c.ftn.poll_minutes as u64, |c, v| c.ftn.poll_minutes = v as u32, 0, 1440)),
             set('J', "Answer on", 22, "Where to answer the hub's binkp calls (0.0.0.0:24554), so it can send mail as it comes (crash); blank: poll only (hold). Restart to apply.", Text(|c| &mut c.ftn.listen, TEXT.max(60))),
+            set('K', "Network name", 20, "What the first network (the one set above) is called here, e.g. fsxnet; echoes name it. Blank: its address's domain.", Text(|c| &mut c.ftn.name, TEXT.max(20))),
+            set('L', "More networks", 14, "Other networks this board is a node of, each with its own address, hub and passwords.", Table(Entries::FtnNetworks)),
+            set('M', "Echoes", 14, "The echoes carried: each one's tag, the message area it's tossed to, and its network.", Table(Entries::FtnEchoes)),
         ]),
         ("File System", false, vec![
             set('A', "Use file points", 3, "Charge file points for downloads?", Bool(|c| &mut c.files.use_file_points)),
@@ -402,7 +525,9 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('L', "Suite chips", 6, "Chips the suite gives (on today's stack).", Num(|c| c.casino.suite_chips as u64, |c, v| c.casino.suite_chips = v as u32, 0, 1_000_000)),
             set('M', "Show after", 6, "Chips played in a day before show tickets are comped.", Num(|c| c.casino.comp_show as u64, |c, v| c.casino.comp_show = v as u32, 0, 1_000_000)),
             set('N', "Show points", 6, "File points the show tickets give.", Num(|c| c.casino.show_points as u64, |c, v| c.casino.show_points = v as u32, 0, 1_000_000)),
-            set('O', "Carrier dials a night", 4, "Carrier Lost (AP): dials a caller has a night (0 = no limit). [carrier] bytes_per_point and gear_cost are in the TOML.", Num(|c| c.carrier.dials_per_day as u64, |c, v| c.carrier.dials_per_day = v as u32, 0, 9999)),
+            set('O', "Carrier dials a night", 4, "Carrier Lost (AP): dials a caller has a night (0 = no limit).", Num(|c| c.carrier.dials_per_day as u64, |c, v| c.carrier.dials_per_day = v as u32, 0, 9999)),
+            set('P', "Carrier bytes a point", 6, "Carrier Lost: bytes fenced per file point (and minute) when a caller cashes out.", Num(|c| c.carrier.bytes_per_point as u64, |c, v| c.carrier.bytes_per_point = v as u32, 1, 1_000_000)),
+            set('Q', "Carrier gear cost", 6, "Carrier Lost: bytes a gear upgrade costs, times the level it goes to.", Num(|c| c.carrier.gear_cost as u64, |c, v| c.carrier.gear_cost = v as u32, 0, 1_000_000)),
         ]),
         // New: what's on. Off, a part refuses its commands and leaves menus.
         ("Features", false, vec![
@@ -419,6 +544,55 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('K', "QWK mail", 3, "Offline mail packets (QD QU).", Bool(|c| &mut c.features.qwk)),
             set('L', "Automessage", 3, "The automessage (AS AW AR).", Bool(|c| &mut c.features.automessage)),
             set('M', "Scripts", 3, "Lua scripts from menus (-X).", Bool(|c| &mut c.features.scripts)),
+        ]),
+    ]
+}
+
+/// New: sections past the letters, on digits: the paths, QWK mail, and
+/// the doors and weather.
+fn more_sections() -> Vec<(char, &'static str, bool, Vec<Setting>)> {
+    use Kind::*;
+    vec![
+        ('1', "Paths", true, vec![
+            set('A', "Screens", 40, "The board's screens (text library). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.text)),
+            set('B', "Stock screens", 40, "Screens to fall back on when the board has none of its own. Blank: none. Relative to the config's folder; restart to apply.", PathOrNone(|c| &mut c.paths.stock_text)),
+            set('C', "Stock theme", 40, "A text library for screens neither has (themes/t10inq1). Blank: none. Relative to the config's folder; restart to apply.", PathOrNone(|c| &mut c.paths.stock_theme)),
+            set('D', "Menus", 40, "The board's menus. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.menus)),
+            set('E', "Stock menus", 40, "Menus to fall back on, so a board changes only a few. Blank: none. Relative to the config's folder; restart to apply.", PathOrNone(|c| &mut c.paths.stock_menus)),
+            set('F', "Theme list", 40, "The list of screen themes (*T). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.themes)),
+            set('G', "Theme folders", 40, "Where the themes' text libraries are. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.theme_dir)),
+            set('H', "Strings", 40, "Prompt string changes (*E); built-in strings fill the gaps. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.strings)),
+            set('I', "Data", 40, "The database, host keys and the rest the board keeps. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.data)),
+            set('J', "Message areas", 40, "Message conferences and areas (*M). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.msgareas)),
+            set('K', "File areas", 40, "File conferences and areas (*F). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.fileareas)),
+            set('L', "Protocols", 40, "External transfer protocols (*X). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.protocols)),
+            set('M', "Archivers", 40, "Archivers for formats other than ZIP. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.archivers)),
+            set('N', "Levels", 40, "Access levels (*L). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.levels)),
+            set('O', "Infoforms", 40, "Infoform definitions. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.infoforms)),
+            set('P', "Questions", 40, "The SysOp's questions for new users (*P). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.questions)),
+            set('Q', "Events", 40, "Scheduled events (*V). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.events)),
+            set('R', "Logon sequence", 40, "The logon sequence (*O). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.logon)),
+            set('S', "Upload scratch", 40, "Scratch space for uploads being received and tested. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.temp)),
+            set('T', "Door drop files", 40, "Door drop files, a folder per node. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.doors)),
+            set('U', "Lua scripts", 40, "Lua scripts for menus (-X) and screens. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.scripts)),
+            set('V', "Attachments", 40, "Files attached to messages. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.attach)),
+        ]),
+        ('2', "QWK Mail", false, vec![
+            set('A', "Packet name", 8, "The BBS ID: packets are NAME.QWK, replies NAME.REP (up to 8 letters and digits).", Text(|c| &mut c.qwk.packet, Field { allowed: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", ..Field::UPPER.max(8) })),
+            set('B', "Welcome screen", 12, "Screen from the text folder put in each packet as its welcome. Blank: none.", Text(|c| &mut c.qwk.welcome, Field::UPPER.max(12))),
+            set('C', "News screen", 12, "Screen put in each packet as its news. Blank: none.", Text(|c| &mut c.qwk.news, Field::UPPER.max(12))),
+            set('D', "Goodbye screen", 12, "Screen put in each packet as its goodbye. Blank: none.", Text(|c| &mut c.qwk.goodbye, Field::UPPER.max(12))),
+            set('E', "Strip signatures", 3, "Leave callers' auto-signatures out of the messages in packets?", Bool(|c| &mut c.qwk.strip_sigs)),
+        ]),
+        ('3', "Doors and Weather", false, vec![
+            set('A', "DOSBox command", 50, "Blank: the built-in DOS machine runs DOS doors. Else a DOSBox command (%C: the config written for each door), for a door it can't run.", Text(|c| &mut c.dos.emulator, TEXT.max(200))),
+            set('B', "C: drive", 40, "Folder mounted as drive C: and on the PATH: the doors and their batch files.", Path(|c| &mut c.dos.drive)),
+            set('C', "Before each door", 50, "DOS commands run before each door, e.g. a FOSSIL driver; comma-separated.", List(|c| &mut c.dos.setup)),
+            set('D', "DOSBox config", 50, "Extra lines for DOSBox's config ([cpu], cycles=max); comma-separated. Only with a DOSBox command.", List(|c| &mut c.dos.config)),
+            set('E', "One at a time", 50, "Doors only one caller may be in at once, by program or batch file name; comma-separated.", List(|c| &mut c.dos.one_at_a_time)),
+            set('F', "Weather units", 8, "The weather door (WX): US (°F, mph) or metric (°C, km/h).", Choice(|c| usize::from(c.weather.units.eq_ignore_ascii_case("metric")), |c, v| c.weather.units = ["us", "metric"][v].into(), &["US", "Metric"])),
+            set('G', "Weather place", 40, "Where the weather shows for a caller who hasn't picked a place and has no town in their profile (Firth, NE). Blank: ask them.", Text(|c| &mut c.weather.place, TEXT.max(60))),
+            set('H', "AI forecaster", 3, "May the AI read the forecast like a TV forecaster (f in the door), when it's built and on?", Bool(|c| &mut c.weather.ai_forecast)),
         ]),
     ]
 }
@@ -472,6 +646,7 @@ pub fn save_changes(path: &Path, old: &Config, new: &Config) -> anyhow::Result<(
     }
     let tmp = path.with_extension("toml.new");
     std::fs::write(&tmp, doc.to_string())?;
+    crate::keep_mode(path, &tmp);
     std::fs::rename(&tmp, path)?;
     Ok(())
 }
@@ -508,6 +683,7 @@ const GROUPS: &[Group] = &[
         ('H', "Website Feed", "The status feed for a website: who's on, last callers, new files"),
         ('R', "Wait-For-Call", "The local wait-for-call screen"),
         ('Z', "Features", "Which parts of the board are on: games, gallery, voting, time bank..."),
+        ('1', "Paths", "Where the board's screens, menus, data and lists are (restart)"),
         ('-', "Default Colors", "The color scheme new callers start with"),
     ]),
     ("callers", &[
@@ -527,6 +703,7 @@ const GROUPS: &[Group] = &[
         ('O', "Transfers", "Upload size, transfer speed, logging off after"),
         ('P', "Upload Tests", "Testing and unpacking uploads, the BBS ad, pictures"),
         ('G', "Art Gallery", "The gallery's folder or file area, access, play speed"),
+        ('2', "QWK Mail", "Offline mail packets: the packet name, its screens, signatures"),
     ]),
     ("talk & networks", &[
         ('Q', "Chat Mode", "Paging the SysOp: hours, beeps, overrides"),
@@ -536,6 +713,7 @@ const GROUPS: &[Group] = &[
         ('W', "BBSLink", "Door games on bbslink.net's server: on or off, the board's codes"),
         ('X', "Slot Machine", "Pulls a day, how loose it is, what each line pays"),
         ('Y', "Casino, Carrier Lost", "The tables; Carrier Lost (AP)"),
+        ('3', "Doors and Weather", "DOS doors: DOSBox or the built-in machine, drive C:; the weather door"),
     ]),
 ];
 
@@ -595,6 +773,7 @@ impl Session {
         let original = (*self.state.config()).clone();
         let mut cfg = original.clone();
         let secs = sections();
+        let more = more_sections();
         let mut at = 'A';
         loop {
             let mut f = Form::new(&format!("{} System Configuration", cfg.bbs.name));
@@ -616,7 +795,7 @@ impl Session {
                     };
                     // Rows count from the form's first (screen row 4).
                     let row = y + 1 + i as u16 - 3;
-                    f.item_xy(x, row, x + 21, *key, label, if state.is_empty() { 0 } else { 3 }, state, info);
+                    f.item_xy(x, row, x + 21, *key, label, state.len(), state, info);
                 }
             }
             // The bottom bar goes under the status lines.
@@ -634,6 +813,11 @@ impl Session {
                 Some((title, _, settings)) => self.config_section(title, settings, &mut cfg).await?,
                 None if key == '-' => self.palette_editor(&mut cfg.colors).await?,
                 None if key == '@' => self.config_section("Email Addresses", &email_settings(), &mut cfg).await?,
+                None if key.is_ascii_digit() => {
+                    if let Some((_, title, _, settings)) = more.iter().find(|m| m.0 == key) {
+                        self.config_section(title, settings, &mut cfg).await?;
+                    }
+                }
                 None => {}
             }
         }
@@ -662,8 +846,20 @@ impl Session {
         f.value_col(24);
         // New: the highlighted setting's description shows as the bar moves.
         f.hints();
-        for s in settings {
-            f.item(s.key, s.label, s.len, shown(&s.kind, cfg), s.info);
+        let two = settings.len() > 18;
+        if two {
+            // Two columns when a section has more than a screen's rows.
+            let half = settings.len().div_ceil(2);
+            for (i, s) in settings.iter().enumerate() {
+                let (x, row) = if i < half { (1, i) } else { (41, i - half) };
+                // Paths cut from the left: the end says what they are.
+                let v = if matches!(s.kind, Kind::Path(_) | Kind::PathOrNone(_)) { tail(&shown(&s.kind, cfg), 17) } else { shown(&s.kind, cfg) };
+                f.item_xy(x, row as u16 + 1, x + 22, s.key, s.label, s.len.min(17), v, s.info);
+            }
+        } else {
+            for s in settings {
+                f.item(s.key, s.label, s.len, shown(&s.kind, cfg), s.info);
+            }
         }
         self.cfg_draw(&f);
         while let Some(key) = self.cfg_command(&mut f).await? {
@@ -690,11 +886,13 @@ impl Session {
                     }
                     self.cfg_set(&mut f, key, get(cfg).join(", "));
                 }
-                Kind::Path(get) => {
-                    if let Some(v) = self.cfg_text(&mut f, key, TEXT.max(200)).await?.filter(|v| !v.is_empty()) {
+                Kind::Path(get) | Kind::PathOrNone(get) => {
+                    let none_ok = matches!(s.kind, Kind::PathOrNone(_));
+                    if let Some(v) = self.cfg_text(&mut f, key, TEXT.max(200)).await?.filter(|v| none_ok || !v.is_empty()) {
                         *get(cfg) = v.into();
                     }
-                    self.cfg_set(&mut f, key, get(cfg).display().to_string());
+                    let v = get(cfg).display().to_string();
+                    self.cfg_set(&mut f, key, if two { tail(&v, 17) } else { v });
                 }
                 Kind::Char(get) => {
                     if let Some(c) = self.cfg_text(&mut f, key, TEXT.max(1)).await?.and_then(|v| v.chars().next()) {
@@ -730,6 +928,11 @@ impl Session {
                         self.cfg_draw(&f);
                     }
                 }
+                Kind::Table(t) => {
+                    self.config_table(*t, cfg).await?;
+                    f.set(key, shown(&s.kind, cfg));
+                    self.cfg_draw(&f);
+                }
                 Kind::Prize(get) => {
                     // Edited as two numbers, shown in words.
                     let p = *get(cfg);
@@ -742,6 +945,111 @@ impl Session {
             }
         }
         Ok(())
+    }
+}
+
+impl Session {
+    /// New: a list in the config (FTN networks and echoes, MeshCore
+    /// channels): listed, then inserted, deleted, moved or edited, as
+    /// `cfgProtocolEditor` does protocols.
+    async fn config_table(&mut self, t: Entries, cfg: &mut Config) -> io::Result<()> {
+        let (one, title) = t.names();
+        loop {
+            self.clear_screen();
+            self.set_slot(fluxbbs_term::Slot::Text);
+            self.write(&format!(" {title}"));
+            self.newline();
+            self.set_slot(fluxbbs_term::Slot::Text);
+            self.write(&format!(" Num  {}", t.head()));
+            self.newline();
+            self.rule().await?;
+            let n = t.len(cfg);
+            for i in 0..n {
+                self.set_slot(fluxbbs_term::Slot::Info);
+                let line: String = format!(" {:<4} {}", i + 1, t.line(cfg, i)).chars().take(79).collect();
+                self.write(&line);
+                self.newline();
+            }
+            if n == 0 {
+                self.set_slot(fluxbbs_term::Slot::InfoLo);
+                self.write(&format!(" No {one}s yet: I inserts one."));
+                self.newline();
+            }
+            self.rule().await?;
+            let Some(cmd) = self.cfg_list_prompt(&[("I", "nsert"), ("D", "elete"), ("E", "dit"), ("M", "ove"), ("Esc", " Quit")]).await? else {
+                return Ok(());
+            };
+            if cmd == 'E' {
+                self.newline();
+                if n == 0 {
+                    continue;
+                }
+                if let Some(num) = self.cfg_ask_number(&format!("Edit which {one}?"), 1, n as u32).await? {
+                    self.config_row(t, num as usize - 1, cfg).await?;
+                }
+                continue;
+            }
+            match t {
+                Entries::FtnNetworks => {
+                    self.list_change(&mut cfg.ftn.networks, cmd, one, |_| crate::config::FtnNetwork { name: "new".into(), ..Default::default() }).await?;
+                }
+                Entries::FtnEchoes => {
+                    let fresh = |_: &[crate::config::FtnArea]| crate::config::FtnArea { tag: "NEW_ECHO".into(), area: String::new(), network: String::new() };
+                    self.list_change(&mut cfg.ftn.areas, cmd, one, fresh).await?;
+                }
+                Entries::MeshChannels => {
+                    let fresh = |_: &[crate::config::MeshChannel]| crate::config::MeshChannel { channel: "Public".into(), area: String::new(), from_mesh: true, to_mesh: true };
+                    self.list_change(&mut cfg.meshcore.channels, cmd, one, fresh).await?;
+                }
+            }
+        }
+    }
+
+    /// One entry of a list, with [ and ] to the ones beside it.
+    async fn config_row(&mut self, t: Entries, mut i: usize, cfg: &mut Config) -> io::Result<()> {
+        let (one, title) = t.names();
+        let cols = t.cols();
+        loop {
+            let n = t.len(cfg);
+            if i >= n {
+                return Ok(());
+            }
+            let mut f = Form::new(title);
+            f.value_col(24);
+            f.hints();
+            f.label(&format!("Current {one}"), 12, format!("{} of {n}", i + 1));
+            for c in &cols {
+                let v = match &c.kind {
+                    ColKind::Text(get, _) => get(cfg, i).clone(),
+                    ColKind::Bool(get) => yes_no(*get(cfg, i)).to_string(),
+                };
+                f.item(c.key, c.label, c.len, v, c.info);
+            }
+            f.item('[', &format!("Previous {one}"), 0, "", "");
+            f.item(']', &format!("Next {one}"), 0, "", "");
+            self.cfg_draw(&f);
+            let step: i64 = loop {
+                let Some(key) = self.cfg_command(&mut f).await? else { return Ok(()) };
+                match key {
+                    '[' => break -1,
+                    ']' => break 1,
+                    _ => {}
+                }
+                let Some(c) = cols.iter().find(|c| c.key == key) else { continue };
+                match &c.kind {
+                    ColKind::Text(get, field) => {
+                        if let Some(v) = self.cfg_text(&mut f, key, *field).await? {
+                            *get(cfg, i) = v;
+                        }
+                    }
+                    ColKind::Bool(get) => {
+                        let cur = *get(cfg, i);
+                        *get(cfg, i) = self.cfg_bool(&mut f, key, cur).await?;
+                    }
+                }
+            };
+            i = (i as i64 + step).clamp(0, n as i64 - 1) as usize;
+        }
     }
 }
 
@@ -771,13 +1079,46 @@ mod tests {
     }
 
     #[test]
+    fn saving_edited_lists_keeps_them_tables() {
+        let dir = std::env::temp_dir().join(format!("iqcfgl{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("fluxbbs.toml");
+        let text = "[ftn]\nenabled = true # on\naddress = \"21:1/999@fsxnet\"\n\n[[ftn.area]]\ntag = \"FSX_GEN\"\narea = \"FSXGEN\"\n\n[[ftn.network]]\nname = \"agoranet\"\naddress = \"\"\nhub = \"46:1/100\"\n\n[web]\nnew_files = 5\n";
+        std::fs::write(&path, text).unwrap();
+        let old = Config::load(&path).unwrap();
+        let mut new = old.clone();
+        new.ftn.networks[0].address = "46:1/115@agoranet".into();
+        new.ftn.areas.push(crate::config::FtnArea { tag: "AGN_GEN".into(), area: "AGNGEN".into(), network: "agoranet".into() });
+        new.meshcore.channels.push(crate::config::MeshChannel { channel: "Public".into(), area: "MESH".into(), from_mesh: true, to_mesh: false });
+        new.weather.units = "metric".into();
+        save_changes(&path, &old, &new).unwrap();
+        let out = std::fs::read_to_string(&path).unwrap();
+        assert!(out.contains("enabled = true # on"), "{out}");
+        assert!(out.contains("[[ftn.area]]") && out.contains("[[ftn.network]]"), "{out}");
+        let back = Config::load(&path).unwrap();
+        assert_eq!((back.ftn.areas.clone(), back.ftn.networks.clone(), back.meshcore.channels.clone()), (new.ftn.areas.clone(), new.ftn.networks.clone(), new.meshcore.channels.clone()));
+        assert_eq!(back.weather.units, "metric");
+        // And deleting them all.
+        let mut gone = back.clone();
+        gone.ftn.areas.clear();
+        gone.ftn.networks.clear();
+        save_changes(&path, &back, &gone).unwrap();
+        let back = Config::load(&path).unwrap();
+        assert!(back.ftn.areas.is_empty() && back.ftn.networks.is_empty());
+        assert_eq!(back.ftn.address, "21:1/999@fsxnet");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
     fn every_section_is_in_a_group() {
         let mut keys: Vec<char> = GROUPS.iter().flat_map(|(_, items)| items.iter().map(|i| i.0)).collect();
         keys.sort();
         // A letter a section, the palette on '-' and email on '@'.
         let mut want: Vec<char> = (0..sections().len() as u8).map(|i| (b'A' + i) as char).collect();
+        want.extend(more_sections().iter().map(|m| m.0));
         want.insert(0, '-');
         want.insert(1, '@');
+        want.sort();
         assert_eq!(keys, want);
         assert!(GROUPS.iter().all(|(t, items)| t.len() <= 20 && items.iter().all(|i| i.1.len() <= 21 && i.2.len() <= 72)));
     }
@@ -792,13 +1133,15 @@ mod tests {
 
     #[test]
     fn section_keys_are_unique() {
-        for (title, _, settings) in sections() {
+        let all = sections().into_iter().chain(more_sections().into_iter().map(|(_, t, r, s)| (t, r, s)));
+        for (title, _, settings) in all {
             let mut keys: Vec<char> = settings.iter().map(|s| s.key).collect();
             let n = keys.len();
             keys.sort();
             keys.dedup();
             assert_eq!(keys.len(), n, "{title}");
-            assert!(n <= 18, "{title} has too many rows for the screen");
+            // Past 18 rows a section goes in two columns.
+            assert!(n <= 36, "{title} has too many rows for the screen");
         }
     }
 }

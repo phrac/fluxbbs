@@ -220,13 +220,16 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
         })
         .collect();
 
-    // Posts only from areas a new caller could read, never private ones.
+    // Posts only from areas a new caller could read, never private ones,
+    // nor echoes': networks' writers didn't post to a website, and some
+    // networks forbid it (Zer0net).
     let mut messages = 0;
     let areas = state.areas();
+    let echoes: Vec<String> = cfg.ftn.areas.iter().map(|e| e.area.to_ascii_uppercase()).collect();
     let mut open = Vec::new();
     for a in &areas.areas {
         messages += state.msgs.count(&a.file)?;
-        if public(state, &a.acs) && a.password.is_empty() {
+        if public(state, &a.acs) && a.password.is_empty() && !echoes.contains(&a.file.to_ascii_uppercase()) {
             open.push(a.file.clone());
         }
     }

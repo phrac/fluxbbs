@@ -1,11 +1,12 @@
 //! New: a binkp/1.0 mailer (FTS-1026), polling the FTN hub: say who we
-//! are, give the session password (CRAM-MD5, FTS-1027, if the hub offers
-//! it), send the packets in `data/ftn/outbound` and take what the hub has
+//! are, give the session password (CRAM-MD5, FTS-1027; never in the
+//! clear), send the packets in `data/ftn/outbound` and take what the hub has
 //! into `data/ftn/inbound`, each file acknowledged (M_GOT) before it's
 //! forgotten. Then the tosser runs (`ftntoss.rs`).
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
@@ -171,31 +172,66 @@ fn mtime(p: &Path) -> u64 {
     std::fs::metadata(p).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs())
 }
 
+/// What the writer sends: a frame, or a file from an offset (`seq`
+/// orders a file's sendings, for `Link::cancel`).
+enum Out {
+    Frame(Vec<u8>),
+    File { name: String, path: PathBuf, offset: u64, seq: u64 },
+}
+
 /// A connection's two halves: frames to send go through `send` (one
 /// writer, so they go out whole and in order while we read).
 struct Link {
     rd: tokio::net::tcp::OwnedReadHalf,
-    tx: mpsc::UnboundedSender<Vec<u8>>,
-    writer: tokio::task::JoinHandle<std::io::Result<()>>,
+    tx: mpsc::UnboundedSender<Out>,
+    writer: tokio::task::JoinHandle<anyhow::Result<()>>,
     /// When a frame last went out (`now_ms`).
     wrote: Arc<AtomicU64>,
+    /// Sendings of a file up to this `seq` are stopped (the other side
+    /// has it, or wants it again from elsewhere): the writer sends no
+    /// more of them.
+    cancel: Arc<Mutex<HashMap<String, u64>>>,
+    seq: u64,
 }
 
 impl Link {
     fn new(stream: TcpStream) -> anyhow::Result<Link> {
         stream.set_nodelay(true)?;
         let (rd, mut wr) = stream.into_split();
-        let (tx, mut rx) = mpsc::unbounded_channel::<Vec<u8>>();
+        let (tx, mut rx) = mpsc::unbounded_channel::<Out>();
         let wrote = Arc::new(AtomicU64::new(now_ms()));
-        let w = wrote.clone();
+        let cancel: Arc<Mutex<HashMap<String, u64>>> = Default::default();
+        let (w, stop) = (wrote.clone(), cancel.clone());
         let writer = tokio::spawn(async move {
-            while let Some(f) = rx.recv().await {
-                wr.write_all(&f).await?;
-                w.store(now_ms(), Ordering::Relaxed);
+            let stopped = |name: &str, seq: u64| stop.lock().unwrap().get(name).is_some_and(|&c| c >= seq);
+            while let Some(o) = rx.recv().await {
+                match o {
+                    Out::Frame(f) => {
+                        wr.write_all(&f).await?;
+                        w.store(now_ms(), Ordering::Relaxed);
+                    }
+                    Out::File { name, path, offset, seq } => {
+                        if stopped(&name, seq) {
+                            continue;
+                        }
+                        let body = tokio::fs::read(&path).await.with_context(|| format!("binkp: reading {}", path.display()))?;
+                        let offset = (offset as usize).min(body.len());
+                        wr.write_all(&cmd(M_FILE, &format!("{name} {} {} {offset}", body.len(), mtime(&path)))).await?;
+                        for chunk in body[offset..].chunks(BLOCK) {
+                            // M_GOT or M_SKIP mid-file: stop (FTS-1026).
+                            if stopped(&name, seq) {
+                                break;
+                            }
+                            wr.write_all(&data(chunk)).await?;
+                            w.store(now_ms(), Ordering::Relaxed);
+                        }
+                    }
+                }
             }
-            wr.shutdown().await
+            wr.shutdown().await?;
+            Ok(())
         });
-        Ok(Link { rd, tx, writer, wrote })
+        Ok(Link { rd, tx, writer, wrote, cancel, seq: 0 })
     }
 
     async fn read(&mut self) -> anyhow::Result<Frame> {
@@ -203,7 +239,19 @@ impl Link {
     }
 
     fn send(&self, f: Vec<u8>) -> anyhow::Result<()> {
-        self.tx.send(f).map_err(|_| anyhow!("binkp: connection closed"))
+        self.tx.send(Out::Frame(f)).map_err(|_| anyhow!("binkp: connection closed"))
+    }
+
+    /// Send a file from `offset` on, once what's queued ahead of it has
+    /// gone.
+    fn send_file(&mut self, name: &str, path: &Path, offset: u64) -> anyhow::Result<()> {
+        self.seq += 1;
+        self.tx.send(Out::File { name: name.to_string(), path: path.to_path_buf(), offset, seq: self.seq }).map_err(|_| anyhow!("binkp: connection closed"))
+    }
+
+    /// Send no more of what's queued or going of `name`.
+    fn cancel(&self, name: &str) {
+        self.cancel.lock().unwrap().insert(name.to_string(), self.seq);
     }
 
     /// Send what's queued, then close; a minute at most, if the other
@@ -247,9 +295,38 @@ impl Link {
     }
 }
 
-/// Is `s` (an M_ADR's addresses) the hub?
+/// Is `s` (an M_ADR's addresses) the hub? (Not a point of it.)
 fn is_hub(s: &str, hub: Addr) -> bool {
-    s.split_whitespace().filter_map(Addr::parse).any(|a| a.zone == hub.zone && a.net == hub.net && a.node == hub.node)
+    s.split_whitespace().filter_map(Addr::parse).any(|a| a.zone == hub.zone && a.net == hub.net && a.node == hub.node && a.point == 0)
+}
+
+/// Equal, taking as long whatever differs (for passwords).
+fn same_secret(a: &str, b: &str) -> bool {
+    a.len() == b.len() && a.bytes().zip(b.bytes()).fold(0u8, |d, (x, y)| d | (x.to_ascii_lowercase() ^ y.to_ascii_lowercase())) == 0
+}
+
+/// The addresses the networks' hubs' hosts have, looked up at most every
+/// ten minutes: calls from them aren't held to the connection limits or
+/// bans (a ban earned there on telnet mustn't cut the mail off).
+async fn hub_ips(state: &BbsState) -> Vec<std::net::IpAddr> {
+    static CACHE: Mutex<Option<(std::time::Instant, Vec<std::net::IpAddr>)>> = Mutex::new(None);
+    if let Some((at, ips)) = CACHE.lock().unwrap().as_ref()
+        && at.elapsed() < Duration::from_secs(600)
+    {
+        return ips.clone();
+    }
+    let mut ips = Vec::new();
+    for n in state.config().ftn.networks() {
+        let host = n.hub_host.trim();
+        if host.is_empty() {
+            continue;
+        }
+        if let Ok(Ok(found)) = tokio::time::timeout(Duration::from_secs(5), tokio::net::lookup_host(with_port(host))).await {
+            ips.extend(found.map(|a| a.ip().to_canonical()));
+        }
+    }
+    *CACHE.lock().unwrap() = Some((std::time::Instant::now(), ips.clone()));
+    ips
 }
 
 /// `host`, `host:port`, `v6` or `[v6]:port`, with binkp's port if none.
@@ -281,11 +358,15 @@ pub async fn poll(state: Arc<BbsState>, net: FtnNetwork) -> anyhow::Result<Polle
         tracing::info!("binkp: a session with {hub} ({}) is under way; not polling", net.name);
         return Ok(Polled::default());
     };
-    let stream = tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&host)).await.with_context(|| format!("binkp: connecting to {host}"))??;
+    let stream = match tokio::time::timeout(Duration::from_secs(30), TcpStream::connect(&host)).await {
+        Ok(Ok(s)) => s,
+        Ok(Err(e)) => bail!("binkp: connecting to {host}: {e}"),
+        Err(_) => bail!("binkp: connecting to {host}: no answer in 30 seconds"),
+    };
     let mut link = Link::new(stream)?;
     link.greet(&state, net.address.trim(), None)?;
 
-    // The hub says who it is (and may offer CRAM-MD5); then our password.
+    // The hub says who it is and offers CRAM-MD5; then our password.
     let mut challenge = None;
     loop {
         match link.read().await? {
@@ -306,10 +387,30 @@ pub async fn poll(state: Arc<BbsState>, net: FtnNetwork) -> anyhow::Result<Polle
         }
     }
     let pw = &net.session_password;
+    // An OPT may follow the M_ADR: a moment for it.
+    while challenge.is_none() && !pw.is_empty() {
+        match tokio::time::timeout(Duration::from_secs(3), link.read()).await {
+            Ok(Ok(Frame::Cmd(M_NUL, s))) => {
+                if let Some(c) = s.strip_prefix("OPT ").and_then(|o| o.split_whitespace().find_map(cram_offer)) {
+                    challenge = Some(c.to_string());
+                }
+            }
+            Ok(Ok(Frame::Cmd(M_ERR | M_BSY, s))) => bail!("binkp: hub said {s}"),
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => return Err(e),
+            Err(_) => break,
+        }
+    }
     let answer = match &challenge {
-        Some(c) if !pw.is_empty() => cram_md5(pw, c).ok_or_else(|| anyhow!("binkp: bad CRAM challenge"))?,
         _ if pw.is_empty() => "-".to_string(),
-        _ => pw.clone(),
+        Some(c) => cram_md5(pw, c).ok_or_else(|| anyhow!("binkp: bad CRAM challenge"))?,
+        // Never in the clear: whoever answered at the hub's address (a
+        // spoofed name, say) would have it. binkd always offers CRAM.
+        None => {
+            let _ = link.send(cmd(M_ERR, "CRAM-MD5 required"));
+            link.close().await;
+            bail!("binkp: {host} offered no CRAM-MD5; the session password isn't sent in the clear");
+        }
     };
     link.send(cmd(M_PWD, &answer))?;
     loop {
@@ -336,8 +437,8 @@ pub async fn poll(state: Arc<BbsState>, net: FtnNetwork) -> anyhow::Result<Polle
 }
 
 /// A session the hub opens (new): it calls us when mail arrives for us
-/// ("crash"). Only the hub, with the session password (CRAM-MD5 offered,
-/// or plain), gets in; then files go both ways as in a poll, and what came
+/// ("crash"). Only the hub, with the session password (by CRAM-MD5, never
+/// plain), gets in; then files go both ways as in a poll, and what came
 /// is tossed. `peer` is who connected.
 async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketAddr) -> anyhow::Result<()> {
     // Every network's hub may call: we're all our addresses, and the
@@ -387,19 +488,21 @@ async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketA
         .into_iter()
         .filter(|(n, _)| {
             let pw = &n.session_password;
-            !pw.is_empty() && (cram_md5(pw, &challenge).is_some_and(|c| c.eq_ignore_ascii_case(given)) || given == pw)
+            !pw.is_empty() && cram_md5(pw, &challenge).is_some_and(|c| same_secret(&c, given))
         })
         .collect();
     if authed.is_empty() {
         let why = if remote_is_hub { "Incorrect password" } else { "Unknown address" };
         link.send(cmd(M_ERR, why))?;
         link.close().await;
-        if remote_is_hub {
-            // Most likely the hub's copy of the password changed: banning
-            // it (it calls back every few seconds) would cut the board off
-            // from every service. Guessing is held back by the connection
-            // limits, and CRAM never shows the password.
+        if remote_is_hub && hub_ips(&state).await.contains(&peer.ip().to_canonical()) {
+            // From the hub's own host: most likely its copy of the password
+            // changed. Banning it would cut the board off from the hub.
+            tracing::warn!("binkp: the hub ({peer}) gave the wrong session password (or none by CRAM-MD5); has it changed?");
+        } else if remote_is_hub {
+            // Someone else claiming to be the hub: a guess, counted.
             tracing::warn!("binkp: {peer} gave the hub's address with the wrong session password");
+            crate::logon::record_failure(&state, peer, "binkp: wrong session password");
         } else if claims_any_hub {
             // The hub of a network that's set up wrong here: not their fault.
             for p in state.config().ftn.problems() {
@@ -407,7 +510,9 @@ async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketA
             }
             tracing::warn!("binkp: {peer} is the hub of a network that isn't set up right (above); turned away");
         } else {
-            crate::logon::record_failure(&state, peer, "binkp: unknown address");
+            // Another node with crash mail, or a scanner: nothing guessed,
+            // nothing counted (the connection limits still hold).
+            tracing::info!("binkp: {peer} isn't a hub of ours; turned away");
         }
         return Ok(());
     }
@@ -466,11 +571,15 @@ pub async fn listen(state: Arc<BbsState>) {
         if !cfg.ftn.enabled {
             continue;
         }
-        let ticket = match state.guard.admit(&cfg.security, peer.ip()) {
-            Ok(t) => t,
-            Err(why) => {
-                tracing::info!("{peer}: binkp refused: {why}");
-                continue;
+        let ticket = if hub_ips(&state).await.contains(&peer.ip().to_canonical()) {
+            None
+        } else {
+            match state.guard.admit(&cfg.security, peer.ip()) {
+                Ok(t) => Some(t),
+                Err(why) => {
+                    tracing::info!("{peer}: binkp refused: {why}");
+                    continue;
+                }
             }
         };
         let state = state.clone();
@@ -509,16 +618,26 @@ async fn exchange(link: &mut Link, outbound: &[PathBuf], inbound: &Path) -> anyh
         if waiting.iter().any(|(n, _)| n == &name) {
             continue;
         }
-        send_file(link, &name, &p, 0)?;
+        link.send_file(&name, &p, 0)?;
         waiting.push((name, p));
     }
-    link.send(cmd(M_EOB, ""))?;
+    // End of batch once every file we sent is acknowledged, so a file
+    // asked for again (M_GET) never follows it.
+    let mut our_eob = waiting.is_empty();
+    if our_eob {
+        link.send(cmd(M_EOB, ""))?;
+    }
 
     let mut polled = Polled::default();
     let mut their_eob = false;
     // The file coming in: its name, size, time, what's arrived, and where.
     let mut incoming: Option<(String, u64, String, u64, std::fs::File, PathBuf)> = None;
-    while !(their_eob && waiting.is_empty() && incoming.is_none()) {
+    while !(their_eob && our_eob && incoming.is_none()) {
+        if !our_eob && waiting.is_empty() {
+            link.send(cmd(M_EOB, ""))?;
+            our_eob = true;
+            continue;
+        }
         match link.read().await? {
             Frame::Cmd(M_FILE, s) => {
                 let w: Vec<&str> = s.split_whitespace().collect();
@@ -559,13 +678,20 @@ async fn exchange(link: &mut Link, outbound: &[PathBuf], inbound: &Path) -> anyh
                 let name = s.split_whitespace().next().unwrap_or("");
                 if let Some(i) = waiting.iter().position(|(n, _)| n == name) {
                     let (n, p) = waiting.remove(i);
-                    std::fs::remove_file(&p)?;
+                    link.cancel(&n);
+                    // It's there: a file we can't remove now goes again
+                    // next time (the hub drops it as a dupe), not the
+                    // session.
+                    if let Err(e) = std::fs::remove_file(&p) {
+                        tracing::warn!("binkp: sent {n}, but can't remove it: {e}");
+                    }
                     polled.sent.push(n);
                 }
             }
             // Left for the next session.
             Frame::Cmd(M_SKIP, s) => {
                 let name = s.split_whitespace().next().unwrap_or("");
+                link.cancel(name);
                 waiting.retain(|(n, _)| n != name);
             }
             Frame::Cmd(M_EOB, _) => their_eob = true,
@@ -576,14 +702,16 @@ async fn exchange(link: &mut Link, outbound: &[PathBuf], inbound: &Path) -> anyh
             Frame::Cmd(M_GET, s) => {
                 let w: Vec<&str> = s.split_whitespace().collect();
                 if let [name, _, _, offset, ..] = w.as_slice()
-                    && let Some((n, p)) = waiting.iter().find(|(n, _)| n == name)
+                    && let Some((n, p)) = waiting.iter().find(|(n, _)| n == name).cloned()
                 {
                     let times = resent.entry(n.clone()).or_default();
                     *times += 1;
                     if *times > 3 {
                         bail!("binkp: {name} asked for too many times");
                     }
-                    send_file(link, n, p, offset.parse().unwrap_or(0))?;
+                    // What's going of it stops; it starts again from there.
+                    link.cancel(&n);
+                    link.send_file(&n, &p, offset.parse().unwrap_or(0))?;
                 }
             }
             Frame::Cmd(_, _) => {}
@@ -592,21 +720,14 @@ async fn exchange(link: &mut Link, outbound: &[PathBuf], inbound: &Path) -> anyh
     Ok(polled)
 }
 
-/// Send a file from `offset` on.
-fn send_file(link: &Link, name: &str, p: &Path, offset: u64) -> anyhow::Result<()> {
-    let body = std::fs::read(p)?;
-    let offset = (offset as usize).min(body.len());
-    link.send(cmd(M_FILE, &format!("{name} {} {} {offset}", body.len(), mtime(p))))?;
-    for chunk in body[offset..].chunks(BLOCK) {
-        link.send(data(chunk))?;
-    }
-    Ok(())
-}
-
 /// A received file is all here: name it and acknowledge it. A name that's
 /// taken gets a number before its extension, so `.pkt` stays `.pkt`.
 fn finish(incoming: &mut Option<(String, u64, String, u64, std::fs::File, PathBuf)>, inbound: &Path, link: &Link, polled: &mut Polled) -> anyhow::Result<()> {
     let Some((name, size, time, _, f, part)) = incoming.take() else { return Ok(()) };
+    // The sender's time, not ours.
+    if let Ok(secs) = time.parse::<u64>() {
+        let _ = f.set_modified(std::time::UNIX_EPOCH + Duration::from_secs(secs));
+    }
     f.sync_all()?;
     drop(f);
     let dest = crate::ftntoss::free_name(inbound, &safe_name(&name));
@@ -765,6 +886,69 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
+    /// The password in the clear is refused both ways: a caller giving it
+    /// is turned away, and a "hub" offering no CRAM-MD5 never gets ours.
+    #[tokio::test]
+    async fn passwords_never_go_in_the_clear() {
+        let dir = std::env::temp_dir().join(format!("inq-binkp-plain-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let state = crate::tests::state();
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let net = FtnNetwork { name: "agoranet".into(), address: "46:1/200@agoranet".into(), hub: "46:1/100".into(), hub_host: addr.to_string(), session_password: "AGNPW".into(), ..Default::default() };
+        {
+            let mut cfg = (*state.config()).clone();
+            cfg.root = dir.clone();
+            cfg.paths.data = "data".into();
+            cfg.ftn.enabled = true;
+            cfg.ftn.networks.push(net.clone());
+            *state.config.write().unwrap() = Arc::new(cfg);
+        }
+        // A fake hub that offers no CRAM: what password does it get?
+        let fake = tokio::spawn(async move {
+            let (mut s, _) = listener.accept().await.unwrap();
+            s.write_all(&cmd(M_NUL, "SYS fake")).await.unwrap();
+            s.write_all(&cmd(M_ADR, "46:1/100@agoranet")).await.unwrap();
+            let clock = AtomicU64::new(now_ms());
+            loop {
+                match read_frame(&mut s, &clock).await {
+                    Ok(Frame::Cmd(M_PWD, p)) => return Some(p),
+                    Ok(_) => {}
+                    Err(_) => return None,
+                }
+            }
+        });
+        let polled = poll(state.clone(), net).await;
+        assert!(polled.is_err(), "the poll is refused");
+        assert_eq!(fake.await.unwrap(), None, "no password went out");
+
+        // And a caller giving it plainly isn't let in.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let st = state.clone();
+        let board = tokio::spawn(async move {
+            let (stream, peer) = listener.accept().await.unwrap();
+            answer(st, stream, peer).await.unwrap();
+        });
+        let mut s = TcpStream::connect(addr).await.unwrap();
+        s.write_all(&cmd(M_ADR, "46:1/100@agoranet")).await.unwrap();
+        s.write_all(&cmd(M_PWD, "AGNPW")).await.unwrap();
+        let clock = AtomicU64::new(now_ms());
+        let refused = loop {
+            match read_frame(&mut s, &clock).await.unwrap() {
+                Frame::Cmd(M_ERR, e) => break e,
+                Frame::Cmd(M_OK, _) => panic!("let in with a plain password"),
+                _ => {}
+            }
+        };
+        assert!(refused.contains("password"), "{refused}");
+        board.await.unwrap();
+        assert!(same_secret("CRAM-MD5-ABcd", "cram-md5-abcd") && !same_secret("a", "ab") && !same_secret("ab", "ac"));
+        assert!(is_hub("46:1/100@agoranet", Addr { zone: 46, net: 1, node: 100, point: 0 }));
+        assert!(!is_hub("46:1/100.5@agoranet", Addr { zone: 46, net: 1, node: 100, point: 0 }), "a point isn't the hub");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
     /// A hub calling in is matched to its network by its address: it gets
     /// that network's password checked and only that network's mail.
     #[tokio::test]
@@ -797,14 +981,21 @@ mod tests {
         });
         let mut s = TcpStream::connect(addr).await.unwrap();
         let clock = AtomicU64::new(now_ms());
+        let mut challenge = String::new();
         let ours = loop {
-            if let Frame::Cmd(M_ADR, a) = read_frame(&mut s, &clock).await.unwrap() {
-                break a;
+            match read_frame(&mut s, &clock).await.unwrap() {
+                Frame::Cmd(M_ADR, a) => break a,
+                Frame::Cmd(M_NUL, n) => {
+                    if let Some(c) = n.strip_prefix("OPT ").and_then(cram_offer) {
+                        challenge = c.to_string();
+                    }
+                }
+                _ => {}
             }
         };
         assert_eq!(ours, "21:1/999@fsxnet 46:1/200@agoranet");
         s.write_all(&cmd(M_ADR, "46:1/100@agoranet")).await.unwrap();
-        s.write_all(&cmd(M_PWD, "AGNPW")).await.unwrap();
+        s.write_all(&cmd(M_PWD, &cram_md5("AGNPW", &challenge).unwrap())).await.unwrap();
         let mut files = Vec::new();
         loop {
             match read_frame(&mut s, &clock).await.unwrap() {

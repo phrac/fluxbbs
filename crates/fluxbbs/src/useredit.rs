@@ -101,8 +101,8 @@ fn plain_fields() -> Vec<Spec> {
     // New: the address the email component confirms, and when (blank:
     // not yet; clearing it makes them confirm again).
     if cfg!(feature = "email") {
-        v.push(spec('K', "Email", A1, 19, 22, "User's email address (seen only by them and SysOps).", Text(|u| u.mail_address.clone(), |u, v| u.mail_address = v, Field::TEXT.max(60))));
-        v.push(spec('W', "Confirmed", A2, 19, 10, "Day the address was confirmed (yyyy-mm-dd); blank: not yet.", Text(|u| u.mail_verified.clone(), |u, v| u.mail_verified = v, Field { allowed: "0123456789-", ..Field::TEXT.max(10) })));
+        v.push(spec('K', "Email", A1, 21, 22, "User's email address (seen only by them and SysOps).", Text(|u| u.mail_address.clone(), |u, v| u.mail_address = v, Field::TEXT.max(60))));
+        v.push(spec('W', "Confirmed", A2, 21, 10, "Day the address was confirmed (yyyy-mm-dd); blank: not yet.", Text(|u| u.mail_verified.clone(), |u, v| u.mail_verified = v, Field { allowed: "0123456789-", ..Field::TEXT.max(10) })));
     }
     v
 }

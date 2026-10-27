@@ -8,8 +8,8 @@
 //!
 //! Codes are kept hashed, good for `code_minutes`, five wrong tries and
 //! they're void; at most one goes out every two minutes and five a day
-//! to a caller. An address confirmed on one account can't be confirmed
-//! on another.
+//! to a caller, and five a day to an address whoever asks. An address
+//! confirmed on one account can't be confirmed on another.
 
 use std::io;
 use std::path::Path;
@@ -40,7 +40,7 @@ CREATE TABLE IF NOT EXISTS email_codes (
 
 /// Wrong codes before one is void.
 const TRIES: u32 = 5;
-/// Codes a caller may have sent in a day.
+/// Codes a caller may have sent in a day, and an address may be sent.
 const SENDS_A_DAY: u32 = 5;
 /// Seconds between codes.
 const RESEND_AFTER: i64 = 120;
@@ -88,17 +88,39 @@ impl CodeStore {
     /// May a code go out to `user` now? If so, record `code` (hashed) for
     /// `address`, good for `minutes`.
     pub fn issue(&self, user: u32, address: &str, code: &str, now: NaiveDateTime, minutes: u32) -> anyhow::Result<Issue> {
+        let hash = hash_code(code)?;
         let db = self.db.lock().unwrap();
         let today = now.date().to_string();
-        let last: Option<(String, u32, String)> =
-            db.query_row("SELECT sent, sends, day FROM email_codes WHERE user = ?1", params![user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
+        // Others' sends to this address today, so it can't be flooded
+        // from many accounts.
+        let to_address: u32 = db.query_row(
+            "SELECT COALESCE(SUM(sends), 0) FROM email_codes WHERE user != ?1 AND day = ?2 AND lower(address) = lower(?3)",
+            params![user, today, address.trim()],
+            |r| r.get(0),
+        )?;
+        let last: Option<(String, u32, String, String)> = db
+            .query_row("SELECT sent, sends, day, address FROM email_codes WHERE user = ?1", params![user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))
+            .optional()?;
         let mut sends = 1;
-        if let Some((sent, n, day)) = last {
+        if last.is_none() && to_address >= SENDS_A_DAY {
+            return Ok(Issue::TooMany);
+        }
+        if let Some((sent, n, day, to)) = last {
             if day == today {
                 if n >= SENDS_A_DAY {
                     return Ok(Issue::TooMany);
                 }
                 sends = n + 1;
+                if to.eq_ignore_ascii_case(address.trim()) {
+                    // Their own sends to it count once.
+                    if to_address + n >= SENDS_A_DAY {
+                        return Ok(Issue::TooMany);
+                    }
+                } else if to_address >= SENDS_A_DAY {
+                    return Ok(Issue::TooMany);
+                }
+            } else if to_address >= SENDS_A_DAY {
+                return Ok(Issue::TooMany);
             }
             if let Ok(sent) = NaiveDateTime::parse_from_str(&sent, STAMP) {
                 let since = (now - sent).num_seconds();
@@ -107,7 +129,6 @@ impl CodeStore {
                 }
             }
         }
-        let hash = Argon2::default().hash_password(code.as_bytes()).map_err(|e| anyhow::anyhow!("hashing a code: {e}"))?.to_string();
         let expires = (now + chrono::Duration::minutes(minutes.max(1) as i64)).format(STAMP).to_string();
         db.execute(
             "INSERT INTO email_codes (user, address, hash, expires, tries, sent, sends, day) VALUES (?1,?2,?3,?4,0,?5,?6,?7)
@@ -119,8 +140,10 @@ impl CodeStore {
 
     /// Is `code` the one out to `user` for `address`? Right clears it.
     pub fn check(&self, user: u32, address: &str, code: &str, now: NaiveDateTime) -> anyhow::Result<Check> {
-        let db = self.db.lock().unwrap();
-        let row: Option<(String, String, String, u32)> = db
+        let row: Option<(String, String, String, u32)> = self
+            .db
+            .lock()
+            .unwrap()
             .query_row("SELECT address, hash, expires, tries FROM email_codes WHERE user = ?1", params![user], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
             })
@@ -135,7 +158,9 @@ impl CodeStore {
         if NaiveDateTime::parse_from_str(&expires, STAMP).is_ok_and(|e| now > e) {
             return Ok(Check::Expired);
         }
+        // Checked without the lock held: the hash takes a moment.
         let right = PasswordHash::new(&hash).is_ok_and(|h| Argon2::default().verify_password(code.trim().as_bytes(), &h).is_ok());
+        let db = self.db.lock().unwrap();
         if right {
             db.execute("UPDATE email_codes SET hash = '' WHERE user = ?1", params![user])?;
             return Ok(Check::Right);
@@ -160,6 +185,14 @@ impl CodeStore {
                 && NaiveDateTime::parse_from_str(&expires, STAMP).is_ok_and(|e| now <= e)
         })
     }
+}
+
+/// A code, hashed. Lighter than a password's hash: a code is good once,
+/// for minutes, and five wrong tries void it.
+fn hash_code(code: &str) -> anyhow::Result<String> {
+    let params = argon2::Params::new(1024, 1, 1, None).map_err(|e| anyhow::anyhow!("code hash settings: {e}"))?;
+    let a = Argon2::new(argon2::Algorithm::Argon2id, argon2::Version::V0x13, params);
+    Ok(a.hash_password(code.as_bytes()).map_err(|e| anyhow::anyhow!("hashing a code: {e}"))?.to_string())
 }
 
 /// Does `s` look like an email address a code could go to?
@@ -232,6 +265,7 @@ impl Session {
         if logon && !self.user.mail_address.is_empty() && !self.user.mail_verified.is_empty() {
             return Ok(());
         }
+        let mut change = false;
         if !logon {
             if self.user.mail_address.is_empty() {
                 self.say_line("EmStatusNone").await?;
@@ -247,14 +281,15 @@ impl Session {
                 let key = self.read_key().await?;
                 self.newline();
                 match key.upper() {
-                    Some('C') => self.user.mail_address.clear(),
+                    Some('C') => change = true,
                     Some('V') if self.user.mail_verified.is_empty() => {}
                     _ => return Ok(()),
                 }
             }
         }
-        // An address, if there's none.
-        if self.user.mail_address.is_empty() && !self.email_ask_address(&cfg, logon).await? {
+        // An address, if there's none or they're changing it (the old one
+        // stays until a new one's taken).
+        if (self.user.mail_address.is_empty() || change) && !self.email_ask_address(&cfg, logon).await? {
             return Ok(());
         }
         if !self.user.mail_verified.is_empty() {
@@ -282,7 +317,6 @@ impl Session {
                     continue;
                 }
                 "C" => {
-                    self.user.mail_address.clear();
                     if !self.email_ask_address(&cfg, logon).await? || !self.email_send(&cfg).await? {
                         return Ok(());
                     }
@@ -331,6 +365,9 @@ impl Session {
             if self.state.users.mail_taken(&a, self.user.id).map_err(io::Error::other)? {
                 self.say_line("EmInUse").await?;
                 continue;
+            }
+            if a.eq_ignore_ascii_case(&self.user.mail_address) && !self.user.mail_verified.is_empty() {
+                return Ok(false);
             }
             self.user.mail_address = a;
             self.user.mail_verified.clear();
@@ -381,6 +418,13 @@ impl Session {
     /// The address is theirs: note the day, raise their level if the
     /// board says to (never lower it), and save.
     async fn email_confirmed(&mut self, cfg: &Cfg) -> io::Result<()> {
+        // Another account may have confirmed it since it was typed.
+        if self.state.users.mail_taken(&self.user.mail_address, self.user.id).map_err(io::Error::other)? {
+            self.say_line("EmInUse").await?;
+            self.user.mail_address.clear();
+            self.save_user();
+            return Ok(());
+        }
         self.user.mail_verified = crate::clock::now().date_naive().to_string();
         let s = self.strings().fmt("EmVerified", &[&self.user.mail_address]);
         self.show_line(&s).await?;
@@ -455,5 +499,18 @@ mod tests {
         t += chrono::Duration::minutes(5);
         assert_eq!(s.issue(3, "a@b.co", "4", t, 30).unwrap(), Issue::TooMany);
         assert_eq!(s.issue(3, "a@b.co", "5", at("2026-10-27 09:00:00"), 30).unwrap(), Issue::Sent, "a new day");
+    }
+
+    #[test]
+    fn an_address_is_rationed_across_accounts() {
+        let s = CodeStore::open_memory().unwrap();
+        let t = at("2026-10-26 09:00:00");
+        for user in 10..10 + SENDS_A_DAY {
+            assert_eq!(s.issue(user, "Victim@b.co", "1", t, 30).unwrap(), Issue::Sent);
+        }
+        assert_eq!(s.issue(99, "victim@b.co", "1", t, 30).unwrap(), Issue::TooMany, "a new account");
+        assert_eq!(s.issue(10, "victim@b.co", "1", t + chrono::Duration::minutes(5), 30).unwrap(), Issue::TooMany, "one of them again");
+        assert_eq!(s.issue(10, "other@b.co", "1", t + chrono::Duration::minutes(5), 30).unwrap(), Issue::Sent, "another address");
+        assert_eq!(s.issue(99, "victim@b.co", "1", at("2026-10-27 09:00:00"), 30).unwrap(), Issue::Sent, "a new day");
     }
 }

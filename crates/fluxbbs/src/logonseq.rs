@@ -86,6 +86,7 @@ impl Sequence {
         let path = cfg.resolve(&cfg.paths.logon);
         let tmp = path.with_extension("toml.new");
         std::fs::write(&tmp, text)?;
+        crate::keep_mode(&path, &tmp);
         std::fs::rename(&tmp, &path)?;
         Ok(())
     }

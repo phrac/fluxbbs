@@ -1537,7 +1537,9 @@ Your own posts count as read.
 there are and offers to read them, a thread at a time. `MW Read` reads
 them without asking.
 
-The website feed lists the newest public posts (`new_posts`).
+The website feed lists the newest public posts (`new_posts`), never
+from echo areas: writers on a network didn't post to a website, and
+some networks (Zer0net) forbid it.
 
 ### @mentions
 
@@ -1609,7 +1611,8 @@ bridged to message areas (`meshcore.rs`).
 The board speaks MeshCore's companion protocol over TCP: the WiFi
 companion firmware's port 5000, or a USB radio put on the network with
 ser2net. It reconnects when the link drops, and picks up changed
-settings within a minute.
+settings within a minute. `*C`, MeshCore, edits the channels too
+(Channels: insert, delete, move, edit).
 
 `*C`, MeshCore, has the switch, the address, the reconnect delay and
 the parts. Channels are listed in the file.
@@ -1622,7 +1625,9 @@ The board can be a node of FidoNet-style networks such as fsxNet, with
 its own mailer and tosser (the original handed packets to outside
 programs). It polls its hub over binkp (`binkp.rs`, FTS-1026), sends
 what's been posted here, and tosses what came (`ftntoss.rs`). The
-session password goes as CRAM-MD5 when the hub offers it.
+session password goes only as CRAM-MD5: a hub that doesn't offer it
+(binkd always does) gets no password, and the poll stops, so whoever
+answers at the hub's address can't collect it.
 
 ### Setting it up
 
@@ -1653,7 +1658,9 @@ session password goes as CRAM-MD5 when the hub offers it.
 
 Echoes are message areas: each `[[ftn.area]]` maps a network tag to an
 area's storage key. Renaming an area's key in `*A` moves its mapping
-with it.
+with it. `*C`, FTN Echomail, edits the echoes (Echoes) and the other
+networks (More networks) as lists, as well as the first network's
+settings.
 
 | Command | Does |
 |---|---|
@@ -1680,7 +1687,11 @@ Messages come in with their kludges read:
 - Escape sequences from the network are cut down to colors and
   cursor-right (ANSI art's spacing). Nothing from elsewhere can clear a
   reader's screen or talk to their terminal.
-- @mentions of local callers work.
+- @mentions from the network don't notify callers here: anyone on it
+  could ping them.
+- A date no one could mean (a year before 1980 or after 2100) is taken
+  as the time it arrived. Three-digit years from packers with the Y2K
+  bug (`126`) are read as 2026.
 - Dupes are remembered after their messages are packed away.
 
 #### Which packets are taken
@@ -1692,19 +1703,25 @@ Messages come in with their kludges read:
   the header holds.
 - If the board's side fails (the database busy), the packet stays in
   inbound for the next toss.
+- An empty file (a bundle sent with nothing in it) is removed.
+- `AREA:` is found in lower case too, and after kludge lines.
 
 #### The bad directory
 
 Anything that can't be tossed goes to `data/ftn/bad`, under a new name
-if one's taken. Move it back to `inbound` to try again. So does:
+if one's taken. Move it back to `inbound` to try again. That covers a
+packet that can't be read, a wrong packet password and a bundle that
+isn't a ZIP (ARC, ARJ). The other packets in a bundle are tossed all
+the same.
 
-- a packet with mail for an echo that isn't mapped to an area
-- a packet with netmail for another address
-- a bundle that isn't a ZIP (ARC, ARJ)
+What one message holds up doesn't hold up the rest of its packet:
 
-So nothing is lost while it's seen to. What was tossed from such a
-packet comes in again as dupes. The other packets in a bundle are
-tossed all the same.
+- Mail for an echo with no area here is kept in `data/ftn/unknown`, a
+  packet per network and echo (`agoranet~AGN_NEW-....pkt`), and the
+  log says which echo. Once the echo is mapped (`*C`, FTN Echomail,
+  Echoes), the next toss brings it in.
+- Netmail for another address goes to `bad` on its own
+  (`netmail-....pkt`), for the SysOp.
 
 ### Mail going out
 
@@ -1713,8 +1730,15 @@ MSGID, REPLY (a reply to a network message threads there too), PID,
 TZUTC and CHRS, a tear and origin line, SEEN-BY and PATH. Color codes
 are taken out.
 
-- An area starts from what's in it when it's first scanned, so old
-  posts aren't sent.
+- An area's first scan skips its history but sends what was posted in
+  the last day, so a hello written while the echo was being set up
+  goes.
+- A post that's deleted or private when scanned isn't sent, but the
+  scan doesn't move past it for a week: restored (or made public) in
+  that time, it goes.
+- Lines a caller typed that would pass for a tear or origin line go as
+  `-+-` and ` + Origin:`, as other tossers do. Tabs go as spaces, and
+  `ì` as `i` (its CP437 byte is FTS-0001's soft CR).
 - Posts that came from the network (or from MeshCore) aren't sent back.
 - A post is marked sent only once its packet is written. One packed
   again after a failed write keeps its MSGID, so the network can tell a
@@ -1737,11 +1761,18 @@ rather than "hold"). Set `[ftn] listen` (`0.0.0.0:24554`, published by
 the Docker compose file) and the board answers binkp.
 
 - It offers CRAM-MD5 and lets in only its hub, with the session
-  password.
-- A wrong password counts as a failed login (security log, bans).
-- Connections are held to the same per-address limits as callers.
-- A hub calling with the wrong password is turned away and logged, but
-  not banned, so a password changed at its end can't cut the board off.
+  password by CRAM-MD5 (never in the clear).
+- Someone else giving the hub's address with a wrong password counts as
+  a failed login (security log, bans).
+- Connections are held to the same per-address limits as callers,
+  except from the hubs' own hosts (their names looked up every ten
+  minutes): a ban earned at the hub's address on telnet can't cut off
+  the mail.
+- The hub itself calling with the wrong password is turned away and
+  logged, but not banned, so a password changed at its end can't cut
+  the board off.
+- Another node calling with crash mail (we take mail only from hubs) is
+  turned away without counting as a failure.
 
 ### Sessions and limits
 
@@ -1749,7 +1780,11 @@ the Docker compose file) and the board answers binkp.
   too. Lock files in `data/ftn` make `fluxbbs ftn` safe to run beside
   the running board. A call during a poll is told to try again.
 - A hub that has part of a file from a broken session can ask for the
-  rest (M_GET).
+  rest (M_GET). End of batch goes once every file sent is acknowledged,
+  and a file the other side says it has (M_GOT, M_SKIP) stops at once.
+- Received files keep the sender's time.
+- `fluxbbs ftn` logs to `data/ftn/ftn.log` as well as the terminal, so
+  runs beside the board in its container (`docker exec`) leave a record.
 - A poll the hub answers as non-secure (it doesn't have the session
   password yet) sends nothing, so mail isn't left in its unsecure
   inbound. The log says why.

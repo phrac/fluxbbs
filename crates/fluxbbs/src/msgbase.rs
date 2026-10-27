@@ -731,6 +731,34 @@ impl MsgBase {
         Ok(db.query_row("SELECT 1 FROM ftn_msgs WHERE msgid = ?1 AND area = ?2", params![msgid, area], |_| Ok(())).optional()?.is_some())
     }
 
+    /// Where an echo's first scan starts: after the area's last message
+    /// written before `before` (its history isn't sent; what was posted
+    /// since, as the echo was being set up, is).
+    pub fn ftn_start(&self, area: &str, before: NaiveDateTime) -> anyhow::Result<i64> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT COALESCE(MAX(id), 0) FROM messages WHERE area = ?1 AND posted < ?2", params![area, before], |r| r.get(0))?)
+    }
+
+    /// The first message after `after` in `area`, written since `since`,
+    /// that's deleted or private and was never sent: the scan's mark stays
+    /// below it, so it goes out if it's restored (or made public) soon.
+    pub fn ftn_held(&self, area: &str, after: i64, since: NaiveDateTime) -> anyhow::Result<Option<i64>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row(
+            "SELECT MIN(id) FROM messages m WHERE area = ?1 AND id > ?2 AND (deleted OR private) AND posted >= ?3
+             AND NOT EXISTS (SELECT 1 FROM ftn_msgs f WHERE f.msg_id = m.id)",
+            params![area, after, since],
+            |r| r.get(0),
+        )?)
+    }
+
+    /// Stop waiting for parents that never came: replies written before
+    /// `before`, or gone.
+    pub fn ftn_forget_waits(&self, before: NaiveDateTime) -> anyhow::Result<usize> {
+        let db = self.db.lock().unwrap();
+        Ok(db.execute("DELETE FROM ftn_replies WHERE msg_id NOT IN (SELECT id FROM messages WHERE posted >= ?1)", params![before])?)
+    }
+
     /// An imported reply whose parent (`reply`, its MSGID) hasn't come yet.
     pub fn ftn_wait_reply(&self, msg_id: i64, area: &str, reply: &str) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();

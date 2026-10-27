@@ -276,7 +276,7 @@ impl Session {
         if !self.animating() {
             return Ok(false);
         }
-        let idle = self.state.config().bbs.inactivity_seconds;
+        let idle = self.idle_limit();
         self.screensaver(tokio::time::Instant::now(), idle).await?;
         Ok(true)
     }
