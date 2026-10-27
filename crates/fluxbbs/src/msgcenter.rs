@@ -1066,7 +1066,8 @@ impl Session {
             return Ok(());
         }
         self.newline();
-        let s = self.strings().fmt("MsgLogonNew", &[&posts.to_string(), &areas.to_string()]);
+        let count = |n: usize, one: &str| if n == 1 { format!("1 {one}") } else { format!("{n} {one}s") };
+        let s = self.strings().fmt("MsgLogonNew", &[&count(posts, "post"), &count(areas, "area")]);
         self.show(&s).await?;
         if self.yes_no(true).await? {
             self.read_all_new().await?;

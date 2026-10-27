@@ -556,6 +556,13 @@ impl Session {
 
     async fn yes_no_bar(&mut self, default: bool) -> io::Result<bool> {
         let (yes_bar, no_bar) = (self.state.config().prompts.yes_bar.clone(), self.state.config().prompts.no_bar.clone());
+        // New: a bar that would run past column 79 goes on the next line;
+        // wrapped, its redraws landed a line down and showed it twice.
+        let wide = self.visible_len(yes_bar.as_bytes()).max(self.visible_len(no_bar.as_bytes()));
+        if self.screen.where_x() as usize + wide > 80 {
+            self.newline();
+            self.write("  ");
+        }
         let x = self.screen.where_x();
         let mut yes = default;
         self.show(if yes { &yes_bar } else { &no_bar }).await?;
