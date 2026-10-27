@@ -117,7 +117,7 @@ The message boards (`m`):
 | `n` | reads what's new here, 20 at a time |
 | `p` | starts a thread |
 | `reply <#>` | replies with a post (a full reply; `c` is a one-line comment) |
-| `c <#> <text>` | comments under message #; `file:AREA/NAME` in the text links a file (it must be on the board) |
+| `c <#> <text>` | comments under message #; `file:AREA/NAME` in the text links a file (it must be on the board). Not on echomail (network boards): `reply <#>` there |
 | `c <#> /l` | comments with a link: name the file, pick it from the numbered list, then add your words |
 | `+ <#> <text>`, `- <#> <text>` | votes it up or down, with a word |
 | `d <#>` | your own post: takes it back, as if never posted (`y`; only while it's fresh, 15 minutes by default, and nobody has answered), or later retracts it (`r`; others see only that you did, and `d` then `u` undoes it) or burns it (`b`, for good) |

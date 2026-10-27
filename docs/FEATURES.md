@@ -1246,6 +1246,11 @@ A message area can sit under another, to any depth, as file areas can
 Elsewhere (the classic lists, scans, QWK) sub-boards are areas like any
 other.
 
+Moving areas around (`M` in `*M`) renumbers them, but what callers have
+read goes by storage key. New callers start in `[messages]
+new_user_area` ("New user area" in `*C`, Message System), a storage key,
+or area 1 if it's blank.
+
 ### Callers' boards
 
 Callers can make boards of their own (PTT's personal boards). A caller
@@ -1489,6 +1494,8 @@ Rules:
 - You can't vote on your own message.
 - Comments may repeat, one push every five seconds.
 - Pushes are only allowed where you may post, and not on private mail.
+- Echomail takes votes but not comments: a comment would never reach
+  the network, so there `r` replies instead (`PushEchoComment` says so).
 
 The score is ups less downs. It shows as `+4`, as `X2` when negative,
 and as `HOT` from 25.

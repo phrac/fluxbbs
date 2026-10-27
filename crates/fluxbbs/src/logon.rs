@@ -466,6 +466,10 @@ impl Session {
         }
 
         let mut u = User { palette: self.state.config().colors.clone(), ..User::default() };
+        let start = self.state.config().messages.new_user_area.trim().to_string();
+        if let Some(i) = self.state.areas().areas.iter().position(|a| !start.is_empty() && a.file.eq_ignore_ascii_case(&start)) {
+            u.cur_msg_area = i as u32 + 1;
+        }
         // Details the application doesn't ask for are left blank, not
         // filled with placeholders that would show in user lists.
         if !nu.ask_phone {

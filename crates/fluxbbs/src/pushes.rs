@@ -104,11 +104,19 @@ impl Session {
             return self.bar_note("PushNotHere").await;
         }
         let moderator = self.is_sponsor(a) || self.is_cosysop();
+        // Echomail: votes, but no comments, which the network never sees.
+        let echo = !self.comments_only(a);
         let kind: i8 = if comment {
             0
         } else {
             self.bar_line();
-            self.say(if moderator { "PushAskSponsor" } else { "PushAsk" }).await?;
+            self.say(match (echo, moderator) {
+                (true, true) => "PushAskEchoSponsor",
+                (true, false) => "PushAskEcho",
+                (false, true) => "PushAskSponsor",
+                (false, false) => "PushAsk",
+            })
+            .await?;
             match self.read_key().await? {
                 Key::Char(b'+') => 1,
                 Key::Char(b'-') => -1,
@@ -117,8 +125,11 @@ impl Session {
                 _ => return Ok(false),
             }
         };
+        if kind == 0 && echo {
+            return self.bar_note("PushEchoComment").await;
+        }
         if kind != 0 && self.is_me(&m.from) {
-            return self.bar_note("PushOwn").await;
+            return self.bar_note(if echo { "PushOwnEcho" } else { "PushOwn" }).await;
         }
         let now = crate::clock::now().naive_local();
         if let Some(last) = self.state.msgs.last_push_at(self.user.id).map_err(io_err)?

@@ -361,6 +361,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('N', "Mandatory all confs", 3, "Should the mandatory scan ignore conferences?", Bool(|c| &mut c.messages.mandatory_all_confs)),
             set('O', "Compress numbers", 3, "Number listed areas 1, 2, 3... counting only visible ones?", Bool(|c| &mut c.messages.compress_area_numbers)),
             set('P', "ANSI quote text", 40, "Shown instead of quoted lines that contain ANSI.", Text(|c| &mut c.messages.ansi_quote, TEXT.max(100))),
+            set('Q', "New user area", 8, "Storage key of the message area new callers start in (blank = the first).", Text(|c| &mut c.messages.new_user_area, TEXT.max(8))),
         ]),
         ("Attachments and Uploaded Messages", false, vec![
             set('A', "Public attach ACS", 20, "ACS to attach a file to a public message.", Text(|c| &mut c.messages.acs_attach_public, ACS)),

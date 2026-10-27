@@ -31,7 +31,7 @@ const BOARD_HELP: &[&str] = &[
     "  n              read what's new here (20 at a time)",
     "  p              start a thread",
     "  reply <#>      reply to message # with a post (c for a one-line comment)",
-    "  c <#> <text>   comment on message #; a link to a file is file:AREA/NAME",
+    "  c <#> <text>   comment on message # (not on echomail); a link to a file is file:AREA/NAME",
     "  c <#> /l       comment with a link: pick the file, then add words",
     "  + <#> <text>   vote message # up, with a word",
     "  - <#> <text>   vote message # down, with a word",
@@ -392,8 +392,13 @@ impl Session {
         if !self.may_push(a, m) {
             return self.say_line("PushNotHere").await;
         }
+        let echo = !self.comments_only(a);
+        if kind == 0 && echo {
+            self.plain_line(&format!("Comments don't travel: reply {} answers everyone on the network.", m.num));
+            return Ok(());
+        }
         if kind != 0 && self.is_me(&m.from) {
-            return self.say_line("PushOwn").await;
+            return self.say_line(if echo { "PushOwnEcho" } else { "PushOwn" }).await;
         }
         let mut text = strip_colours(&text).trim().to_string();
         // `/l` and a name: a file to link to, picked from a list, then

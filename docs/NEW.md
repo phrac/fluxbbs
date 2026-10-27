@@ -292,6 +292,8 @@ All in [FEATURES](FEATURES.md#message-center).
 - A Hot list across the board.
 - Karma on profiles.
 - Sub-boards: message areas under message areas, shown as folders.
+- New callers start in an area named by key (`[messages] new_user_area`),
+  wherever it's moved to; the original started everyone in area 1.
 - Boards callers make and moderate (ban from posting, about line,
   delete), removed when left empty.
 - Pinned threads, post tags with a filter, and "my boards" (favorites).

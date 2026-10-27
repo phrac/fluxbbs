@@ -1202,6 +1202,9 @@ pub struct Messages {
     /// New: file points an author gives up to burn a message for good
     /// (0, or a board without file points: free).
     pub burn_points: u32,
+    /// New: the storage key of the area new callers start in (blank: the
+    /// first), so it stays put when areas are moved.
+    pub new_user_area: String,
 }
 
 impl Default for Messages {
@@ -1235,6 +1238,7 @@ impl Default for Messages {
             fill_points: 10,
             take_back_minutes: 15,
             burn_points: 25,
+            new_user_area: String::new(),
         }
     }
 }
