@@ -35,6 +35,8 @@ const BOARD_HELP: &[&str] = &[
     "  c <#> /l       comment with a link: pick the file, then add words",
     "  + <#> <text>   vote message # up, with a word",
     "  - <#> <text>   vote message # down, with a word",
+    "  d <#>          your own post: take it back, retract or burn it",
+    "  e <#>          your own post: add an edit under it",
     "  q              back to the boards",
 ];
 
@@ -159,9 +161,10 @@ impl Session {
                 "n" => self.plain_read_new(Some(a)).await?,
                 "p" => {
                     if let Some(n) = self.post(a, "All", "", None).await? {
-                        self.plain_line(&format!("Posted as #{n}."));
+                        self.plain_posted(n);
                     }
                 }
+                "d" | "e" => Box::pin(self.plain_own(a, &cmd, num)).await?,
                 "r" | "t" | "reply" | "c" | "+" | "-" => {
                     let Some(m) = num.and_then(|n| self.plain_msg(a, n)) else {
                         self.plain_line("Which message? Give its number, e.g. r 12.");
@@ -172,7 +175,7 @@ impl Session {
                         "t" => self.plain_thread(a, &m)?,
                         "reply" => {
                             if let Some(n) = self.post(a, "", "", Some(&m)).await? {
-                                self.plain_line(&format!("Posted as #{n}."));
+                                self.plain_posted(n);
                             }
                         }
                         "c" => self.plain_push(a, &m, 0, text).await?,
@@ -183,6 +186,50 @@ impl Session {
                 "" => {}
                 _ => self.plain_line("What? A message number reads it; ? lists the commands."),
             }
+        }
+    }
+
+    /// `d` and `e` on a message: as in the reader, taking back,
+    /// retracting or burning your own post (`regret`), or a moderator's
+    /// delete; an edit added under your post, or a moderator's rewrite.
+    async fn plain_own(&mut self, a: &AreaRef, cmd: &str, num: Option<u32>) -> io::Result<()> {
+        // Moderators reach deleted posts too, to undelete them.
+        let m = num.and_then(|n| self.state.msgs.get(a.key(), n).ok().flatten()).filter(|m| self.ok_to_read(a, m));
+        let Some(mut m) = m else {
+            self.plain_line(&format!("Which message? Give its number, e.g. {cmd} 12."));
+            return Ok(());
+        };
+        if cmd == "e" {
+            if self.ok_to_edit(a, &m) {
+                self.edit_existing(a, &mut m).await?;
+            } else {
+                self.plain_line("Only its author or a moderator edits a message.");
+            }
+        } else if !a.is_email() && self.wrote(&m.from) {
+            // The reader shows the post again; here, a line says what changed
+            // (taking back and burning say "Gone." themselves).
+            if self.regret(a, &m).await? && self.state.msgs.by_id(m.id).map_err(io_err)?.is_some_and(|x| !x.deleted) {
+                let now = self.state.msgs.retracted(m.id).map_err(io_err)?.is_some();
+                self.plain_line(if now { "Retracted: others see only that you did. d again undoes it." } else { "Retraction undone." });
+            }
+        } else if self.ok_to_delete(a, &m) {
+            m.deleted = !m.deleted;
+            self.state.msgs.set_deleted(m.id, m.deleted).map_err(io_err)?;
+            self.say_line(if m.deleted { "MsgDeleted" } else { "MsgUndeleted" }).await?;
+            tracing::info!("{}: message {} in {} {}, plain text", self.user.handle, m.num, a.area.name, if m.deleted { "deleted" } else { "undeleted" });
+        } else {
+            self.plain_line("Only your own posts: d takes one back, retracts or burns it.");
+        }
+        Ok(())
+    }
+
+    /// Where a new post went, and how to take it back while that's easy.
+    fn plain_posted(&mut self, n: u32) {
+        let mins = self.state.config().messages.take_back_minutes;
+        if mins > 0 {
+            self.plain_line(&format!("Posted as #{n}. d {n} takes it back (for {mins} minutes, while nobody's answered), retracts or burns it."));
+        } else {
+            self.plain_line(&format!("Posted as #{n}. d {n} retracts or burns it."));
         }
     }
 

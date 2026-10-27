@@ -120,6 +120,8 @@ The message boards (`m`):
 | `c <#> <text>` | comments under message #; `file:AREA/NAME` in the text links a file (it must be on the board) |
 | `c <#> /l` | comments with a link: name the file, pick it from the numbered list, then add your words |
 | `+ <#> <text>`, `- <#> <text>` | votes it up or down, with a word |
+| `d <#>` | your own post: takes it back, as if never posted (`y`; only while it's fresh, 15 minutes by default, and nobody has answered), or later retracts it (`r`; others see only that you did, and `d` then `u` undoes it) or burns it (`b`, for good) |
+| `e <#>` | your own post: adds an edit under it, written a line at a time; what you posted stays |
 | `q` | back to the boards |
 
 On a request board the list puts open requests first; a filled one

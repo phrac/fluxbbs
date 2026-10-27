@@ -40,7 +40,7 @@ impl Session {
         let burn = if points > 0 { self.strings().fmt("RegretBurnCost", &[&points.to_string()]) } else { String::new() };
         let ask = self.strings().fmt(if retracted { "RegretAskRetracted" } else { "RegretAsk" }, &[&burn]);
         self.show(&ask).await?;
-        let key = self.read_key().await?;
+        let key = self.read_choice().await?;
         self.newline();
         match key.upper() {
             Some('R') if !retracted => {

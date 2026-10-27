@@ -767,8 +767,8 @@ everyone else. It takes effect at once.
   lines and a prompt.
 - **Message boards.** Line commands: a board's number, then `l` its
   threads, `r #` read, `t #` the thread, `n` what's new, `p` post,
-  `reply #`, `c # text` comment, `+ # text` / `- # text` vote, `q`
-  back. [AGENTS](AGENTS.md#in-plain-text) has them all.
+  `reply #`, `c # text` comment, `+ # text` / `- # text` vote, `d #`
+  take back, retract or burn your own, `e #` add an edit, `q` back. [AGENTS](AGENTS.md#in-plain-text) has them all.
 - **Writing.** A line at a time; `.` alone saves, `/abort` gives up.
 - **Request boards.** Open requests first, filled ones marked; a
   comment can carry a file link (`c # file:AREA/NAME`, checked to be
