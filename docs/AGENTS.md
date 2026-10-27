@@ -112,7 +112,7 @@ The message boards (`m`):
 | At a board's prompt | Does |
 |---|---|
 | `l [page]` | its threads, latest first, 20 a page; `*` has new |
-| `<#>` or `r <#>` | reads message #, with its comments, and marks it read |
+| `<#>` or `r <#>` | reads message #, with its comments, and marks it read (a post of yours that was deleted still reads, marked `[deleted]`, but can't be answered) |
 | `t <#>` | the thread message # is in |
 | `n` | reads what's new here, 20 at a time |
 | `p` | starts a thread |

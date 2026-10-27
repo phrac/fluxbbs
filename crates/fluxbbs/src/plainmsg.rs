@@ -44,6 +44,19 @@ fn io_err(e: anyhow::Error) -> io::Error {
     io::Error::other(e)
 }
 
+/// What to say when a command's message number doesn't lead anywhere.
+fn plain_which(cmd: &str, num: Option<u32>) -> String {
+    match num {
+        Some(n) => format!("There's no #{n} here."),
+        None => format!("Which message? Give its number, e.g. {cmd} 12."),
+    }
+}
+
+/// Deleted posts show only to their author and moderators: say so.
+fn deleted_mark(m: &Message) -> &'static str {
+    if m.deleted { " [deleted]" } else { "" }
+}
+
 impl Session {
     /// A line of text, its color codes dropped.
     fn plain_line(&mut self, s: &str) {
@@ -171,9 +184,13 @@ impl Session {
                 "d" | "e" => Box::pin(self.plain_own(a, &cmd, num)).await?,
                 "r" | "t" | "reply" | "c" | "+" | "-" => {
                     let Some(m) = num.and_then(|n| self.plain_msg(a, n)) else {
-                        self.plain_line("Which message? Give its number, e.g. r 12.");
+                        self.plain_line(&plain_which(&cmd, num));
                         continue;
                     };
+                    if m.deleted && !matches!(cmd.as_str(), "r" | "t") {
+                        self.plain_line(&format!("#{} is deleted: it can be read, not answered.", m.num));
+                        continue;
+                    }
                     match cmd.as_str() {
                         "r" => self.plain_show(a, &m)?,
                         "t" => self.plain_thread(a, &m)?,
@@ -198,9 +215,8 @@ impl Session {
     /// delete; an edit added under your post, or a moderator's rewrite.
     async fn plain_own(&mut self, a: &AreaRef, cmd: &str, num: Option<u32>) -> io::Result<()> {
         // Moderators reach deleted posts too, to undelete them.
-        let m = num.and_then(|n| self.state.msgs.get(a.key(), n).ok().flatten()).filter(|m| self.ok_to_read(a, m));
-        let Some(mut m) = m else {
-            self.plain_line(&format!("Which message? Give its number, e.g. {cmd} 12."));
+        let Some(mut m) = num.and_then(|n| self.plain_msg(a, n)) else {
+            self.plain_line(&plain_which(cmd, num));
             return Ok(());
         };
         if cmd == "e" {
@@ -237,10 +253,10 @@ impl Session {
         }
     }
 
-    /// Message `num` of an area, if the caller may read it.
+    /// Message `num` of an area, if the caller may read it: as in the
+    /// reader, its author and moderators still reach it once deleted.
     fn plain_msg(&self, a: &AreaRef, num: u32) -> Option<Message> {
-        let m = self.state.msgs.get(a.key(), num).ok().flatten()?;
-        (!m.deleted && self.ok_to_read(a, &m)).then_some(m)
+        self.state.msgs.get(a.key(), num).ok().flatten().filter(|m| self.ok_to_read(a, m))
     }
 
     /// A page of an area's threads, the latest activity first.
@@ -278,7 +294,7 @@ impl Session {
                 self.local(t.last).format("%m/%d"),
                 fluxbbs_term::codes::resize(&self.plain_author(root), 12),
                 re,
-                strip_colours(&self.request_state(a, root, &filled).1)
+                strip_colours(&self.request_state(a, root, &filled).1) + deleted_mark(root)
             ));
         }
         for l in lines {
@@ -299,7 +315,7 @@ impl Session {
     fn plain_show(&mut self, a: &AreaRef, m: &Message) -> io::Result<()> {
         let when = self.local(m.posted).format("%Y-%m-%d %H:%M").to_string();
         self.newline();
-        self.plain_line(&format!("--- #{} in {}: {}", m.num, strip_colours(&a.area.name), strip_colours(&m.subject)));
+        self.plain_line(&format!("--- #{} in {}: {}{}", m.num, strip_colours(&a.area.name), strip_colours(&m.subject), deleted_mark(m)));
         self.plain_line(&format!("From {} to {}, {when}", self.plain_author(m), strip_colours(&m.to.name)));
         self.newline();
         for l in self.reader_lines(a, m) {
@@ -322,13 +338,14 @@ impl Session {
             let c = comments.get(id).copied().unwrap_or(0);
             let c = if c == 0 { String::new() } else { format!(" ({c} comments)") };
             lines.push(format!(
-                "{}{:>5}  {}{}  {}  {}{c}",
+                "{}{:>5}  {}{}  {}  {}{}{c}",
                 if v.is_new(x) { "*" } else { " " },
                 x.num,
                 "  ".repeat(*depth),
                 self.local(x.posted).format("%m/%d %H:%M"),
                 self.plain_author(x),
-                strip_colours(&x.subject)
+                strip_colours(&x.subject),
+                deleted_mark(x)
             ));
         }
         self.plain_line("The thread (* is new):");
