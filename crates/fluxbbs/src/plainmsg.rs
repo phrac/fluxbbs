@@ -101,6 +101,10 @@ impl Session {
     fn plain_board_list(&mut self, areas: &[(u32, AreaRef)]) -> io::Result<()> {
         let mut total_new = 0;
         let mut rows = Vec::new();
+        // Sub-boards under their folders, wherever they are in the file.
+        let tree = self.state.areas().tree();
+        let mut areas: Vec<&(u32, AreaRef)> = areas.iter().collect();
+        areas.sort_by_key(|(_, a)| tree.iter().position(|(n, _)| *n == a.num).unwrap_or(usize::MAX));
         for (label, a) in areas {
             let v = self.area_view(a)?;
             let new = v.new_count();
