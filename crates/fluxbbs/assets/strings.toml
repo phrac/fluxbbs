@@ -889,3 +889,6 @@ WxWhere = "|U1Where are you |U2(|U1a town, or town, state|U2)|U1? |U3"
 WxNoPlace = "|U4Can't find |U3%S1|U5."
 WxDown = "|U4The weather service isn't answering just now|U5."
 WxWhichTown = "|U4Which town in |U3%S1|U4? |U5(|U4town, state or country|U5)"
+# Before the email question when it's optional and confirming raises the
+# caller's level (verified_level).
+EmAskWhy = "|U1Email's optional here|U2, |U1but confirm one with the code it sends and your access goes up right away|U2."

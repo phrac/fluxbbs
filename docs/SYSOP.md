@@ -336,7 +336,7 @@ six-digit code it mails them. It's off to start: `*C`, `@` (`[email]`).
 |---|---|---|
 | `enabled` | ask for and confirm addresses | off |
 | `required` | callers must give an address (confirming can wait for a later call) | on |
-| `verified_level` | the level a confirmed address raises a caller to (blank: none) | none |
+| `verified_level` | the level a confirmed address raises a caller to (blank: none). With `required` off, a caller it would raise is told so above the question (`EmAskWhy`) | none |
 | `code_minutes` | how long a code is good | 30 |
 | `smtp_host`, `smtp_port`, `smtp_security`, `smtp_user`, `smtp_password_env`, `from` | how mail goes out | port 587, `starttls` |
 

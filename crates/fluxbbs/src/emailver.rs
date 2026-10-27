@@ -345,6 +345,10 @@ impl Session {
     /// Ask for an address and keep it (unconfirmed). False if they gave
     /// none and may go without.
     async fn email_ask_address(&mut self, cfg: &Cfg, logon: bool) -> io::Result<bool> {
+        // Optional, but worth it: say so.
+        if !cfg.required && self.verified_raise(cfg).is_some() {
+            self.say_line("EmAskWhy").await?;
+        }
         loop {
             self.say(if cfg.required { "EmAsk" } else { "EmAskOptional" }).await?;
             let a = self.read_string(ReadOpts::new(60)).await?;
@@ -417,6 +421,12 @@ impl Session {
 
     /// The address is theirs: note the day, raise their level if the
     /// board says to (never lower it), and save.
+    /// The level (`verified_level`) confirming would raise this caller to.
+    fn verified_raise(&self, cfg: &Cfg) -> Option<(char, crate::config::Level)> {
+        let key = cfg.verified_level.trim().chars().next()?.to_ascii_uppercase();
+        self.state.level(key).filter(|l| l.sl > self.user.sl).map(|l| (key, l))
+    }
+
     async fn email_confirmed(&mut self, cfg: &Cfg) -> io::Result<()> {
         // Another account may have confirmed it since it was typed.
         if self.state.users.mail_taken(&self.user.mail_address, self.user.id).map_err(io::Error::other)? {
@@ -428,10 +438,7 @@ impl Session {
         self.user.mail_verified = crate::clock::now().date_naive().to_string();
         let s = self.strings().fmt("EmVerified", &[&self.user.mail_address]);
         self.show_line(&s).await?;
-        if let Some(key) = cfg.verified_level.trim().chars().next().map(|c| c.to_ascii_uppercase())
-            && let Some(level) = self.state.level(key)
-            && level.sl > self.user.sl
-        {
+        if let Some((key, level)) = self.verified_raise(cfg) {
             self.user.apply_level(key, &level);
             self.say_line("EmLevelUp").await?;
         }
