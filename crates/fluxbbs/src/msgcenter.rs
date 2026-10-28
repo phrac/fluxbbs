@@ -206,6 +206,51 @@ impl Session {
         Ok(())
     }
 
+    /// New: catch up on an area, everything in it marked read. How many
+    /// posts were new.
+    pub(crate) fn catch_up(&self, a: &AreaRef) -> io::Result<usize> {
+        let new = self.area_view(a)?.new_count();
+        let last = self.state.msgs.count(a.key()).map_err(io_err)?;
+        self.state.msgs.set_lastread(self.user.id, a.key(), last).map_err(io_err)?;
+        self.state.msgs.forget_seen(self.user.id, a.key(), last).map_err(io_err)?;
+        Ok(new)
+    }
+
+    /// Catch up on the areas numbered `nums` (all the caller can read with
+    /// None), as far as the caller may read them. How many posts were new.
+    pub(crate) fn catch_up_areas(&self, nums: Option<&[u32]>) -> io::Result<usize> {
+        let mut new = 0;
+        for (_, a) in self.readable_areas() {
+            if nums.is_none_or(|n| n.contains(&a.num)) {
+                new += self.catch_up(&a)?;
+            }
+        }
+        if new > 0 {
+            tracing::info!("{}: marked {new} posts read", self.user.handle);
+        }
+        Ok(new)
+    }
+
+    /// `z` on the boards (new): mark the board (or folder) under the bar
+    /// read, or every board.
+    async fn hub_mark_read(&mut self, this: Option<(String, Vec<u32>)>) -> io::Result<()> {
+        self.reader_prompt_area();
+        let s = match &this {
+            Some((name, _)) => self.strings().fmt("MarkReadAsk", &[&fluxbbs_term::lit(name)]),
+            None => self.strings().get("MarkReadAskAll").to_string(),
+        };
+        self.show(&s).await?;
+        let k = self.read_choice().await?;
+        self.newline();
+        let new = match (k.upper(), &this) {
+            (Some('T'), Some((_, nums))) => self.catch_up_areas(Some(nums))?,
+            (Some('A'), _) => self.catch_up_areas(None)?,
+            _ => return Ok(()),
+        };
+        let s = self.strings().fmt("MarkedRead", &[&new.to_string()]);
+        self.note(s).await
+    }
+
     /// The areas the caller can read, as (number shown, area).
     /// Areas the caller may read; a passworded one only once they've
     /// given its password this call (the original's scans skipped the
@@ -438,7 +483,9 @@ impl Session {
                 help = self.strings().fmt("MsgHubIn", &[&fluxbbs_term::codes::squish(&name, 14)]) + &help;
             }
             let create = self.may_create_board();
-            if create {
+            // In a folder, its name takes the room `c`'s hint had (the
+            // key still works).
+            if create && level.is_none() {
                 help += self.strings().get("MsgHubCreate");
             }
             let spec = BarSpec {
@@ -450,7 +497,7 @@ impl Session {
                 help: &help,
                 ask: "",
                 can_go_up: level.is_some(),
-                keys: if create { "NPSFHMCA*!" } else { "NPSFHMA*!" },
+                keys: if create { "NPSFHMCAZ*!" } else { "NPSFHMAZ*!" },
             };
             self.node.update(|n| n.activity = "Reading messages".into());
             let is_folder = |n: u32| n == FAV_ROW || (Some(n) != level && has_kids(n));
@@ -490,6 +537,19 @@ impl Session {
                 }
                 BarPick::Key('N', _) => {
                     self.read_all_new().await?;
+                }
+                // New: catch up, on the board or folder under the bar or on all.
+                BarPick::Key('Z', n) => {
+                    came_from = Some(n);
+                    let this = match n {
+                        HOT_ROW => None,
+                        FAV_ROW => {
+                            let nums = favs.iter().flat_map(|f| crate::fileareas::subtree_of(&tree, *f)).collect();
+                            Some((self.strings().get("MyBoardsName").to_string(), nums))
+                        }
+                        n => self.msg_area(n).map(|a| (crate::editor::strip_colours(&a.area.name), crate::fileareas::subtree_of(&tree, n))),
+                    };
+                    self.hub_mark_read(this).await?;
                 }
                 BarPick::Key('P', n) if n != HOT_ROW && !is_folder(n) => {
                     if self.change_area(n).await?
@@ -688,7 +748,7 @@ impl Session {
             };
             let help = self.strings().fmt("MsgThreadKeys", &[&fluxbbs_term::lit(&fluxbbs_term::codes::squish(&name, room)), &new_count, &sort]) + &more;
             let header = post_line(" ", "#", "+/-", "Date", "Author", "Re", "Title");
-            let mut keys = String::from("NPSHV");
+            let mut keys = String::from("NPSHVZ");
             if moderator {
                 keys.push('O');
             }
@@ -729,6 +789,23 @@ impl Session {
                 }
                 BarPick::Key('P', _) => {
                     self.post(a, "All", "", None).await?;
+                }
+                // New: catch up on this board.
+                BarPick::Key('Z', n) => {
+                    on_root = ts.get(n as usize).map(|t| t.msgs[0].0);
+                    let new = v.new_count();
+                    if new == 0 {
+                        self.note_say("MsgNothingNew").await?;
+                    } else {
+                        self.reader_prompt_area();
+                        let s = self.strings().fmt("MarkReadBoard", &[&new.to_string(), &fluxbbs_term::lit(&crate::editor::strip_colours(&a.area.name))]);
+                        self.show(&s).await?;
+                        if self.yes_no(true).await? {
+                            let n = self.catch_up(a)?;
+                            let s = self.strings().fmt("MarkedRead", &[&n.to_string()]);
+                            self.note(s).await?;
+                        }
+                    }
                 }
                 BarPick::Key('V', n) => {
                     if let Some(t) = ts.get(n as usize) {

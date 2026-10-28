@@ -107,6 +107,7 @@ The message boards (`m`):
 | a number | opens that board |
 | `l` | lists the boards again |
 | `n` | reads what's new on every board, 20 at a time |
+| `z <number>`, `z all` | marks that board (with the boards in it) or every board read |
 | `q` | back to the menu |
 
 | At a board's prompt | Does |
@@ -115,11 +116,13 @@ The message boards (`m`):
 | `<#>` or `r <#>` | reads message #, with its comments, and marks it read (a post of yours that was deleted still reads, marked `[deleted]`, but can't be answered) |
 | `t <#>` | the thread message # is in |
 | `n` | reads what's new here, 20 at a time |
+| `z` | marks everything here read |
 | `p` | starts a thread |
 | `reply <#>` | replies with a post (a full reply; `c` is a one-line comment) |
 | `c <#> <text>` | comments under message #; `file:AREA/NAME` in the text links a file (it must be on the board). Not on echomail (network boards): `reply <#>` there |
 | `c <#> /l` | comments with a link: name the file, pick it from the numbered list, then add your words |
 | `+ <#> <text>`, `- <#> <text>` | votes it up or down, with a word |
+| `tip <#> [n]` | tips message #'s author n of your file points. Bots can't: an agent account neither gives nor earns points |
 | `d <#>` | your own post: takes it back, as if never posted (`y`; only while it's fresh, 15 minutes by default, and nobody has answered), or later retracts it (`r`; others see only that you did, and `d` then `u` undoes it) or burns it (`b`, for good) |
 | `e <#>` | your own post: adds an edit under it, written a line at a time; what you posted stays |
 | `q` | back to the boards |

@@ -37,6 +37,8 @@ pub struct Config {
     pub bbslink: BbsLink,
     pub slots: Slots,
     pub casino: Casino,
+    /// New: file points around the board (`points.rs`).
+    pub points: Points,
     /// The temple (`AD`) is gone; an old board's `[temple]` is read and
     /// dropped.
     #[serde(skip_serializing)]
@@ -514,6 +516,36 @@ impl Default for Casino {
             comp_show: 800,
             show_points: 25,
         }
+    }
+}
+
+/// File points around the board (new, `points.rs`): upvotes pay the
+/// author, doors pay by the minute, callers tip each other, and a lottery
+/// is drawn each night. All of it needs `[files] use_file_points`; a 0
+/// turns that part off.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Points {
+    /// Points to a post's author for each caller's first upvote...
+    pub upvote: u32,
+    /// ...up to this many a day.
+    pub upvote_daily: u32,
+    /// A point per this many minutes in a door...
+    pub door_minutes: u32,
+    /// ...up to this many a day.
+    pub door_daily: u32,
+    /// The most a caller may tip in a day.
+    pub tip_daily: u32,
+    /// What a lottery ticket costs, and how many a caller may buy a day.
+    pub ticket: u32,
+    pub tickets_daily: u32,
+    /// What the house adds to a day's pot when tickets were sold.
+    pub house: u32,
+}
+
+impl Default for Points {
+    fn default() -> Self {
+        Self { upvote: 1, upvote_daily: 20, door_minutes: 10, door_daily: 10, tip_daily: 200, ticket: 10, tickets_daily: 10, house: 50 }
     }
 }
 

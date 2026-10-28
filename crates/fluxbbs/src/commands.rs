@@ -287,6 +287,8 @@ impl Session {
             "!E" => self.bank_transaction(crate::timebank::Unit::Kb, true).await?,
             "!I" => self.bank_transaction(crate::timebank::Unit::Kb, false).await?,
             "!V" => self.bank_stats().await?,
+            // New: file points: the ledger, the lottery, tips.
+            "!P" => self.points_screen(param).await?,
             "QD" => self.qwk_download().await?,
             "QU" => self.qwk_upload().await?,
             #[cfg(feature = "doors")]

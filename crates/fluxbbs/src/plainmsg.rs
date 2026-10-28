@@ -21,6 +21,8 @@ const BOARDS_HELP: &[&str] = &[
     "  <number>       open that board",
     "  l              list the boards again",
     "  n              read what's new on every board (20 at a time)",
+    "  z <number>     mark that board (and the boards in it) read",
+    "  z all          mark every board read",
     "  q              back to the menu",
 ];
 
@@ -29,12 +31,14 @@ const BOARD_HELP: &[&str] = &[
     "  <#> or r <#>   read message #",
     "  t <#>          the thread message # is in",
     "  n              read what's new here (20 at a time)",
+    "  z              mark everything here read",
     "  p              start a thread",
     "  reply <#>      reply to message # with a post (c for a one-line comment)",
     "  c <#> <text>   comment on message # (not on echomail); a link to a file is file:AREA/NAME",
     "  c <#> /l       comment with a link: pick the file, then add words",
     "  + <#> <text>   vote message # up, with a word",
     "  - <#> <text>   vote message # down, with a word",
+    "  tip <#> [n]    tip message #'s author n of your file points",
     "  d <#>          your own post: take it back, retract or burn it",
     "  e <#>          your own post: add an edit under it",
     "  q              back to the boards",
@@ -42,6 +46,26 @@ const BOARD_HELP: &[&str] = &[
 
 fn io_err(e: anyhow::Error) -> io::Error {
     io::Error::other(e)
+}
+
+impl Session {
+    /// `tip <#> [n]` (new): tip a post's author, asking how much if `n`
+    /// isn't given.
+    async fn plain_tip(&mut self, m: &Message, text: &str) -> io::Result<()> {
+        let to = match self.tip_author(m) {
+            Ok(u) => u,
+            Err(why) => return self.show_line(&why).await,
+        };
+        let amount = match text.trim().parse::<u32>() {
+            Ok(n) if n > 0 => Some(n),
+            _ => self.ask_tip(&to).await?,
+        };
+        if let Some(n) = amount {
+            let said = self.tip(&to, n, Some(m))?;
+            self.show_line(&said).await?;
+        }
+        Ok(())
+    }
 }
 
 /// What to say when a command's message number doesn't lead anywhere.
@@ -84,13 +108,29 @@ impl Session {
                 self.plain_board_list(&areas)?;
                 list = false;
             }
-            let (cmd, _) = self.plain_ask("boards").await?;
+            let (cmd, rest) = self.plain_ask("boards").await?;
             if self.hangup {
                 return Ok(());
             }
             match cmd.as_str() {
                 "q" => return Ok(()),
                 "l" => list = true,
+                // New: catch up, on a board (with its sub-boards) or all.
+                "z" => {
+                    let nums = match rest.to_ascii_lowercase().as_str() {
+                        "all" => None,
+                        r => match r.parse::<u32>().ok().and_then(|n| areas.iter().find(|(label, _)| *label == n)) {
+                            Some((_, a)) => Some(crate::fileareas::subtree_of(&self.state.areas().tree(), a.num)),
+                            None => {
+                                self.plain_line("Which board? z and its number, or z all.");
+                                continue;
+                            }
+                        },
+                    };
+                    let new = self.catch_up_areas(nums.as_deref())?;
+                    let s = self.strings().fmt("MarkedRead", &[&new.to_string()]);
+                    self.show_line(&s).await?;
+                }
                 "?" | "h" => {
                     for l in BOARDS_HELP {
                         self.plain_line(l);
@@ -176,13 +216,18 @@ impl Session {
                 }
                 "l" => self.plain_threads(a, num.unwrap_or(1).max(1) as usize)?,
                 "n" => self.plain_read_new(Some(a)).await?,
+                "z" => {
+                    let new = self.catch_up(a)?;
+                    let s = self.strings().fmt("MarkedRead", &[&new.to_string()]);
+                    self.show_line(&s).await?;
+                }
                 "p" => {
                     if let Some(n) = self.post(a, "All", "", None).await? {
                         self.plain_posted(n);
                     }
                 }
                 "d" | "e" => Box::pin(self.plain_own(a, &cmd, num)).await?,
-                "r" | "t" | "reply" | "c" | "+" | "-" => {
+                "r" | "t" | "reply" | "c" | "+" | "-" | "tip" => {
                     let Some(m) = num.and_then(|n| self.plain_msg(a, n)) else {
                         self.plain_line(&plain_which(&cmd, num));
                         continue;
@@ -201,6 +246,7 @@ impl Session {
                         }
                         "c" => self.plain_push(a, &m, 0, text).await?,
                         "+" => self.plain_push(a, &m, 1, text).await?,
+                        "tip" => self.plain_tip(&m, &text).await?,
                         _ => self.plain_push(a, &m, -1, text).await?,
                     }
                 }
@@ -444,6 +490,9 @@ impl Session {
         let p = Push { id: 0, msg_id: m.id, user_id: self.user.id, handle: self.user.handle.clone(), kind, text, at: now };
         self.state.msgs.add_push(&p).map_err(io_err)?;
         tracing::info!("{}: pushed message {} in {} ({kind}), plain text", self.user.handle, m.num, a.area.name);
+        if kind == 1 {
+            self.pay_upvote(m);
+        }
         self.plain_line(match kind {
             0 => "Commented.",
             1 => "Voted up.",

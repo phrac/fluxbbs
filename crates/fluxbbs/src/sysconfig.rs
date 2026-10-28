@@ -595,6 +595,18 @@ fn more_sections() -> Vec<(char, &'static str, bool, Vec<Setting>)> {
             set('G', "Weather place", 40, "Where the weather shows for a caller who hasn't picked a place and has no town in their profile (Firth, NE). Blank: ask them.", Text(|c| &mut c.weather.place, TEXT.max(60))),
             set('H', "AI forecaster", 3, "May the AI read the forecast like a TV forecaster (f in the door), when it's built and on?", Bool(|c| &mut c.weather.ai_forecast)),
         ]),
+        // New: file points around the board (`points.rs`); all of it
+        // needs file points on (File System).
+        ('4', "Points", false, vec![
+            set('A', "Upvote pays", 4, "File points to a post's author for each caller's first upvote on it (0 = none).", Num(|c| c.points.upvote as u64, |c, v| c.points.upvote = v as u32, 0, 9999)),
+            set('B', "Upvotes a day", 6, "The most a caller earns from upvotes in a day (0 = no limit).", Num(|c| c.points.upvote_daily as u64, |c, v| c.points.upvote_daily = v as u32, 0, 1_000_000)),
+            set('C', "Door minutes a point", 4, "Doors (and BBSLink) pay a file point per this many minutes played (0 = none).", Num(|c| c.points.door_minutes as u64, |c, v| c.points.door_minutes = v as u32, 0, 9999)),
+            set('D', "Door points a day", 6, "The most a caller earns in doors in a day (0 = no limit).", Num(|c| c.points.door_daily as u64, |c, v| c.points.door_daily = v as u32, 0, 1_000_000)),
+            set('E', "Tips a day", 6, "The most a caller may tip others in a day ($ in the reader, !P; 0 = no tips).", Num(|c| c.points.tip_daily as u64, |c, v| c.points.tip_daily = v as u32, 0, 1_000_000)),
+            set('F', "Lottery ticket", 6, "What a lottery ticket costs (!P; 0 = no lottery). Drawn each night at midnight.", Num(|c| c.points.ticket as u64, |c, v| c.points.ticket = v as u32, 0, 1_000_000)),
+            set('G', "Tickets a day", 4, "The most tickets a caller may buy a day (0 = no limit).", Num(|c| c.points.tickets_daily as u64, |c, v| c.points.tickets_daily = v as u32, 0, 9999)),
+            set('H', "House adds", 6, "File points the house adds to each night's pot when tickets were sold.", Num(|c| c.points.house as u64, |c, v| c.points.house = v as u32, 0, 1_000_000)),
+        ]),
     ]
 }
 
@@ -695,6 +707,7 @@ const GROUPS: &[Group] = &[
         ('J', "New User Questions", "What new callers are asked: real name, birth date, phone..."),
         ('K', "New User Voting", "Callers voting new users in"),
         ('@', "Email Addresses", "Callers' addresses confirmed by a code: SMTP server, level"),
+        ('4', "Points", "Upvotes, doors, tips and the lottery: what they pay and cost"),
     ]),
     ("messages & files", &[
         ('L', "Message System", "Message access, private replies, quoting, deleting"),

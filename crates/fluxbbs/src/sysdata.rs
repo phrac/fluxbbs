@@ -121,6 +121,21 @@ CREATE TABLE IF NOT EXISTS door_plays (
     started   TEXT NOT NULL,
     minutes   INTEGER NOT NULL
 );
+CREATE TABLE IF NOT EXISTS points (
+    id          INTEGER PRIMARY KEY,
+    at          TEXT NOT NULL,
+    kind        TEXT NOT NULL,
+    from_id     INTEGER NOT NULL,
+    from_handle TEXT NOT NULL,
+    to_id       INTEGER NOT NULL,
+    to_handle   TEXT NOT NULL,
+    amount      INTEGER NOT NULL,
+    on_what     TEXT NOT NULL,
+    note        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS points_to ON points (to_id, kind, at);
+CREATE INDEX IF NOT EXISTS points_from ON points (from_id, kind, at);
+CREATE INDEX IF NOT EXISTS points_on ON points (kind, on_what);
 ";
 
 /// A voting booth question (2.0).
@@ -210,6 +225,44 @@ pub struct Play {
     pub door: String,
     pub started: NaiveDateTime,
     pub minutes: u32,
+}
+
+/// New: file points moving (`points.rs`): from whom (0: the house) to
+/// whom (0: the lottery's pot), how many, what for (`upvote`, `door`,
+/// `tip`, `ticket`, `lottery`), and on what (a message's id, a door, the
+/// lottery's day).
+#[derive(Debug, Clone, PartialEq)]
+pub struct PointsEntry {
+    pub at: NaiveDateTime,
+    pub kind: String,
+    pub from_id: u32,
+    pub from: String,
+    pub to_id: u32,
+    pub to: String,
+    pub amount: u32,
+    pub on: String,
+    pub note: String,
+}
+
+fn points_row(r: &rusqlite::Row) -> rusqlite::Result<PointsEntry> {
+    Ok(PointsEntry {
+        at: r.get("at")?,
+        kind: r.get("kind")?,
+        from_id: r.get("from_id")?,
+        from: r.get("from_handle")?,
+        to_id: r.get("to_id")?,
+        to: r.get("to_handle")?,
+        amount: r.get("amount")?,
+        on: r.get("on_what")?,
+        note: r.get("note")?,
+    })
+}
+
+fn points_insert(db: &Connection, e: &PointsEntry) -> rusqlite::Result<usize> {
+    db.execute(
+        "INSERT INTO points (at, kind, from_id, from_handle, to_id, to_handle, amount, on_what, note) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
+        params![e.at, e.kind, e.from_id, e.from, e.to_id, e.to, e.amount, e.on, e.note],
+    )
 }
 
 /// The doors menu's figures (new), over every play and the caller's own.
@@ -804,6 +857,119 @@ fn totals(db: &Connection) -> anyhow::Result<Counts> {
     })
 }
 
+// ---- points (new) -----------------------------------------------------------
+
+impl SysData {
+    /// Points of a kind given (`by_giver`) or had by `user` since `since`.
+    pub fn points_since(&self, kind: &str, user: u32, by_giver: bool, since: NaiveDateTime) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap();
+        let who = if by_giver { "from_id" } else { "to_id" };
+        let sql = format!("SELECT COALESCE(SUM(amount), 0) FROM points WHERE kind = ?1 AND {who} = ?2 AND at >= ?3");
+        Ok(db.query_row(&sql, params![kind, user, since], |r| r.get::<_, i64>(0))? as u32)
+    }
+
+    pub fn add_points(&self, e: &PointsEntry) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap();
+        points_insert(&db, e)?;
+        Ok(())
+    }
+
+    /// Record `e` cut to what's left of the receiver's `cap` for its kind
+    /// since `since`; with `once`, not at all if its giver already gave
+    /// that kind on the same thing (an upvote paid once, however often
+    /// the vote changes). What went in (0: nothing).
+    pub fn add_points_capped(&self, e: &PointsEntry, cap: u32, since: NaiveDateTime, once: bool) -> anyhow::Result<u32> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if once {
+            let had: bool = tx.query_row(
+                "SELECT EXISTS (SELECT 1 FROM points WHERE kind = ?1 AND from_id = ?2 AND on_what = ?3)",
+                params![e.kind, e.from_id, e.on],
+                |r| r.get(0),
+            )?;
+            if had {
+                return Ok(0);
+            }
+        }
+        let got: i64 = tx.query_row(
+            "SELECT COALESCE(SUM(amount), 0) FROM points WHERE kind = ?1 AND to_id = ?2 AND at >= ?3",
+            params![e.kind, e.to_id, since],
+            |r| r.get(0),
+        )?;
+        let amount = e.amount.min(cap.saturating_sub(got as u32));
+        if amount == 0 {
+            return Ok(0);
+        }
+        points_insert(&tx, &PointsEntry { amount, ..e.clone() })?;
+        tx.commit()?;
+        Ok(amount)
+    }
+
+    /// What `user` got or spent lately, newest first (an upvote they
+    /// gave cost them nothing).
+    pub fn points_recent(&self, user: u32, n: usize) -> anyhow::Result<Vec<PointsEntry>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT * FROM points WHERE to_id = ?1 OR (from_id = ?1 AND kind IN ('tip', 'ticket')) ORDER BY id DESC LIMIT ?2")?;
+        let rows = stmt.query_map(params![user, n as i64], points_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// A lottery day's tickets, by caller: (id, handle, tickets).
+    pub fn lottery_tickets(&self, day: &str) -> anyhow::Result<Vec<(u32, String, u32)>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare(
+            "SELECT from_id, MAX(from_handle), SUM(CAST(note AS INTEGER)) FROM points WHERE kind = 'ticket' AND on_what = ?1 GROUP BY from_id ORDER BY MIN(id)",
+        )?;
+        let rows = stmt.query_map([day], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u32)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// A lottery day's purchases in the order made: (id, handle,
+    /// tickets). Tickets are numbered from 1 in this order.
+    pub fn lottery_entries(&self, day: &str) -> anyhow::Result<Vec<(u32, String, u32)>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare("SELECT from_id, from_handle, CAST(note AS INTEGER) FROM points WHERE kind = 'ticket' AND on_what = ?1 ORDER BY id")?;
+        let rows = stmt.query_map([day], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u32)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// A lottery day's pot: what its tickets cost.
+    pub fn lottery_pot(&self, day: &str) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT COALESCE(SUM(amount), 0) FROM points WHERE kind = 'ticket' AND on_what = ?1", [day], |r| r.get::<_, i64>(0))? as u32)
+    }
+
+    /// Days before `today` with tickets sold and nobody drawn.
+    pub fn lottery_undrawn(&self, today: &str) -> anyhow::Result<Vec<String>> {
+        let db = self.db.lock().unwrap();
+        let mut stmt = db.prepare(
+            "SELECT DISTINCT on_what FROM points WHERE kind = 'ticket' AND on_what < ?1
+             AND on_what NOT IN (SELECT on_what FROM points WHERE kind = 'lottery') ORDER BY on_what",
+        )?;
+        let rows = stmt.query_map([today], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Record a draw, unless that day was drawn already. True if recorded.
+    pub fn lottery_record(&self, e: &PointsEntry) -> anyhow::Result<bool> {
+        let mut db = self.db.lock().unwrap();
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let drawn: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM points WHERE kind = 'lottery' AND on_what = ?1)", [&e.on], |r| r.get(0))?;
+        if drawn {
+            return Ok(false);
+        }
+        points_insert(&tx, e)?;
+        tx.commit()?;
+        Ok(true)
+    }
+
+    /// The last draw.
+    pub fn lottery_last(&self) -> anyhow::Result<Option<PointsEntry>> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT * FROM points WHERE kind = 'lottery' ORDER BY id DESC LIMIT 1", [], points_row).optional()?)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -987,5 +1153,48 @@ mod tests {
         assert_eq!((s.my_plays, s.my_last.unwrap().door), (2, "Tarot".to_string()));
         assert_eq!(s.my_favorite, Some(("Tarot".into(), 1)));
         assert!(s.my_doors.contains("LORD") && !s.my_doors.contains("BRE"));
+    }
+
+    #[test]
+    fn points_ledger() {
+        let sd = SysData::open_memory().unwrap();
+        let at = d("2026-10-27").and_hms_opt(12, 0, 0).unwrap();
+        let day = d("2026-10-27").and_hms_opt(0, 0, 0).unwrap();
+        let e = |kind: &str, from: u32, to: u32, amount: u32, on: &str, note: &str| PointsEntry {
+            at,
+            kind: kind.into(),
+            from_id: from,
+            from: format!("u{from}"),
+            to_id: to,
+            to: format!("u{to}"),
+            amount,
+            on: on.into(),
+            note: note.into(),
+        };
+        // An upvote pays once per voter and post, up to the cap.
+        assert_eq!(sd.add_points_capped(&e("upvote", 2, 1, 1, "10", ""), 2, day, true).unwrap(), 1);
+        assert_eq!(sd.add_points_capped(&e("upvote", 2, 1, 1, "10", ""), 2, day, true).unwrap(), 0);
+        assert_eq!(sd.add_points_capped(&e("upvote", 3, 1, 1, "10", ""), 2, day, true).unwrap(), 1);
+        assert_eq!(sd.add_points_capped(&e("upvote", 4, 1, 1, "10", ""), 2, day, true).unwrap(), 0);
+        // Doors are cut to what's left of the cap.
+        assert_eq!(sd.add_points_capped(&e("door", 0, 1, 7, "LORD", "70"), 10, day, false).unwrap(), 7);
+        assert_eq!(sd.add_points_capped(&e("door", 0, 1, 7, "BRE", "70"), 10, day, false).unwrap(), 3);
+        assert_eq!(sd.points_since("upvote", 1, false, day).unwrap(), 2);
+        assert_eq!(sd.points_since("upvote", 2, true, day).unwrap(), 1);
+        // The lottery: tickets by caller, the pot, and each day drawn once.
+        sd.add_points(&e("ticket", 1, 0, 20, "2026-10-26", "2")).unwrap();
+        sd.add_points(&e("ticket", 2, 0, 10, "2026-10-26", "1")).unwrap();
+        sd.add_points(&e("ticket", 1, 0, 10, "2026-10-26", "1")).unwrap();
+        sd.add_points(&e("ticket", 2, 0, 10, "2026-10-27", "1")).unwrap();
+        assert_eq!(sd.lottery_tickets("2026-10-26").unwrap(), vec![(1, "u1".into(), 3), (2, "u2".into(), 1)]);
+        assert_eq!(sd.lottery_pot("2026-10-26").unwrap(), 40);
+        assert_eq!(sd.lottery_undrawn("2026-10-27").unwrap(), vec!["2026-10-26".to_string()]);
+        assert!(sd.lottery_record(&e("lottery", 0, 2, 90, "2026-10-26", "4")).unwrap());
+        assert!(!sd.lottery_record(&e("lottery", 0, 1, 90, "2026-10-26", "4")).unwrap());
+        assert!(sd.lottery_undrawn("2026-10-28").unwrap() == vec!["2026-10-27".to_string()]);
+        assert_eq!(sd.lottery_last().unwrap().unwrap().to_id, 2);
+        // A caller's ledger: what they got, and what they spent.
+        let mine: Vec<String> = sd.points_recent(2, 10).unwrap().iter().map(|e| e.kind.clone()).collect();
+        assert_eq!(mine, ["lottery", "ticket", "ticket"]);
     }
 }

@@ -36,6 +36,8 @@ mod casinobar;
 #[cfg(feature = "casino")]
 mod craps;
 #[cfg(feature = "casino")]
+mod lottery;
+#[cfg(feature = "casino")]
 mod poker;
 #[cfg(any(feature = "casino", feature = "carrierlost", feature = "effects", feature = "weather"))]
 mod pixels;
@@ -113,6 +115,7 @@ mod pdf;
 mod plain;
 mod plainmsg;
 mod profile;
+mod points;
 mod pushes;
 mod picture;
 mod password;

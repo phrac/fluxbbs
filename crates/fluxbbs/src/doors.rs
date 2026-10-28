@@ -847,7 +847,9 @@ impl Session {
         if let Ok(end) = &result
             && !matches!(end, DoorEnd::Exited(st) if st.code() == Some(127))
         {
-            self.record_play(&name, started);
+            // New: doors pay file points by the minute (`points.rs`).
+            let minutes = self.record_play(&name, started);
+            self.door_points(&name, minutes);
         }
         self.input.clear();
         self.screen.resync();

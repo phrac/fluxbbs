@@ -526,6 +526,8 @@ impl Session {
     /// `faReqDownload`: may this file be downloaded, on top of `add`
     /// (seconds, files, kb, points) already selected?
     async fn may_download(&mut self, a: &FAreaRef, f: &FileRec, add: (u64, u32, u64, u32)) -> io::Result<bool> {
+        // New: points others gave us while we've been on count.
+        self.sync_points();
         let fc = &self.state.config().files;
         let (use_points, use_limit, use_kb_limit, use_ratio, use_kb_ratio) =
             (fc.use_file_points, fc.use_daily_limit, fc.use_daily_kb_limit, fc.use_ratio, fc.use_kb_ratio);

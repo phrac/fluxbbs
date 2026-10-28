@@ -354,6 +354,16 @@ All in [FEATURES](FEATURES.md#message-center).
   pay out in file points and minutes. A free slot pull on the first
   call of the day is a logon sequence step.
   ([FEATURES](FEATURES.md#casino))
+- Points around the board (`!P`): up votes pay a post's author, doors
+  pay by the minute, callers tip each other (`$` in the reader), and a
+  lottery is drawn each night from the day's tickets: a ball machine
+  in half-block pixels, the pot in lights, and last night's draw
+  replayed for those who held tickets (a logon step too). All of it is
+  kept in a ledger, with caps a day in `*C`, Points.
+  ([FEATURES](FEATURES.md#points))
+- Esc leaves an infoform without saving; the original had no way out.
+- Catching up: `z` in the message center marks a board, a folder or
+  every board read (plain text: `z <#>`, `z all`, `z` in a board).
 - Carrier Lost (`AP`): a reflex war-dialing run on the pixel stage.
   Tune a dial until the needle sits on a live carrier and lock on, then
   catch a three-signal handshake in its sync band for a haul of bytes.
@@ -497,6 +507,7 @@ All in [DOORS](DOORS.md).
 | `AT` (+ `day` `three` `fortune`) | tarot and fortunes |
 | `AC` (+ `slots` `poker` `blackjack` `roulette` `craps` `bar` `club`) | the casino |
 | `AL` (+ `free`) | the slot machine; `free`, the day's free pull |
+| `!P` (+ `lottery` `tip`) | your points, the lottery, tips |
 | `AP` | Carrier Lost (the dial-up game) |
 | `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |

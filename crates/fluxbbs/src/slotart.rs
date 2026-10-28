@@ -609,7 +609,7 @@ fn bulbs(cv: &mut Canvas, s: &Scene) {
     }
 }
 
-fn coin(cv: &mut Canvas, c: &Coin) {
+pub(crate) fn coin(cv: &mut Canvas, c: &Coin) {
     let (rx, ry) = (3.3 * c.spin.cos().abs() + 0.4, 3.3);
     for y in (c.y - ry).floor() as i32..=(c.y + ry).ceil() as i32 {
         for x in (c.x - rx).floor() as i32..=(c.x + rx).ceil() as i32 {

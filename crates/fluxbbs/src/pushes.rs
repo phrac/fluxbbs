@@ -89,8 +89,13 @@ impl Session {
 
     /// A word on the bottom line, until a key.
     async fn bar_note(&mut self, name: &str) -> io::Result<bool> {
+        let s = self.strings().get(name).to_string();
+        self.bar_text(&s).await
+    }
+
+    async fn bar_text(&mut self, text: &str) -> io::Result<bool> {
         self.bar_line();
-        self.say(name).await?;
+        self.show(text).await?;
         self.read_key().await?;
         Ok(false)
     }
@@ -110,17 +115,22 @@ impl Session {
             0
         } else {
             self.bar_line();
-            self.say(match (echo, moderator) {
+            let ask = match (echo, moderator) {
                 (true, true) => "PushAskEchoSponsor",
                 (true, false) => "PushAskEcho",
                 (false, true) => "PushAskSponsor",
                 (false, false) => "PushAsk",
-            })
-            .await?;
+            };
+            // New: `$` tips the author, where tips are on.
+            let tips = self.tip_author(m).is_ok() && !self.is_me(&m.from);
+            let s = self.strings();
+            let ask = s.fmt(ask, &[if tips { s.get("PushTipKey") } else { "" }]);
+            self.show(&ask).await?;
             match self.read_key().await? {
                 Key::Char(b'+') => 1,
                 Key::Char(b'-') => -1,
                 Key::Char(b'>') => 0,
+                Key::Char(b'$') if tips => return self.push_tip(m).await,
                 k if moderator && k.upper() == Some('D') => return self.push_remove(m).await,
                 _ => return Ok(false),
             }
@@ -163,7 +173,29 @@ impl Session {
         let p = Push { id: 0, msg_id: m.id, user_id: self.user.id, handle: self.user.handle.clone(), kind, text, at: now };
         self.state.msgs.add_push(&p).map_err(io_err)?;
         tracing::info!("{}: pushed message {} in {} ({kind})", self.user.handle, m.num, a.area.name);
+        if kind == 1 {
+            self.pay_upvote(m);
+        }
         Ok(true)
+    }
+
+    /// `$` at the push prompt (new): tip the post's author some of our
+    /// file points.
+    async fn push_tip(&mut self, m: &Message) -> io::Result<bool> {
+        let to = match self.tip_author(m) {
+            Ok(u) => u,
+            Err(why) => return self.bar_text(&why).await,
+        };
+        self.bar_line();
+        self.sync_points();
+        let s = self.strings().fmt("TipAskAmount", &[&to.handle, &self.user.file_points.to_string()]);
+        self.show(&s).await?;
+        let n: u32 = self.read_string(ReadOpts::new(5).allowed(crate::input::DIGITS)).await?.trim().parse().unwrap_or(0);
+        if n == 0 {
+            return Ok(false);
+        }
+        let said = self.tip(&to, n, Some(m))?;
+        self.bar_text(&said).await
     }
 
     /// A sponsor's `d` at the push prompt: take one caller's pushes off.

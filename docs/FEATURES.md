@@ -620,7 +620,7 @@ come last.
 The sequence is kept in `logon.toml` with the board, and the start menu
 (STARTUP) is built from it. Without the file, STARTUP runs as written.
 
-Three special steps:
+Four special steps:
 
 - **New users stop here** sends callers who aren't validated to
   NEWUSER. They see the steps above it too.
@@ -634,6 +634,9 @@ Three special steps:
   the logon goes on. It isn't one of the day's pulls, and keys typed
   ahead don't skip it. Put it before fast logon, or callers
   who take fast logon miss it.
+- **Last night's lottery draw** (`!P draw`) replays the last draw for
+  callers who held tickets in it, once ([points](#points)). Others go
+  straight on. Put it before fast logon too.
 
 #### The waiting-for-caller screen
 
@@ -734,7 +737,9 @@ An infoform is a text file in `text/` with input points in it (see
 | `~*-` | answers optional |
 
 Mandatory forms are filled in at logon (`IM` on the stock STARTUP
-menu). Callers see and redo theirs with `IN`.
+menu). Callers see and redo theirs with `IN`. Esc at any answer leaves
+a form without saving (new: the original's only way out was hanging
+up); a mandatory one left that way comes back next call.
 
 ### New user voting
 
@@ -923,6 +928,61 @@ instead.
 - A TAROTHDR screen heads each reading and fortune if the board has
   one; otherwise the `TarotTitle` line. Keep it to a line or two: the
   cards take 15 rows under it.
+
+## Points
+
+File points do more than pay for downloads. On a board that uses them
+(`[files] use_file_points`), they come from around the board and go
+back into it, and every movement is kept in the `points` ledger.
+
+| Earned by | Pays (stock) |
+|---|---|
+| an up vote on your post | 1 point, once per voter and post; 20 a day at most |
+| playing doors (DOS doors, BBSLink) | a point per 10 minutes; 10 a day at most |
+| a tip from another caller | what they give |
+| the lottery | the night's pot |
+
+The casino, slots and Carrier Lost pay points of their own, and
+filling requests pays [its own](#points-for-fills).
+
+- **Tips.** `$` at the reader's vote prompt tips the post's author
+  (`tip <#> [n]` in plain text), and `!P`'s `t` tips anyone by handle.
+  A caller may give 200 a day at most. The one tipped gets a node
+  message if they're on.
+- **The lottery.** `!P`'s `b` buys tickets (10 points each, 10 a day
+  at most) in tonight's draw, numbered from #1 in the order bought.
+  Just after midnight a ticket at random wins what the night's tickets
+  cost, plus 50 from the house. Tickets of callers deleted since can't
+  win. A board that was down at midnight draws when it's back. The
+  winner gets a node message if they're on.
+- **The lottery in pictures** (the `casino` component; plain text and
+  short screens get lines). A glass ball machine tumbles its balls on
+  a red and gold stand. Tonight's pot shines in big gold digits in a
+  marquee of chasing bulbs, and your tickets sit under it as stubs.
+  `+`/`-` or a digit choose how many, Enter buys them (the stubs print,
+  the pot rolls up), `r` replays the last draw, `q` leaves.
+- **The draw, replayed.** The first time you come by after a draw you
+  held tickets in, or at logon with the `lottery` step, it plays: the
+  balls churn, one drops down the chute into the tray, its number
+  lights on the ball and on your stub if it's yours, and the winner's
+  name comes up. If it's you, coins rain. A key skips to the end. In
+  plain text it's a line: "The 10/26 draw: ticket #5 of 6, phrac won
+  110 points."
+- **A POINTS screen**, if the board has one in its text library, heads
+  `!P` (ANSI callers).
+- **`!P`** shows your points, tonight's pot and your tickets, the last
+  draw, and your last few gains and spends (`!P lottery` and `!P tip`
+  go straight to buying and tipping).
+- Points are only given, never taken back: changing a vote doesn't
+  undo what it paid.
+- Bots earn, give and play none of it, and nobody earns from their own
+  posts.
+
+All of it is in `[points]`, and in `*C`, Points (`4`): what an up vote
+pays and the most a day, the minutes a door point takes and the most a
+day, the most a caller may tip a day (0: no tips), a ticket's price (0:
+no lottery), tickets a day, and the house's part. File points must be
+on (File System).
 
 ## Casino
 
@@ -1175,6 +1235,7 @@ new posts, moderator (the sponsor) and the latest post's date.
 |---|---|
 | Enter | open the board, or folder |
 | `n` | read everything new |
+| `z` | mark read: the board or folder under the bar (`t`), or every board (`a`) |
 | `p` | post |
 | `f` | search (`MO`) |
 | `s` | put the busiest first: readers now, then posts this week (kept for the caller) |
@@ -1290,6 +1351,7 @@ something in it is new. The latest activity comes first.
 |---|---|
 | Enter | read the thread, from its first new message |
 | `n` | read what's new in the board |
+| `z` | mark everything in the board read (asks first) |
 | `p` | start a thread |
 | `s` | sort by latest, hot (votes in the last 48 hours, newer counting more) or top (score); kept for the caller |
 | `t` | show only threads with one of the board's tags (Esc shows them all again) |
@@ -1486,6 +1548,7 @@ your handle and the time:
 | `-` | a down vote (words optional) |
 | `>` | a comment (words required) |
 | `d` | (the area's sponsor and co-SysOps) takes a caller's pushes off |
+| `$` | tips the author some of your file points ([points](#points)); shown where tips are on |
 
 Rules:
 
@@ -1496,6 +1559,8 @@ Rules:
 - Pushes are only allowed where you may post, and not on private mail.
 - Echomail takes votes but not comments: a comment would never reach
   the network, so there `r` replies instead (`PushEchoComment` says so).
+- An up vote pays the author file points ([points](#points)), once per
+  voter and message however often the vote changes.
 
 The score is ups less downs. It shows as `+4`, as `X2` when negative,
 and as `HOT` from 25.

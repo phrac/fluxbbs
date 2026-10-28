@@ -51,13 +51,13 @@ impl Session {
     }
 
     /// Log a play (not on a hidden call, nor while invisible: it would
-    /// show who was on).
+    /// show who was on): the minutes played, 0 if not logged.
     #[cfg_attr(not(any(feature = "doors", feature = "casino", feature = "carrierlost", feature = "tarot")), allow(dead_code))]
-    pub(crate) fn record_play(&mut self, door: &str, started: NaiveDateTime) {
+    pub(crate) fn record_play(&mut self, door: &str, started: NaiveDateTime) -> u32 {
         let me = self.node.number();
         let invisible = self.state.nodes.online().iter().any(|(n, i)| *n == me && i.invisible);
         if self.user.id == 0 || self.hidden_call || invisible {
-            return;
+            return 0;
         }
         let minutes = (crate::clock::now().naive_local() - started).num_minutes().max(0) as u32;
         let started = started.with_nanosecond(0).unwrap_or(started);
@@ -66,6 +66,7 @@ impl Session {
             tracing::warn!("door play: {e}");
         }
         *self.door_stats.borrow_mut() = None;
+        minutes
     }
 
     /// The doors on the current menu the caller can run, by description.

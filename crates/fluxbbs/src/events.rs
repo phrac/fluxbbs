@@ -94,6 +94,8 @@ pub async fn scheduler(state: Arc<BbsState>) {
     let mut tick = tokio::time::interval(TICK);
     loop {
         tick.tick().await;
+        // New: last night's lottery, drawn once the day's over.
+        crate::points::draw_due(&state);
         let now = crate::clock::now().naive_local();
         for e in state.events().list.iter() {
             let last = match state.sys.event_last(&e.desc) {

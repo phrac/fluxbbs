@@ -229,7 +229,8 @@ fn form_kind(f: &Infoform) -> String {
 impl Session {
     /// Run an infoform's text file: read answers (`answers` None) or show
     /// the given ones in place. Returns the answers read, or None if the
-    /// file is missing (or there was nothing to answer).
+    /// file is missing, there was nothing to answer, or (new) the caller
+    /// left it with Esc.
     async fn run_form(&mut self, file: &str, answers: Option<&[String]>) -> io::Result<Option<Vec<String>>> {
         let Some(path) = self.find_text_file(file) else { return Ok(None) };
         let data = tokio::fs::read(&path).await?;
@@ -239,13 +240,18 @@ impl Session {
         let (mut limit, mut required) = (254usize, false);
         let mut got = Vec::new();
         let mut next = 0;
+        let mut left = false;
         for tok in tokenize(&data, Source::File) {
+            if left {
+                break;
+            }
             match tok {
                 Token::Text(text) => {
                     // A bare `*` is an input point too.
                     for (i, part) in text.split(|&b| b == b'*').enumerate() {
-                        if i > 0 {
-                            self.form_point(Input::Text(Case::Normal), limit, required, answers, &mut next, &mut got).await?;
+                        if i > 0 && !self.form_point(Input::Text(Case::Normal), limit, required, answers, &mut next, &mut got).await? {
+                            left = true;
+                            break;
                         }
                         self.screen.write_bytes(part);
                     }
@@ -256,7 +262,7 @@ impl Session {
                     b"*=" => required = true,
                     b"**" => limit = 254,
                     _ => match input_kind(code) {
-                        Some(kind) => self.form_point(kind, limit, required, answers, &mut next, &mut got).await?,
+                        Some(kind) => left = !self.form_point(kind, limit, required, answers, &mut next, &mut got).await?,
                         None => self.display_token(Token::Ext(code), Source::File, None, &mut st).await?,
                     },
                 },
@@ -265,10 +271,17 @@ impl Session {
         }
         self.display_end(st);
         self.set_slot(Slot::Text);
+        if left {
+            self.newline();
+            self.say_line("InfoLeft").await?;
+            return Ok(None);
+        }
         Ok(if answers.is_none() && got.is_empty() { None } else { Some(got) })
     }
 
     /// One input point: read an answer, or show the next stored one.
+    /// New: false if the caller gave up on the form with Esc (the
+    /// original had no way out but hanging up).
     async fn form_point(
         &mut self,
         kind: Input,
@@ -277,15 +290,18 @@ impl Session {
         answers: Option<&[String]>,
         next: &mut usize,
         got: &mut Vec<String>,
-    ) -> io::Result<()> {
+    ) -> io::Result<bool> {
         if let Some(a) = answers {
             if let Some(s) = a.get(*next) {
                 self.write_with_controls(s);
             }
             *next += 1;
-            return Ok(());
+            return Ok(true);
         }
-        let opts = |o: ReadOpts| if required { o.required() } else { o };
+        let opts = |o: ReadOpts| {
+            let o = o.esc_cancels();
+            if required { o.required() } else { o }
+        };
         let s = match kind {
             Input::Text(case) => self.read_string(opts(ReadOpts::new(limit).case(case))).await?,
             Input::Number => self.read_string(opts(ReadOpts::new(limit).allowed(DIGITS))).await?,
@@ -302,7 +318,7 @@ impl Session {
                 let x = self.screen.where_x();
                 loop {
                     let s = self.read_string(opts(ReadOpts::new(8).allowed("0123456789/"))).await?;
-                    if s.is_empty() || parse_date(&s).is_some() {
+                    if self.escaped || s.is_empty() || parse_date(&s).is_some() {
                         break s;
                     }
                     self.screen.backspace(s.chars().count() as u16);
@@ -310,8 +326,11 @@ impl Session {
                 }
             }
         };
+        if self.escaped {
+            return Ok(false);
+        }
         got.push(s);
-        Ok(())
+        Ok(true)
     }
 
     /// The forms this user may fill in, with their numbers (from 1).
@@ -380,6 +399,7 @@ impl Session {
             Some(r) => self.repeat_end(r).await?,
             None => self.rule().await?,
         }
+        self.say_line("InfoEscHint").await?;
         let total = self.state.infoforms().list.len();
         let s = self.strings().fmt("InfoAskWhich", &[&total.to_string()]);
         self.show(&s).await?;

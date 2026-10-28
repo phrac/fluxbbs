@@ -326,7 +326,8 @@ impl Session {
         self.screen.resync();
         self.full_screen_done();
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
-        self.record_play(&name, started);
+        let minutes = self.record_play(&name, started);
+        self.door_points(&name, minutes);
         match end? {
             End::Hangup => Err(io::ErrorKind::UnexpectedEof.into()),
             End::TimeUp => {
