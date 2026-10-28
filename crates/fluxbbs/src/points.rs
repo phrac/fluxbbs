@@ -315,14 +315,9 @@ impl Session {
             return self.say_line("TipOff").await;
         }
         self.say("TipWho").await?;
-        let mut opts = ReadOpts::new(36);
-        opts.complete_users = true;
-        let who = self.read_string(opts).await?;
-        self.newline();
-        if who.trim().is_empty() {
-            return Ok(());
-        }
-        let Some(to) = self.state.users.find(&who, false).map_err(io::Error::other)? else {
+        // Anyone but ourselves and the bots, matched as it's typed.
+        let me = self.user.id;
+        let Some(to) = self.pick_user(|u| u.id != me && !is_bot(u)).await? else {
             return self.say_line("TipNoSuch").await;
         };
         let Some(amount) = self.ask_tip(&to).await? else { return Ok(()) };

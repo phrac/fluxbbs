@@ -516,6 +516,85 @@ impl Session {
         }
     }
 
+    /// New: a caller, by handle, with matches shown as it's typed: a box
+    /// of those whose handles start with (then contain) what's typed, under
+    /// the prompt or, near the bottom, over it. Arrows move, Tab fills the
+    /// lit one in, Enter takes it (or exactly what's typed), Esc gives up.
+    /// Only callers `keep` passes are offered. Plain text types a line
+    /// (Tab completes).
+    pub async fn pick_user(&mut self, keep: impl Fn(&crate::user::User) -> bool) -> io::Result<Option<crate::user::User>> {
+        const ROWS: usize = 6;
+        const WIDTH: usize = 30;
+        if self.plain() {
+            let s = self.read_string(ReadOpts::new(36).complete_users()).await?;
+            self.newline();
+            return Ok(self.state.users.find(&s, false).map_err(io::Error::other)?.filter(|u| keep(u)));
+        }
+        let (x0, y0) = (self.screen.where_x(), self.screen.where_y());
+        let rows = self.screen.rows();
+        let left = x0.min(80 - WIDTH as u16 - 1);
+        let below = y0 as usize + ROWS + 2 < rows as usize;
+        let top = if below { y0 + 1 } else { y0.saturating_sub(ROWS as u16 + 2).max(1) };
+        let mut s = String::new();
+        let mut at = 0;
+        let picked = loop {
+            let found: Vec<crate::user::User> = if s.is_empty() { Vec::new() } else { self.state.users.matching(&s, 20).map_err(io::Error::other)?.into_iter().filter(|u| keep(u)).take(ROWS).collect() };
+            at = at.min(found.len().saturating_sub(1));
+            // The box: a row a match, the lit one in the bar's colors.
+            for i in 0..ROWS + 2 {
+                self.screen.goto(left, top + i as u16);
+                let line = match i {
+                    0 => format!("|U5┌{}┐", "─".repeat(WIDTH - 2)),
+                    i if i == ROWS + 1 => format!("|U5└{}┘", "─".repeat(WIDTH - 2)),
+                    i => {
+                        let name = found.get(i - 1).map_or(String::new(), |u| fluxbbs_term::codes::resize(&u.handle, WIDTH - 4));
+                        let name = fluxbbs_term::codes::lit(&format!(" {name:<w$}", w = WIDTH - 3));
+                        if i - 1 == at && i - 1 < found.len() { format!("|U5│|U8{name}|U5│") } else { format!("|U5│|U1{name}|U5│") }
+                    }
+                };
+                self.write_with_controls(&line);
+            }
+            self.screen.goto(x0, y0);
+            self.write_with_controls("|U3");
+            self.screen.write_str(&s);
+            self.screen.clear_eol();
+            self.flush().await?;
+            match self.read_key().await? {
+                Key::Enter if !found.is_empty() => break found.get(at).cloned(),
+                Key::Enter => break self.state.users.find(&s, false).map_err(io::Error::other)?.filter(|u| keep(u)),
+                Key::Esc => break None,
+                Key::Up => at = at.saturating_sub(1),
+                Key::Down => at = (at + 1).min(found.len().saturating_sub(1)),
+                Key::Tab => {
+                    if let Some(u) = found.get(at) {
+                        s = u.handle.clone();
+                    }
+                }
+                Key::Backspace => {
+                    s.pop();
+                    at = 0;
+                }
+                Key::Char(c) if s.chars().count() < 36 && text_char(c).is_some_and(|c| c != ' ' || !s.is_empty()) => {
+                    s.push(text_char(c).unwrap_or(' '));
+                    at = 0;
+                }
+                _ => {}
+            }
+        };
+        // Take the box away, and leave the answer on the prompt.
+        for i in 0..ROWS + 2 {
+            self.screen.goto(left, top + i as u16);
+            self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+            self.screen.write_str(&" ".repeat(WIDTH));
+        }
+        self.screen.goto(x0, y0);
+        self.write_with_controls("|U3");
+        self.screen.write_str(picked.as_ref().map_or("", |u| u.handle.as_str()));
+        self.screen.clear_eol();
+        self.newline();
+        Ok(picked)
+    }
+
     /// `iYesNo`: a yes/no question, as a lightbar if the user prefers.
     pub async fn yes_no(&mut self, default: bool) -> io::Result<bool> {
         if self.plain() {

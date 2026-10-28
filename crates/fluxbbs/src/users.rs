@@ -349,6 +349,19 @@ impl UserStore {
             .optional()?)
     }
 
+    /// New: callers whose handles start with `text`, then those that
+    /// contain it, alphabetically (the user picker's matches).
+    pub fn matching(&self, text: &str, limit: usize) -> anyhow::Result<Vec<User>> {
+        let db = self.db.lock().unwrap();
+        let esc: String = text.chars().flat_map(|c| if matches!(c, '\\' | '%' | '_') { vec!['\\', c] } else { vec![c] }).collect();
+        let mut stmt = db.prepare(
+            "SELECT * FROM users WHERE handle LIKE ?1 ESCAPE '\\' AND NOT deleted
+             ORDER BY handle LIKE ?2 ESCAPE '\\' DESC, handle COLLATE NOCASE LIMIT ?3",
+        )?;
+        let rows = stmt.query_map(params![format!("%{esc}%"), format!("{esc}%"), limit as i64], from_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// `userSearch`: by handle, real name, or user number.
     /// New: the (undeleted) user with exactly this handle, not a real name
     /// or number: for what's kept by handle, like moderators and bans.

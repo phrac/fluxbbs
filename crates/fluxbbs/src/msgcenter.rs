@@ -700,6 +700,7 @@ impl Session {
                 let score = score_label(scores.get(&root.id).copied());
                 let mark = if new > 0 { "*" } else { " " };
                 let day = self.local(t.last).format("%m/%d").to_string();
+                let date = self.local(t.last).format("%m/%d/%y").to_string();
                 let num = if pinned.contains(&root.id) { pin_label.clone() } else { root.num.to_string() };
                 let (state, title) = self.request_state(a, root, &filled);
                 let w = waves([
@@ -712,10 +713,10 @@ impl Session {
                     ("SC", score.clone()),
                     ("NW", new_s.clone()),
                     ("DS", day.clone()),
-                    ("DT", self.local(t.last).format("%m/%d/%y").to_string()),
+                    ("DT", date.clone()),
                     ("TI", self.local(t.last).format("%H:%M").to_string()),
                 ]);
-                let plain = post_line(mark, &num, &score, &day, &root.from.name, &replies, &title);
+                let plain = post_line(mark, &num, &score, &date, &root.from.name, &replies, &title);
                 rows.push(BarRow { n: i as u32, waves: w, plain });
                 labels.push((root.num, i as u32));
             }
@@ -912,6 +913,7 @@ impl Session {
                 if let Some(p) = comment {
                     let text = crate::editor::strip_colours(&p.text);
                     let day = self.local(p.at).format("%m/%d").to_string();
+                    let date = self.local(p.at).format("%m/%d/%y").to_string();
                     let who = format!("{branch}{}", p.handle);
                     let w = waves([
                         ("MN", String::new()),
@@ -926,10 +928,10 @@ impl Session {
                         ("TX", text.clone()),
                         ("SC", String::new()),
                         ("DS", day.clone()),
-                        ("DT", self.local(p.at).format("%m/%d/%y").to_string()),
+                        ("DT", date.clone()),
                         ("TI", self.local(p.at).format("%H:%M").to_string()),
                     ]);
-                    rows.push(BarRow { n: row as u32, waves: w, plain: tree_line(" ", "", "", &day, &who, &text) });
+                    rows.push(BarRow { n: row as u32, waves: w, plain: tree_line(" ", "", "", &date, &who, &text) });
                     continue;
                 }
                 let new = v.is_new(m);
@@ -943,6 +945,7 @@ impl Session {
                 };
                 let score = score_label(scores.get(&m.id).copied());
                 let day = self.local(m.posted).format("%m/%d").to_string();
+                let date = self.local(m.posted).format("%m/%d/%y").to_string();
                 let who = format!("{branch}{}", m.from.name);
                 let w = waves([
                     ("MN", m.num.to_string()),
@@ -957,10 +960,10 @@ impl Session {
                     ("TX", text.clone()),
                     ("SC", score.clone()),
                     ("DS", day.clone()),
-                    ("DT", self.local(m.posted).format("%m/%d/%y").to_string()),
+                    ("DT", date.clone()),
                     ("TI", self.local(m.posted).format("%H:%M").to_string()),
                 ]);
-                rows.push(BarRow { n: row as u32, waves: w, plain: tree_line(mark, &m.num.to_string(), &score, &day, &who, &text) });
+                rows.push(BarRow { n: row as u32, waves: w, plain: tree_line(mark, &m.num.to_string(), &score, &date, &who, &text) });
                 labels.push((m.num, row as u32));
             }
             // The rows of messages (not comments), as places in `seq`.
@@ -1035,6 +1038,7 @@ impl Session {
                     let score = score_label(scores.get(&root.id).copied());
                     let mark = if new > 0 { "*" } else { " " };
                     let day = self.local(t.last).format("%m/%d").to_string();
+                    let date = self.local(t.last).format("%m/%d/%y").to_string();
                     let w = waves([
                         ("AT", a.area.name.clone()),
                         ("MK", mark.into()),
@@ -1043,9 +1047,9 @@ impl Session {
                         ("SC", score.clone()),
                         ("NW", new_s.clone()),
                         ("DS", day.clone()),
-                        ("DT", self.local(t.last).format("%m/%d/%y").to_string()),
+                        ("DT", date.clone()),
                     ]);
-                    let plain = hot_line(mark, &a.area.name, &score, &day, &root.from.name, &root.subject);
+                    let plain = hot_line(mark, &a.area.name, &score, &date, &root.from.name, &root.subject);
                     let seq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
                     let from = seq.iter().position(|&n| self_new(&v, &by_id, n)).unwrap_or(0);
                     hot.push((h, a.clone(), seq, from, BarRow { n: 0, waves: w, plain }));
@@ -1667,8 +1671,9 @@ impl Session {
                 let words = if x.push != 0 { x.text.join(" ") } else { crate::mci::blurb(&x.text) };
                 let what = if files > 0 { format!("[{files} file{}] {words}", if files == 1 { "" } else { "s" }) } else { words };
                 let day = self.local(x.at).format("%m/%d").to_string();
+                let date = self.local(x.at).format("%m/%d/%y").to_string();
                 let w = waves([("SN", x.who.clone()), ("DS", day.clone()), ("TX", what.clone())]);
-                rows.push(BarRow { n: i as u32 + 1, waves: w, plain: format!("  {} {} {}", resize(&x.who, 16), resize(&day, 5), resize(&what, 54)) });
+                rows.push(BarRow { n: i as u32 + 1, waves: w, plain: format!("  {} {} {}", resize(&x.who, 16), resize(&date, 8), resize(&what, 51)) });
             }
             let header = format!("  {} {} {}", resize("Who", 16), resize("Date", 5), "What");
             let help = self.strings().fmt("ReqPickKeys", &[&fluxbbs_term::lit(&fluxbbs_term::codes::squish(&root.subject, 30))]);
@@ -1906,10 +1911,10 @@ fn post_line(mark: &str, num: &str, score: &str, day: &str, author: &str, replie
         "  {} {} {} {} {} {mark}{}",
         resize(num, 4),
         resize(score, 4),
-        resize(day, 5),
+        resize(day, 8),
         resize(author, 12),
         resize(replies, 3),
-        resize(title, 41)
+        resize(title, 38)
     )
 }
 
@@ -1927,12 +1932,12 @@ struct Answer {
 
 /// A line of a thread's tree.
 fn tree_line(mark: &str, num: &str, score: &str, day: &str, who: &str, text: &str) -> String {
-    format!("  {} {} {} {mark}{} {}", resize(num, 4), resize(score, 4), resize(day, 5), resize(who, 24), resize(text, 35))
+    format!("  {} {} {} {mark}{} {}", resize(num, 4), resize(score, 4), resize(day, 8), resize(who, 24), resize(text, 32))
 }
 
 /// A line of the Hot list: the post list's, with the board in front.
 fn hot_line(mark: &str, board: &str, score: &str, day: &str, author: &str, title: &str) -> String {
-    format!("  {} {} {} {} {mark}{}", resize(board, 13), resize(score, 4), resize(day, 5), resize(author, 12), resize(title, 38))
+    format!("  {} {} {} {} {mark}{}", resize(board, 13), resize(score, 4), resize(day, 8), resize(author, 12), resize(title, 35))
 }
 
 /// New: an area's tags as typed, commas between, without blanks or

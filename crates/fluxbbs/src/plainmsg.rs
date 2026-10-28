@@ -165,7 +165,7 @@ impl Session {
             // Sub-boards indented under their folders.
             let depth = self.state.areas().lineage(a.num).len().saturating_sub(1);
             let name = format!("{}{}", "  ".repeat(depth), strip_colours(&a.area.name));
-            let latest = v.msgs.last().map(|m| self.local(m.posted).format("%m/%d").to_string()).unwrap_or_default();
+            let latest = v.msgs.last().map(|m| self.local(m.posted).format("%m/%d/%y").to_string()).unwrap_or_default();
             rows.push(format!("{label:>4}  {name:<28} {:>5} posts {new:>4} new  {latest}", v.msgs.len()));
         }
         self.newline();
@@ -326,7 +326,7 @@ impl Session {
         }
         let kind = if a.area.requests { "Requests, open first" } else { "Threads" };
         self.plain_line(&format!("{kind}, page {page} of {pages} (* has new):"));
-        self.plain_line("     #  score  day    by            re  title");
+        self.plain_line("     #  score  day       by            re  title");
         let mut lines = Vec::new();
         for t in ts.iter().skip((page - 1) * PAGE).take(PAGE) {
             let Some(root) = t.msgs.first().and_then(|(id, _)| by_id.get(id)) else { continue };
@@ -337,7 +337,7 @@ impl Session {
                 if new { "*" } else { " " },
                 root.num,
                 score_label(scores.get(&root.id).copied()),
-                self.local(t.last).format("%m/%d"),
+                self.local(t.last).format("%m/%d/%y"),
                 fluxbbs_term::codes::resize(&self.plain_author(root), 12),
                 re,
                 strip_colours(&self.request_state(a, root, &filled).1) + deleted_mark(root)

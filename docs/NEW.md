@@ -362,6 +362,9 @@ All in [FEATURES](FEATURES.md#message-center).
   kept in a ledger, with caps a day in `*C`, Points.
   ([FEATURES](FEATURES.md#points))
 - Esc leaves an infoform without saving; the original had no way out.
+- A handle typed for a tip shows the callers who match as you type, in
+  a box to pick from (plain text: Tab completes).
+- Message lists show the year with the day (mm/dd/yy).
 - Catching up: `z` in the message center marks a board, a folder or
   every board read (plain text: `z <#>`, `z all`, `z` in a board).
 - Carrier Lost (`AP`): a reflex war-dialing run on the pixel stage.

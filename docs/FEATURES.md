@@ -946,7 +946,9 @@ The casino, slots and Carrier Lost pay points of their own, and
 filling requests pays [its own](#points-for-fills).
 
 - **Tips.** `$` at the reader's vote prompt tips the post's author
-  (`tip <#> [n]` in plain text), and `!P`'s `t` tips anyone by handle.
+  (`tip <#> [n]` in plain text), and `!P`'s `t` tips anyone by handle:
+  as it's typed, a box under it lists the callers who match (handles
+  starting with it first), arrows pick, Tab fills in, Enter takes it.
   A caller may give 200 a day at most. The one tipped gets a node
   message if they're on.
 - **The lottery.** `!P`'s `b` buys tickets (10 points each, 10 a day
