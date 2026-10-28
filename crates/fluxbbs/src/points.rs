@@ -520,15 +520,16 @@ impl Session {
     }
 
     async fn points_summary(&mut self) -> io::Result<()> {
-        // A clean screen (it's run from lightbar menus), headed by the
-        // board's POINTS screen if it has one.
+        let t = self.tonight();
+        // A clean screen (it's run from lightbar menus): the board's
+        // POINTS screen, its `~` codes filled in, or the lines below.
         if !self.plain() {
             self.clear_screen();
-            if self.find_text_file("POINTS").is_some() {
-                self.show_file("POINTS").await?;
+            let w = self.points_waves(&t);
+            if self.show_file_with("POINTS", &w).await? {
+                return Ok(());
             }
         }
-        let t = self.tonight();
         let s = self.strings();
         let mut lines = vec![s.fmt("PointsBalance", &[&self.user.file_points.to_string()])];
         if t.price > 0 {
@@ -554,11 +555,48 @@ impl Session {
         Ok(())
     }
 
-    /// One line of the ledger, as the caller sees it.
-    fn ledger_line(&self, e: &PointsEntry) -> String {
+    /// The POINTS screen's codes: `~PB` balance, `~PT` got today; tonight's
+    /// `~LP` pot, `~LS` tickets sold, `~LM` yours and `~LN` their numbers;
+    /// the last draw's `~LD` day, `~LW` winner, `~LA` pot and `~LT` ticket;
+    /// and the ledger's last rows, `~D1`..`~D6` when, `~A1`.. how many
+    /// (+ or -), `~W1`.. what for.
+    fn points_waves(&self, t: &Tonight) -> crate::session::Waves {
+        let mut w: Vec<(String, String)> = vec![
+            ("PB".into(), self.user.file_points.to_string()),
+            ("PT".into(), self.state.sys.points_got_since(self.user.id, today()).unwrap_or(0).to_string()),
+            ("LP".into(), t.pot.to_string()),
+            ("LS".into(), t.sold.to_string()),
+            ("LM".into(), t.mine.len().to_string()),
+            ("LN".into(), t.mine.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(" ")),
+        ];
+        let none = self.strings().get("PointsNoDraw").to_string();
+        let d = last_draw(&self.state);
+        w.push(("LD".into(), d.as_ref().map_or(none.clone(), |d| d.date())));
+        w.push(("LW".into(), d.as_ref().map_or(String::new(), |d| d.winner.clone())));
+        w.push(("LA".into(), d.as_ref().map_or(String::new(), |d| d.pot.to_string())));
+        w.push(("LT".into(), d.as_ref().map_or(String::new(), |d| format!("#{}", d.number))));
+        let recent = self.state.sys.points_recent(self.user.id, 6).unwrap_or_default();
+        for i in 0..6 {
+            let (when, amount, what) = match recent.get(i) {
+                Some(e) => {
+                    let mine = e.to_id == self.user.id;
+                    (self.local(e.at).format("%m/%d").to_string(), format!("{}{}", if mine { "+" } else { "-" }, e.amount), crate::editor::strip_colours(&self.ledger_what(e)))
+                }
+                None if i == 0 => (String::new(), String::new(), self.strings().get("PointsNothingYet").to_string()),
+                None => Default::default(),
+            };
+            w.push((format!("D{}", i + 1), when));
+            w.push((format!("A{}", i + 1), amount));
+            w.push((format!("W{}", i + 1), what));
+        }
+        w.into_iter().map(|(k, v)| (k.as_bytes().try_into().expect("two-letter code"), v)).collect()
+    }
+
+    /// What a ledger entry was for, in words.
+    fn ledger_what(&self, e: &PointsEntry) -> String {
         let s = self.strings();
         let mine = e.to_id == self.user.id;
-        let what = match e.kind.as_str() {
+        match e.kind.as_str() {
             "upvote" => s.fmt("PointsUpvote", &[&e.from, &e.note]),
             "door" => s.fmt("PointsDoor", &[&e.on, &e.note]),
             "tip" if mine => s.fmt("PointsTipFrom", &[&e.from]),
@@ -569,7 +607,14 @@ impl Session {
                 s.fmt("PointsWon", &[&d.number.to_string(), &d.tickets.to_string()])
             }
             k => k.to_string(),
-        };
+        }
+    }
+
+    /// One line of the ledger, as the caller sees it.
+    fn ledger_line(&self, e: &PointsEntry) -> String {
+        let s = self.strings();
+        let mine = e.to_id == self.user.id;
+        let what = self.ledger_what(e);
         let amount = format!("{}{}", if mine { "+" } else { "-" }, e.amount);
         let when = self.local(e.at).format("%m/%d %H:%M").to_string();
         s.fmt("PointsRow", &[&when, &format!("{amount:>5}"), &fluxbbs_term::codes::lit(&what)])

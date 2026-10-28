@@ -868,6 +868,12 @@ impl SysData {
         Ok(db.query_row(&sql, params![kind, user, since], |r| r.get::<_, i64>(0))? as u32)
     }
 
+    /// Everything `user` was given since `since`.
+    pub fn points_got_since(&self, user: u32, since: NaiveDateTime) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap();
+        Ok(db.query_row("SELECT COALESCE(SUM(amount), 0) FROM points WHERE to_id = ?1 AND at >= ?2", params![user, since], |r| r.get::<_, i64>(0))? as u32)
+    }
+
     pub fn add_points(&self, e: &PointsEntry) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap();
         points_insert(&db, e)?;

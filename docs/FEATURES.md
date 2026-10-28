@@ -968,8 +968,15 @@ filling requests pays [its own](#points-for-fills).
   name comes up. If it's you, coins rain. A key skips to the end. In
   plain text it's a line: "The 10/26 draw: ticket #5 of 6, phrac won
   110 points."
-- **A POINTS screen**, if the board has one in its text library, heads
-  `!P` (ANSI callers).
+- **A POINTS screen**, if the board has one in its text library, is
+  `!P` for ANSI callers, the keys printed under it. Its `~` codes:
+
+  | Code | Is |
+  |---|---|
+  | `~PB` `~PT` | your points, and what you got today |
+  | `~LP` `~LS` `~LM` `~LN` | tonight's pot, tickets sold, yours, their numbers |
+  | `~LD` `~LW` `~LA` `~LT` | the last draw: its day, winner, pot, winning ticket |
+  | `~D1`..`~D6` `~A1`.. `~W1`.. | your latest gains and spends: day, `+`/`-` points, what for |
 - **`!P`** shows your points, tonight's pot and your tickets, the last
   draw, and your last few gains and spends (`!P lottery` and `!P tip`
   go straight to buying and tipping).
