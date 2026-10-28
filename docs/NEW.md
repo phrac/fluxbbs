@@ -365,6 +365,8 @@ All in [FEATURES](FEATURES.md#message-center).
 - A handle typed for a tip shows the callers who match as you type, in
   a box to pick from (plain text: Tab completes).
 - Message lists show the year with the day (mm/dd/yy).
+- ANSI uploaded as a message (an ad) can be posted as it came, and its
+  colours and spacing go out on echomail.
 - Catching up: `z` in the message center marks a board, a folder or
   every board read (plain text: `z <#>`, `z all`, `z` in a board).
 - Carrier Lost (`AP`): a reflex war-dialing run on the pixel stage.

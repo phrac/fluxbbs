@@ -2086,17 +2086,41 @@ fn fmt_secs(s: u64) -> String {
 }
 
 /// Lines of an uploaded text file: UTF-8 or CP437, tabs expanded, long
-/// lines wrapped to the message width, at most 500 lines.
+/// lines wrapped to the message width, at most 500 lines. New: lines may
+/// end CR LF, LF or (as messages' do) CR alone, and a line with ANSI in it
+/// keeps its escapes and isn't wrapped (its codes aren't columns).
 pub fn text_lines(bytes: &[u8]) -> Vec<String> {
     let utf8 = std::str::from_utf8(bytes).is_ok();
     let mut out = Vec::new();
-    for src in bytes.split(|&b| b == b'\n') {
+    let mut srcs: Vec<&[u8]> = Vec::new();
+    let mut start = 0;
+    let mut i = 0;
+    while i < bytes.len() {
+        match bytes[i] {
+            b'\r' | b'\n' => {
+                srcs.push(&bytes[start..i]);
+                i += if bytes[i] == b'\r' && bytes.get(i + 1) == Some(&b'\n') { 2 } else { 1 };
+                start = i;
+            }
+            _ => i += 1,
+        }
+    }
+    srcs.push(&bytes[start..]);
+    for src in srcs {
+        let ansi = src.contains(&0x1b);
         let mut raw: Vec<u8> = Vec::with_capacity(src.len());
-        for &b in src.iter().filter(|&&b| b != b'\r' && b != 0x1a) {
+        for &b in src.iter().filter(|&&b| b != 0x1a) {
             if b == b'\t' { raw.extend_from_slice(b"    ") } else { raw.push(b) }
         }
-        let line = if utf8 { String::from_utf8_lossy(&raw).into_owned() } else { fluxbbs_term::cp437::decode(&raw) };
-        if line.chars().count() <= 79 {
+        let line = if utf8 {
+            String::from_utf8_lossy(&raw).into_owned()
+        } else if ansi {
+            // CP437's pictures for the high bytes, but ESC stays ESC.
+            raw.iter().map(|&b| if b < 0x80 { b as char } else { fluxbbs_term::cp437::TO_UNICODE[b as usize] }).collect()
+        } else {
+            fluxbbs_term::cp437::decode(&raw)
+        };
+        if ansi || line.chars().count() <= 79 {
             out.push(line);
         } else {
             out.extend(crate::multinode::wrap(&line, 79));
@@ -2185,6 +2209,14 @@ mod tests {
         assert_eq!(l, ["caf\u{e9}"]);
         let long = text_lines(format!("{}\n", "word ".repeat(40)).as_bytes());
         assert!(long.len() > 2 && long.iter().all(|l| l.chars().count() <= 79));
+        // ANSI with CR line ends, as an ad is sent: lines whole, escapes
+        // kept, the high bytes as CP437.
+        let mut art = format!("\x1b[1;35m{}\x1b[0m\r\x1b[5C", "x".repeat(90)).into_bytes();
+        art.extend([0xdb, b'\r']);
+        let l = text_lines(&art);
+        assert_eq!(l.len(), 2);
+        assert!(l[0].starts_with("\x1b[1;35m") && l[0].chars().count() > 90);
+        assert_eq!(l[1], "\x1b[5C\u{2588}");
     }
 
     #[test]

@@ -239,7 +239,11 @@ A file can be attached to a message. This follows the manual.
 #### Uploading a prepared message
 
 A caller can upload a message instead of typing it. It lands in the
-editor to look over. `*C` has an ACS and "ask" toggles for it.
+editor to look over. `*C` has an ACS and "ask" toggles for it. Lines may
+end CR LF, LF or CR. An upload with ANSI in it (an ad, art) can be
+posted as it came instead (`MsgUploadAsIs`): the editor keeps 79
+characters a line, codes and all, which would cut it up. Its colours and
+spacing go out on echomail too.
 
 #### Email tags
 

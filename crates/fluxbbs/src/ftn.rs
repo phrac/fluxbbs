@@ -94,6 +94,9 @@ fn cstr(b: &[u8], i: &mut usize, max: usize) -> Result<Vec<u8>, String> {
 
 /// Text as CP437 for a packet, without control bytes: CP437's glyphs for
 /// them (`♪` is CR, `☺` the kludge mark, `←` ESC) would turn into them.
+/// New: but ANSI's colour and cursor-right (`ESC[..m`, `ESC[nC`) go as
+/// they are, the same two a toss keeps, so an ANSI post (an ad) arrives
+/// whole.
 /// Tabs become spaces (to the next eighth column), so words don't run
 /// together; `ì` goes as `i`, since its CP437 byte (0x8D) is FTS-0001's
 /// soft CR, which some software drops.
@@ -121,9 +124,27 @@ pub fn text_bytes(s: &str) -> Vec<u8> {
             }
         }
     }
-    let mut e = fluxbbs_term::cp437::encode(&out);
-    e.retain(|&c| c >= 0x20);
-    e
+    let e = fluxbbs_term::cp437::encode(&out);
+    let mut kept = Vec::with_capacity(e.len());
+    let mut i = 0;
+    while i < e.len() {
+        if e[i] == 0x1b && e.get(i + 1) == Some(&b'[') {
+            let mut j = i + 2;
+            while j < e.len() && (e[j].is_ascii_digit() || e[j] == b';') {
+                j += 1;
+            }
+            if matches!(e.get(j), Some(b'm' | b'C')) {
+                kept.extend_from_slice(&e[i..=j]);
+                i = j + 1;
+                continue;
+            }
+        }
+        if e[i] >= 0x20 {
+            kept.push(e[i]);
+        }
+        i += 1;
+    }
+    kept
 }
 
 const MONTHS: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -624,6 +645,9 @@ mod tests {
         let back = split_text(&text);
         assert_eq!(back.body, ["SEEN+BY: 1/1 1/2", "hiPATH: 1/1 [2J"]);
         assert_eq!((back.seen_by, back.path), (vec!["1/100".to_string()], Vec::<String>::new()));
+        // ANSI's colours and spacing go out and come back as they were.
+        let art = Parts { area: Some("X".into()), body: vec!["\x1b[1;35m\u{2588}\x1b[5Cx\x1b[2J".into()], ..Default::default() };
+        assert_eq!(split_text(&join_text(&art)).body, ["\x1b[1;35m\u{2588}\x1b[5Cx[2J"]);
         // A SEEN-BY quoted in the text of a network post stays text.
         let quoted = split_text(b"AREA:X\rSEEN-BY: 9/9\rmore\rSEEN-BY: 1/100\r");
         assert_eq!((quoted.body, quoted.seen_by), (vec!["SEEN-BY: 9/9".to_string(), "more".to_string()], vec!["1/100".to_string()]));

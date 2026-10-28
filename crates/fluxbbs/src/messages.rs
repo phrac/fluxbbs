@@ -1015,6 +1015,16 @@ impl Session {
                     text = lines;
                 }
         }
+        // New: ANSI uploaded (an ad, art) can go in as it came: the editor
+        // keeps 79 characters a line, escape codes and all, which would
+        // cut it up.
+        let mut as_is = None;
+        if text.iter().any(|l| l.contains('\x1b')) {
+            self.say("MsgUploadAsIs").await?;
+            if self.yes_no(true).await? {
+                as_is = Some(crate::editor::EditResult { lines: text.clone(), subject: subject.to_string(), anonymous, autosig: false });
+            }
+        }
         let now = crate::clock::now().naive_local();
         let ctx = EditCtx {
             subject,
@@ -1030,9 +1040,15 @@ impl Session {
             text,
         };
         self.node.update(|n| n.activity = format!("Writing a message in {}", a.area.name));
-        let Some(done) = self.edit_message(ctx).await? else {
-            self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
-            return Ok(None);
+        let done = match as_is {
+            Some(d) => d,
+            None => {
+                let Some(done) = self.edit_message(ctx).await? else {
+                    self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
+                    return Ok(None);
+                };
+                done
+            }
         };
         if done.anonymous {
             from.name = self.strings().get("Anonymous").to_string();
