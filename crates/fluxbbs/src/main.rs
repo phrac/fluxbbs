@@ -21,7 +21,7 @@ mod bbslink;
 mod tarot;
 #[cfg(feature = "tarot")]
 mod tarotart;
-#[cfg(feature = "screensavers")]
+mod fontview;
 mod tdf;
 #[cfg(feature = "casino")]
 mod blackjack;

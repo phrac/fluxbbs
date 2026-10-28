@@ -577,6 +577,7 @@ fn more_sections() -> Vec<(char, &'static str, bool, Vec<Setting>)> {
             set('T', "Door drop files", 40, "Door drop files, a folder per node. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.doors)),
             set('U', "Lua scripts", 40, "Lua scripts for menus (-X) and screens. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.scripts)),
             set('V', "Attachments", 40, "Files attached to messages. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.attach)),
+            set('W', "TheDraw fonts", 40, "TheDraw fonts (.TDF) for the font viewer (*J). Relative to the config's folder.", Path(|c| &mut c.paths.fonts)),
         ]),
         ('2', "QWK Mail", false, vec![
             set('A', "Packet name", 8, "The BBS ID: packets are NAME.QWK, replies NAME.REP (up to 8 letters and digits).", Text(|c| &mut c.qwk.packet, Field { allowed: "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789", ..Field::UPPER.max(8) })),

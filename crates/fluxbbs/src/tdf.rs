@@ -9,6 +9,8 @@ use std::path::Path;
 /// character (a block or outline face's cells are all in color 7).
 pub struct Font {
     pub name: String,
+    /// 0 outline, 1 block, 2 color.
+    pub kind: u8,
     pub spacing: u8,
     glyphs: std::collections::HashMap<char, Glyph>,
 }
@@ -72,7 +74,7 @@ pub fn read(path: &Path) -> Vec<Font> {
             }
             glyphs.insert((33 + i as u8) as char, Glyph { width, rows });
         }
-        fonts.push(Font { name, spacing, glyphs });
+        fonts.push(Font { name, kind, spacing, glyphs });
         p += 213 + size;
     }
     fonts
@@ -120,6 +122,7 @@ impl Font {
     }
 }
 
+#[cfg_attr(not(feature = "screensavers"), allow(dead_code))]
 impl Font {
     /// The first of `texts` that sets no wider than `max` columns, and
     /// which it was; the last of them (too wide, to be cut off) if none
@@ -138,6 +141,7 @@ impl Font {
 }
 
 /// The DOS palette as RGB, by attribute color 0-15.
+#[cfg_attr(not(feature = "screensavers"), allow(dead_code))]
 pub fn rgb(color: u8) -> [u8; 3] {
     const PALETTE: [[u8; 3]; 16] = [
         [0, 0, 0], [0, 0, 170], [0, 170, 0], [0, 170, 170], [170, 0, 0], [170, 0, 170], [170, 85, 0], [170, 170, 170],

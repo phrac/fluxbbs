@@ -958,3 +958,7 @@ MarkedRead = "|U4Marked |U6%S1|U4 posts read|U5."
 # The POINTS screen's fill-ins (new).
 PointsNoDraw = "none yet"
 PointsNothingYet = "nothing yet: upvotes, doors and tips pay"
+# The font viewer (new, *J).
+FontViewHelp = "|U3n|U1 next  |U3p|U1 previous  |U3f|U1 find  |U3up/down/pgdn|U1 scroll  |U3q|U1 quit"
+FontViewFind = "|U4Find a font |U5(|U4file or face name|U5)|U4: |U3"
+FontViewNone = "|U4No TheDraw fonts in |U6%S1|U5 (|U4[paths] fonts|U5)|U4."

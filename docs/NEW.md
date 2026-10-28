@@ -489,7 +489,11 @@ All in [DOORS](DOORS.md).
 - `*G` security: bans and recent failures, and lifting a ban.
 - `*W` screen viewer: every screen with its random variants and weekday
   overrides, and any one shown as a caller sees it, effects and all.
-  ([ARTWORK](ARTWORK.md#trying-a-screen))
+  Art taller than the screen scrolls. ([ARTWORK](ARTWORK.md#trying-a-screen))
+- `*J` font viewer: every TheDraw font in `fonts/` (`[paths] fonts`), a
+  face at a time, with the board's name, short name and super short
+  name set in it, cut off at the screen's edge; `n`/`p` step, `f` finds
+  one by file or face name. Outline faces are left out.
 - `*F` as a bar list in tree order (see [Files](#files)).
 - `*U`'s flags field explains each flag (see
   [Passwords and accounts](#passwords-and-accounts)).
@@ -525,6 +529,7 @@ All in [DOORS](DOORS.md).
 | `*G` | security log and bans |
 | `*O` | logon sequence |
 | `*W` | screen viewer: any screen or variant, as callers see it |
+| `*J` | font viewer: the board's names in every TheDraw font |
 
 ### New display codes
 

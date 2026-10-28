@@ -5,7 +5,7 @@
 //! menus, door games' data and SSH host keys: everything in the board's
 //! directory but the file areas' folders and the folders holding them
 //! (their files are too big to copy nightly), the temporary and cache
-//! folders, earlier backups and `.bak` copies. Backups older than DAYS days (7 if not given) are removed.
+//! folders, the TheDraw fonts, earlier backups and `.bak` copies. Backups older than DAYS days (7 if not given) are removed.
 
 use std::path::{Path, PathBuf};
 
@@ -67,7 +67,8 @@ pub fn run(state: &BbsState, days: u64, dir: Option<&Path>) -> anyhow::Result<Pa
             let Ok(p) = cfg.resolve(&a.path).canonicalize() else { continue };
             skip.extend(p.ancestors().take_while(|d| *d != root && d.starts_with(&root)).filter(|d| !own.iter().any(|o| o.starts_with(d))).map(Path::to_path_buf));
         }
-        let more = [cfg.resolve(&cfg.paths.temp), cfg.resolve(&cfg.paths.data).join("cache"), dir.clone()];
+        // New: and the TheDraw fonts, a collection fetched again easily.
+        let more = [cfg.resolve(&cfg.paths.temp), cfg.resolve(&cfg.paths.data).join("cache"), cfg.resolve(&cfg.paths.fonts), dir.clone()];
         skip.extend(more.iter().filter_map(|p| p.canonicalize().ok()));
         let file = std::fs::OpenOptions::new().write(true).create_new(true).mode(0o600).open(&part)?;
         let gz = flate2::write::GzEncoder::new(file, flate2::Compression::default());

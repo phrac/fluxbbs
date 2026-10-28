@@ -118,6 +118,7 @@ Logs go to `docker logs fluxbbs`.
 | `strings.toml` | prompt strings that differ from stock | `*E` |
 | `menus/*.toml` | menus | `*#` |
 | `text/` | screens (ANSI/ASCII) | your art tools; see [ARTWORK.md](ARTWORK.md). `*W` shows any of them |
+| `fonts/` | TheDraw fonts (`.TDF`) for the font viewer (`*J`); left out of backups | copy them in (`[paths] fonts`) |
 | `scripts/` | Lua scripts (`-X`, `%!`) | any editor; see [SCRIPTING.md](SCRIPTING.md) |
 | `events.toml` | scheduled events | `*V` |
 | `logon.toml` | the logon sequence | `*O` |

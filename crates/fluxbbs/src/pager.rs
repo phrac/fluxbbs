@@ -41,6 +41,11 @@ pub struct Cell {
 
 const BLANK: Cell = Cell { ch: b' ', attr: PLAIN };
 
+/// New: a cell in DOS colors, for grids made in code (the font viewer).
+pub fn cell(ch: u8, fore: u8, back: u8) -> Cell {
+    Cell { ch, attr: Attr { fore: fore & 15, back: back & 7, ..PLAIN } }
+}
+
 /// ANSI colour digit for a DOS colour (and back: the map is its own
 /// inverse).
 fn ansi(dos: u8) -> u8 {

@@ -369,6 +369,8 @@ pub struct Paths {
     pub events: PathBuf,
     /// The logon sequence (`*O`).
     pub logon: PathBuf,
+    /// New: TheDraw fonts (`.TDF`) for the font viewer (`*J`).
+    pub fonts: PathBuf,
     /// Files attached to messages (`pathAtch`).
     pub attach: PathBuf,
 }
@@ -1549,6 +1551,7 @@ impl Default for Paths {
             events: "events.toml".into(),
             logon: "logon.toml".into(),
             attach: "data/attach".into(),
+            fonts: "fonts".into(),
         }
     }
 }
