@@ -338,27 +338,60 @@ pub fn open_db(path: &std::path::Path) -> anyhow::Result<Connection> {
     Ok(db)
 }
 
-/// Columns added since a database was made.
-fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    let has_ssh: bool = db.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info('bbslist') WHERE name = 'ssh'", [], |r| r.get(0))?;
-    if !has_ssh {
-        db.execute("ALTER TABLE bbslist ADD COLUMN ssh TEXT NOT NULL DEFAULT ''", [])?;
-    }
-    Ok(())
+/// A change to a store's tables since databases were first made.
+pub enum Step {
+    /// A column (table, column, its definition). Tables made since have
+    /// it already, so it's added only if missing.
+    Column(&'static str, &'static str, &'static str),
+    /// Anything else, run as it is.
+    Sql(&'static str),
 }
+
+/// New: make a store's tables and bring them up to date. The database
+/// keeps the number of steps each store has taken (`schema_versions`:
+/// one file holds every store, so `PRAGMA user_version` can't tell them
+/// apart); the steps past it run once, in order, in one transaction with
+/// the new count. Steps are only ever added at the end.
+pub fn migrate(db: &mut Connection, store: &str, schema: &str, steps: &[Step]) -> anyhow::Result<()> {
+    // One process at a time (the board and `fluxbbs ftn` can start
+    // together), each looking again once it has the lock.
+    let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+    tx.execute_batch(schema)?;
+    tx.execute_batch("CREATE TABLE IF NOT EXISTS schema_versions (store TEXT PRIMARY KEY, version INTEGER NOT NULL);")?;
+    let have = tx.query_row("SELECT version FROM schema_versions WHERE store = ?1", [store], |r| r.get::<_, u32>(0)).optional()?.unwrap_or(0) as usize;
+    if have > steps.len() {
+        tracing::warn!("{store}: the database is from a newer flux/bbs ({have} schema steps, this one knows {})", steps.len());
+    }
+    for step in steps.iter().skip(have) {
+        match step {
+            Step::Column(table, col, def) => {
+                let has: bool = tx.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info(?1) WHERE name = ?2", [table, col], |r| r.get(0))?;
+                if !has {
+                    tx.execute(&format!("ALTER TABLE {table} ADD COLUMN {col} {def}"), [])?;
+                }
+            }
+            Step::Sql(sql) => tx.execute_batch(sql)?,
+        }
+    }
+    if steps.len() > have {
+        tx.execute("INSERT OR REPLACE INTO schema_versions (store, version) VALUES (?1, ?2)", params![store, steps.len() as u32])?;
+    }
+    tx.commit().with_context(|| format!("updating the {store} tables"))
+}
+
+/// Columns added since a database was made.
+const STEPS: &[Step] = &[Step::Column("bbslist", "ssh", "TEXT NOT NULL DEFAULT ''")];
 
 impl SysData {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = crate::sysdata::open_db(path)?;
-        db.execute_batch(SCHEMA)?;
-        migrate(&db)?;
+        let mut db = crate::sysdata::open_db(path)?;
+        migrate(&mut db, "sysdata", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(SCHEMA)?;
-        migrate(&db)?;
+        let mut db = Connection::open_in_memory()?;
+        migrate(&mut db, "sysdata", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -372,7 +405,7 @@ impl SysData {
             Stat::Upload { kb } => ("uploads", 1, Some("upload_kb"), kb),
             Stat::Download { kb } => ("downloads", 1, Some("download_kb"), kb),
         };
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR IGNORE INTO history (date) VALUES (?1)", [day])?;
         db.execute(&format!("UPDATE history SET {col} = {col} + ?2 WHERE date = ?1"), params![day, n])?;
         if let Some(kc) = kb_col {
@@ -382,13 +415,13 @@ impl SysData {
     }
 
     pub fn day(&self, day: NaiveDate) -> anyhow::Result<Counts> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT * FROM history WHERE date = ?1", [day], counts).optional()?.unwrap_or_default())
     }
 
     /// Every day, oldest first.
     pub fn history(&self) -> anyhow::Result<Vec<(NaiveDate, Counts)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT * FROM history ORDER BY date")?;
         let rows = stmt.query_map([], |r| Ok((r.get("date")?, counts(r)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
@@ -396,13 +429,13 @@ impl SysData {
 
     /// All-time totals: imported base plus our history.
     pub fn totals(&self) -> anyhow::Result<Counts> {
-        totals(&self.db.lock().unwrap())
+        totals(&self.db.lock().unwrap_or_else(|e| e.into_inner()))
     }
 
     /// Import STATS.DAT totals (those already in imported history are
     /// subtracted, so they aren't counted twice).
     pub fn set_base(&self, first_day: Option<NaiveDate>, c: &Counts) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT OR REPLACE INTO totals_base (id, first_day, calls, posts, email, uploads, downloads, upload_kb, download_kb)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)",
@@ -416,7 +449,7 @@ impl SysData {
 
     /// The first day the BBS was online (`FirstDay`).
     pub fn first_day(&self) -> anyhow::Result<Option<NaiveDate>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let base: Option<Option<NaiveDate>> = db.query_row("SELECT first_day FROM totals_base WHERE id = 1", [], |r| r.get(0)).optional()?;
         match base.flatten() {
             Some(d) => Ok(Some(d)),
@@ -428,7 +461,7 @@ impl SysData {
     /// daily history can't be undone, so a total can't go below what it
     /// already counts; returns the totals as they end up.
     pub fn set_totals(&self, first_day: Option<NaiveDate>, want: &Counts) -> anyhow::Result<Counts> {
-        let sum = history_sum(&self.db.lock().unwrap())?;
+        let sum = history_sum(&self.db.lock().unwrap_or_else(|e| e.into_inner()))?;
         let base = Counts {
             calls: want.calls.saturating_sub(sum.calls),
             new_users: 0,
@@ -444,7 +477,7 @@ impl SysData {
     }
 
     pub fn set_day(&self, day: NaiveDate, c: &Counts) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT OR REPLACE INTO history (date, calls, new_users, posts, email, uploads, downloads, upload_kb, download_kb)
              VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)",
@@ -462,7 +495,7 @@ impl SysData {
     /// under one lock so two nodes logging on together get different
     /// numbers (2.0 fixed "caller list numbering with multinode").
     pub fn log_call(&self, mut c: Call) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let day = c.at.date();
         db.execute("INSERT OR IGNORE INTO history (date) VALUES (?1)", [day])?;
         db.execute("UPDATE history SET calls = calls + 1 WHERE date = ?1", [day])?;
@@ -471,12 +504,12 @@ impl SysData {
     }
 
     pub fn add_call(&self, c: &Call) -> anyhow::Result<()> {
-        insert_call(&self.db.lock().unwrap(), c)
+        insert_call(&self.db.lock().unwrap_or_else(|e| e.into_inner()), c)
     }
 
     /// The latest `n` calls, oldest first; or all of `day`'s.
     pub fn calls(&self, n: Option<u32>, day: Option<NaiveDate>) -> anyhow::Result<Vec<Call>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let map = |r: &rusqlite::Row| -> rusqlite::Result<Call> {
             Ok(Call {
                 call_num: r.get::<_, i64>("call_num")?.max(0) as u64,
@@ -508,7 +541,7 @@ impl SysData {
     // ---- the automessage --------------------------------------------------
 
     pub fn automsg(&self) -> anyhow::Result<Option<AutoMsg>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row("SELECT * FROM automsg WHERE id = 1", [], |r| {
                 let body: String = r.get("body")?;
@@ -525,7 +558,7 @@ impl SysData {
     }
 
     pub fn set_automsg(&self, m: &AutoMsg) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT OR REPLACE INTO automsg (id, user_id, author, anonymous, title, posted, body)
              VALUES (1, ?1, ?2, ?3, ?4, ?5, ?6)",
@@ -538,27 +571,27 @@ impl SysData {
 
     /// Bans on record: (address, when it ends, how many bans so far).
     pub fn bans(&self) -> anyhow::Result<Vec<(String, NaiveDateTime, u32)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT ip, until, strikes FROM bans ORDER BY until")?;
         let rows = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
     pub fn set_ban(&self, ip: &str, until: NaiveDateTime, strikes: u32) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR REPLACE INTO bans (ip, until, strikes) VALUES (?1, ?2, ?3)", params![ip, until, strikes])?;
         Ok(())
     }
 
     /// Lift a ban (`"all"` lifts every one). Returns how many went.
     pub fn clear_ban(&self, ip: &str) -> anyhow::Result<usize> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(if ip == "all" { db.execute("DELETE FROM bans", [])? } else { db.execute("DELETE FROM bans WHERE ip = ?1", [ip])? })
     }
 
     /// Note a failed bot check or password, or a ban.
     pub fn log_security(&self, ip: &str, what: &str) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT INTO security_log (at, ip, what) VALUES (?1, ?2, ?3)", params![crate::clock::now().naive_local(), ip, what])?;
         // Keep the log to a few thousand lines.
         db.execute("DELETE FROM security_log WHERE id < (SELECT MAX(id) FROM security_log) - 5000", [])?;
@@ -567,7 +600,7 @@ impl SysData {
 
     /// A new account was made from `ip` (empty if unknown).
     pub fn record_signup(&self, ip: &str) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let now = crate::clock::now().naive_local();
         db.execute("INSERT INTO signups (at, ip) VALUES (?1, ?2)", params![now, ip])?;
         db.execute("DELETE FROM signups WHERE at < ?1", [now - chrono::Duration::days(30)])?;
@@ -576,7 +609,7 @@ impl SysData {
 
     /// Sign-ups since `when`: from `ip`, and in all.
     pub fn signups_since(&self, ip: &str, when: NaiveDateTime) -> anyhow::Result<(u32, u32)> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row(
             "SELECT COALESCE(SUM(ip = ?1), 0), COUNT(*) FROM signups WHERE at > ?2",
             params![ip, when],
@@ -586,7 +619,7 @@ impl SysData {
 
     /// The latest security events, newest first: (when, address, what).
     pub fn security_events(&self, limit: u32) -> anyhow::Result<Vec<(NaiveDateTime, String, String)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT at, ip, what FROM security_log ORDER BY id DESC LIMIT ?1")?;
         let rows = stmt.query_map([limit], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
@@ -594,7 +627,7 @@ impl SysData {
 
     /// How many events since `when`, and how many of them were bans.
     pub fn security_since(&self, when: NaiveDateTime) -> anyhow::Result<(u32, u32)> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row(
             "SELECT COUNT(*), COALESCE(SUM(what LIKE 'banned%'), 0) FROM security_log WHERE at > ?1",
             [when],
@@ -606,12 +639,12 @@ impl SysData {
 
     /// The day an event (by description) last ran.
     pub fn event_last(&self, event: &str) -> anyhow::Result<Option<NaiveDate>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT last_run FROM event_runs WHERE event = ?1", [event], |r| r.get(0)).optional()?)
     }
 
     pub fn set_event_last(&self, event: &str, day: NaiveDate) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR REPLACE INTO event_runs (event, last_run) VALUES (?1, ?2)", params![event, day])?;
         Ok(())
     }
@@ -620,7 +653,7 @@ impl SysData {
 
     /// A value a script stored under `key`.
     pub fn script_get(&self, script: &str, key: &str) -> anyhow::Result<Option<String>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row("SELECT value FROM script_data WHERE script = ?1 AND key = ?2", params![script, key], |r| r.get(0))
             .optional()?)
@@ -628,7 +661,7 @@ impl SysData {
 
     /// Store a script's value; `None` removes it.
     pub fn script_set(&self, script: &str, key: &str, value: Option<&str>) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         match value {
             Some(v) => db.execute(
                 "INSERT OR REPLACE INTO script_data (script, key, value) VALUES (?1, ?2, ?3)",
@@ -642,7 +675,7 @@ impl SysData {
     // ---- door plays (new) ---------------------------------------------------
 
     pub fn add_play(&self, user: u32, p: &Play) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT INTO door_plays (user_id, handle, door, started, minutes) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![user, p.handle, p.door, p.started, p.minutes],
@@ -652,7 +685,7 @@ impl SysData {
 
     /// The doors menu's figures, with `user`'s own; "today" starts at `day`.
     pub fn door_stats(&self, user: u32, day: NaiveDateTime) -> anyhow::Result<DoorStats> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         const COLS: &str = "SELECT handle, door, started, minutes FROM door_plays";
         let one = |sql: &str, p: &[&dyn rusqlite::ToSql]| db.query_row(&format!("{COLS} {sql} LIMIT 1"), p, play).optional();
         // A door's plays are counted by name, whatever its case.
@@ -693,14 +726,14 @@ impl SysData {
     /// The areas (by file name) a user has taken out of newscans; `kind`
     /// is `M` (messages) or `F` (files).
     pub fn scan_off(&self, user: u32, kind: char) -> anyhow::Result<std::collections::HashSet<String>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT area FROM scan_off WHERE user_id = ?1 AND kind = ?2")?;
         let rows = stmt.query_map(params![user, kind.to_string()], |r| r.get(0))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
     pub fn set_scan(&self, user: u32, kind: char, area: &str, on: bool) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         if on {
             db.execute("DELETE FROM scan_off WHERE user_id = ?1 AND kind = ?2 AND area = ?3", params![user, kind.to_string(), area])?;
         } else {
@@ -712,14 +745,14 @@ impl SysData {
     /// `US`: every area back in everyone's newscans. Returns how many
     /// selections were cleared.
     pub fn scan_all_on(&self) -> anyhow::Result<usize> {
-        Ok(self.db.lock().unwrap().execute("DELETE FROM scan_off", [])?)
+        Ok(self.db.lock().unwrap_or_else(|e| e.into_inner()).execute("DELETE FROM scan_off", [])?)
     }
 
     // ---- the voting booth (2.0) ---------------------------------------------
 
     /// Every question, oldest first, with its answers and their votes.
     pub fn questions(&self) -> anyhow::Result<Vec<Question>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut qs: Vec<Question> = db
             .prepare("SELECT id, text, author, user_add FROM vote_questions ORDER BY id")?
             .query_map([], |r| Ok(Question { id: r.get(0)?, text: r.get(1)?, author: r.get(2)?, user_add: r.get(3)?, answers: Vec::new() }))?
@@ -734,7 +767,7 @@ impl SysData {
     }
 
     pub fn add_question(&self, text: &str, author: &str, user_add: bool, answers: &[String]) -> anyhow::Result<i64> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute(
             "INSERT INTO vote_questions (text, author, user_add, created) VALUES (?1, ?2, ?3, ?4)",
@@ -749,13 +782,13 @@ impl SysData {
     }
 
     pub fn add_answer(&self, question: i64, text: &str) -> anyhow::Result<i64> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT INTO vote_answers (question, text) VALUES (?1, ?2)", params![question, text])?;
         Ok(db.last_insert_rowid())
     }
 
     pub fn delete_question(&self, id: i64) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM votes WHERE question = ?1", [id])?;
         tx.execute("DELETE FROM vote_answers WHERE question = ?1", [id])?;
@@ -766,12 +799,12 @@ impl SysData {
 
     /// The answer a user gave to a question, if any.
     pub fn my_vote(&self, user: u32, question: i64) -> anyhow::Result<Option<i64>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT answer FROM votes WHERE user_id = ?1 AND question = ?2", params![user, question], |r| r.get(0)).optional()?)
     }
 
     pub fn vote(&self, user: u32, question: i64, answer: i64) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR REPLACE INTO votes (user_id, question, answer) VALUES (?1, ?2, ?3)", params![user, question, answer])?;
         Ok(())
     }
@@ -779,7 +812,7 @@ impl SysData {
     // ---- the BBS list -----------------------------------------------------
 
     pub fn bbs_list(&self) -> anyhow::Result<Vec<Bbs>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT * FROM bbslist ORDER BY id")?;
         let rows = stmt
             .query_map([], |r| {
@@ -800,7 +833,7 @@ impl SysData {
     }
 
     pub fn add_bbs(&self, b: &Bbs) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT INTO bbslist (name, address, ssh, sysop, speed, software, storage, info, who_added)
              VALUES (?1, ?2, ?3, ?4, 0, ?5, ?6, ?7, ?8)",
@@ -810,7 +843,7 @@ impl SysData {
     }
 
     pub fn update_bbs(&self, b: &Bbs) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "UPDATE bbslist SET name = ?2, address = ?3, ssh = ?4, sysop = ?5, software = ?6, storage = ?7,
                 info = ?8, who_added = ?9 WHERE id = ?1",
@@ -820,12 +853,12 @@ impl SysData {
     }
 
     pub fn delete_bbs(&self, id: u32) -> anyhow::Result<()> {
-        self.db.lock().unwrap().execute("DELETE FROM bbslist WHERE id = ?1", [id])?;
+        self.db.lock().unwrap_or_else(|e| e.into_inner()).execute("DELETE FROM bbslist WHERE id = ?1", [id])?;
         Ok(())
     }
 
     pub fn clear_bbs(&self) -> anyhow::Result<()> {
-        self.db.lock().unwrap().execute("DELETE FROM bbslist", [])?;
+        self.db.lock().unwrap_or_else(|e| e.into_inner()).execute("DELETE FROM bbslist", [])?;
         Ok(())
     }
 }
@@ -862,7 +895,7 @@ fn totals(db: &Connection) -> anyhow::Result<Counts> {
 impl SysData {
     /// Points of a kind given (`by_giver`) or had by `user` since `since`.
     pub fn points_since(&self, kind: &str, user: u32, by_giver: bool, since: NaiveDateTime) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let who = if by_giver { "from_id" } else { "to_id" };
         let sql = format!("SELECT COALESCE(SUM(amount), 0) FROM points WHERE kind = ?1 AND {who} = ?2 AND at >= ?3");
         Ok(db.query_row(&sql, params![kind, user, since], |r| r.get::<_, i64>(0))? as u32)
@@ -870,12 +903,12 @@ impl SysData {
 
     /// Everything `user` was given since `since`.
     pub fn points_got_since(&self, user: u32, since: NaiveDateTime) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COALESCE(SUM(amount), 0) FROM points WHERE to_id = ?1 AND at >= ?2", params![user, since], |r| r.get::<_, i64>(0))? as u32)
     }
 
     pub fn add_points(&self, e: &PointsEntry) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         points_insert(&db, e)?;
         Ok(())
     }
@@ -885,7 +918,7 @@ impl SysData {
     /// that kind on the same thing (an upvote paid once, however often
     /// the vote changes). What went in (0: nothing).
     pub fn add_points_capped(&self, e: &PointsEntry, cap: u32, since: NaiveDateTime, once: bool) -> anyhow::Result<u32> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if once {
             let had: bool = tx.query_row(
@@ -914,7 +947,7 @@ impl SysData {
     /// What `user` got or spent lately, newest first (an upvote they
     /// gave cost them nothing).
     pub fn points_recent(&self, user: u32, n: usize) -> anyhow::Result<Vec<PointsEntry>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT * FROM points WHERE to_id = ?1 OR (from_id = ?1 AND kind IN ('tip', 'ticket')) ORDER BY id DESC LIMIT ?2")?;
         let rows = stmt.query_map(params![user, n as i64], points_row)?.collect::<Result<_, _>>()?;
         Ok(rows)
@@ -922,7 +955,7 @@ impl SysData {
 
     /// A lottery day's tickets, by caller: (id, handle, tickets).
     pub fn lottery_tickets(&self, day: &str) -> anyhow::Result<Vec<(u32, String, u32)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare(
             "SELECT from_id, MAX(from_handle), SUM(CAST(note AS INTEGER)) FROM points WHERE kind = 'ticket' AND on_what = ?1 GROUP BY from_id ORDER BY MIN(id)",
         )?;
@@ -933,7 +966,7 @@ impl SysData {
     /// A lottery day's purchases in the order made: (id, handle,
     /// tickets). Tickets are numbered from 1 in this order.
     pub fn lottery_entries(&self, day: &str) -> anyhow::Result<Vec<(u32, String, u32)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT from_id, from_handle, CAST(note AS INTEGER) FROM points WHERE kind = 'ticket' AND on_what = ?1 ORDER BY id")?;
         let rows = stmt.query_map([day], |r| Ok((r.get(0)?, r.get(1)?, r.get::<_, i64>(2)? as u32)))?.collect::<Result<_, _>>()?;
         Ok(rows)
@@ -941,13 +974,13 @@ impl SysData {
 
     /// A lottery day's pot: what its tickets cost.
     pub fn lottery_pot(&self, day: &str) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COALESCE(SUM(amount), 0) FROM points WHERE kind = 'ticket' AND on_what = ?1", [day], |r| r.get::<_, i64>(0))? as u32)
     }
 
     /// Days before `today` with tickets sold and nobody drawn.
     pub fn lottery_undrawn(&self, today: &str) -> anyhow::Result<Vec<String>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare(
             "SELECT DISTINCT on_what FROM points WHERE kind = 'ticket' AND on_what < ?1
              AND on_what NOT IN (SELECT on_what FROM points WHERE kind = 'lottery') ORDER BY on_what",
@@ -958,7 +991,7 @@ impl SysData {
 
     /// Record a draw, unless that day was drawn already. True if recorded.
     pub fn lottery_record(&self, e: &PointsEntry) -> anyhow::Result<bool> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let drawn: bool = tx.query_row("SELECT EXISTS (SELECT 1 FROM points WHERE kind = 'lottery' AND on_what = ?1)", [&e.on], |r| r.get(0))?;
         if drawn {
@@ -971,7 +1004,7 @@ impl SysData {
 
     /// The last draw.
     pub fn lottery_last(&self) -> anyhow::Result<Option<PointsEntry>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT * FROM points WHERE kind = 'lottery' ORDER BY id DESC LIMIT 1", [], points_row).optional()?)
     }
 }
@@ -979,6 +1012,28 @@ impl SysData {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn migrate_runs_each_step_once() {
+        let mut db = Connection::open_in_memory().unwrap();
+        // A database from before versions: the column's already there.
+        db.execute_batch("CREATE TABLE t (a INTEGER, b TEXT); CREATE TABLE log (n INTEGER);").unwrap();
+        let steps = [Step::Column("t", "b", "TEXT"), Step::Column("t", "c", "INTEGER NOT NULL DEFAULT 7"), Step::Sql("INSERT INTO log VALUES (1)")];
+        migrate(&mut db, "t", "CREATE TABLE IF NOT EXISTS t (a INTEGER);", &steps).unwrap();
+        migrate(&mut db, "t", "CREATE TABLE IF NOT EXISTS t (a INTEGER);", &steps).unwrap();
+        let logged: u32 = db.query_row("SELECT COUNT(*) FROM log", [], |r| r.get(0)).unwrap();
+        assert_eq!(logged, 1);
+        db.execute("INSERT INTO t (a) VALUES (1)", []).unwrap();
+        assert_eq!(db.query_row("SELECT c FROM t", [], |r| r.get::<_, i64>(0)).unwrap(), 7);
+        // A step added later runs on its own; another store starts at 0.
+        let later = [Step::Column("t", "b", "TEXT"), Step::Column("t", "c", "INTEGER"), Step::Sql("INSERT INTO log VALUES (1)"), Step::Sql("INSERT INTO log VALUES (2)")];
+        migrate(&mut db, "t", "", &later).unwrap();
+        migrate(&mut db, "other", "", &[Step::Sql("INSERT INTO log VALUES (3)")]).unwrap();
+        let logged: Vec<u32> = db.prepare("SELECT n FROM log ORDER BY n").unwrap().query_map([], |r| r.get(0)).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(logged, [1, 2, 3]);
+        let versions: Vec<(String, u32)> = db.prepare("SELECT store, version FROM schema_versions ORDER BY store").unwrap().query_map([], |r| Ok((r.get(0)?, r.get(1)?))).unwrap().map(|r| r.unwrap()).collect();
+        assert_eq!(versions, [("other".to_string(), 1), ("t".to_string(), 4)]);
+    }
 
     fn d(s: &str) -> NaiveDate {
         s.parse().unwrap()

@@ -75,19 +75,19 @@ pub struct CarrierStore {
 
 impl CarrierStore {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = crate::sysdata::open_db(path)?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = crate::sysdata::open_db(path)?;
+        crate::sysdata::migrate(&mut db, "carrierlost", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = Connection::open_in_memory()?;
+        crate::sysdata::migrate(&mut db, "carrierlost", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn player(&self, user: u32) -> anyhow::Result<Player> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let p = db
             .query_row("SELECT gear, best, runs, day, dials, busted FROM clw_player WHERE user = ?1", params![user], |r| {
                 Ok(Player { gear: r.get(0)?, best: r.get(1)?, runs: r.get(2)?, day: r.get(3)?, dials: r.get(4)?, busted: r.get(5)? })
@@ -97,7 +97,7 @@ impl CarrierStore {
     }
 
     pub fn save_player(&self, user: u32, handle: &str, p: &Player) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT INTO clw_player (user, handle, gear, best, runs, day, dials, busted) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
              ON CONFLICT(user) DO UPDATE SET handle=?2, gear=?3, best=?4, runs=?5, day=?6, dials=?7, busted=?8",
@@ -108,14 +108,14 @@ impl CarrierStore {
 
     /// Record a fenced haul on the board.
     pub fn add_score(&self, handle: &str, haul: u32, at: &str) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT INTO clw_score (handle, haul, at) VALUES (?1,?2,?3)", params![handle, haul, at])?;
         Ok(())
     }
 
     /// The biggest hauls fenced, most first.
     pub fn top(&self, n: u32) -> anyhow::Result<Vec<(String, u32, String)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut st = db.prepare("SELECT handle, haul, at FROM clw_score ORDER BY haul DESC, id ASC LIMIT ?1")?;
         let rows = st.query_map(params![n], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?;
         Ok(rows.filter_map(Result::ok).collect())

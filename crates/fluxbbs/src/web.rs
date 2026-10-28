@@ -380,26 +380,26 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
                 kind = if html { "text/html; charset=utf-8" } else { "text/plain; charset=utf-8" };
                 let slot = &lists[html as usize];
                 let _b = building.lock().await;
-                let fresh = slot.lock().unwrap().at.is_some_and(|t| t.elapsed() < FRESH * 6);
+                let fresh = slot.lock().unwrap_or_else(|e| e.into_inner()).at.is_some_and(|t| t.elapsed() < FRESH * 6);
                 if !fresh {
                     let st = state.clone();
                     match tokio::task::spawn_blocking(move || file_list(&st, html)).await {
-                        Ok(Ok(body)) => *slot.lock().unwrap() = Cache { at: Some(Instant::now()), body },
+                        Ok(Ok(body)) => *slot.lock().unwrap_or_else(|e| e.into_inner()) = Cache { at: Some(Instant::now()), body },
                         Ok(Err(e)) => tracing::warn!("file list: {e:#}"),
                         Err(e) => tracing::warn!("file list: {e}"),
                     }
                 }
-                let body = slot.lock().unwrap().body.clone();
+                let body = slot.lock().unwrap_or_else(|e| e.into_inner()).body.clone();
                 if body.is_empty() { ("503 Service Unavailable", String::new()) } else { ("200 OK", body) }
             } else if path == "/status.json" || path == "/api/status.json" {
                 let _b = building.lock().await;
-                let fresh = cache.lock().unwrap().at.is_some_and(|t| t.elapsed() < FRESH);
+                let fresh = cache.lock().unwrap_or_else(|e| e.into_inner()).at.is_some_and(|t| t.elapsed() < FRESH);
                 if !fresh {
                     let st = state.clone();
                     let s = started.clone();
                     match tokio::task::spawn_blocking(move || build(&st, &s)).await {
                         Ok(Ok(status)) => {
-                            let mut c = cache.lock().unwrap();
+                            let mut c = cache.lock().unwrap_or_else(|e| e.into_inner());
                             c.body = serde_json::to_string(&status).unwrap_or_default();
                             c.at = Some(Instant::now());
                         }
@@ -407,7 +407,7 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
                         Err(e) => tracing::warn!("status feed: {e}"),
                     }
                 }
-                let body = cache.lock().unwrap().body.clone();
+                let body = cache.lock().unwrap_or_else(|e| e.into_inner()).body.clone();
                 if body.is_empty() { ("503 Service Unavailable", String::new()) } else { ("200 OK", body) }
             } else {
                 ("404 Not Found", String::new())

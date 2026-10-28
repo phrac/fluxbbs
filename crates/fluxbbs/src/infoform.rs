@@ -87,19 +87,19 @@ pub struct FormStore {
 
 impl FormStore {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = crate::sysdata::open_db(path)?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = crate::sysdata::open_db(path)?;
+        crate::sysdata::migrate(&mut db, "infoform", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = Connection::open_in_memory()?;
+        crate::sysdata::migrate(&mut db, "infoform", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn answers(&self, form: &str, user: u32) -> anyhow::Result<Option<Vec<String>>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let text: Option<String> = db
             .query_row("SELECT answers FROM infoform_answers WHERE form = ?1 AND user_id = ?2", params![form, user], |r| r.get(0))
             .optional()?;
@@ -107,7 +107,7 @@ impl FormStore {
     }
 
     pub fn set_answers(&self, form: &str, user: u32, answers: &[String], at: NaiveDateTime) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT OR REPLACE INTO infoform_answers (form, user_id, answers, at) VALUES (?1, ?2, ?3, ?4)",
             params![form, user, join_lines(answers), at],
@@ -117,7 +117,7 @@ impl FormStore {
 
     /// `ifResetForm` / `ifResetUser` (form None: all of a user's forms).
     pub fn clear(&self, form: Option<&str>, user: u32) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let n = match form {
             Some(f) => db.execute("DELETE FROM infoform_answers WHERE form = ?1 AND user_id = ?2", params![f, user])?,
             None => db.execute("DELETE FROM infoform_answers WHERE user_id = ?1", [user])?,
@@ -127,12 +127,12 @@ impl FormStore {
 
     /// Everyone's answers to a form (when it's removed).
     pub fn clear_form(&self, form: &str) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.execute("DELETE FROM infoform_answers WHERE form = ?1", [form])? as u32)
     }
 
     pub fn has_voted(&self, voter: u32, candidate: u32) -> anyhow::Result<bool> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row("SELECT 1 FROM nuv_votes WHERE voter_id = ?1 AND candidate_id = ?2", params![voter, candidate], |_| Ok(()))
             .optional()?
@@ -140,7 +140,7 @@ impl FormStore {
     }
 
     pub fn add_vote(&self, voter: u32, candidate: u32, initials: &str, comment: &str, at: NaiveDateTime) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT OR REPLACE INTO nuv_votes (voter_id, candidate_id, initials, comment, at) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![voter, candidate, initials, comment, at],
@@ -150,7 +150,7 @@ impl FormStore {
 
     /// The comments left on a candidate, oldest first: (initials, comment).
     pub fn comments(&self, candidate: u32) -> anyhow::Result<Vec<(String, String)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt =
             db.prepare("SELECT initials, comment FROM nuv_votes WHERE candidate_id = ?1 AND comment <> '' ORDER BY at, rowid")?;
         let rows = stmt.query_map([candidate], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
@@ -159,7 +159,7 @@ impl FormStore {
 
     /// `nuvReset`: forget votes by or about a user.
     pub fn clear_votes(&self, user: u32) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("DELETE FROM nuv_votes WHERE voter_id = ?1 OR candidate_id = ?1", [user])?;
         Ok(())
     }

@@ -320,7 +320,7 @@ mod tests {
         let state = crate::tests::state();
         let mut cfg = (*state.config()).clone();
         cfg.root = root.clone();
-        *state.config.write().unwrap() = Arc::new(cfg);
+        *state.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(cfg);
         let today = crate::clock::now().date_naive();
         let ago = |d: i64| (today - chrono::Duration::days(d)).format("%Y-%m-%d").to_string();
         let board = |name: &str, file: &str, made: String| MsgArea { created: made, sponsor: "kingpin".into(), ..MsgArea::new(name, file) };

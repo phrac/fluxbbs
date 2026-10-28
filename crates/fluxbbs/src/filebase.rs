@@ -108,25 +108,25 @@ pub struct FileBase {
 
 impl FileBase {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = crate::sysdata::open_db(path)?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = crate::sysdata::open_db(path)?;
+        crate::sysdata::migrate(&mut db, "filebase", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = Connection::open_in_memory()?;
+        crate::sysdata::migrate(&mut db, "filebase", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn count(&self, area: &str) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COUNT(*) FROM files WHERE area = ?1", [area], |r| r.get(0))?)
     }
 
     /// How many validated files an area has, and the newest upload.
     pub fn summary(&self, area: &str) -> anyhow::Result<(u32, Option<NaiveDate>)> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COUNT(*), MAX(uploaded) FROM files WHERE area = ?1 AND valid", [area], |r| Ok((r.get(0)?, r.get(1)?)))?)
     }
 
@@ -134,7 +134,7 @@ impl FileBase {
     /// checked upload: what the area list shows, without reading the
     /// records.
     pub fn count_and_newest(&self, area: &str) -> anyhow::Result<(u32, Option<NaiveDate>)> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COUNT(*), MAX(CASE WHEN valid THEN uploaded END) FROM files WHERE area = ?1", [area], |r| Ok((r.get(0)?, r.get(1)?)))?)
     }
 
@@ -142,7 +142,7 @@ impl FileBase {
     /// for None), by storage key in lower case; areas with none aren't
     /// in it. The newscan asks this once rather than reading every area.
     pub fn new_counts(&self, since: Option<NaiveDate>) -> anyhow::Result<HashMap<String, u32>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT area, COUNT(*) FROM files WHERE ?1 IS NULL OR uploaded >= ?1 GROUP BY area")?;
         let rows = stmt.query_map([since], |r| Ok((r.get::<_, String>(0)?.to_lowercase(), r.get(1)?)))?;
         Ok(rows.collect::<Result<_, _>>()?)
@@ -175,7 +175,7 @@ impl FileBase {
             (None, None) => "1",
         };
         let sql = format!("SELECT * FROM files WHERE area IN ({}) AND {cond} ORDER BY area, num", vec!["?"; areas.len()].join(","));
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut rows: Vec<FileRec> = db.prepare(&sql)?.query_map(rusqlite::params_from_iter(params.iter().map(|p| p.as_ref())), from_row)?.collect::<Result<_, _>>()?;
         if let Some(s) = spec {
             rows.retain(|f| wildcard(s, &f.name));
@@ -185,20 +185,20 @@ impl FileBase {
 
     /// Every file in an area, in order.
     pub fn list(&self, area: &str) -> anyhow::Result<Vec<FileRec>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT * FROM files WHERE area = ?1 ORDER BY num")?;
         let rows = stmt.query_map([area], from_row)?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
     pub fn get(&self, area: &str, num: u32) -> anyhow::Result<Option<FileRec>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT * FROM files WHERE area = ?1 AND num = ?2", params![area, num], from_row).optional()?)
     }
 
     /// A file by name in an area (exact, case-insensitive).
     pub fn find(&self, area: &str, name: &str) -> anyhow::Result<Option<FileRec>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row(
                 "SELECT * FROM files WHERE area = ?1 AND name = ?2 COLLATE NOCASE ORDER BY num LIMIT 1",
@@ -209,7 +209,7 @@ impl FileBase {
     }
 
     pub fn add(&self, f: &mut FileRec) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         if f.num == 0 {
             f.num = db.query_row("SELECT COALESCE(MAX(num), 0) + 1 FROM files WHERE area = ?1", [&f.area], |r| r.get(0))?;
         }
@@ -227,7 +227,7 @@ impl FileBase {
     /// Add several records in one transaction (a bulk load holds the
     /// lock once, not once a file).
     pub fn add_all(&self, recs: &mut [FileRec]) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         for f in recs.iter_mut() {
             if f.num == 0 {
@@ -247,7 +247,7 @@ impl FileBase {
     }
 
     pub fn update(&self, f: &FileRec) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "UPDATE files SET name = ?3, size = ?4, date = ?5, uploader = ?6, uploaded = ?7,
                 downloads = ?8, points = ?9, valid = ?10, description = ?11
@@ -262,7 +262,7 @@ impl FileBase {
 
     /// Remove a file's record and close the gap in the numbering.
     pub fn remove(&self, area: &str, num: u32) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM files WHERE area = ?1 AND num = ?2", params![area, num])?;
         // Two steps so UNIQUE (area, num) holds after each statement.
@@ -301,14 +301,14 @@ impl FileBase {
 
     /// An area's storage key changed.
     pub fn rename_area(&self, from: &str, to: &str) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("UPDATE files SET area = ?2 WHERE area = ?1", params![from, to])?;
         Ok(())
     }
 
     /// Forget every file record in an area.
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.execute("DELETE FROM files WHERE area = ?1", [area])? as u32)
     }
 
@@ -332,7 +332,7 @@ impl FileBase {
             };
             if descending { o.reverse() } else { o }
         });
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("UPDATE files SET num = -num WHERE area = ?1", [area])?;
         for (i, f) in files.iter().enumerate() {
@@ -347,7 +347,7 @@ impl FileBase {
         if areas.is_empty() {
             return Ok(Vec::new());
         }
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let sql = format!(
             "SELECT * FROM files WHERE valid AND uploader = ? COLLATE NOCASE AND area IN ({}) ORDER BY uploaded DESC, id DESC LIMIT {limit}",
             vec!["?"; areas.len()].join(",")
@@ -364,7 +364,7 @@ impl FileBase {
         if areas.is_empty() {
             return Ok(s);
         }
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let ins = vec!["?"; areas.len()].join(",");
         let w = format!("valid AND area IN ({ins})");
         let p = rusqlite::params_from_iter(areas);
@@ -533,7 +533,7 @@ mod tests {
         assert_eq!(s.kingpin_latest.unwrap().name, "NEWER.ZIP");
         // Only callers can be the kingpin: with a users table, an
         // uploader who isn't one doesn't count.
-        fb.db.lock().unwrap().execute_batch("CREATE TABLE users (handle TEXT); INSERT INTO users VALUES ('sysop')").unwrap();
+        fb.db.lock().unwrap_or_else(|e| e.into_inner()).execute_batch("CREATE TABLE users (handle TEXT); INSERT INTO users VALUES ('sysop')").unwrap();
         let s = fb.stats(&["utils".into()], None).unwrap();
         assert_eq!(s.top_uploader, Some(("SysOp".into(), 1)));
         assert_eq!(s.kingpin_latest.unwrap().name, "OLD.ZIP");

@@ -66,7 +66,7 @@ impl Outbox {
     /// A public post a caller just made: send it on, if its area is
     /// bridged. The signature and quoted lines stay behind.
     pub fn post(&self, m: &Message) {
-        let Some(tx) = self.0.lock().unwrap().clone() else { return };
+        let Some(tx) = self.0.lock().unwrap_or_else(|e| e.into_inner()).clone() else { return };
         let body_end = if m.sig_pos > 0 { (m.sig_pos as usize - 1).min(m.lines.len()) } else { m.lines.len() };
         // Colour codes and escapes are this board's: radios get plain text.
         let plain = crate::editor::strip_colours;
@@ -304,7 +304,7 @@ fn parts(from: &str, text: &str, budget: usize, max: usize) -> Vec<String> {
 /// The bridge: keep a session with the radio, reconnecting as needed.
 pub async fn run(state: Arc<BbsState>) {
     let (tx, mut rx) = mpsc::unbounded_channel();
-    *state.mesh.0.lock().unwrap() = Some(tx);
+    *state.mesh.0.lock().unwrap_or_else(|e| e.into_inner()) = Some(tx);
     let mut down = false;
     loop {
         let cfg = state.config().meshcore.clone();
@@ -532,7 +532,7 @@ mod tests {
                     }
                     CMD_SYNC_NEXT_MESSAGE => queued.pop_front().unwrap_or(vec![RESP_NO_MORE_MESSAGES]),
                     CMD_SEND_CHANNEL_TXT_MSG => {
-                        sent.lock().unwrap().push((cmd[2], String::from_utf8_lossy(&cmd[7..]).to_string()));
+                        sent.lock().unwrap_or_else(|e| e.into_inner()).push((cmd[2], String::from_utf8_lossy(&cmd[7..]).to_string()));
                         vec![RESP_OK]
                     }
                     _ => vec![RESP_OK],
@@ -560,6 +560,6 @@ mod tests {
         assert!(radio.waiting, "the push during the channel list was noted");
         assert_eq!(radio.drain().await.unwrap(), [Heard { slot: 1, sender: "Bob".into(), text: "anyone on?".into() }]);
         radio.send_channel(1, "phrac: hello").await.unwrap();
-        assert_eq!(*sent.lock().unwrap(), [(1, "phrac: hello".to_string())]);
+        assert_eq!(*sent.lock().unwrap_or_else(|e| e.into_inner()), [(1, "phrac: hello".to_string())]);
     }
 }

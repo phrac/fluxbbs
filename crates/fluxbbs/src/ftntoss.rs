@@ -811,10 +811,10 @@ mod tests {
                 areas: vec![FtnArea { tag: "FSX_GEN".into(), area: "GENERAL".into(), network: String::new() }],
                 ..Ftn::default()
             };
-            *state.config.write().unwrap() = std::sync::Arc::new(cfg);
+            *state.config.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(cfg);
             let mut areas = (*state.areas()).clone();
             areas.areas.push(crate::msgareas::MsgArea::new("General", "GENERAL"));
-            *state.areas.write().unwrap() = std::sync::Arc::new(areas);
+            *state.areas.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(areas);
         }
         let mut sysop = crate::user::User { handle: "SysOp".into(), real_name: "System Operator".into(), ..Default::default() };
         state.users.insert(&mut sysop).unwrap();
@@ -860,7 +860,7 @@ mod tests {
         {
             let mut cfg = (*state.config()).clone();
             cfg.ftn.areas.push(FtnArea { tag: "FSX_BOT".into(), area: "GENERAL".into(), network: String::new() });
-            *state.config.write().unwrap() = std::sync::Arc::new(cfg);
+            *state.config.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(cfg);
         }
         assert_eq!(toss(&state).unwrap().echomail, 1);
         assert_eq!(std::fs::read_dir(&unknown).unwrap().count(), 0);
@@ -1093,10 +1093,10 @@ mod tests {
                 ..Default::default()
             });
             cfg.ftn.areas.push(FtnArea { tag: "AGN_GEN".into(), area: "AGNGEN".into(), network: "agoranet".into() });
-            *state.config.write().unwrap() = std::sync::Arc::new(cfg);
+            *state.config.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(cfg);
             let mut areas = (*state.areas()).clone();
             areas.areas.push(crate::msgareas::MsgArea::new("Agora general", "AGNGEN"));
-            *state.areas.write().unwrap() = std::sync::Arc::new(areas);
+            *state.areas.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(areas);
         }
         let names: Vec<String> = state.config().ftn.networks().into_iter().map(|n| n.name).collect();
         assert_eq!(names, ["fsxnet", "agoranet"]);

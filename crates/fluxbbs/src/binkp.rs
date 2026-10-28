@@ -203,7 +203,7 @@ impl Link {
         let cancel: Arc<Mutex<HashMap<String, u64>>> = Default::default();
         let (w, stop) = (wrote.clone(), cancel.clone());
         let writer = tokio::spawn(async move {
-            let stopped = |name: &str, seq: u64| stop.lock().unwrap().get(name).is_some_and(|&c| c >= seq);
+            let stopped = |name: &str, seq: u64| stop.lock().unwrap_or_else(|e| e.into_inner()).get(name).is_some_and(|&c| c >= seq);
             while let Some(o) = rx.recv().await {
                 match o {
                     Out::Frame(f) => {
@@ -251,7 +251,7 @@ impl Link {
 
     /// Send no more of what's queued or going of `name`.
     fn cancel(&self, name: &str) {
-        self.cancel.lock().unwrap().insert(name.to_string(), self.seq);
+        self.cancel.lock().unwrap_or_else(|e| e.into_inner()).insert(name.to_string(), self.seq);
     }
 
     /// Send what's queued, then close; a minute at most, if the other
@@ -310,7 +310,7 @@ fn same_secret(a: &str, b: &str) -> bool {
 /// bans (a ban earned there on telnet mustn't cut the mail off).
 async fn hub_ips(state: &BbsState) -> Vec<std::net::IpAddr> {
     static CACHE: Mutex<Option<(std::time::Instant, Vec<std::net::IpAddr>)>> = Mutex::new(None);
-    if let Some((at, ips)) = CACHE.lock().unwrap().as_ref()
+    if let Some((at, ips)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
         && at.elapsed() < Duration::from_secs(600)
     {
         return ips.clone();
@@ -325,7 +325,7 @@ async fn hub_ips(state: &BbsState) -> Vec<std::net::IpAddr> {
             ips.extend(found.map(|a| a.ip().to_canonical()));
         }
     }
-    *CACHE.lock().unwrap() = Some((std::time::Instant::now(), ips.clone()));
+    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((std::time::Instant::now(), ips.clone()));
     ips
 }
 
@@ -841,7 +841,7 @@ mod tests {
             let mut cfg = (*state.config()).clone();
             cfg.root = dir.clone();
             cfg.paths.data = "data".into();
-            *state.config.write().unwrap() = Arc::new(cfg);
+            *state.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(cfg);
         }
         let (_, outbound, _) = crate::ftntoss::dirs(&state);
         std::fs::create_dir_all(&outbound).unwrap();
@@ -902,7 +902,7 @@ mod tests {
             cfg.paths.data = "data".into();
             cfg.ftn.enabled = true;
             cfg.ftn.networks.push(net.clone());
-            *state.config.write().unwrap() = Arc::new(cfg);
+            *state.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(cfg);
         }
         // A fake hub that offers no CRAM: what password does it get?
         let fake = tokio::spawn(async move {
@@ -965,7 +965,7 @@ mod tests {
             cfg.ftn.hub = "21:1/100".into();
             cfg.ftn.session_password = "FSXPW".into();
             cfg.ftn.networks.push(FtnNetwork { name: "agoranet".into(), address: "46:1/200@agoranet".into(), hub: "46:1/100".into(), session_password: "AGNPW".into(), ..Default::default() });
-            *state.config.write().unwrap() = Arc::new(cfg);
+            *state.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(cfg);
         }
         for (net, file) in [("fsxnet", "00000001.pkt"), ("agoranet", "00000002.pkt")] {
             let out = crate::ftntoss::outbound_dir(&state, net);

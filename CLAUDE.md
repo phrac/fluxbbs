@@ -128,6 +128,13 @@ git: copy `data/` and `files/` across if the board should move with you.
   move).
 - `Session` isn't `Sync`: never hold `&self` across an `.await` in a method
   that a spawned future uses (take `&mut self`, or copy what you need).
+- Locks are taken with `.lock().unwrap_or_else(|e| e.into_inner())`
+  (likewise `read`/`write`), never `.unwrap()`: one node's panic while
+  holding a lock mustn't take every other node down with it.
+- Schema changes go at the end of the store's `STEPS`
+  (`sysdata::migrate`, a `Step::Column` or `Step::Sql`); never edit or
+  reorder existing steps. `schema_versions` counts each store's steps,
+  since every store shares one database file.
 - New prompt strings go at the end of `crates/fluxbbs/assets/strings.toml`
   under a name, so SysOps can change them with `*E`.
 

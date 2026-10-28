@@ -77,7 +77,7 @@ impl Guard {
     /// still banned, bans so far).
     pub fn load(&self, bans: impl IntoIterator<Item = (IpAddr, Option<Duration>, u32)>) {
         let now = Instant::now();
-        let mut ips = self.ips.lock().unwrap();
+        let mut ips = self.ips.lock().unwrap_or_else(|e| e.into_inner());
         for (ip, left, strikes) in bans {
             let e = ips.entry(ip).or_default();
             e.strikes = e.strikes.max(strikes);
@@ -89,7 +89,7 @@ impl Guard {
 
     /// How many bans an address has had.
     pub fn strikes(&self, ip: IpAddr) -> u32 {
-        self.ips.lock().unwrap().get(&ip).map_or(0, |e| e.strikes)
+        self.ips.lock().unwrap_or_else(|e| e.into_inner()).get(&ip).map_or(0, |e| e.strikes)
     }
 
     /// Addresses banned right now, with the time left.
@@ -108,7 +108,7 @@ impl Guard {
 
     /// The SysOp's pardon: the ban, the failures and the history go.
     pub fn unban(&self, ip: IpAddr) -> bool {
-        let mut ips = self.ips.lock().unwrap();
+        let mut ips = self.ips.lock().unwrap_or_else(|e| e.into_inner());
         match ips.get_mut(&ip) {
             Some(e) if e.banned_until.is_some() || e.strikes > 0 => {
                 e.banned_until = None;
@@ -135,7 +135,7 @@ impl Guard {
             return Some(Refusal::Denied);
         }
         let now = Instant::now();
-        let ips = self.ips.lock().unwrap();
+        let ips = self.ips.lock().unwrap_or_else(|e| e.into_inner());
         let until = ips.get(&ip)?.banned_until?;
         (until > now).then(|| Refusal::Banned(until - now))
     }
@@ -148,7 +148,7 @@ impl Guard {
         }
         let trusted = self.trusted(cfg, ip);
         let now = Instant::now();
-        let mut ips = self.ips.lock().unwrap();
+        let mut ips = self.ips.lock().unwrap_or_else(|e| e.into_inner());
         let e = ips.entry(ip).or_default();
         if !trusted {
             while e.recent.front().is_some_and(|t| now.duration_since(*t) > Duration::from_secs(60)) {
@@ -172,7 +172,7 @@ impl Guard {
         if self.trusted(cfg, ip) || cfg.fail_limit == 0 {
             return None;
         }
-        let mut ips = self.ips.lock().unwrap();
+        let mut ips = self.ips.lock().unwrap_or_else(|e| e.into_inner());
         let e = ips.entry(ip).or_default();
         e.failures += 1;
         if e.failures < cfg.fail_limit {
@@ -188,7 +188,7 @@ impl Guard {
 
     /// A good login clears the failure count (not the ban history).
     pub fn success(&self, ip: IpAddr) {
-        if let Some(e) = self.ips.lock().unwrap().get_mut(&ip) {
+        if let Some(e) = self.ips.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&ip) {
             e.failures = 0;
         }
     }
@@ -197,7 +197,7 @@ impl Guard {
     /// doesn't grow forever.
     pub fn tidy(&self) {
         let now = Instant::now();
-        self.ips.lock().unwrap().retain(|_, e| {
+        self.ips.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, e| {
             e.active > 0
                 || e.banned_until.is_some_and(|t| t > now)
                 || e.recent.back().is_some_and(|t| now.duration_since(*t) < Duration::from_secs(3600))
@@ -220,7 +220,7 @@ impl Ticket {
 
 impl Drop for Ticket {
     fn drop(&mut self) {
-        if let Some(e) = self.guard.ips.lock().unwrap().get_mut(&self.ip) {
+        if let Some(e) = self.guard.ips.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&self.ip) {
             e.active = e.active.saturating_sub(1);
         }
     }
@@ -286,7 +286,7 @@ mod tests {
         assert_eq!(g.failure(&c, x), None);
         assert_eq!(g.failure(&c, x), Some(Duration::from_secs(15 * 60)));
         assert!(matches!(g.blocked(&c, x), Some(Refusal::Banned(_))));
-        g.ips.lock().unwrap().get_mut(&x).unwrap().banned_until = None;
+        g.ips.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&x).unwrap().banned_until = None;
         g.failure(&c, x);
         assert_eq!(g.failure(&c, x), Some(Duration::from_secs(30 * 60)), "second ban is twice as long");
     }

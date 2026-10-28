@@ -370,7 +370,7 @@ mod tests {
         let state = crate::tests::state();
         let mut cfg = (*state.config()).clone();
         cfg.root = root.clone();
-        *state.config.write().unwrap() = Arc::new(cfg);
+        *state.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(cfg);
         // HELLO.COM prints and exits with 7.
         let err = run_command(&state, "dos HELLO.COM").await.unwrap_err().to_string();
         assert!(err.contains("exited with 7"), "{err}");

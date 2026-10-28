@@ -594,7 +594,7 @@ impl Session {
         let left = if cfg.daily_limit == 0 || self.is_sysop() {
             self.strings().get("AiUnlimited").to_string()
         } else {
-            let used = self.state.ai_usage.lock().unwrap().get(&(self.user.id, crate::clock::now().date_naive())).copied().unwrap_or(0);
+            let used = self.state.ai_usage.lock().unwrap_or_else(|e| e.into_inner()).get(&(self.user.id, crate::clock::now().date_naive())).copied().unwrap_or(0);
             self.strings().fmt("AiLeft", &[&cfg.daily_limit.saturating_sub(used).to_string()])
         };
         self.screen.goto(1, self.screen.rows());

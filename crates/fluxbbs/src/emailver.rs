@@ -74,14 +74,14 @@ pub struct CodeStore {
 
 impl CodeStore {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = crate::sysdata::open_db(path)?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = crate::sysdata::open_db(path)?;
+        crate::sysdata::migrate(&mut db, "emailver", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = Connection::open_in_memory()?;
+        crate::sysdata::migrate(&mut db, "emailver", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -89,7 +89,7 @@ impl CodeStore {
     /// `address`, good for `minutes`.
     pub fn issue(&self, user: u32, address: &str, code: &str, now: NaiveDateTime, minutes: u32) -> anyhow::Result<Issue> {
         let hash = hash_code(code)?;
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let today = now.date().to_string();
         // Others' sends to this address today, so it can't be flooded
         // from many accounts.
@@ -160,7 +160,7 @@ impl CodeStore {
         }
         // Checked without the lock held: the hash takes a moment.
         let right = PasswordHash::new(&hash).is_ok_and(|h| Argon2::default().verify_password(code.trim().as_bytes(), &h).is_ok());
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         if right {
             db.execute("UPDATE email_codes SET hash = '' WHERE user = ?1", params![user])?;
             return Ok(Check::Right);
@@ -172,7 +172,7 @@ impl CodeStore {
 
     /// Is a code out to `user` for `address` that's still good?
     pub fn live(&self, user: u32, address: &str, now: NaiveDateTime) -> bool {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let row: Option<(String, String, String, u32)> = db
             .query_row("SELECT address, hash, expires, tries FROM email_codes WHERE user = ?1", params![user], |r| {
                 Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))

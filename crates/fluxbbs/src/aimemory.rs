@@ -175,7 +175,7 @@ impl crate::session::Session {
             return true;
         }
         let key = (self.user.id, crate::clock::now().date_naive());
-        let mut used = self.state.ai_usage.lock().unwrap();
+        let mut used = self.state.ai_usage.lock().unwrap_or_else(|e| e.into_inner());
         used.retain(|(_, day), _| *day == key.1);
         let n = used.entry(key).or_insert(0);
         if *n >= limit {

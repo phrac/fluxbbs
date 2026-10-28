@@ -80,7 +80,7 @@ impl Nodes {
 
     /// Take the lowest free node, if any.
     pub fn acquire(self: &Arc<Self>, transport: &'static str) -> Option<NodeGuard> {
-        let mut slots = self.slots.lock().unwrap();
+        let mut slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
         let i = slots.iter().position(Option::is_none)?;
         slots[i] = Some(NodeInfo { activity: "Logging in".into(), transport, ..NodeInfo::default() });
         Some(NodeGuard { nodes: self.clone(), index: i })
@@ -90,7 +90,7 @@ impl Nodes {
     /// chat event and they aren't in chat.
     pub fn send(&self, to: usize, ev: NodeEvent) -> bool {
         let wanted = {
-            let slots = self.slots.lock().unwrap();
+            let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
             match slots.get(to.wrapping_sub(1)) {
                 Some(Some(info)) => !ev.is_chat() || info.in_chat,
                 _ => false,
@@ -99,7 +99,7 @@ impl Nodes {
         if !wanted {
             return false;
         }
-        let mut boxes = self.inboxes.lock().unwrap();
+        let mut boxes = self.inboxes.lock().unwrap_or_else(|e| e.into_inner());
         let q = &mut boxes[to - 1];
         if q.len() >= INBOX_MAX {
             q.pop_front();
@@ -112,7 +112,7 @@ impl Nodes {
 
     /// Deliver to every node but `from`. Returns how many got it.
     pub fn send_all(&self, from: usize, ev: NodeEvent) -> usize {
-        let count = self.slots.lock().unwrap().len();
+        let count = self.slots.lock().unwrap_or_else(|e| e.into_inner()).len();
         (1..=count).filter(|&n| n != from && self.send(n, ev.clone())).count()
     }
 
@@ -123,7 +123,7 @@ impl Nodes {
 
     /// (node number, info) for every busy node.
     pub fn online(&self) -> Vec<(usize, NodeInfo)> {
-        let slots = self.slots.lock().unwrap();
+        let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
         slots.iter().enumerate().filter_map(|(i, s)| s.clone().map(|n| (i + 1, n))).collect()
     }
 }
@@ -141,7 +141,7 @@ impl NodeGuard {
     }
 
     pub fn update(&self, f: impl FnOnce(&mut NodeInfo)) {
-        if let Some(info) = self.nodes.slots.lock().unwrap()[self.index].as_mut() {
+        if let Some(info) = self.nodes.slots.lock().unwrap_or_else(|e| e.into_inner())[self.index].as_mut() {
             f(info);
         }
     }
@@ -153,7 +153,7 @@ impl NodeGuard {
     /// Events waiting for this node, oldest first. With `chat` false,
     /// chat events are left where they are.
     pub fn take(&self, chat: bool) -> Vec<NodeEvent> {
-        let mut boxes = self.nodes.inboxes.lock().unwrap();
+        let mut boxes = self.nodes.inboxes.lock().unwrap_or_else(|e| e.into_inner());
         let q = &mut boxes[self.index];
         // Kicks wait for `take_kick` (multinode chat handles them itself);
         // pages and SysOp chat events wait for `take_page` / `take_if`.
@@ -166,7 +166,7 @@ impl NodeGuard {
 
     /// A `Kick` waiting for this node, taken out of the inbox.
     pub fn take_kick(&self) -> Option<String> {
-        let mut boxes = self.nodes.inboxes.lock().unwrap();
+        let mut boxes = self.nodes.inboxes.lock().unwrap_or_else(|e| e.into_inner());
         let q = &mut boxes[self.index];
         let i = q.iter().position(|e| matches!(e, NodeEvent::Kick { .. }))?;
         match q.remove(i) {
@@ -177,7 +177,7 @@ impl NodeGuard {
 
     /// The first event `pred` picks, taken out of the inbox.
     pub fn take_if(&self, pred: impl Fn(&NodeEvent) -> bool) -> Option<NodeEvent> {
-        let mut boxes = self.nodes.inboxes.lock().unwrap();
+        let mut boxes = self.nodes.inboxes.lock().unwrap_or_else(|e| e.into_inner());
         let q = &mut boxes[self.index];
         let i = q.iter().position(pred)?;
         q.remove(i)
@@ -186,7 +186,7 @@ impl NodeGuard {
     /// A page waiting for this node. Chat events from before it (an
     /// earlier chat's leftovers) are dropped.
     pub fn take_page(&self) -> Option<(usize, String, String)> {
-        let mut boxes = self.nodes.inboxes.lock().unwrap();
+        let mut boxes = self.nodes.inboxes.lock().unwrap_or_else(|e| e.into_inner());
         let q = &mut boxes[self.index];
         let i = q.iter().position(|e| matches!(e, NodeEvent::Page { .. }))?;
         let stale: Vec<usize> = (0..i)
@@ -203,7 +203,7 @@ impl NodeGuard {
     }
 
     pub fn has_messages(&self) -> bool {
-        self.nodes.inboxes.lock().unwrap()[self.index].iter().any(|e| matches!(e, NodeEvent::Message { .. }))
+        self.nodes.inboxes.lock().unwrap_or_else(|e| e.into_inner())[self.index].iter().any(|e| matches!(e, NodeEvent::Message { .. }))
     }
 
     /// Wakes when something is sent to this node.
@@ -214,8 +214,8 @@ impl NodeGuard {
 
 impl Drop for NodeGuard {
     fn drop(&mut self) {
-        self.nodes.slots.lock().unwrap()[self.index] = None;
-        self.nodes.inboxes.lock().unwrap()[self.index].clear();
+        self.nodes.slots.lock().unwrap_or_else(|e| e.into_inner())[self.index] = None;
+        self.nodes.inboxes.lock().unwrap_or_else(|e| e.into_inner())[self.index].clear();
     }
 }
 

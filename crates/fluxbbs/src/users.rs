@@ -7,6 +7,7 @@ use chrono::NaiveDate;
 use fluxbbs_term::{Color, Palette};
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
+use crate::sysdata::{Step, migrate};
 use crate::user::User;
 
 pub struct UserStore {
@@ -131,40 +132,38 @@ fn write(db: &Connection, u: &User) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// Add columns newer than the database (`ALTER TABLE`, since SQLite
-/// can't `CREATE TABLE IF NOT EXISTS` its way to new columns).
-fn migrate(db: &Connection) -> rusqlite::Result<()> {
-    let have: Vec<String> = db
-        .prepare("SELECT name FROM pragma_table_info('users')")?
-        .query_map([], |r| r.get(0))?
-        .collect::<Result<_, _>>()?;
-    if !have.iter().any(|c| c == "file_scan") {
-        db.execute("ALTER TABLE users ADD COLUMN file_scan TEXT", [])?;
-    }
-    if !have.iter().any(|c| c == "theme") {
-        db.execute("ALTER TABLE users ADD COLUMN theme TEXT NOT NULL DEFAULT ''", [])?;
-    }
-    if !have.iter().any(|c| c == "last_call_at") {
-        db.execute("ALTER TABLE users ADD COLUMN last_call_at TEXT", [])?;
-    }
-    if !have.iter().any(|c| c == "last_rep") {
-        db.execute("ALTER TABLE users ADD COLUMN last_rep TEXT NOT NULL DEFAULT ''", [])?;
-    }
-    if !have.iter().any(|c| c == "show_real_name") {
-        db.execute("ALTER TABLE users ADD COLUMN show_real_name INTEGER NOT NULL DEFAULT 0", [])?;
-    }
-    for col in ["ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "area_sort", "fav_boards", "profile_header", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate", "saver", "mail_address", "mail_verified"] {
-        if !have.iter().any(|c| c == col) {
-            db.execute(&format!("ALTER TABLE users ADD COLUMN {col} TEXT NOT NULL DEFAULT ''"), [])?;
-        }
-    }
-    for col in ["bank_time", "bank_kb", "bank_time_in", "bank_time_out", "bank_kb_in", "bank_kb_out"] {
-        if !have.iter().any(|c| c == col) {
-            db.execute(&format!("ALTER TABLE users ADD COLUMN {col} INTEGER NOT NULL DEFAULT 0"), [])?;
-        }
-    }
-    Ok(())
-}
+/// Columns newer than the database (`ALTER TABLE`, since SQLite can't
+/// `CREATE TABLE IF NOT EXISTS` its way to new columns).
+const STEPS: &[Step] = &[
+    Step::Column("users", "file_scan", "TEXT"),
+    Step::Column("users", "theme", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "last_call_at", "TEXT"),
+    Step::Column("users", "last_rep", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "show_real_name", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("users", "ssh_keys", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "plan", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "ssh_user", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "time_zone", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "thread_sort", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "area_sort", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "fav_boards", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "profile_header", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "ai_profile", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "text_mode", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "code_bg", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "code_theme", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "md_theme", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "animate", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "saver", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "mail_address", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "mail_verified", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("users", "bank_time", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("users", "bank_kb", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("users", "bank_time_in", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("users", "bank_time_out", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("users", "bank_kb_in", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("users", "bank_kb_out", "INTEGER NOT NULL DEFAULT 0"),
+];
 
 fn palette_to_text(p: &Palette) -> String {
     p.0.iter().map(|c| format!("{},{},{}", c.fore, c.back, c.blink as u8)).collect::<Vec<_>>().join(";")
@@ -322,22 +321,21 @@ impl UserStore {
         if let Some(dir) = path.parent() {
             std::fs::create_dir_all(dir)?;
         }
-        let db = crate::sysdata::open_db(path)?;
-        db.execute_batch(SCHEMA)?;
-        migrate(&db)?;
+        let mut db = crate::sysdata::open_db(path)?;
+        migrate(&mut db, "users", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = Connection::open_in_memory()?;
+        migrate(&mut db, "users", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     /// The first handle (alphabetically) starting with `prefix`, for tab
     /// completion (2.0's alias completion).
     pub fn complete(&self, prefix: &str) -> anyhow::Result<Option<String>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut pattern: String = prefix.chars().flat_map(|c| if matches!(c, '\\' | '%' | '_') { vec!['\\', c] } else { vec![c] }).collect();
         pattern.push('%');
         Ok(db
@@ -352,7 +350,7 @@ impl UserStore {
     /// New: callers whose handles start with `text`, then those that
     /// contain it, alphabetically (the user picker's matches).
     pub fn matching(&self, text: &str, limit: usize) -> anyhow::Result<Vec<User>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let esc: String = text.chars().flat_map(|c| if matches!(c, '\\' | '%' | '_') { vec!['\\', c] } else { vec![c] }).collect();
         let mut stmt = db.prepare(
             "SELECT * FROM users WHERE handle LIKE ?1 ESCAPE '\\' AND NOT deleted
@@ -366,14 +364,14 @@ impl UserStore {
     /// New: the (undeleted) user with exactly this handle, not a real name
     /// or number: for what's kept by handle, like moderators and bans.
     pub fn find_handle(&self, handle: &str) -> anyhow::Result<Option<User>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT * FROM users WHERE handle = ?1 AND NOT deleted ORDER BY id LIMIT 1", [handle.trim()], from_row).optional()?)
     }
 
     pub fn find(&self, name: &str, include_deleted: bool) -> anyhow::Result<Option<User>> {
         let name = name.trim();
         let id: i64 = name.parse().unwrap_or(-1);
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let user = db
             .query_row(
                 "SELECT * FROM users WHERE (handle = ?1 OR real_name = ?1 OR id = ?2)
@@ -387,20 +385,20 @@ impl UserStore {
 
     /// New: the account whose SSH user name is `name`.
     pub fn by_ssh_user(&self, name: &str) -> anyhow::Result<Option<User>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row("SELECT * FROM users WHERE ssh_user = ?1 COLLATE NOCASE AND ssh_user <> '' AND NOT deleted ORDER BY id LIMIT 1", [name.trim()], from_row)
             .optional()?)
     }
 
     pub fn get(&self, id: u32) -> anyhow::Result<Option<User>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT * FROM users WHERE id = ?1", [id], from_row).optional()?)
     }
 
     /// Insert a new user, assigning `u.id` (or keeping it, for imports).
     pub fn insert(&self, u: &mut User) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut cols = COLUMNS.to_vec();
         {
             let mut values = bind(u);
@@ -418,7 +416,7 @@ impl UserStore {
 
     /// `userSave`.
     pub fn save(&self, u: &User) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         write(&db, u)
     }
 
@@ -433,7 +431,7 @@ impl UserStore {
     /// [`Self::merge`]; `exact`: counters changed are set to `mine`'s
     /// values rather than moved by the change.
     pub fn merge_with(&self, base: &User, mine: &User, exact: bool) -> anyhow::Result<User> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let now = tx.query_row("SELECT * FROM users WHERE id = ?1", [mine.id], from_row).optional()?;
         let u = match now {
@@ -451,27 +449,27 @@ impl UserStore {
     /// New: a SysOp's notes on a caller, oldest first: (id, by, when,
     /// text).
     pub fn notes(&self, user_id: u32) -> anyhow::Result<Vec<(i64, String, chrono::NaiveDateTime, String)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT id, by, at, text FROM user_notes WHERE user_id = ?1 ORDER BY id")?;
         let rows = stmt.query_map([user_id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
     pub fn add_note(&self, user_id: u32, by: &str, text: &str) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT INTO user_notes (user_id, by, at, text) VALUES (?1, ?2, ?3, ?4)", params![user_id, by, crate::clock::now().naive_local(), text])?;
         Ok(())
     }
 
     pub fn delete_note(&self, id: i64) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("DELETE FROM user_notes WHERE id = ?1", [id])?;
         Ok(())
     }
 
     /// All users, by number.
     pub fn list(&self) -> anyhow::Result<Vec<User>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT * FROM users ORDER BY id")?;
         let users = stmt.query_map([], from_row)?.collect::<Result<_, _>>()?;
         Ok(users)
@@ -479,14 +477,14 @@ impl UserStore {
 
     /// Every live user's handle, in alphabetical order.
     pub fn handles(&self) -> anyhow::Result<Vec<String>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT handle FROM users WHERE NOT deleted ORDER BY handle COLLATE NOCASE")?;
         let names = stmt.query_map([], |r| r.get(0))?.collect::<Result<_, _>>()?;
         Ok(names)
     }
 
     pub fn count(&self) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COUNT(*) FROM users WHERE NOT deleted", [], |r| r.get(0))?)
     }
 
@@ -494,7 +492,7 @@ impl UserStore {
     /// `except`? (`emailver`: one address, one account.)
     #[cfg_attr(not(feature = "email"), allow(dead_code))]
     pub fn mail_taken(&self, address: &str, except: u32) -> anyhow::Result<bool> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let n: i64 = db.query_row(
             "SELECT COUNT(*) FROM users WHERE id != ?1 AND NOT deleted AND mail_verified != '' AND lower(mail_address) = lower(?2)",
             rusqlite::params![except, address.trim()],

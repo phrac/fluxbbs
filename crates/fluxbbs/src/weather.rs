@@ -94,19 +94,19 @@ pub struct WeatherStore {
 
 impl WeatherStore {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
-        let db = crate::sysdata::open_db(path)?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = crate::sysdata::open_db(path)?;
+        crate::sysdata::migrate(&mut db, "weather", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db), cache: Mutex::default() })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = Connection::open_in_memory()?;
+        crate::sysdata::migrate(&mut db, "weather", SCHEMA, &[])?;
         Ok(Self { db: Mutex::new(db), cache: Mutex::default() })
     }
 
     pub fn place(&self, user: u32) -> Option<Place> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.query_row("SELECT name, lat, lon FROM weather_places WHERE user = ?1", params![user], |r| {
             Ok(Place { name: r.get(0)?, lat: r.get(1)?, lon: r.get(2)? })
         })
@@ -116,7 +116,7 @@ impl WeatherStore {
     }
 
     pub fn set_place(&self, user: u32, p: &Place) {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let r = db.execute(
             "INSERT INTO weather_places (user, name, lat, lon) VALUES (?1,?2,?3,?4)
              ON CONFLICT(user) DO UPDATE SET name=?2, lat=?3, lon=?4",
@@ -128,11 +128,11 @@ impl WeatherStore {
     }
 
     fn cached(&self, key: &str) -> Option<Forecast> {
-        self.cache.lock().unwrap().get(key).filter(|(at, _)| at.elapsed() < KEEP).map(|(_, f)| f.clone())
+        self.cache.lock().unwrap_or_else(|e| e.into_inner()).get(key).filter(|(at, _)| at.elapsed() < KEEP).map(|(_, f)| f.clone())
     }
 
     fn keep(&self, key: String, f: &Forecast) {
-        let mut c = self.cache.lock().unwrap();
+        let mut c = self.cache.lock().unwrap_or_else(|e| e.into_inner());
         c.retain(|_, (at, _)| at.elapsed() < KEEP);
         c.insert(key, (Instant::now(), f.clone()));
     }

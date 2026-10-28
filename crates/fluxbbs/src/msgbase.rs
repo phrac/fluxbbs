@@ -10,6 +10,8 @@ use std::sync::Mutex;
 use chrono::NaiveDateTime;
 use rusqlite::{Connection, OptionalExtension, Row, params};
 
+use crate::sysdata::{Step, migrate};
+
 /// One end of a message (`tMsgInfoRec`).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Party {
@@ -125,6 +127,31 @@ impl Message {
         }
     }
 }
+
+/// Databases from before email tags, threads, and fillers; then what
+/// came after.
+const STEPS: &[Step] = &[
+    Step::Column("messages", "tag", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("messages", "reply_to", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("filled", "filler_id", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("filled", "filler", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("filled", "reply_id", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("filled", "push_id", "INTEGER NOT NULL DEFAULT 0"),
+    // `stats` reads only this index, not the bodies.
+    Step::Sql(
+        "CREATE INDEX IF NOT EXISTS messages_reply_to ON messages(reply_to);
+         CREATE INDEX IF NOT EXISTS messages_stats ON messages(area, deleted, private, anonymous, from_name, posted, replies);",
+    ),
+    // From before row ids were kept unique: start above every id
+    // anything still names, so a new post can't take over an old
+    // one's MSGID, mentions or attachment.
+    Step::Sql(
+        "INSERT OR IGNORE INTO ftn_state (key, value) SELECT 'last_msg_id', MAX(
+            COALESCE((SELECT MAX(id) FROM messages), 0), COALESCE((SELECT MAX(msg_id) FROM ftn_msgs), 0),
+            COALESCE((SELECT MAX(msg_id) FROM mentions), 0), COALESCE((SELECT MAX(msg_id) FROM seen), 0),
+            COALESCE((SELECT MAX(msg_id) FROM attachments), 0))",
+    ),
+];
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS messages (
@@ -289,57 +316,24 @@ pub struct MsgBase {
 impl MsgBase {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let mut db = crate::sysdata::open_db(path)?;
-        // One process at a time (the board and `fluxbbs ftn` can start
-        // together), each looking again once it has the lock.
-        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        tx.execute_batch(SCHEMA)?;
-        // Databases from before email tags, threads, and fillers.
-        for (table, col, ddl) in [
-            ("messages", "tag", "ALTER TABLE messages ADD COLUMN tag INTEGER NOT NULL DEFAULT 0"),
-            ("messages", "reply_to", "ALTER TABLE messages ADD COLUMN reply_to INTEGER NOT NULL DEFAULT 0"),
-            ("filled", "filler_id", "ALTER TABLE filled ADD COLUMN filler_id INTEGER NOT NULL DEFAULT 0"),
-            ("filled", "filler", "ALTER TABLE filled ADD COLUMN filler TEXT NOT NULL DEFAULT ''"),
-            ("filled", "reply_id", "ALTER TABLE filled ADD COLUMN reply_id INTEGER NOT NULL DEFAULT 0"),
-            ("filled", "push_id", "ALTER TABLE filled ADD COLUMN push_id INTEGER NOT NULL DEFAULT 0"),
-        ] {
-            let has: bool = tx.query_row("SELECT COUNT(*) > 0 FROM pragma_table_info(?1) WHERE name = ?2", [table, col], |r| r.get(0))?;
-            if !has {
-                tx.execute(ddl, [])?;
-            }
-        }
-        // `stats` reads only this index, not the bodies.
-        tx.execute_batch(
-            "CREATE INDEX IF NOT EXISTS messages_reply_to ON messages(reply_to);
-             CREATE INDEX IF NOT EXISTS messages_stats ON messages(area, deleted, private, anonymous, from_name, posted, replies);",
-        )?;
-        // From before row ids were kept unique: start above every id
-        // anything still names, so a new post can't take over an old
-        // one's MSGID, mentions or attachment.
-        tx.execute(
-            "INSERT OR IGNORE INTO ftn_state (key, value) SELECT 'last_msg_id', MAX(
-                COALESCE((SELECT MAX(id) FROM messages), 0), COALESCE((SELECT MAX(msg_id) FROM ftn_msgs), 0),
-                COALESCE((SELECT MAX(msg_id) FROM mentions), 0), COALESCE((SELECT MAX(msg_id) FROM seen), 0),
-                COALESCE((SELECT MAX(msg_id) FROM attachments), 0))",
-            [],
-        )?;
-        tx.commit()?;
+        migrate(&mut db, "msgbase", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
-        let db = Connection::open_in_memory()?;
-        db.execute_batch(SCHEMA)?;
+        let mut db = Connection::open_in_memory()?;
+        migrate(&mut db, "msgbase", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     /// Highest message number in an area (`mArea^.Msgs`).
     pub fn count(&self, area: &str) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COALESCE(MAX(num), 0) FROM messages WHERE area = ?1", [area], |r| r.get(0))?)
     }
 
     pub fn get(&self, area: &str, num: u32) -> anyhow::Result<Option<Message>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row("SELECT * FROM messages WHERE area = ?1 AND num = ?2", params![area, num], from_row)
             .optional()?)
@@ -347,7 +341,7 @@ impl MsgBase {
 
     /// Messages `from..=to` in an area, by number.
     pub fn range(&self, area: &str, from: u32, to: u32) -> anyhow::Result<Vec<Message>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT * FROM messages WHERE area = ?1 AND num BETWEEN ?2 AND ?3 ORDER BY num")?;
         let rows = stmt.query_map(params![area, from, to], from_row)?.collect::<Result<_, _>>()?;
         Ok(rows)
@@ -363,7 +357,7 @@ impl MsgBase {
     /// transaction (`ftn_record`), so a crash can't leave an imported
     /// message looking like one written here.
     pub fn add_ftn(&self, m: &mut Message, ftn: Option<&str>) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         // Immediate: `fluxbbs ftn` beside the board writes here too, and
         // both mustn't pick the same number.
         let db = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
@@ -404,7 +398,7 @@ impl MsgBase {
 
     /// A message by row id, wherever it is.
     pub fn by_id(&self, id: i64) -> anyhow::Result<Option<Message>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT * FROM messages WHERE id = ?1", [id], from_row).optional()?)
     }
 
@@ -415,21 +409,21 @@ impl MsgBase {
 
     /// Ids of an area's messages the user has read past their lastread.
     pub fn seen(&self, user: u32, area: &str) -> anyhow::Result<std::collections::HashSet<i64>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT s.msg_id FROM seen s JOIN messages m ON m.id = s.msg_id WHERE s.user_id = ?1 AND m.area = ?2")?;
         let ids = stmt.query_map(params![user, area], |r| r.get(0))?.collect::<Result<_, _>>()?;
         Ok(ids)
     }
 
     pub fn mark_seen(&self, user: u32, msg_id: i64) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR IGNORE INTO seen (user_id, msg_id) VALUES (?1, ?2)", params![user, msg_id])?;
         Ok(())
     }
 
     /// Lastread moved up to `num`: the markers at or below it are done with.
     pub fn forget_seen(&self, user: u32, area: &str, num: u32) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "DELETE FROM seen WHERE user_id = ?1 AND msg_id IN (SELECT id FROM messages WHERE area = ?2 AND num <= ?3)",
             params![user, area, num],
@@ -440,7 +434,7 @@ impl MsgBase {
     // ---- attachments ----------------------------------------------------
 
     pub fn attachment(&self, msg_id: i64) -> anyhow::Result<Option<Attachment>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row("SELECT name, desc, size, uploaded FROM attachments WHERE msg_id = ?1", [msg_id], |r| {
                 Ok(Attachment { name: r.get(0)?, desc: r.get(1)?, size: r.get::<_, i64>(2)?.max(0) as u64, uploaded: r.get(3)? })
@@ -449,7 +443,7 @@ impl MsgBase {
     }
 
     pub fn set_attachment(&self, msg_id: i64, a: &Attachment) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT OR REPLACE INTO attachments (msg_id, name, desc, size, uploaded) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![msg_id, a.name, a.desc, a.size as i64, a.uploaded],
@@ -458,7 +452,7 @@ impl MsgBase {
     }
 
     pub fn remove_attachment(&self, msg_id: i64) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("DELETE FROM attachments WHERE msg_id = ?1", [msg_id])?;
         Ok(())
     }
@@ -466,7 +460,7 @@ impl MsgBase {
     /// Forget attachments whose message no longer exists; returns their
     /// (message id, file name) so the files can go too.
     pub fn orphan_attachments(&self) -> anyhow::Result<Vec<(i64, String)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let gone: Vec<(i64, String)> = {
             let mut stmt = db.prepare("SELECT msg_id, name FROM attachments WHERE msg_id NOT IN (SELECT id FROM messages)")?;
             stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?
@@ -480,7 +474,7 @@ impl MsgBase {
     /// An edit: the text, subject and signature only, so flags changed
     /// meanwhile (a delete on another node) stay.
     pub fn update_text(&self, m: &Message) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "UPDATE messages SET subject = ?2, sig_pos = ?3, body = ?4 WHERE id = ?1",
             params![m.id, m.subject, m.sig_pos, m.lines.join("\n")],
@@ -490,14 +484,14 @@ impl MsgBase {
 
     /// Where a message is (its number), if it's still there.
     pub fn num_of(&self, id: i64) -> anyhow::Result<Option<u32>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT num FROM messages WHERE id = ?1", [id], |r| r.get(0)).optional()?)
     }
 
     /// Move a lastread pointer to a message by row id (to its number now),
     /// only ever forward.
     pub fn set_lastread_id(&self, user: u32, area: &str, id: i64) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT INTO lastread (user_id, area, num) SELECT ?1, ?2, num FROM messages WHERE id = ?3 AND area = ?2
              ON CONFLICT (user_id, area) DO UPDATE SET num = MAX(num, excluded.num)",
@@ -509,7 +503,7 @@ impl MsgBase {
     /// After a scan's packet is written: its MSGIDs recorded as sent and
     /// the areas' marks moved, together.
     pub fn ftn_sent(&self, sent: &[(i64, String, String)], marks: &[(String, i64)]) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         for (id, msgid, area) in sent {
             tx.execute("INSERT OR REPLACE INTO ftn_msgs (msg_id, msgid, area, local) VALUES (?1, ?2, ?3, 1)", params![id, msgid, area])?;
@@ -522,7 +516,7 @@ impl MsgBase {
     }
 
     pub fn update(&self, m: &Message) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "UPDATE messages SET from_name = ?2, subject = ?3, deleted = ?4, private = ?5,
                 anonymous = ?6, sig_pos = ?7, body = ?8, posted = ?9
@@ -535,7 +529,7 @@ impl MsgBase {
     /// The conference numbers (`conf`, area key) in the user's last QWK
     /// packet, so its replies find their areas after areas move.
     pub fn set_qwk_confs(&self, user: u32, confs: &[(u16, String)]) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("DELETE FROM qwk_confs WHERE user_id = ?1", [user])?;
         for (conf, area) in confs {
@@ -546,7 +540,7 @@ impl MsgBase {
     }
 
     pub fn qwk_conf(&self, user: u32, conf: u32) -> anyhow::Result<Option<String>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT area FROM qwk_confs WHERE user_id = ?1 AND conf = ?2", params![user, conf], |r| r.get(0)).optional()?)
     }
 
@@ -555,7 +549,7 @@ impl MsgBase {
         if areas.is_empty() || n == 0 {
             return Ok(Vec::new());
         }
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let marks = vec!["?"; areas.len()].join(", ");
         let mut stmt = db.prepare(&format!(
             "SELECT * FROM messages WHERE area COLLATE NOCASE IN ({marks}) AND NOT private AND NOT deleted ORDER BY posted DESC, id DESC LIMIT {n}"
@@ -567,7 +561,7 @@ impl MsgBase {
     /// Delete or undelete a message, leaving the rest of the row alone (a
     /// copy read earlier mustn't undo an edit made since).
     pub fn set_deleted(&self, id: i64, deleted: bool) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let row: Option<(i64, bool, bool)> =
             tx.query_row("SELECT reply_to, private, deleted FROM messages WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
@@ -586,14 +580,14 @@ impl MsgBase {
 
     /// `Z` in the reader: a new date for a message.
     pub fn set_posted(&self, id: i64, posted: NaiveDateTime) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("UPDATE messages SET posted = ?2 WHERE id = ?1", params![id, posted])?;
         Ok(())
     }
 
     /// An area's storage key changed: move its messages and lastreads.
     pub fn rename_area(&self, from: &str, to: &str) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("UPDATE messages SET area = ?2 WHERE area = ?1", params![from, to])?;
         tx.execute("UPDATE lastread SET area = ?2 WHERE area = ?1", params![from, to])?;
@@ -613,7 +607,7 @@ impl MsgBase {
     /// Forget an area's messages and lastreads. Its FTN records stay, as
     /// dupe history, should the echo be linked again.
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         for t in ["seen", "mentions", "pushes", "pins", "filled", "retracted"] {
             tx.execute(&format!("DELETE FROM {t} WHERE msg_id IN (SELECT id FROM messages WHERE area = ?1)"), [area])?;
@@ -631,7 +625,7 @@ impl MsgBase {
     /// mail, and there's no undeleting it), with what hangs off it. Its
     /// attachment's file goes with `attach::remove_orphans`.
     pub fn purge(&self, id: i64) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let row: Option<(i64, bool, bool)> =
             tx.query_row("SELECT reply_to, private, deleted FROM messages WHERE id = ?1", [id], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).optional()?;
@@ -652,7 +646,7 @@ impl MsgBase {
     /// until a pack). Returns how many went.
     pub fn purge_deleted(&self, area: &str) -> anyhow::Result<u32> {
         let ids: Vec<i64> = {
-            let db = self.db.lock().unwrap();
+            let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
             let mut stmt = db.prepare("SELECT id FROM messages WHERE area = ?1 AND deleted")?;
             stmt.query_map([area], |r| r.get(0))?.collect::<Result<_, _>>()?
         };
@@ -664,7 +658,7 @@ impl MsgBase {
 
     /// Highest message read in an area by a user.
     pub fn lastread(&self, user: u32, area: &str) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row("SELECT num FROM lastread WHERE user_id = ?1 AND area = ?2", params![user, area], |r| r.get(0))
             .optional()?
@@ -672,7 +666,7 @@ impl MsgBase {
     }
 
     pub fn set_lastread(&self, user: u32, area: &str, num: u32) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT INTO lastread (user_id, area, num) VALUES (?1, ?2, ?3)
              ON CONFLICT (user_id, area) DO UPDATE SET num = excluded.num",
@@ -684,7 +678,7 @@ impl MsgBase {
     /// Number of the last message posted before `when` (for "set newscan
     /// date").
     pub fn last_before(&self, area: &str, when: NaiveDateTime) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row(
             "SELECT COALESCE(MAX(num), 0) FROM messages WHERE area = ?1 AND posted < ?2",
             params![area, when],
@@ -696,7 +690,7 @@ impl MsgBase {
     /// Mail to user number `user`; mail with no user number (from
     /// elsewhere, or old) by name, never "None".
     pub fn mail_for(&self, area: &str, user: u32, alias: &str, real_name: &str, deleted_too: bool) -> anyhow::Result<Vec<Message>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare(
             "SELECT * FROM messages WHERE area = ?1
                AND ((?5 <> 0 AND to_id = ?5)
@@ -718,7 +712,7 @@ impl MsgBase {
 
     /// The message still here whose MSGID is `msgid` in `area` (REPLY).
     pub fn ftn_find(&self, area: &str, msgid: &str) -> anyhow::Result<Option<i64>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row("SELECT f.msg_id FROM ftn_msgs f JOIN messages m ON m.id = f.msg_id WHERE f.msgid = ?1 AND f.area = ?2", params![msgid, area], |r| r.get(0))
             .optional()?)
@@ -727,7 +721,7 @@ impl MsgBase {
     /// Has a message with this MSGID come to `area`, even one packed away
     /// since (dupes)?
     pub fn ftn_known(&self, area: &str, msgid: &str) -> anyhow::Result<bool> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT 1 FROM ftn_msgs WHERE msgid = ?1 AND area = ?2", params![msgid, area], |_| Ok(())).optional()?.is_some())
     }
 
@@ -735,7 +729,7 @@ impl MsgBase {
     /// written before `before` (its history isn't sent; what was posted
     /// since, as the echo was being set up, is).
     pub fn ftn_start(&self, area: &str, before: NaiveDateTime) -> anyhow::Result<i64> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COALESCE(MAX(id), 0) FROM messages WHERE area = ?1 AND posted < ?2", params![area, before], |r| r.get(0))?)
     }
 
@@ -743,7 +737,7 @@ impl MsgBase {
     /// that's deleted or private and was never sent: the scan's mark stays
     /// below it, so it goes out if it's restored (or made public) soon.
     pub fn ftn_held(&self, area: &str, after: i64, since: NaiveDateTime) -> anyhow::Result<Option<i64>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row(
             "SELECT MIN(id) FROM messages m WHERE area = ?1 AND id > ?2 AND (deleted OR private) AND posted >= ?3
              AND NOT EXISTS (SELECT 1 FROM ftn_msgs f WHERE f.msg_id = m.id)",
@@ -755,13 +749,13 @@ impl MsgBase {
     /// Stop waiting for parents that never came: replies written before
     /// `before`, or gone.
     pub fn ftn_forget_waits(&self, before: NaiveDateTime) -> anyhow::Result<usize> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.execute("DELETE FROM ftn_replies WHERE msg_id NOT IN (SELECT id FROM messages WHERE posted >= ?1)", params![before])?)
     }
 
     /// An imported reply whose parent (`reply`, its MSGID) hasn't come yet.
     pub fn ftn_wait_reply(&self, msg_id: i64, area: &str, reply: &str) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR REPLACE INTO ftn_replies (msg_id, area, reply) VALUES (?1, ?2, ?3)", params![msg_id, area, reply])?;
         Ok(())
     }
@@ -769,7 +763,7 @@ impl MsgBase {
     /// Message `id` (MSGID `msgid`) has come: thread the replies that were
     /// waiting for it.
     pub fn ftn_link_replies(&self, area: &str, msgid: &str, id: i64) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute(
             "UPDATE messages SET reply_to = ?3 WHERE reply_to = 0 AND id IN (SELECT msg_id FROM ftn_replies WHERE area = ?1 AND reply = ?2)",
@@ -793,32 +787,32 @@ impl MsgBase {
     /// never written, so the resend has the same one. `ftn_unsent` still
     /// lists the message.
     pub fn ftn_pending(&self, msg_id: i64, msgid: &str, area: &str) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR REPLACE INTO ftn_msgs (msg_id, msgid, area, local) VALUES (?1, ?2, ?3, 2)", params![msg_id, msgid, area])?;
         Ok(())
     }
 
     /// A message's MSGID, if it has one.
     pub fn ftn_msgid(&self, msg_id: i64) -> anyhow::Result<Option<String>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT msgid FROM ftn_msgs WHERE msg_id = ?1", [msg_id], |r| r.get(0)).optional()?)
     }
 
     /// Remember message `msg_id`'s MSGID; `local` if it was written here.
     pub fn ftn_record(&self, msg_id: i64, msgid: &str, area: &str, local: bool) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR REPLACE INTO ftn_msgs (msg_id, msgid, area, local) VALUES (?1, ?2, ?3, ?4)", params![msg_id, msgid, area, local])?;
         Ok(())
     }
 
     /// A stored number (watermarks, the MSGID serial).
     pub fn ftn_get(&self, key: &str) -> anyhow::Result<Option<i64>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT value FROM ftn_state WHERE key = ?1", [key], |r| r.get(0)).optional()?)
     }
 
     pub fn ftn_set(&self, key: &str, value: i64) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR REPLACE INTO ftn_state (key, value) VALUES (?1, ?2)", params![key, value])?;
         Ok(())
     }
@@ -826,7 +820,7 @@ impl MsgBase {
     /// Public messages in `area` after row `after` with no MSGID yet:
     /// written here and not sent, by row.
     pub fn ftn_unsent(&self, area: &str, after: i64) -> anyhow::Result<Vec<Message>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare(
             "SELECT * FROM messages m WHERE area = ?1 AND id > ?2 AND NOT deleted AND NOT private
              AND NOT EXISTS (SELECT 1 FROM ftn_msgs f WHERE f.msg_id = m.id AND f.local <> 2) ORDER BY id",
@@ -837,7 +831,7 @@ impl MsgBase {
 
     /// The newest row id (0 if none).
     pub fn max_id(&self) -> anyhow::Result<i64> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COALESCE(MAX(id), 0) FROM messages", [], |r| r.get(0))?)
     }
 
@@ -846,7 +840,7 @@ impl MsgBase {
         if areas.is_empty() {
             return Ok(None);
         }
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let sql = format!(
             "SELECT * FROM messages WHERE from_id = ? AND NOT deleted AND NOT private AND NOT anonymous AND area IN ({}) ORDER BY posted DESC, id DESC LIMIT 1",
             vec!["?"; areas.len()].join(",")
@@ -858,14 +852,14 @@ impl MsgBase {
     /// New: `user` was @mentioned in message `msg_id`.
     /// Record a mention; false if it was already recorded.
     pub fn add_mention(&self, user: u32, msg_id: i64) -> anyhow::Result<bool> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.execute("INSERT OR IGNORE INTO mentions (user_id, msg_id) VALUES (?1, ?2)", params![user, msg_id])? > 0)
     }
 
     /// The messages `user` was mentioned in (newest first), unseen ones
     /// only if `unseen`, still there and not deleted.
     pub fn mentions(&self, user: u32, unseen: bool) -> anyhow::Result<Vec<Message>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare(
             "SELECT m.* FROM mentions n JOIN messages m ON m.id = n.msg_id
              WHERE n.user_id = ?1 AND (n.seen = 0 OR NOT ?2) AND NOT m.deleted ORDER BY m.posted DESC, m.id DESC LIMIT 100",
@@ -875,7 +869,7 @@ impl MsgBase {
     }
 
     pub fn mention_seen(&self, user: u32, msg_id: i64) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("UPDATE mentions SET seen = 1 WHERE user_id = ?1 AND msg_id = ?2", params![user, msg_id])?;
         Ok(())
     }
@@ -884,7 +878,7 @@ impl MsgBase {
 
     /// A message's pushes, oldest first.
     pub fn pushes(&self, msg_id: i64) -> anyhow::Result<Vec<Push>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT id, msg_id, user_id, handle, kind, text, at FROM pushes WHERE msg_id = ?1 ORDER BY id")?;
         let rows = stmt
             .query_map([msg_id], |r| {
@@ -897,7 +891,7 @@ impl MsgBase {
     /// Add a push; a vote takes the place of the caller's last one on
     /// that message.
     pub fn add_push(&self, p: &Push) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if p.kind != 0 {
             tx.execute("DELETE FROM pushes WHERE msg_id = ?1 AND user_id = ?2 AND kind <> 0", params![p.msg_id, p.user_id])?;
@@ -913,19 +907,19 @@ impl MsgBase {
     /// Take a caller's pushes off a message (a sponsor's clean-up);
     /// returns how many went.
     pub fn remove_pushes(&self, msg_id: i64, user_id: u32) -> anyhow::Result<usize> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.execute("DELETE FROM pushes WHERE msg_id = ?1 AND user_id = ?2", params![msg_id, user_id])?)
     }
 
     /// When a caller last pushed anything.
     pub fn last_push_at(&self, user_id: u32) -> anyhow::Result<Option<NaiveDateTime>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT MAX(at) FROM pushes WHERE user_id = ?1", [user_id], |r| r.get(0))?)
     }
 
     /// The score (ups less downs) of each message in an area with pushes.
     pub fn scores(&self, area: &str) -> anyhow::Result<std::collections::HashMap<i64, i32>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT p.msg_id, SUM(p.kind) FROM pushes p JOIN messages m ON m.id = p.msg_id WHERE m.area = ?1 GROUP BY p.msg_id")?;
         let rows = stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
@@ -933,7 +927,7 @@ impl MsgBase {
 
     /// New: how many comments each message in an area has.
     pub fn comment_counts(&self, area: &str) -> anyhow::Result<std::collections::HashMap<i64, u32>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT p.msg_id, COUNT(*) FROM pushes p JOIN messages m ON m.id = p.msg_id WHERE m.area = ?1 AND p.kind = 0 GROUP BY p.msg_id")?;
         let rows = stmt.query_map([area], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
@@ -941,20 +935,20 @@ impl MsgBase {
 
     /// New: how many messages a caller has in an area.
     pub fn count_from(&self, area: &str, user_id: u32) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COUNT(*) FROM messages WHERE area = ?1 AND from_id = ?2 AND deleted = 0", params![area, user_id], |r| r.get(0))?)
     }
 
     /// New: the messages a moderator has pinned in an area.
     pub fn pinned(&self, area: &str) -> anyhow::Result<std::collections::HashSet<i64>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT p.msg_id FROM pins p JOIN messages m ON m.id = p.msg_id WHERE m.area = ?1")?;
         let rows = stmt.query_map([area], |r| r.get(0))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
     pub fn set_pinned(&self, msg_id: i64, pinned: bool) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         if pinned {
             db.execute("INSERT OR IGNORE INTO pins (msg_id) VALUES (?1)", [msg_id])?;
         } else {
@@ -965,21 +959,21 @@ impl MsgBase {
 
     /// New: an area's filled requests, by the request's row id.
     pub fn filled(&self, area: &str) -> anyhow::Result<std::collections::HashMap<i64, Filled>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT f.msg_id, f.user_id, f.handle, f.note, f.at, f.told, f.filler_id, f.filler, f.reply_id, f.push_id FROM filled f JOIN messages m ON m.id = f.msg_id WHERE m.area = ?1")?;
         let rows = stmt.query_map([area], |r| filled_row(r).map(|f| (f.msg_id, f)))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
     pub fn filled_one(&self, msg_id: i64) -> anyhow::Result<Option<Filled>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row(&format!("SELECT {FILLED_COLS} FROM filled WHERE msg_id = ?1"), [msg_id], filled_row).optional()?)
     }
 
     /// Mark a request filled, or open again (None). Marked by its own
     /// asker, there's nobody to tell.
     pub fn set_filled(&self, msg_id: i64, mark: Option<FillMark>, at: NaiveDateTime) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         match mark {
             Some(m) => {
                 db.execute(
@@ -998,7 +992,7 @@ impl MsgBase {
     /// Requests `user` asked that were filled and they haven't heard:
     /// (row id, area, subject).
     pub fn filled_untold(&self, user: u32) -> anyhow::Result<Vec<(i64, String, String)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare(
             "SELECT m.id, m.area, m.subject FROM filled f JOIN messages m ON m.id = f.msg_id
              WHERE m.from_id = ?1 AND NOT f.told AND NOT m.deleted ORDER BY f.at",
@@ -1008,7 +1002,7 @@ impl MsgBase {
     }
 
     pub fn filled_told(&self, msg_id: i64) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("UPDATE filled SET told = 1 WHERE msg_id = ?1", [msg_id])?;
         Ok(())
     }
@@ -1016,7 +1010,7 @@ impl MsgBase {
     /// New: what's been said to a message: comments and votes under it,
     /// and replies to it still there.
     pub fn responses(&self, msg_id: i64) -> anyhow::Result<u32> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row(
             "SELECT (SELECT COUNT(*) FROM pushes WHERE msg_id = ?1) + (SELECT COUNT(*) FROM messages WHERE reply_to = ?1 AND NOT deleted)",
             [msg_id],
@@ -1027,7 +1021,7 @@ impl MsgBase {
     /// New: an author retracts a message. Its text is kept here and the
     /// message shows `subject` and `body` (a note) in its place.
     pub fn retract(&self, m: &Message, subject: &str, body: &str, at: NaiveDateTime) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute(
             "INSERT OR IGNORE INTO retracted (msg_id, subject, body, sig_pos, at) SELECT id, subject, body, sig_pos, ?2 FROM messages WHERE id = ?1",
@@ -1040,7 +1034,7 @@ impl MsgBase {
 
     /// A retracted message's own text: (subject, lines, when retracted).
     pub fn retracted(&self, msg_id: i64) -> anyhow::Result<Option<(String, Vec<String>, NaiveDateTime)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db
             .query_row("SELECT subject, body, at FROM retracted WHERE msg_id = ?1", [msg_id], |r| {
                 let body: String = r.get(1)?;
@@ -1051,7 +1045,7 @@ impl MsgBase {
 
     /// Undo a retraction: the message has its text back.
     pub fn unretract(&self, msg_id: i64) -> anyhow::Result<()> {
-        let mut db = self.db.lock().unwrap();
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute(
             "UPDATE messages SET (subject, body, sig_pos) = (SELECT subject, body, sig_pos FROM retracted WHERE msg_id = ?1)
@@ -1068,7 +1062,7 @@ impl MsgBase {
     /// good; a stub (`subject`, `body`) stays, deleted, for moderators. Returns the attachment it had, if any, to remove.
     pub fn burn(&self, msg_id: i64, subject: &str, body: &str) -> anyhow::Result<Option<String>> {
         let attached = {
-            let mut db = self.db.lock().unwrap();
+            let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
             let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
             let attached: Option<String> = tx.query_row("SELECT name FROM attachments WHERE msg_id = ?1", [msg_id], |r| r.get(0)).optional()?;
             tx.execute("UPDATE messages SET subject = ?2, body = ?3, sig_pos = 0 WHERE id = ?1", params![msg_id, subject, body])?;
@@ -1086,7 +1080,7 @@ impl MsgBase {
     /// taken back (reopening doesn't), and marking it filled again doesn't
     /// pay twice. True if this one is new. The ledger outlasts the request.
     pub fn award_fill(&self, msg_id: i64, (filler_id, filler): (u32, &str), area: &str, subject: &str, points: u32, at: NaiveDateTime) -> anyhow::Result<bool> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let n = db.execute(
             "INSERT OR IGNORE INTO fills (msg_id, filler_id, filler, area, subject, points, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
             rusqlite::params![msg_id, filler_id, filler, area, subject, points, at],
@@ -1097,7 +1091,7 @@ impl MsgBase {
     /// The fillers since `since` (None: ever), most points first: (user
     /// number, handle, fills, points).
     pub fn fill_board(&self, since: Option<NaiveDateTime>, limit: u32) -> anyhow::Result<Vec<(u32, String, u32, u32)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let since = since.unwrap_or_default();
         let mut stmt = db.prepare(
             "SELECT filler_id, MAX(filler), COUNT(*), SUM(points) FROM fills WHERE at >= ?1
@@ -1109,27 +1103,27 @@ impl MsgBase {
 
     /// A caller's fills and points, ever.
     pub fn fills_of(&self, user: u32) -> anyhow::Result<(u32, u32)> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT COUNT(*), COALESCE(SUM(points), 0) FROM fills WHERE filler_id = ?1", [user], |r| Ok((r.get(0)?, r.get(1)?)))?)
     }
 
     /// A caller's fills they haven't heard about: (request, subject, points).
     pub fn fills_untold(&self, user: u32) -> anyhow::Result<Vec<(i64, String, u32)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT msg_id, subject, points FROM fills WHERE filler_id = ?1 AND NOT told ORDER BY at")?;
         let rows = stmt.query_map([user], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
     pub fn fill_told(&self, msg_id: i64, user: u32) -> anyhow::Result<()> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("UPDATE fills SET told = 1 WHERE msg_id = ?1 AND filler_id = ?2", rusqlite::params![msg_id, user])?;
         Ok(())
     }
 
     /// Pushes since `since` on messages still there: (message, kind, when).
     pub fn recent_pushes(&self, since: NaiveDateTime) -> anyhow::Result<Vec<(i64, i8, NaiveDateTime)>> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare("SELECT p.msg_id, p.kind, p.at FROM pushes p JOIN messages m ON m.id = p.msg_id WHERE p.at >= ?1 AND NOT m.deleted")?;
         let rows = stmt.query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
@@ -1138,7 +1132,7 @@ impl MsgBase {
     /// A caller's karma: the up and down votes on their public posts
     /// (not anonymous ones), and how many posts they're on.
     pub fn karma(&self, user_id: u32) -> anyhow::Result<(u32, u32, u32)> {
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row(
             "SELECT COALESCE(SUM(p.kind > 0), 0), COALESCE(SUM(p.kind < 0), 0), COUNT(DISTINCT p.msg_id)
              FROM pushes p JOIN messages m ON m.id = p.msg_id
@@ -1156,7 +1150,7 @@ impl MsgBase {
         if areas.is_empty() {
             return Ok(s);
         }
-        let db = self.db.lock().unwrap();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let w = format!("NOT deleted AND NOT private AND area IN ({})", vec!["?"; areas.len()].join(","));
         let p = rusqlite::params_from_iter(areas);
         s.total = db.query_row(&format!("SELECT COUNT(*) FROM messages WHERE {w}"), p.clone(), |r| r.get(0))?;

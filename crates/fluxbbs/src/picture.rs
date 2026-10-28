@@ -188,11 +188,11 @@ static CACHE: Mutex<Vec<(Key, Arc<Picture>)>> = Mutex::new(Vec::new());
 const CACHED: usize = 8;
 
 pub fn cached(key: &Key) -> Option<Arc<Picture>> {
-    CACHE.lock().unwrap().iter().find(|(k, _)| k == key).map(|(_, p)| p.clone())
+    CACHE.lock().unwrap_or_else(|e| e.into_inner()).iter().find(|(k, _)| k == key).map(|(_, p)| p.clone())
 }
 
 pub fn remember(key: Key, p: Arc<Picture>) {
-    let mut c = CACHE.lock().unwrap();
+    let mut c = CACHE.lock().unwrap_or_else(|e| e.into_inner());
     c.retain(|(k, _)| *k != key);
     if c.len() >= CACHED {
         c.remove(0);

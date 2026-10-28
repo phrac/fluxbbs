@@ -151,7 +151,7 @@ impl Session {
         } else {
             crate::session::find_ci(&cfg.resolve(&cfg.paths.stock_text), name).unwrap_or_else(|| path.clone())
         };
-        let _guard = self.state.text_lock.lock().unwrap();
+        let _guard = self.state.text_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut lines: Vec<Vec<u8>> = match std::fs::read(&from) {
             Ok(b) => {
                 let b = b.split(|&c| c == 0x1a).next().unwrap_or_default().to_vec();

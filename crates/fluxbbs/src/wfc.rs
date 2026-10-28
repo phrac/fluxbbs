@@ -124,7 +124,7 @@ impl LogTail {
     fn push(&self, text: &str) {
         let now = crate::clock::now();
         for line in text.lines().filter(|l| !l.trim().is_empty()) {
-            if let Some(f) = self.0.file.lock().unwrap().as_mut() {
+            if let Some(f) = self.0.file.lock().unwrap_or_else(|e| e.into_inner()).as_mut() {
                 let _ = writeln!(f, "{} {line}", now.format("%Y-%m-%d %H:%M:%S"));
             }
             // " INFO message": keep the level only when it says something.
@@ -133,7 +133,7 @@ impl LogTail {
                 Some(("INFO", msg)) => msg.trim_start().to_string(),
                 _ => line.to_string(),
             };
-            let mut lines = self.0.lines.lock().unwrap();
+            let mut lines = self.0.lines.lock().unwrap_or_else(|e| e.into_inner());
             lines.push_back(format!("{} {line}", now.format("%H:%M")));
             while lines.len() > 3 {
                 lines.pop_front();
@@ -576,7 +576,7 @@ impl Wfc {
         let seen = self.log.0.changed.load(Ordering::Relaxed);
         if seen != self.log_seen {
             self.log_seen = seen;
-            let lines: Vec<String> = self.log.0.lines.lock().unwrap().iter().cloned().collect();
+            let lines: Vec<String> = self.log.0.lines.lock().unwrap_or_else(|e| e.into_inner()).iter().cloned().collect();
             for y in 0..3 {
                 let line = lines.get(y).map(String::as_str).unwrap_or("");
                 self.out.at(STAT_X, TERM_Y + y as u16, &resize(&squish(line, TERM_W), TERM_W), 0x07);
