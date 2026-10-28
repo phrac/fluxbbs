@@ -105,12 +105,21 @@ impl Session {
                 continue;
             };
             let data = tokio::fs::read(&path).await?;
-            let waits = tokenize(&data, Source::File)
-                .iter()
-                .any(|t| matches!(t, Token::Ctrl(Control::Pause | Control::PromptKey | Control::ReadKey)));
-            self.show_path(&path, &Waves::new()).await?;
-            if !waits {
-                self.prompt_key().await?;
+            let tokens = tokenize(&data, Source::File);
+            let waits = tokens.iter().any(|t| matches!(t, Token::Ctrl(Control::Pause | Control::PromptKey | Control::ReadKey)));
+            // New: art taller than the caller's screen (an ad, say) scrolls
+            // in the pager; screens with the board's codes show as they are.
+            let art = tokens.iter().all(|t| matches!(t, Token::Text(_)));
+            let shown = &data[..data.iter().position(|&b| b == 0x1a).unwrap_or(data.len())];
+            let grid = if art { crate::pager::trimmed(crate::pager::render(shown, false)) } else { Vec::new() };
+            if art && grid.len() >= self.screen.rows() as usize {
+                let title = path.file_name().and_then(|f| f.to_str()).unwrap_or_default().to_string();
+                self.page_grid(&title, &grid).await?;
+            } else {
+                self.show_path(&path, &Waves::new()).await?;
+                if !waits {
+                    self.prompt_key().await?;
+                }
             }
             self.clear_screen();
             let file = path.file_name().and_then(|f| f.to_str()).unwrap_or_default().to_string();

@@ -214,10 +214,59 @@ pub fn render(text: &[u8], utf8: bool) -> Vec<Vec<Cell>> {
 /// edge) wrapped where the terminal wraps them, so the reader, which
 /// shows a row a line, keeps them in one piece.
 pub fn ansi_rows(lines: &[String]) -> Vec<String> {
-    let text = lines.join("\r\n");
+    let mut text = String::new();
+    for (i, l) in lines.iter().enumerate() {
+        if i > 0 {
+            // Some senders cut a row of art in two, the second piece
+            // moving right to where the first stopped (or, when the first
+            // ran past the edge, where it stopped on the row it wrapped
+            // to, as some count a 79-column row): that's the same row, a
+            // carriage return and no line feed.
+            let end = ends_at(&lines[i - 1]);
+            let same_row = lead(l).is_some_and(|n| n < WIDTH && (n == end || (end >= WIDTH && (n == end - WIDTH || n == end - (WIDTH - 1)))));
+            text.push_str(if same_row { "\r" } else { "\r\n" });
+        }
+        text.push_str(l);
+    }
     // The escapes stay escapes (decoding would make them CP437's arrows).
     let text_of = |b: Vec<u8>| b.iter().map(|&c| if c < 0x80 { c as char } else { cp437::TO_UNICODE[c as usize] }).collect();
     render(text.as_bytes(), true).iter().map(|r| text_of(row_bytes(r, ""))).collect()
+}
+
+/// The column a line's leading cursor-right (`ESC[nC`) moves to.
+fn lead(l: &str) -> Option<usize> {
+    let rest = l.strip_prefix("\x1b[")?;
+    let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+    rest[digits.len()..].starts_with('C').then(|| digits.parse().unwrap_or(1))
+}
+
+/// The column a line ends at, drawn from the left edge: its characters
+/// and its cursor-rights.
+fn ends_at(l: &str) -> usize {
+    let mut col = 0;
+    let mut chars = l.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c != '\x1b' {
+            col += 1;
+            continue;
+        }
+        if chars.peek() != Some(&'[') {
+            continue;
+        }
+        chars.next();
+        let mut params = String::new();
+        for d in chars.by_ref() {
+            if d.is_ascii_digit() || d == ';' {
+                params.push(d);
+                continue;
+            }
+            if d == 'C' {
+                col += params.parse::<usize>().unwrap_or(1).max(1);
+            }
+            break;
+        }
+    }
+    col
 }
 
 /// One row as bytes for `Screen::write_bytes`: CP437 characters and
@@ -382,6 +431,16 @@ mod tests {
         let plain: Vec<String> = rows.iter().map(visible).collect();
         assert_eq!(plain.iter().map(|r| r.chars().count()).collect::<Vec<_>>(), [80, 20, 2]);
         assert_eq!(plain[2], "hi");
+    }
+
+    #[test]
+    fn a_row_cut_in_two_is_one_row() {
+        // The second piece moves right to column 5, where the first one
+        // stopped: one row. The third starts somewhere else: a new row.
+        let rows = ansi_rows(&["\x1b[2Cabc".into(), "\x1b[5Cdef".into(), "\x1b[1Cghi".into()]);
+        let text: Vec<String> = rows.iter().map(|r| r.chars().filter(|c| c.is_alphabetic() || *c == ' ').collect::<String>().replace('m', "").trim().to_string()).collect();
+        assert_eq!(rows.len(), 2);
+        assert!(text[0].contains("abcdef") && text[1].contains("ghi"));
     }
 
     #[test]
