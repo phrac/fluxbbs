@@ -209,6 +209,17 @@ pub fn render(text: &[u8], utf8: bool) -> Vec<Vec<Cell>> {
     grid
 }
 
+/// New: a message's ANSI lines as a terminal 80 columns wide shows them,
+/// a row each: lines wider than the screen (art drawn to wrap at the
+/// edge) wrapped where the terminal wraps them, so the reader, which
+/// shows a row a line, keeps them in one piece.
+pub fn ansi_rows(lines: &[String]) -> Vec<String> {
+    let text = lines.join("\r\n");
+    // The escapes stay escapes (decoding would make them CP437's arrows).
+    let text_of = |b: Vec<u8>| b.iter().map(|&c| if c < 0x80 { c as char } else { cp437::TO_UNICODE[c as usize] }).collect();
+    render(text.as_bytes(), true).iter().map(|r| text_of(row_bytes(r, ""))).collect()
+}
+
 /// One row as bytes for `Screen::write_bytes`: CP437 characters and
 /// plain colour codes, bright backgrounds as `10x` so the screen turns
 /// them into whatever the caller's terminal shows without blinking; the
@@ -347,6 +358,30 @@ mod tests {
         let g = render(b"\x1b]0;evil\x07ok", false);
         assert!(text(&g)[0].ends_with("ok"));
         assert!(!row_bytes(&g[0], "").contains(&0x07));
+    }
+
+    #[test]
+    fn wide_ansi_lines_wrap_as_on_a_terminal() {
+        // A 100-column line of art, then a short one: three rows, the
+        // first two the long line cut at the screen's edge.
+        let long = format!("\x1b[1;35m{}\x1b[0m", "▄".repeat(100));
+        let rows = ansi_rows(&[long, "\x1b[31mhi".to_string()]);
+        let visible = |r: &String| {
+            let mut out = String::new();
+            let mut esc = false;
+            for c in r.chars() {
+                match (esc, c) {
+                    (false, '\x1b') => esc = true,
+                    (true, 'm') => esc = false,
+                    (true, _) => {}
+                    (false, c) => out.push(c),
+                }
+            }
+            out
+        };
+        let plain: Vec<String> = rows.iter().map(visible).collect();
+        assert_eq!(plain.iter().map(|r| r.chars().count()).collect::<Vec<_>>(), [80, 20, 2]);
+        assert_eq!(plain[2], "hi");
     }
 
     #[test]

@@ -1860,6 +1860,13 @@ impl Session {
             out.push(self.strings().fmt("ReqFilledLine", &[&day, &fluxbbs_term::lit(by), &note]));
             out.push(String::new());
         }
+        // New: ANSI (network ads, art) laid out as a terminal would, so
+        // lines wider than the screen wrap in one piece.
+        if !self.plain() && m.lines.iter().any(|l| l.contains('\x1b')) {
+            out.extend(crate::pager::ansi_rows(&m.lines));
+            out.extend(self.push_lines(m));
+            return out;
+        }
         // New: fenced code blocks shaded, and colored when they name their
         // language (not in plain text, which keeps the fences).
         let lines: Vec<Result<String, crate::markup::Line>> = match (!self.plain()).then(|| crate::markup::message_code_blocks(&m.lines, 79)).flatten() {
