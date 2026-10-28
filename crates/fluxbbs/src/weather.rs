@@ -611,6 +611,53 @@ fn draw(cv: &mut Canvas, t: f32, f: &Forecast, place: &str) {
     }
 }
 
+/// The forecaster's words in a box over the picture: solid, edged, its
+/// title in the top edge, and a shadow down and to the right.
+fn forecast_box(cv: &mut Canvas, title: &str, lines: &[String]) {
+    let (panel, edge, ink, lit) = (rgb(14, 20, 42), rgb(90, 120, 175), rgb(235, 240, 255), rgb(255, 230, 140));
+    let (x0, x1) = (3, 76);
+    let h = lines.len() + 4;
+    let r0 = (cv.h / 2 - 1).saturating_sub(h) / 2;
+    let r1 = r0 + h - 1;
+    // The shadow: the cell right of each row and the row under it, dimmed.
+    for row in r0 + 1..=r1 + 1 {
+        for col in x0 + 1..=x1 + 1 {
+            if row > r1 || col > x1 {
+                for y in [2 * row, 2 * row + 1] {
+                    if let Some(c) = cv.get(col as i32, y as i32) {
+                        cv.set(col as i32, y as i32, scale(c, 0.3));
+                    }
+                }
+                if let Some(Some(g)) = cv.text.get_mut(row * cv.w + col) {
+                    g.fg = scale(g.fg, 0.3);
+                    g.bg = g.bg.map(|b| scale(b, 0.3));
+                }
+            }
+        }
+    }
+    for row in r0..=r1 {
+        for col in x0..=x1 {
+            let ch = match (row == r0, row == r1, col == x0, col == x1) {
+                (true, _, true, _) => "┌",
+                (true, _, _, true) => "┐",
+                (_, true, true, _) => "└",
+                (_, true, _, true) => "┘",
+                (true, ..) | (_, true, ..) => "─",
+                (_, _, true, _) | (.., true) => "│",
+                _ => " ",
+            };
+            cv.label(col, row, ch, edge, Some(panel));
+        }
+    }
+    let title: String = title.chars().take(x1 - x0 - 8).collect();
+    cv.label(x0 + 2, r0, "[ ", edge, Some(panel));
+    cv.label(x0 + 4, r0, &title, lit, Some(panel));
+    cv.label(x0 + 4 + title.chars().count(), r0, " ]", edge, Some(panel));
+    for (i, l) in lines.iter().enumerate() {
+        cv.label(x0 + 2, r0 + 2 + i, l, ink, Some(panel));
+    }
+}
+
 // ---- the door ----------------------------------------------------------------
 
 impl Session {
@@ -825,25 +872,55 @@ impl Session {
             compass(f.wind_from),
             week.join("\n")
         );
-        let text = match crate::aimemory::complete(&cfg, system, &prompt).await {
-            Ok(t) if !t.trim().is_empty() => crate::editor::strip_colours(&t).replace("**", ""),
-            Ok(_) | Err(_) => {
-                self.stage_line(MSG_ROW, &painted("the forecaster isn't on the air right now.", [255, 140, 120]), st.truecolor);
-                self.read_key().await?;
-                return Ok(());
+        // The picture keeps moving while the forecaster thinks, and Esc
+        // gives up on them. A model that spends its tokens thinking can
+        // come back empty: once more, then give up.
+        let mut status = format!("\x1b[{STATUS_ROW};1H\x1b[0m\x1b[K ").into_bytes();
+        ink(&mut status, [130, 140, 160], st.truecolor);
+        status.extend(b"[esc] never mind\x1b[0m");
+        self.screen.write_bytes(&status);
+        let mut text = None;
+        for _ in 0..2 {
+            let ask = crate::aimemory::complete(&cfg, system, &prompt);
+            tokio::pin!(ask);
+            let answer = loop {
+                tokio::select! {
+                    a = &mut ask => break a,
+                    _ = tokio::time::sleep(self.idle_pause(110)) => {
+                        let t = st.t();
+                        draw(&mut st.cv, t, f, place);
+                        self.stage_show(st, true).await?;
+                        if self.key_waiting().await? {
+                            let k = self.read_key().await?;
+                            if matches!(k, Key::Esc) || k.upper() == Some('Q') {
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            };
+            match answer {
+                Ok(t) if !t.trim().is_empty() => {
+                    text = Some(crate::editor::strip_colours(&t).replace("**", ""));
+                    break;
+                }
+                Ok(_) => tracing::warn!("{}: weather: the forecaster's answer was empty", self.user.handle),
+                Err(e) => {
+                    tracing::warn!("{}: weather: the forecaster: {e:#}", self.user.handle);
+                    break;
+                }
             }
+        }
+        let Some(text) = text else {
+            self.stage_line(MSG_ROW, &painted("the forecaster isn't on the air right now.", [255, 140, 120]), st.truecolor);
+            self.read_key().await?;
+            return Ok(());
         };
-        // A panel over the picture, the words in it.
+        self.screen.write_bytes(format!("\x1b[{STATUS_ROW};1H\x1b[0m\x1b[K").as_bytes());
         let lines: Vec<String> = text.lines().flat_map(|l| crate::multinode::wrap(l.trim(), 70)).filter(|l| !l.is_empty()).take(16).collect();
-        let top = (22usize.saturating_sub(lines.len() + 2)) / 2;
-        for y in (top * 2) as i32..((top + lines.len() + 2) * 2) as i32 {
-            for x in 3..77 {
-                st.cv.blend(x, y, rgb(8, 12, 28), 0.85);
-            }
-        }
-        for (i, l) in lines.iter().enumerate() {
-            st.cv.label(5, top + 1 + i, l, rgb(235, 240, 255), None);
-        }
+        let t = st.t();
+        draw(&mut st.cv, t, f, place);
+        forecast_box(&mut st.cv, &format!("the forecast for {place}"), &lines);
         self.stage_show(st, false).await?;
         self.stage_line(MSG_ROW, &painted("press a key", [150, 160, 180]), st.truecolor);
         self.read_key().await?;
