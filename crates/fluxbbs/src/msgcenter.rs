@@ -168,6 +168,15 @@ enum ReadEnd {
     Quit,
 }
 
+/// How a thread's tree was left.
+#[derive(PartialEq)]
+enum TreeEnd {
+    Back,
+    Quit,
+    /// A message picked, for the reader that opened the tree to go to.
+    Read(i64),
+}
+
 impl Session {
     pub(crate) fn area_view(&self, a: &AreaRef) -> io::Result<AreaView> {
         let msgs = self.state.msgs.all(a.key()).map_err(io_err)?.into_iter().filter(|m| self.ok_to_read(a, m)).collect();
@@ -811,7 +820,7 @@ impl Session {
                 BarPick::Key('V', n) => {
                     if let Some(t) = ts.get(n as usize) {
                         on_root = Some(t.msgs[0].0);
-                        if self.thread_tree(a, t.msgs[0].0, None).await? {
+                        if self.thread_tree(a, t.msgs[0].0, None, false).await? == TreeEnd::Quit {
                             return Ok(true);
                         }
                     }
@@ -871,21 +880,23 @@ impl Session {
     /// otherwise, `~SC` score, `~DS` day (mm/dd), `~DT` and `~TI` date and
     /// time). Enter reads on from the bar; `r` replies. The bar starts on
     /// `on`, or the first new message. True if the caller quit (`q`).
-    async fn thread_tree(&mut self, a: &AreaRef, root: i64, on: Option<i64>) -> io::Result<bool> {
+    /// `pick`: opened from a reader on this thread, so a message picked
+    /// is handed back to it rather than read in another.
+    async fn thread_tree(&mut self, a: &AreaRef, root: i64, on: Option<i64>, pick: bool) -> io::Result<TreeEnd> {
         // Its screens name the area (`%MA`): this one, from a scan of all.
         let was = std::mem::replace(&mut self.user.cur_msg_area, a.num);
-        let r = self.thread_tree_in(a, root, on).await;
+        let r = self.thread_tree_in(a, root, on, pick).await;
         if self.user.cur_msg_area == a.num {
             self.user.cur_msg_area = was;
         }
         r
     }
 
-    async fn thread_tree_in(&mut self, a: &AreaRef, root: i64, mut on: Option<i64>) -> io::Result<bool> {
+    async fn thread_tree_in(&mut self, a: &AreaRef, root: i64, mut on: Option<i64>, pick: bool) -> io::Result<TreeEnd> {
         loop {
             let v = self.area_view(a)?;
             let by_id = v.by_id();
-            let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs[0].0 == root) else { return Ok(false) };
+            let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs[0].0 == root) else { return Ok(TreeEnd::Back) };
             let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
             let filled = if a.area.requests { self.state.msgs.filled(a.key()).map_err(io_err)? } else { HashMap::new() };
             let seq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
@@ -977,8 +988,11 @@ impl Session {
                 BarPick::Area(row) => {
                     let i = entries.get(row as usize).map_or(0, |e| e.0);
                     on = seq.get(i).copied();
+                    if pick && let Some(&id) = seq.get(i) {
+                        return Ok(TreeEnd::Read(id));
+                    }
                     if self.read_seq(a, &seq, i).await? == ReadEnd::Quit {
-                        return Ok(true);
+                        return Ok(TreeEnd::Quit);
                     }
                 }
                 BarPick::Key('R', row) => {
@@ -993,13 +1007,35 @@ impl Session {
                         }
                     }
                 }
-                BarPick::Quit => return Ok(true),
-                _ => return Ok(false),
+                BarPick::Quit => return Ok(TreeEnd::Quit),
+                _ => return Ok(TreeEnd::Back),
             }
             if self.hangup {
-                return Ok(false);
+                return Ok(TreeEnd::Back);
             }
         }
+    }
+
+    /// The tree of the thread a reader is on (`t`, `v`). Reading the
+    /// thread itself, a message picked there moves the reader to it and
+    /// Esc leaves the reader too (back to the list, not to the message the
+    /// tree was opened on); reading something else (everything new, say),
+    /// the tree is a side trip back to it. `Some` ends the reader.
+    async fn tree_from_reader(&mut self, a: &AreaRef, root: i64, m: &Message, seq: &[i64], i: &mut usize) -> io::Result<Option<ReadEnd>> {
+        let own = seq.first() == Some(&root) && self.area_view(a).is_ok_and(|v| {
+            threads(&v.msgs).into_iter().find(|t| t.msgs[0].0 == root).is_some_and(|t| t.msgs.iter().map(|&(n, _)| n).eq(seq.iter().copied()))
+        });
+        Ok(match self.thread_tree(a, root, Some(m.id), own).await? {
+            TreeEnd::Quit => Some(ReadEnd::Quit),
+            TreeEnd::Back if own => Some(ReadEnd::Back),
+            TreeEnd::Back => None,
+            TreeEnd::Read(id) => {
+                if let Some(at) = seq.iter().position(|&x| x == id) {
+                    *i = at;
+                }
+                None
+            }
+        })
     }
 
     /// Each message's heat from the pushes of the last `HOT_HOURS`.
@@ -1482,14 +1518,13 @@ impl Session {
                         let v = self.area_view(a)?;
                         if let Some(t) = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.id)) {
                             let tseq: Vec<i64> = t.msgs.iter().map(|&(n, _)| n).collect();
-                            let r = if tseq != seq {
+                            if tseq != seq {
                                 let at = tseq.iter().position(|&n| n == m.id).unwrap_or(0);
-                                Box::pin(self.read_seq(a, &tseq, at)).await? == ReadEnd::Quit
-                            } else {
-                                Box::pin(self.thread_tree(a, tseq[0], Some(m.id))).await?
-                            };
-                            if r {
-                                return Ok(ReadEnd::Quit);
+                                if Box::pin(self.read_seq(a, &tseq, at)).await? == ReadEnd::Quit {
+                                    return Ok(ReadEnd::Quit);
+                                }
+                            } else if let Some(end) = Box::pin(self.tree_from_reader(a, tseq[0], &m, seq, &mut i)).await? {
+                                return Ok(end);
                             }
                             cur = None;
                             redraw = true;
@@ -1511,9 +1546,9 @@ impl Session {
                         let v = self.area_view(a)?;
                         let root = threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(n, _)| n == m.id)).map(|t| t.msgs[0].0);
                         if let Some(r) = root
-                            && Box::pin(self.thread_tree(a, r, Some(m.id))).await?
+                            && let Some(end) = Box::pin(self.tree_from_reader(a, r, &m, seq, &mut i)).await?
                         {
-                            return Ok(ReadEnd::Quit);
+                            return Ok(end);
                         }
                         cur = None;
                         redraw = true;
