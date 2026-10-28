@@ -520,10 +520,13 @@ impl Session {
     }
 
     async fn points_summary(&mut self) -> io::Result<()> {
-        // New: the board's POINTS screen heads it, if it has one.
-        if !self.plain() && self.find_text_file("POINTS").is_some() {
+        // A clean screen (it's run from lightbar menus), headed by the
+        // board's POINTS screen if it has one.
+        if !self.plain() {
             self.clear_screen();
-            self.show_file("POINTS").await?;
+            if self.find_text_file("POINTS").is_some() {
+                self.show_file("POINTS").await?;
+            }
         }
         let t = self.tonight();
         let s = self.strings();
