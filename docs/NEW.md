@@ -401,6 +401,12 @@ All in [FEATURES](FEATURES.md#qwk-offline-mail).
   handed packets to outside programs. ([FEATURES](FEATURES.md#ftn-echomail))
 - A binkp mailer that polls and answers (CRAM-MD5).
 - A tosser and scanner, with threading and dupe checking.
+- Echomail replies from software that writes no REPLY kludge (Renegade,
+  Oblivion/2...) are shown threaded by subject (jwz's subject step),
+  under the latest post on the topic from whoever they're to, else
+  under its first; nothing is stored, so "in reply to" stays for what a
+  message says itself. Replies that arrive before their parents
+  (rescans) still thread, and wait for them 30 days from arriving.
 - Netmail to the board goes to callers' email.
 - AreaFix requests from the shell (`fluxbbs ftn areafix`).
 - Several networks at once, each with its own hub.

@@ -495,6 +495,8 @@ fn toss_echo(state: &BbsState, areas: &[FtnArea], tag: &str, m: &PackedMsg, part
     // waits for its own parent if that hasn't come yet.
     state.msgs.ftn_link_replies(area, &msgid, msg.id)?;
     if let (None, Some(r)) = (parent, reply) {
+        // Not here yet (or never: some software's REPLY matches no MSGID).
+        tracing::info!("ftn: {tag}: {} from {} answers {r}, not here (yet)", msg.num, msg.from.note);
         state.msgs.ftn_wait_reply(msg.id, area, r)?;
     }
     // No @mentions from elsewhere: anyone on the network could ping a

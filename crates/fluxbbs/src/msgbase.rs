@@ -151,6 +151,9 @@ const STEPS: &[Step] = &[
             COALESCE((SELECT MAX(msg_id) FROM mentions), 0), COALESCE((SELECT MAX(msg_id) FROM seen), 0),
             COALESCE((SELECT MAX(msg_id) FROM attachments), 0))",
     ),
+    // When a reply began waiting for its parent (they're given up a
+    // while after they came, not after they were written).
+    Step::Column("ftn_replies", "at", "TEXT NOT NULL DEFAULT ''"),
 ];
 
 const SCHEMA: &str = "
@@ -208,7 +211,8 @@ CREATE INDEX IF NOT EXISTS ftn_msgs_msgid ON ftn_msgs(msgid);
 CREATE TABLE IF NOT EXISTS ftn_replies (
     msg_id INTEGER PRIMARY KEY,
     area   TEXT NOT NULL COLLATE NOCASE,
-    reply  TEXT NOT NULL
+    reply  TEXT NOT NULL,
+    at     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS ftn_replies_reply ON ftn_replies(reply);
 CREATE TABLE IF NOT EXISTS ftn_state (
@@ -746,17 +750,20 @@ impl MsgBase {
         )?)
     }
 
-    /// Stop waiting for parents that never came: replies written before
-    /// `before`, or gone.
+    /// Stop waiting for parents that never came: replies that came
+    /// before `before` (not written then: a rescan brings old ones), or
+    /// gone.
     pub fn ftn_forget_waits(&self, before: NaiveDateTime) -> anyhow::Result<usize> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        Ok(db.execute("DELETE FROM ftn_replies WHERE msg_id NOT IN (SELECT id FROM messages WHERE posted >= ?1)", params![before])?)
+        Ok(db.execute("DELETE FROM ftn_replies WHERE at < ?1 OR msg_id NOT IN (SELECT id FROM messages)", params![before])?)
     }
+
 
     /// An imported reply whose parent (`reply`, its MSGID) hasn't come yet.
     pub fn ftn_wait_reply(&self, msg_id: i64, area: &str, reply: &str) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        db.execute("INSERT OR REPLACE INTO ftn_replies (msg_id, area, reply) VALUES (?1, ?2, ?3)", params![msg_id, area, reply])?;
+        let now = crate::clock::now().naive_local();
+        db.execute("INSERT OR REPLACE INTO ftn_replies (msg_id, area, reply, at) VALUES (?1, ?2, ?3, ?4)", params![msg_id, area, reply, now])?;
         Ok(())
     }
 
@@ -1206,6 +1213,19 @@ pub struct MsgStats {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn waits_are_given_up_by_when_they_came() {
+        let b = MsgBase::open_memory().unwrap();
+        let old = chrono::NaiveDate::from_ymd_opt(2025, 4, 28).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        let mut m = Message { subject: "Re: hi".into(), posted: old, ..msg("AGN", "All", "x") };
+        b.add_ftn(&mut m, Some("46:1/109 00000001")).unwrap();
+        b.ftn_wait_reply(m.id, "AGN", "46:1/700 00000002").unwrap();
+        // Written long ago (a rescan), but only just come: still waiting.
+        let now = crate::clock::now().naive_local();
+        assert_eq!(b.ftn_forget_waits(now - chrono::Duration::days(30)).unwrap(), 0);
+        assert_eq!(b.ftn_forget_waits(now + chrono::Duration::days(1)).unwrap(), 1);
+    }
 
     fn msg(area: &str, to: &str, text: &str) -> Message {
         Message {

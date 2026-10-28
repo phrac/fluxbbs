@@ -25,16 +25,82 @@ pub struct Thread {
 
 /// Group one area's messages (in number order) into threads, oldest
 /// first. A reply whose parent isn't among them starts its own.
+/// What a subject is about, without its "Re:"s (`Re:`, `RE:`, `Re^2:`,
+/// `Re[2]:`), and whether it had any.
+pub fn topic(subject: &str) -> (bool, String) {
+    let mut s = subject.trim();
+    let mut re = false;
+    while s.len() >= 2 && s.is_char_boundary(2) && s[..2].eq_ignore_ascii_case("re") {
+        let rest = s[2..].trim_start_matches(|c: char| c == '^' || c == '[' || c == ']' || c.is_ascii_digit());
+        let Some(rest) = rest.strip_prefix(':') else { break };
+        s = rest.trim_start();
+        re = true;
+    }
+    (re, s.to_lowercase())
+}
+
 pub fn threads(msgs: &[Message]) -> Vec<Thread> {
     let at: HashMap<i64, usize> = msgs.iter().enumerate().map(|(i, m)| (m.id, i)).collect();
+    // A parent can come after its reply (echomail arrives in any order),
+    // so a link that would close a loop is the one dropped.
+    let mut parent: Vec<Option<usize>> = msgs.iter().enumerate().map(|(i, m)| at.get(&m.reply_to).copied().filter(|&p| p != i)).collect();
+    for i in 0..msgs.len() {
+        let (mut up, mut steps) = (parent[i], 0);
+        while let Some(p) = up {
+            if p == i {
+                parent[i] = None;
+                break;
+            }
+            // A loop above this one: broken when its own turn comes.
+            steps += 1;
+            if steps > msgs.len() {
+                break;
+            }
+            up = parent[p];
+        }
+    }
+    // New: then jwz's subject step, for echomail from software that
+    // names no parent (no REPLY: Renegade, Oblivion/2...): a "Re:" left
+    // on its own goes under the latest earlier post on its topic by
+    // whoever it's to, else the topic's first. Only shown so: nothing is
+    // stored, and "in reply to" stays for what the message itself says.
+    let topics: Vec<(bool, String)> = msgs.iter().map(|m| topic(&m.subject)).collect();
+    let mut on: HashMap<&str, Vec<usize>> = HashMap::new();
+    for (i, (_, t)) in topics.iter().enumerate() {
+        on.entry(t.as_str()).or_default().push(i);
+    }
+    let mut orphans: Vec<usize> = (0..msgs.len()).filter(|&i| parent[i].is_none() && topics[i].0 && !topics[i].1.is_empty()).collect();
+    orphans.sort_by_key(|&i| (msgs[i].posted, i));
+    let root_of = |mut j: usize, parent: &[Option<usize>]| {
+        while let Some(p) = parent[j] {
+            j = p;
+        }
+        j
+    };
+    for i in orphans {
+        let when = |j: &&usize| (msgs[**j].posted, **j);
+        let earlier: Vec<usize> = on[topics[i].1.as_str()].iter().copied().filter(|&j| msgs[j].posted < msgs[i].posted && root_of(j, &parent) != i).collect();
+        let pick = earlier
+            .iter()
+            .filter(|&&j| msgs[j].from.name.eq_ignore_ascii_case(&msgs[i].to.name))
+            .max_by_key(when)
+            .or_else(|| earlier.iter().filter(|&&j| !topics[j].0).min_by_key(when))
+            .or_else(|| earlier.iter().min_by_key(when));
+        if let Some(&p) = pick {
+            parent[i] = Some(p);
+        }
+    }
     let mut kids: HashMap<usize, Vec<usize>> = HashMap::new();
     let mut roots = Vec::new();
-    for (i, m) in msgs.iter().enumerate() {
-        // A parent is always older; anything else can't make a loop.
-        match at.get(&m.reply_to) {
-            Some(&p) if p < i => kids.entry(p).or_default().push(i),
-            _ => roots.push(i),
+    for (i, p) in parent.iter().enumerate() {
+        match p {
+            Some(p) => kids.entry(*p).or_default().push(i),
+            None => roots.push(i),
         }
+    }
+    // Replies in the order they were written (echomail comes in any).
+    for k in kids.values_mut() {
+        k.sort_by_key(|&i| (msgs[i].posted, i));
     }
     roots
         .into_iter()
@@ -916,7 +982,6 @@ impl Session {
             }
             let lines = branches(&depths);
             let first = by_id[&root];
-            let topic = |s: &str| s.trim_start_matches("Re:").trim_start_matches("RE:").trim().to_lowercase();
             let mut rows = Vec::new();
             let mut labels = Vec::new();
             for (row, ((i, comment), branch)) in entries.iter().zip(&lines).enumerate() {
@@ -949,7 +1014,7 @@ impl Session {
                 let mark = if new { "*" } else { " " };
                 let words = crate::mci::blurb(m.body());
                 let (state, subject) = if *i == 0 { self.request_state(a, m, &filled) } else { (String::new(), m.subject.clone()) };
-                let text = if *i == 0 || topic(&m.subject) != topic(&first.subject) || words.is_empty() { subject.clone() } else { words.clone() };
+                let text = if *i == 0 || topic(&m.subject).1 != topic(&first.subject).1 || words.is_empty() { subject.clone() } else { words.clone() };
                 let to = match by_id.get(&m.reply_to) {
                     Some(p) => p.from.name.clone(),
                     None => m.to.name.clone(),
@@ -2044,12 +2109,53 @@ mod tests {
     }
 
     #[test]
-    fn a_reply_can_only_follow_its_parent() {
-        // A parent that comes later can't adopt it (no loops).
+    fn topics() {
+        assert_eq!(topic("Re: Windows 10 LTSC?"), (true, "windows 10 ltsc?".into()));
+        assert_eq!(topic("Re:Windows 10 LTSC?"), (true, "windows 10 ltsc?".into()));
+        assert_eq!(topic("RE: Re^2: Re[3]: LORD"), (true, "lord".into()));
+        assert_eq!(topic("Reports"), (false, "reports".into()));
+        assert_eq!(topic("Ré"), (false, "ré".into()));
+    }
+
+    #[test]
+    fn replies_naming_no_parent_go_by_subject() {
+        let post = |id: i64, num: u32, reply_to: i64, hour: u32, from: &str, to: &str, subject: &str| Message {
+            from: Party { name: from.into(), ..Party::default() },
+            to: Party { name: to.into(), ..Party::default() },
+            subject: subject.into(),
+            posted: chrono::NaiveDate::from_ymd_opt(2026, 10, 1).unwrap().and_hms_opt(hour, 0, 0).unwrap(),
+            ..msg(id, num, reply_to, 1)
+        };
+        // Carol's came first (a rescan), to Al; Al's own answers Dan
+        // through REPLY; Eve's is about something else.
+        let msgs = vec![
+            post(1, 1, 0, 14, "Carol", "Al", "RE: hi"),
+            post(2, 2, 0, 10, "Al", "All", "hi"),
+            post(3, 3, 0, 11, "Dan", "All", "Re: hi"),
+            post(4, 4, 3, 12, "Al", "Dan", "Re^2: hi"),
+            post(5, 5, 0, 13, "Eve", "All", "Re: something else"),
+            post(6, 6, 0, 15, "Fay", "Zed", "Re: hi"),
+        ];
+        let t = threads(&msgs);
+        // To All: the topic's first; to Al: Al's latest; to nobody
+        // who wrote on it: the first.
+        assert_eq!(t[0].msgs, vec![(2, 0), (3, 1), (4, 2), (1, 3), (6, 1)]);
+        assert_eq!(t[1].msgs, vec![(5, 0)]);
+        assert_eq!(t.len(), 2);
+    }
+
+    #[test]
+    fn parents_that_come_later_and_loops() {
+        // A parent that came after its reply (echomail) still adopts it.
+        let msgs = vec![msg(10, 1, 11, 2), msg(11, 2, 0, 1)];
+        assert_eq!(threads(&msgs)[0].msgs, vec![(11, 0), (10, 1)]);
+        // A loop loses one link, not a message.
         let msgs = vec![msg(10, 1, 11, 1), msg(11, 2, 10, 2)];
         let t = threads(&msgs);
         assert_eq!(t.len(), 1);
         assert_eq!(t[0].msgs, vec![(10, 0), (11, 1)]);
+        let msgs = vec![msg(9, 1, 0, 1), msg(10, 2, 12, 2), msg(11, 3, 10, 3), msg(12, 4, 11, 4)];
+        assert_eq!(threads(&msgs).iter().map(|t| t.msgs.len()).sum::<usize>(), 4);
     }
 
     #[test]
