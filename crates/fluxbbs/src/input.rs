@@ -309,24 +309,38 @@ impl Session {
         self.cursor_asks += 1;
         self.screen.write_bytes(b"\x1b[6n");
         let deadline = tokio::time::Instant::now() + wait;
+        // Keys typed meanwhile (an Enter hit again during a roll) wait
+        // their turn: set aside, so the terminal's answer can be read past
+        // them, and put back in the order they came. Pacing stops for
+        // nothing but the terminal.
+        let held = std::mem::take(&mut self.input);
+        let cr = self.last_cr;
+        let mut typed = Vec::new();
+        let mut answered = true;
         while self.cursor_asks.saturating_sub(self.cursor_reports) > behind {
-            if !self.input.is_empty() {
-                return Ok(true);
-            }
             if tokio::time::Instant::now() >= deadline {
                 if self.cursor_reports > 0 {
                     tracing::warn!("{}: the terminal stopped answering cursor reports ({}s)", self.user.handle, wait.as_secs());
                 }
                 // Stop waiting on the unanswered ones.
                 self.cursor_asks = self.cursor_reports + behind;
-                return Ok(false);
+                answered = false;
+                break;
             }
             if let Some(b) = self.next_byte(Wait::Brief).await? {
-                self.input.push_front(b);
+                typed.push(b);
             }
         }
-        self.flush().await?;
-        Ok(true)
+        // They'll be read again from the start, so the Enter they followed
+        // is as it was.
+        let rest = std::mem::replace(&mut self.input, held);
+        self.input.extend(typed);
+        self.input.extend(rest);
+        self.last_cr = cr;
+        if answered {
+            self.flush().await?;
+        }
+        Ok(answered)
     }
 
     /// Has the caller pressed something? Waits a moment at most (40ms),
