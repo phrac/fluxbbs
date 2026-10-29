@@ -507,6 +507,42 @@ Notes:
 
 ### Usurper
 
+Use 0.25. Usurper is GPL now (github.com/rickparrish/Usurper), and
+0.25's Linux build runs as a native door. 0.19 can hang its daily
+maintenance for good: when certain NPC teams fight a team kept in the
+player file, it reads player records into memory it has already freed.
+That breaks Turbo Pascal's free list, and the next `dispose` loops
+forever. DOSBox hangs on the same data, so the bug is the game's.
+
+1. Unzip `usurper-x86_64-linux.zip` (statically linked) into
+   `doors/usurper`.
+2. To keep a 0.19 game, copy its directory there first. Run its
+   `UPGRADES/019TO020.EXE`, then `020TO20E.EXE`, in the DOS machine:
+   say yes, take the defaults. Unzip 0.25 over the result. Otherwise,
+   make a new game with `EDITOR.EXE`'s Reset Game.
+3. Write `doors/usurper/usurper.sh`. `/X` keeps it off any serial port,
+   so it talks to the door's pty. The C locale keeps its text CP437:
+   other locales turn the box characters into U+FFFD.
+
+   ```sh
+   #!/bin/sh
+   drop=$PWD
+   cd "$(dirname "$0")" || exit 1
+   exec env LC_ALL=C ./USURPER.EXE /X "/P$drop"
+   ```
+
+4. It reads DOOR32.SYS, so the menu entry is `D4`:
+
+   ```toml
+   [[command]]
+   keys = "5"
+   command = "D4"
+   param = "/srv/board/doors/usurper/usurper.sh"
+   desc = "Usurper"
+   ```
+
+#### 0.19 in the DOS machine
+
 Version 0.19, `USURP019.ZIP`, from breakintochat.com's Dangarden
 collection. It says "Registered Copy" by itself.
 
