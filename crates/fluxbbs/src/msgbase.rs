@@ -334,19 +334,31 @@ fn from_row(r: &Row) -> rusqlite::Result<Message> {
 
 pub struct MsgBase {
     db: Mutex<Connection>,
+    /// Bumped by whatever can change what's new to someone (a post, a
+    /// read, a delete), so figures kept from before know to look again.
+    changes: std::sync::atomic::AtomicU64,
 }
 
 impl MsgBase {
+    /// How many times what's new may have changed.
+    pub fn changes(&self) -> u64 {
+        self.changes.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    fn changed(&self) {
+        self.changes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let mut db = crate::sysdata::open_db(path)?;
         migrate(&mut db, "msgbase", SCHEMA, STEPS)?;
-        Ok(Self { db: Mutex::new(db) })
+        Ok(Self { db: Mutex::new(db), changes: Default::default() })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
         let mut db = Connection::open_in_memory()?;
         migrate(&mut db, "msgbase", SCHEMA, STEPS)?;
-        Ok(Self { db: Mutex::new(db) })
+        Ok(Self { db: Mutex::new(db), changes: Default::default() })
     }
 
     /// Highest message number in an area (`mArea^.Msgs`).
@@ -373,6 +385,7 @@ impl MsgBase {
     /// Add a message, numbering it after the area's last (or keeping
     /// `m.num` if set, for imports).
     pub fn add(&self, m: &mut Message) -> anyhow::Result<()> {
+        self.changed();
         self.add_ftn(m, None)
     }
 
@@ -439,6 +452,7 @@ impl MsgBase {
     }
 
     pub fn mark_seen(&self, user: u32, msg_id: i64) -> anyhow::Result<()> {
+        self.changed();
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("INSERT OR IGNORE INTO seen (user_id, msg_id) VALUES (?1, ?2)", params![user, msg_id])?;
         Ok(())
@@ -446,6 +460,7 @@ impl MsgBase {
 
     /// Lastread moved up to `num`: the markers at or below it are done with.
     pub fn forget_seen(&self, user: u32, area: &str, num: u32) -> anyhow::Result<()> {
+        self.changed();
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "DELETE FROM seen WHERE user_id = ?1 AND msg_id IN (SELECT id FROM messages WHERE area = ?2 AND num <= ?3)",
@@ -514,6 +529,7 @@ impl MsgBase {
     /// Move a lastread pointer to a message by row id (to its number now),
     /// only ever forward.
     pub fn set_lastread_id(&self, user: u32, area: &str, id: i64) -> anyhow::Result<()> {
+        self.changed();
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT INTO lastread (user_id, area, num) SELECT ?1, ?2, num FROM messages WHERE id = ?3 AND area = ?2
@@ -585,6 +601,7 @@ impl MsgBase {
     /// copy read earlier mustn't undo an edit made since). New: a deleted
     /// one is in the trash, with when and `by` whom, till it's purged.
     pub fn set_deleted(&self, id: i64, deleted: bool, by: &str) -> anyhow::Result<()> {
+        self.changed();
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let row: Option<(i64, bool, bool)> =
@@ -650,6 +667,7 @@ impl MsgBase {
     /// mail, and there's no undeleting it), with what hangs off it. Its
     /// attachment's file goes with `attach::remove_orphans`.
     pub fn purge(&self, id: i64) -> anyhow::Result<()> {
+        self.changed();
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let row: Option<(i64, bool, bool)> =
@@ -735,6 +753,7 @@ impl MsgBase {
     }
 
     pub fn set_lastread(&self, user: u32, area: &str, num: u32) -> anyhow::Result<()> {
+        self.changed();
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT INTO lastread (user_id, area, num) VALUES (?1, ?2, ?3)
@@ -1460,6 +1479,24 @@ mod tests {
         let gone = mb.by_id(p.id).unwrap().unwrap();
         assert!(gone.deleted && gone.lines == vec!["[burned by its author]".to_string()]);
         assert!(mb.retracted(p.id).unwrap().is_none(), "nothing of it is kept");
+    }
+
+    #[test]
+    fn reading_and_posting_are_changes() {
+        let mb = MsgBase::open_memory().unwrap();
+        let n = mb.changes();
+        let mut a = msg("GEN", "All", "first");
+        mb.add(&mut a).unwrap();
+        assert!(mb.changes() > n);
+        let n = mb.changes();
+        mb.set_lastread(1, "GEN", 1).unwrap();
+        assert!(mb.changes() > n);
+        let n = mb.changes();
+        mb.mark_seen(1, a.id).unwrap();
+        assert!(mb.changes() > n);
+        let n = mb.changes();
+        let _ = mb.all("GEN").unwrap();
+        assert_eq!(mb.changes(), n, "reading the base isn't");
     }
 
     #[test]

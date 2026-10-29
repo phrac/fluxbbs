@@ -161,8 +161,9 @@ pub struct Session {
     pub hidden_call: bool,
     /// The `%F?` file stats, worked out at most once a minute.
     pub file_stats: std::cell::RefCell<Option<(Instant, std::sync::Arc<crate::filebase::FileStats>)>>,
-    /// The message menu's figures, likewise.
-    pub msg_stats: std::cell::RefCell<Option<(Instant, std::sync::Arc<crate::msgcenter::MsgFigures>)>>,
+    /// The message menu's figures, likewise, and while nothing's been
+    /// posted or read since (`MsgBase::changes`).
+    pub msg_stats: std::cell::RefCell<Option<(Instant, u64, std::sync::Arc<crate::msgcenter::MsgFigures>)>>,
     /// The doors menu's figures, likewise.
     pub door_stats: std::cell::RefCell<Option<(Instant, std::sync::Arc<crate::sysdata::DoorStats>)>>,
     /// `~XX` / `^NN` markers from the last displayed file: (x, y, colour).

@@ -350,9 +350,11 @@ impl Session {
     // ---- the message menu's figures (new) --------------------------------
 
     /// The message menu's figures, worked out again once they're a minute
-    /// old; `shown` keeps the ones on screen however old.
+    /// old or something's been posted or read; `shown` keeps the ones on
+    /// screen however old.
     pub(crate) fn msg_stats(&self, shown: bool) -> std::sync::Arc<MsgFigures> {
-        let cached = self.msg_stats.borrow().as_ref().filter(|(at, _)| shown || at.elapsed().as_secs() < 60).map(|(_, s)| s.clone());
+        let changes = self.state.msgs.changes();
+        let cached = self.msg_stats.borrow().as_ref().filter(|(at, n, _)| shown || (at.elapsed().as_secs() < 60 && *n == changes)).map(|(_, _, s)| s.clone());
         cached.unwrap_or_else(|| {
             let areas = self.readable_areas();
             let keys: Vec<String> = areas.iter().filter(|(_, a)| !a.is_email()).map(|(_, a)| a.key().to_string()).collect();
@@ -361,7 +363,7 @@ impl Session {
             let unread = self.scanned_areas().iter().filter_map(|(_, a)| self.area_view(a).ok()).map(|v| v.new_count()).sum();
             let names = areas.iter().map(|(_, a)| (a.key().to_ascii_uppercase(), a.area.name.clone())).collect();
             let s = std::sync::Arc::new(MsgFigures { base, unread, names });
-            *self.msg_stats.borrow_mut() = Some((std::time::Instant::now(), s.clone()));
+            *self.msg_stats.borrow_mut() = Some((std::time::Instant::now(), changes, s.clone()));
             s
         })
     }
