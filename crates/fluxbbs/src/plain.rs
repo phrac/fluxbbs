@@ -264,8 +264,10 @@ impl Session {
         self.write("Type the message a line at a time. A line with only . saves it; /abort gives up.");
         self.newline();
         let mut lines: Vec<String> = Vec::new();
+        let mut fenced = false;
         loop {
-            let l = self.read_string(ReadOpts::new(LINE_MAX)).await?;
+            // New: lines keep their indentation (code does), Tab included.
+            let l = self.read_string(ReadOpts::new(LINE_MAX).indent()).await?;
             self.newline();
             if self.hangup {
                 return Ok(None);
@@ -279,11 +281,7 @@ impl Session {
                 }
                 _ => {}
             }
-            if l.chars().count() > 79 {
-                lines.extend(crate::multinode::wrap(&l, 79));
-            } else {
-                lines.push(l);
-            }
+            add_line(&mut lines, l, &mut fenced);
             if lines.len() >= MAX_LINES {
                 self.write(&format!("That's {MAX_LINES} lines, the most; saving."));
                 self.newline();
@@ -302,9 +300,39 @@ impl Session {
     }
 }
 
+/// A typed line into the message: prose over 79 characters wrapped, but
+/// not a fenced code block's lines (from a line of ``` to the next),
+/// which wrapping would break.
+fn add_line(lines: &mut Vec<String>, l: String, fenced: &mut bool) {
+    let fence = l.trim_start().starts_with("```");
+    if fence || *fenced || l.chars().count() <= 79 {
+        lines.push(l);
+    } else {
+        lines.extend(crate::multinode::wrap(&l, 79));
+    }
+    if fence {
+        *fenced = !*fenced;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn code_keeps_its_lines() {
+        let long = format!("    let x = \"{}\";", "a".repeat(90));
+        let prose = "word ".repeat(20);
+        let mut lines = Vec::new();
+        let mut fenced = false;
+        for l in [prose.clone(), "```rust".into(), "fn main() {".into(), long.clone(), "}".into(), "```".into(), prose.clone()] {
+            add_line(&mut lines, l, &mut fenced);
+        }
+        assert!(!fenced);
+        assert_eq!(lines[2..7], ["```rust".to_string(), "fn main() {".into(), long, "}".into(), "```".into()]);
+        assert_eq!(lines.len(), 2 + 5 + 2, "prose either side wrapped to 79");
+        assert!(lines.iter().filter(|l| l.starts_with("word")).all(|l| l.chars().count() <= 79));
+    }
 
     #[test]
     fn bots_get_plain_unless_they_say() {

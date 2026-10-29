@@ -108,6 +108,9 @@ pub struct ReadOpts {
     pub complete_users: bool,
     /// Esc gives up, answering nothing (new).
     pub esc_cancels: bool,
+    /// Leading spaces kept and Tab as spaces to the next stop (new: a
+    /// message's lines, so code keeps its indentation).
+    pub indent: bool,
 }
 
 impl ReadOpts {
@@ -157,6 +160,19 @@ impl ReadOpts {
         self.mask = mask;
         self
     }
+
+    pub fn indent(mut self) -> Self {
+        self.indent = true;
+        self
+    }
+}
+
+/// Tab stops every this many columns, in a message's lines.
+pub const TAB: usize = 4;
+
+/// The spaces a Tab adds after `len` characters.
+pub fn tab_spaces(len: usize) -> usize {
+    TAB - len % TAB
 }
 
 pub const DIGITS: &str = "0123456789";
@@ -431,12 +447,18 @@ impl Session {
                             s = h;
                         }
                     }
+                    Key::Tab if opts.indent => {
+                        for _ in 0..tab_spaces(s.chars().count()).min(opts.max.saturating_sub(s.chars().count())) {
+                            s.push(' ');
+                            self.screen.write_str(" ");
+                        }
+                    }
                     Key::Char(c) if s.chars().count() < opts.max && text_char(c).is_some() => {
                         let c = opts.case.apply(&s, text_char(c).unwrap_or(' '));
                         if !opts.allowed.is_empty() && !opts.allowed.contains(c) {
                             continue;
                         }
-                        if c == ' ' && s.is_empty() {
+                        if c == ' ' && s.is_empty() && !opts.indent {
                             continue; // no leading spaces
                         }
                         s.push(c);
@@ -809,6 +831,11 @@ mod tests {
         assert!(tail.is_empty());
         assert_eq!(text_char(0x82), Some('\u{e9}'));
         assert_eq!((text_char(0x7f), text_char(0x1b)), (None, None));
+    }
+
+    #[test]
+    fn tabs_go_to_the_next_stop() {
+        assert_eq!((tab_spaces(0), tab_spaces(1), tab_spaces(3), tab_spaces(4), tab_spaces(6)), (4, 3, 1, 4, 2));
     }
 
     #[test]

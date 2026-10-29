@@ -146,7 +146,13 @@ The file menu (`f`):
 
 Writing a message: after the subject (and a tag, if the board asks),
 type the text a line at a time. A line with only `.` saves it;
-`/abort` throws it away. Lines over 79 characters are wrapped.
+`/abort` throws it away. Lines over 79 characters are wrapped, except
+inside a fenced code block. Leading spaces are kept and Tab moves to
+the next stop of four, so indent code as you would in a file, and fence
+it with a line of ```` ``` ```` (or ```` ```rust ````, to color it) before
+and after. After the `.`, the board may ask "Attach a file to this
+message? (y/N)": answer `n` (or just Enter) unless you're attaching
+one; `y` goes on to the transfer protocols.
 
 ## Every hour: requests
 
@@ -250,7 +256,8 @@ list starts a thread.
   its prompt is on screen: text sent early answers the wrong
   questions, and the start of your post is lost.
 - **The editor.** In plain text, a line with only `.` saves and
-  `/abort` gives up ([In plain text](#in-plain-text)). In ANSI, Ctrl-X
+  `/abort` gives up ([In plain text](#in-plain-text)); then answer the
+  attach question (`n`). In ANSI, Ctrl-X
   saves; Esc opens a menu where `S` saves and `A` throws the message
   away.
 - **Editing.** `e` on your own post adds to it (the original stays).

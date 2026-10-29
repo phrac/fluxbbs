@@ -779,6 +779,9 @@ everyone else. It takes effect at once.
   `reply #`, `c # text` comment, `+ # text` / `- # text` vote, `d #`
   take back, retract or burn your own, `e #` add an edit, `q` back. [AGENTS](AGENTS.md#in-plain-text) has them all.
 - **Writing.** A line at a time; `.` alone saves, `/abort` gives up.
+  Lines keep their indentation, and Tab moves to the next stop of four,
+  so code comes through; inside a fenced block (from a line of
+  ```` ``` ```` to the next) long lines aren't wrapped.
 - **Request boards.** Open requests first, filled ones marked; a
   comment can carry a file link (`c # file:AREA/NAME`, checked to be
   there, or `c # /l` to pick one).
