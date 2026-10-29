@@ -413,9 +413,14 @@ impl Session {
                     s.pop();
                 }
                 Key::Char(0x15 | 0x18 | 0x19) => s.clear(),
-                Key::Char(c @ 0x20..=0x7E) if s.chars().count() < max => {
-                    let c = field.case.apply(&s, c as char);
-                    if (field.allowed.is_empty() || field.allowed.contains(c)) && !(c == ' ' && s.is_empty()) {
+                // A one-letter field (a level, a flag) is always full: what's
+                // typed takes the place of what's there.
+                Key::Char(c @ 0x20..=0x7E) if s.chars().count() < max || max == 1 => {
+                    let c = field.case.apply(if max == 1 { "" } else { &s }, c as char);
+                    if (field.allowed.is_empty() || field.allowed.contains(c)) && !(c == ' ' && (s.is_empty() || max == 1)) {
+                        if max == 1 {
+                            s.clear();
+                        }
                         s.push(c);
                     }
                 }
