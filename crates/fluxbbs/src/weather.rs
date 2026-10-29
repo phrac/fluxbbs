@@ -1143,7 +1143,11 @@ impl Session {
     /// `f`: the AI reads the forecast, a weatherman at the map.
     #[cfg(feature = "ai")]
     async fn weather_forecaster(&mut self, st: &mut Stage, f: &Forecast, place: &str) -> io::Result<()> {
-        let cfg = self.state.config().ai.clone();
+        let mut cfg = self.state.config().ai.clone();
+        let effort = self.state.config().weather.ai_effort.trim().to_string();
+        if !effort.is_empty() {
+            cfg.reasoning_effort = effort;
+        }
         if !self.ai_count(cfg.daily_limit) {
             let s = crate::editor::strip_colours(&self.strings().fmt("TarotLimit", &[&cfg.daily_limit.to_string()]));
             self.stage_line(MSG_ROW, &painted(&s, [255, 140, 120]), st.truecolor);

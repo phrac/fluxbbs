@@ -380,10 +380,71 @@ pub fn quote_range(m: &Message, max: usize) -> Option<(usize, usize)> {
 pub fn quote_lines(m: &Message, first: usize, last: usize, head: &str) -> Vec<String> {
     let quoted = m.body()[first..=last.min(m.body().len() - 1)].iter().map(|l| {
         let plain = strip_colours(l);
-        let q = if plain.trim_start().starts_with('>') { format!(">{}", plain.trim_start()) } else { format!("> {plain}") };
-        q.chars().take(WIDTH).collect()
+        if plain.trim_start().starts_with('>') { format!(">{}", plain.trim_start()) } else { format!("> {plain}") }
     });
-    (!head.is_empty()).then(|| head.to_string()).into_iter().chain(quoted).collect()
+    (!head.is_empty()).then(|| head.to_string()).into_iter().chain(quote_flow(quoted)).collect()
+}
+
+/// Quoted lines too wide for the editor: the words that don't fit start
+/// the paragraph's next line (the same `>`s, not indented), rewrapped
+/// from there, rather than losing the line's end or standing alone.
+fn quote_flow(lines: impl Iterator<Item = String>) -> Vec<String> {
+    let mut out = Vec::new();
+    let mut carry: Option<(String, String)> = None;
+    for mut q in lines {
+        let (lead, text) = quote_split(&q);
+        if let Some((was, words)) = carry.take() {
+            if was == lead && !text.is_empty() && !text.starts_with(char::is_whitespace) {
+                q = format!("{lead}{words} {text}");
+            } else {
+                out.extend(quote_wrap(&format!("{was}{words}")));
+            }
+        }
+        let (fits, over) = quote_cut(&q, lead.len());
+        out.push(fits);
+        carry = over.map(|w| (lead, w));
+    }
+    if let Some((was, words)) = carry {
+        out.extend(quote_wrap(&format!("{was}{words}")));
+    }
+    out
+}
+
+/// A quoted line's `>`s (with the space after them), and its text.
+fn quote_split(q: &str) -> (String, String) {
+    let n = q.chars().take_while(|&c| c == '>').count();
+    let text = &q[n..];
+    (format!("{} ", &q[..n]), text.strip_prefix(' ').unwrap_or(text).to_string())
+}
+
+/// What of `q` fits the width, cut at a space where there is one, and the
+/// words left over.
+fn quote_cut(q: &str, lead: usize) -> (String, Option<String>) {
+    let chars: Vec<char> = q.chars().collect();
+    if chars.len() <= WIDTH {
+        return (q.to_string(), None);
+    }
+    if lead >= WIDTH / 2 {
+        return (chars[..WIDTH].iter().collect(), None);
+    }
+    let cut = chars[lead + 1..=WIDTH].iter().rposition(|&c| c == ' ').map_or(WIDTH, |i| i + lead + 1);
+    let rest: String = chars[cut..].iter().collect::<String>().trim().to_string();
+    (chars[..cut].iter().collect::<String>().trim_end().to_string(), (!rest.is_empty()).then_some(rest))
+}
+
+/// One quoted line over as many as it takes.
+fn quote_wrap(q: &str) -> Vec<String> {
+    let lead = quote_split(q).0;
+    let mut out = Vec::new();
+    let mut q = q.to_string();
+    loop {
+        let (fits, over) = quote_cut(&q, lead.len());
+        out.push(fits);
+        match over {
+            Some(w) => q = format!("{lead}{w}"),
+            None => return out,
+        }
+    }
 }
 
 /// `NoColor`: remove `|XX` colour codes.
@@ -1095,6 +1156,35 @@ mod tests {
         m.lines[1] = "> older".into();
         assert_eq!(quote_lines(&m, 1, 1, ""), vec![">> older"]);
         assert_eq!(quote_range(&m, 1), Some((2, 2)));
+        // Too wide with the `> ` in front: what doesn't fit starts the
+        // next line of the paragraph, not a line of its own.
+        let mut m2 = m.clone();
+        m2.sig_pos = 0;
+        m2.lines = vec![
+            "But - putting together (getting Claude to put together) my own BBS software is".into(),
+            "possibly the biggest piece of string I have ever encountered. Where do I stop".into(),
+            "with it? Short.".into(),
+            "".into(),
+            "Next paragraph.".into(),
+        ];
+        assert_eq!(
+            quote_lines(&m2, 0, 4, ""),
+            vec![
+                "> But - putting together (getting Claude to put together) my own BBS software",
+                "> is possibly the biggest piece of string I have ever encountered. Where do I",
+                "> stop with it? Short.",
+                "> ",
+                "> Next paragraph.",
+            ]
+        );
+        // The last line of a paragraph, or code, isn't run into.
+        m2.lines = vec![format!("{} tail", "word ".repeat(15)), "    indented".into()];
+        assert_eq!(quote_lines(&m2, 0, 1, "").len(), 3);
+        m.lines[1] = format!("> {}", "x".repeat(100));
+        let q = quote_lines(&m, 1, 1, "");
+        assert_eq!(q, vec![format!(">> {}", "x".repeat(WIDTH - 3)), format!(">> {}", "x".repeat(100 - (WIDTH - 3)))]);
+        m.lines[1] = format!("{}trailing{}", "a ".repeat(36), " ".repeat(20));
+        assert!(quote_lines(&m, 1, 1, "").iter().all(|l| l.chars().count() <= WIDTH && l.trim() != ">"));
     }
 
     #[test]

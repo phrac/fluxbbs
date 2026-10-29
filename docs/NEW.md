@@ -133,7 +133,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   animated half-block pixels, the temperature large, the next 24 hours
   and the week, from Open-Meteo; `f` has the AI read it like a TV
   forecaster, a weatherman at a map with radar and fronts, his words in
-  the lower third. `h` is the last 30 days against the 1991-2020 normal
+  the lower third (thinking off, `[weather] ai_effort`, so it isn't cut
+  short). `h` is the last 30 days against the 1991-2020 normal
   and the day's records since 1940, `d` the U.S. Drought Monitor for the
   caller's county (and the rain against the normal anywhere), `n` the
   country on a map colored by the temperature, the cities' readings on
@@ -314,7 +315,9 @@ All in [FEATURES](FEATURES.md#message-center).
   editor or `/l` in a comment picks one from a lightbar; `g` in the
   reader lists them to download. ([FEATURES](FEATURES.md#file-links))
 - Quotes say who wrote them ("phrac wrote:") and mark lines with `> `,
-  not the author's initials. ([FEATURES](FEATURES.md#quoting))
+  not the author's initials; a line too wide with them goes on at the
+  start of the paragraph's next line, rewrapped, rather than losing its
+  end. ([FEATURES](FEATURES.md#quoting))
 - The reader can have the board's prompt bar (MSGRBAR).
 - The thread tree (`v`) shows each message's comments under it.
 - Multinode chat says how it works on the way in, and shows its

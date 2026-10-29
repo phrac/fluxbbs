@@ -150,8 +150,25 @@ pub async fn complete(cfg: &Ai, system: &str, prompt: &str) -> anyhow::Result<St
         anyhow::bail!("{}", resp.status());
     }
     let v: Value = resp.json().await?;
-    let text = v["choices"][0]["message"]["content"].as_str().unwrap_or("").to_string();
-    Ok(without_thinking(&text))
+    let text = without_thinking(v["choices"][0]["message"]["content"].as_str().unwrap_or(""));
+    // Out of tokens mid-sentence: up to the last sentence it finished.
+    if v["choices"][0]["finish_reason"] == "length" {
+        tracing::warn!("ai: an answer ran out of tokens ({} of them)", cfg.max_tokens);
+        return Ok(whole_sentences(&text));
+    }
+    Ok(text)
+}
+
+/// `s` up to the end of its last whole sentence (all of it if none ends).
+#[cfg(feature = "ai")]
+fn whole_sentences(s: &str) -> String {
+    let s = s.trim_end();
+    if s.ends_with(['.', '!', '?']) {
+        return s.to_string();
+    }
+    // A stop followed by a space: not the point in 54.5.
+    let end = s.char_indices().rfind(|&(i, c)| matches!(c, '.' | '!' | '?') && s[i + 1..].starts_with(char::is_whitespace));
+    end.map_or(s, |(i, _)| &s[..=i]).to_string()
 }
 
 /// A reply less any `<think>...</think>` part.
@@ -193,6 +210,14 @@ pub fn remember(_state: Arc<BbsState>, _u: User, _seen: Seen) {}
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[cfg(feature = "ai")]
+    #[test]
+    fn cut_off_at_the_last_sentence() {
+        assert_eq!(whole_sentences("Now in Firth it's 54.5 and overcast. Feels like 50 with a"), "Now in Firth it's 54.5 and overcast.");
+        assert_eq!(whole_sentences("Grab a coat! Stay warm.\n"), "Grab a coat! Stay warm.");
+        assert_eq!(whole_sentences("no stop at all"), "no stop at all");
+    }
 
     #[test]
     fn a_call_described_and_thinking_dropped() {

@@ -562,11 +562,15 @@ pub struct Weather {
     pub place: String,
     /// May the AI read the forecast (`f`), when it's built and on?
     pub ai_forecast: bool,
+    /// The forecaster's `reasoning_effort`, in place of `[ai]`'s (blank:
+    /// `[ai]`'s). `none` by default: a model thinking it over spends the
+    /// answer's tokens and leaves the forecast cut off.
+    pub ai_effort: String,
 }
 
 impl Default for Weather {
     fn default() -> Self {
-        Self { units: "us".into(), place: String::new(), ai_forecast: true }
+        Self { units: "us".into(), place: String::new(), ai_forecast: true, ai_effort: "none".into() }
     }
 }
 
