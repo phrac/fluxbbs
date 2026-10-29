@@ -441,6 +441,9 @@ All in [DOORS](DOORS.md).
 - `[dos] emulator` runs a door under DOSBox instead, for one the
   machine can't run.
 - `dosrun` tries a door outside the board.
+- Leaving a door logs the bytes typed, passed on and shown, and when
+  the last key came, so a door that seems to ignore keys shows whether
+  they reached it.
 - Code and Markdown in the viewer: source code in colors, Markdown laid
   out, code on a shaded background; the same for code blocks in
   messages and AI chat replies. Each caller picks a code theme and a

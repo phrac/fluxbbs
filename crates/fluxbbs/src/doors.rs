@@ -1025,6 +1025,10 @@ impl Session {
         let mut tick = tokio::time::interval(Duration::from_secs(5));
         let mut obuf = [0u8; 4096];
         let mut ibuf = [0u8; 1024];
+        // New: what went each way, logged at the end, so a door that
+        // "ignores keys" shows whether they reached it.
+        let (mut typed, mut passed, mut shown) = (0usize, 0usize, 0usize);
+        let mut last_key: Option<Instant> = None;
         let end = loop {
             tokio::select! {
                 r = line.read(&mut obuf) => {
@@ -1032,12 +1036,23 @@ impl Session {
                     if n == 0 {
                         break DoorEnd::Exited(child.wait().await?);
                     }
+                    shown += n;
                     self.screen.write_bytes(&obuf[..n]);
                     self.flush().await?;
                 }
                 r = self.io.read(&mut ibuf) => {
                     match r {
-                        Ok(n) if n > 0 => line.write_all(&input.feed(&ibuf[..n])).await?,
+                        Ok(n) if n > 0 => {
+                            typed += n;
+                            last_key = Some(Instant::now());
+                            let keys = input.feed(&ibuf[..n]);
+                            passed += keys.len();
+                            let t = Instant::now();
+                            line.write_all(&keys).await?;
+                            if t.elapsed() > Duration::from_secs(5) {
+                                tracing::warn!("{}: the door took {}s to take keys", self.user.handle, t.elapsed().as_secs());
+                            }
+                        }
                         _ => break DoorEnd::Hangup,
                     }
                 }
@@ -1049,6 +1064,7 @@ impl Session {
                         if n == 0 {
                             break;
                         }
+                        shown += n;
                         self.screen.write_bytes(&obuf[..n]);
                     }
                     self.flush().await?;
@@ -1070,6 +1086,8 @@ impl Session {
                 }
             }
         };
+        let last = last_key.map_or("no keys".to_string(), |t| format!("the last key {}s before the end", t.elapsed().as_secs()));
+        tracing::info!("{}: left the door: {typed} bytes typed, {passed} passed on, {shown} shown; {last}", self.user.handle);
         let signal = line.hangup_signal();
         drop(line);
         match &child {
