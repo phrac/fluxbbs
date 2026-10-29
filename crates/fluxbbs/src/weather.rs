@@ -21,7 +21,7 @@ use rusqlite::{Connection, OptionalExtension, params};
 use serde_json::Value;
 
 use crate::input::{Key, ReadOpts};
-use crate::pixels::{Canvas, Rgb, Stage, hash, ink, mix, painted, rgb, scale};
+use crate::pixels::{Canvas, Rgb, Stage, add, hash, ink, mix, painted, rgb, scale};
 use crate::session::Session;
 
 const MSG_ROW: u16 = 23;
@@ -611,27 +611,188 @@ fn draw(cv: &mut Canvas, t: f32, f: &Forecast, place: &str) {
     }
 }
 
-/// The forecaster's words in a box over the picture: solid, edged, its
-/// title in the top edge, and a shadow down and to the right.
-fn forecast_box(cv: &mut Canvas, title: &str, lines: &[String]) {
-    let (panel, edge, ink, lit) = (rgb(14, 20, 42), rgb(90, 120, 175), rgb(235, 240, 255), rgb(255, 230, 140));
-    let (x0, x1) = (3, 76);
-    let h = lines.len() + 4;
-    let r0 = (cv.h / 2 - 1).saturating_sub(h) / 2;
-    let r1 = r0 + h - 1;
-    // The shadow: the cell right of each row and the row under it, dimmed.
-    for row in r0 + 1..=r1 + 1 {
-        for col in x0 + 1..=x1 + 1 {
-            if row > r1 || col > x1 {
-                for y in [2 * row, 2 * row + 1] {
-                    if let Some(c) = cv.get(col as i32, y as i32) {
-                        cv.set(col as i32, y as i32, scale(c, 0.3));
+// ---- the forecaster --------------------------------------------------------
+// `f`: a local news weatherman, mic in hand, at the map, his words in
+// the lower third.
+
+/// The map on the studio wall, in pixels (the cells over it: columns 19
+/// to 78, rows 1 to 12), with its title bar on row 0.
+const MAP: (i32, i32, i32, i32) = (19, 2, 78, 25);
+/// The lower third: rows 13 to 21, a page of lines at a time.
+const THIRD: (usize, usize, usize, usize) = (1, 13, 77, 21);
+const PAGE: usize = THIRD.3 - THIRD.1 - 1;
+/// How long he takes over a line.
+const LINE_SECS: f32 = 0.8;
+
+/// A line `w` pixels thick.
+fn line(cv: &mut Canvas, (x0, y0): (f32, f32), (x1, y1): (f32, f32), c: Rgb, w: i32) {
+    let n = (x1 - x0).abs().max((y1 - y0).abs()).ceil().max(1.0) as i32;
+    for i in 0..=n {
+        let k = i as f32 / n as f32;
+        let (x, y) = ((x0 + (x1 - x0) * k).round() as i32, (y0 + (y1 - y0) * k).round() as i32);
+        cv.rect(x, y, w, w, c);
+    }
+}
+
+/// The weather map: land, a lake, the roads, the town with
+/// its temperature, the sky now in the corner, the radar drifting with
+/// the wind, and a front when the week turns.
+fn weather_map(cv: &mut Canvas, t: f32, f: &Forecast, place: &str) {
+    let (x0, y0, x1, y1) = MAP;
+    let s = sky(f.code);
+    for y in y0..=y1 {
+        for x in x0..=x1 {
+            let lake = ((x as f32 - 32.0) / 5.0).powi(2) + ((y as f32 - 20.0) / 2.5).powi(2) <= 1.0;
+            let mut c = mix(rgb(62, 110, 56), rgb(88, 136, 66), hash(x / 3, y / 3) * 0.7);
+            if (x - x0) % 15 == 0 || (y - y0) % 8 == 0 {
+                c = scale(c, 0.8);
+            }
+            if y == 13 || x - x0 == (y - y0) * 2 + 14 {
+                c = rgb(196, 186, 150);
+            }
+            if x == 26 && y % 3 != 0 {
+                c = rgb(230, 200, 80);
+            }
+            if lake {
+                c = rgb(40, 90, 170);
+            }
+            if s == Sky::Fog {
+                c = mix(c, rgb(200, 200, 205), 0.4);
+            }
+            cv.set(x, y, c);
+        }
+    }
+    // The week's turn: a cold front (blue, its teeth east) or a warm one.
+    let swing = f.days.iter().take(3).map(|d| d.hi).fold(None, |m: Option<(f32, f32)>, v| Some(m.map_or((v, v), |(a, b)| (a.min(v), b.max(v)))));
+    let big = if f.units == Units::Us { 10.0 } else { 6.0 };
+    if let (Some(first), Some((lo, hi))) = (f.days.first(), swing) {
+        let cold = first.hi - lo >= big;
+        if cold || hi - first.hi >= big {
+            let c = if cold { rgb(60, 120, 255) } else { rgb(230, 50, 50) };
+            for y in y0..=y1 {
+                let fx = 40.0 + 4.0 * (y as f32 * 0.22 + t * 0.3).sin();
+                cv.set(fx as i32, y, c);
+                if (y - y0) % 6 == 2 {
+                    for k in 1..3 {
+                        for j in -(2 - k)..=(2 - k) {
+                            cv.set(fx as i32 + k, y + j, c);
+                        }
                     }
                 }
-                if let Some(Some(g)) = cv.text.get_mut(row * cv.w + col) {
-                    g.fg = scale(g.fg, 0.3);
-                    g.bg = g.bg.map(|b| scale(b, 0.3));
+            }
+        }
+    }
+    // The radar (or the snow), drifting with the wind.
+    let wet = matches!(s, Sky::Drizzle | Sky::Rain | Sky::Storm | Sky::Snow);
+    if wet || matches!(s, Sky::Cloudy) {
+        let to = (f.wind_from + 180.0).to_radians();
+        let (vx, vy) = (to.sin() * 1.6, -to.cos() * 1.6);
+        let (mw, mh) = ((x1 - x0) as f32, (y1 - y0) as f32);
+        for i in 0..7 {
+            let r = 3.0 + hash(i, 11) * 4.0;
+            let bx = x0 as f32 + (hash(i, 5) * mw + vx * t).rem_euclid(mw);
+            let by = y0 as f32 + (hash(i, 9) * mh + vy * t).rem_euclid(mh);
+            for y in (by - r) as i32..=(by + r) as i32 {
+                for x in (bx - r * 1.4) as i32..=(bx + r * 1.4) as i32 {
+                    if x < x0 || x > x1 || y < y0 || y > y1 {
+                        continue;
+                    }
+                    let d = (((x as f32 - bx) / 1.4).powi(2) + (y as f32 - by).powi(2)).sqrt() / r;
+                    if d > 1.0 {
+                        continue;
+                    }
+                    let c = match s {
+                        Sky::Snow => if d < 0.4 { rgb(255, 255, 255) } else { rgb(150, 190, 255) },
+                        Sky::Cloudy => rgb(225, 228, 235),
+                        Sky::Storm if d < 0.3 => rgb(230, 40, 40),
+                        _ if d < 0.45 && s != Sky::Drizzle => rgb(250, 220, 40),
+                        _ => rgb(40, 200, 70),
+                    };
+                    cv.blend(x, y, c, if s == Sky::Cloudy { 0.45 } else { 0.7 } * (1.0 - d * 0.5));
                 }
+            }
+        }
+    }
+    // The sky now, top right; the town, its name and its temperature.
+    icon(cv, t, s, f.day, 64, 3, 13);
+    cv.rect(49, 12, 3, 3, rgb(20, 20, 20));
+    cv.set(50, 13, rgb(255, 255, 255));
+    let town: String = place.split(',').next().unwrap_or(place).trim().chars().take(20).collect();
+    cv.label(53, 6, &town, rgb(255, 255, 255), Some(rgb(20, 44, 24)));
+    let warm = if f.units == Units::Us { f.temp >= 60.0 } else { f.temp >= 15.0 };
+    cv.label(42, 6, &format!(" {:.0}{} ", f.temp, f.units.temp()), rgb(255, 255, 255), Some(if warm { rgb(200, 70, 40) } else { rgb(40, 90, 200) }));
+    // The frame, and the bar over it.
+    let edge = rgb(170, 180, 205);
+    line(cv, (x0 as f32 - 1.0, y0 as f32 - 1.0), (x1 as f32 + 1.0, y0 as f32 - 1.0), edge, 1);
+    line(cv, (x0 as f32 - 1.0, y1 as f32 + 1.0), (x1 as f32 + 1.0, y1 as f32 + 1.0), edge, 1);
+    line(cv, (x0 as f32 - 1.0, y0 as f32 - 1.0), (x0 as f32 - 1.0, y1 as f32 + 1.0), edge, 1);
+    line(cv, (x1 as f32 + 1.0, y0 as f32 - 1.0), (x1 as f32 + 1.0, y1 as f32 + 1.0), edge, 1);
+    let bar = rgb(16, 30, 90);
+    cv.label(x0 as usize, 0, &" ".repeat((x1 - x0 + 1) as usize), bar, Some(bar));
+    cv.label(x0 as usize, 0, " LIVE ", rgb(255, 255, 255), Some(rgb(200, 30, 30)));
+    cv.label(x0 as usize + 7, 0, "doppler 7 · storm tracker", rgb(255, 230, 140), Some(bar));
+}
+
+/// The weatherman: suit, red tie, the mic at his chin, his other arm at
+/// the map; his mouth moves while he's `talking`.
+fn weatherman(cv: &mut Canvas, t: f32, talking: bool) {
+    let (skin, hair, suit, shade) = (rgb(224, 172, 130), rgb(70, 45, 30), rgb(32, 42, 86), rgb(22, 30, 62));
+    // Shoulders down, the jacket's lapels darker.
+    for y in 14..H {
+        let (a, b) = match y {
+            14 => (5, 15),
+            15 => (4, 16),
+            _ => (3, 17),
+        };
+        for x in a..=b {
+            cv.set(x, y, if (x == 8 || x == 12) && y < 21 { shade } else { suit });
+        }
+    }
+    // The shirt and the tie.
+    cv.rect(9, 14, 3, 1, rgb(235, 235, 240));
+    cv.set(9, 15, rgb(235, 235, 240));
+    cv.set(11, 15, rgb(235, 235, 240));
+    line(cv, (10.0, 15.0), (10.0, 19.0), rgb(180, 30, 40), 1);
+    cv.rect(9, 20, 3, 3, rgb(180, 30, 40));
+    // The head: hair, ears, eyes, the mouth.
+    cv.rect(9, 13, 3, 1, skin);
+    cv.rect(8, 7, 5, 6, skin);
+    cv.set(7, 9, skin);
+    cv.set(13, 9, skin);
+    cv.rect(7, 5, 7, 2, hair);
+    cv.set(7, 7, hair);
+    cv.set(13, 7, hair);
+    cv.set(9, 9, rgb(30, 20, 20));
+    cv.set(11, 9, rgb(30, 20, 20));
+    if talking && (t * 7.0).sin() > 0.0 {
+        cv.rect(10, 11, 1, 2, rgb(70, 20, 25));
+    } else {
+        cv.rect(9, 11, 3, 1, rgb(170, 100, 90));
+    }
+    // The arm at the map, swaying as he points things out.
+    let hand = (22.0 + 1.5 * (t * 1.3).sin(), 9.0 + 2.0 * (t * 0.9).sin());
+    line(cv, (15.0, 16.0), hand, suit, 2);
+    cv.rect(hand.0 as i32, hand.1 as i32 - 1, 2, 2, skin);
+    cv.set(hand.0 as i32 + 2, hand.1 as i32 - 1, skin);
+    // The mic arm: elbow down, hand at the chin, the mic over it.
+    line(cv, (4.0, 16.0), (4.0, 24.0), suit, 2);
+    line(cv, (4.0, 24.0), (7.0, 17.0), suit, 2);
+    cv.rect(6, 15, 2, 2, skin);
+    line(cv, (7.0, 15.0), (7.0, 13.0), rgb(130, 130, 140), 1);
+    cv.rect(6, 14, 2, 1, rgb(200, 40, 40));
+    cv.rect(6, 11, 2, 2, rgb(45, 45, 50));
+}
+
+/// The lower third: an edged box across the bottom, the title in its top
+/// edge, the lines (a page) in it.
+fn lower_third(cv: &mut Canvas, title: &str, lines: &[String]) {
+    let (panel, edge, ink, lit) = (rgb(14, 20, 42), rgb(90, 120, 175), rgb(235, 240, 255), rgb(255, 230, 140));
+    let (x0, r0, x1, r1) = THIRD;
+    // A shadow down the right.
+    for row in r0 + 1..=r1 {
+        for y in [2 * row, 2 * row + 1] {
+            if let Some(c) = cv.get(x1 as i32 + 1, y as i32) {
+                cv.set(x1 as i32 + 1, y as i32, scale(c, 0.3));
             }
         }
     }
@@ -653,9 +814,23 @@ fn forecast_box(cv: &mut Canvas, title: &str, lines: &[String]) {
     cv.label(x0 + 2, r0, "[ ", edge, Some(panel));
     cv.label(x0 + 4, r0, &title, lit, Some(panel));
     cv.label(x0 + 4 + title.chars().count(), r0, " ]", edge, Some(panel));
-    for (i, l) in lines.iter().enumerate() {
-        cv.label(x0 + 2, r0 + 2 + i, l, ink, Some(panel));
+    for (i, l) in lines.iter().take(PAGE).enumerate() {
+        cv.label(x0 + 2, r0 + 1 + i, l, ink, Some(panel));
     }
+}
+
+/// The studio: the backdrop, the map, the man, the lower third.
+fn studio(cv: &mut Canvas, t: f32, f: &Forecast, place: &str, title: &str, lines: &[String], talking: bool) {
+    cv.clear_labels();
+    for y in 0..H {
+        for x in 0..W {
+            let light = (1.0 - ((x as f32 - 10.0) / 14.0).powi(2)).max(0.0) * 0.5;
+            cv.set(x, y, add(mix(rgb(8, 12, 30), rgb(22, 30, 64), y as f32 / H as f32), rgb(40, 50, 90), light));
+        }
+    }
+    weather_map(cv, t, f, place);
+    weatherman(cv, t, talking);
+    lower_third(cv, title, lines);
 }
 
 // ---- the door ----------------------------------------------------------------
@@ -840,7 +1015,7 @@ impl Session {
         self.screen.write_bytes(&out);
     }
 
-    /// `f`: the AI reads the forecast, over the picture.
+    /// `f`: the AI reads the forecast, a weatherman at the map.
     #[cfg(feature = "ai")]
     async fn weather_forecaster(&mut self, st: &mut Stage, f: &Forecast, place: &str) -> io::Result<()> {
         let cfg = self.state.config().ai.clone();
@@ -857,7 +1032,7 @@ impl Session {
             .map(|d| format!("{}: {}, high {:.0}, low {:.0}, {:.0}% chance of rain or snow", weekday(&d.date), words(d.code), d.hi, d.lo, d.wet))
             .collect();
         let system = "You're the weather forecaster on a local TV station's late news, reading the forecast for a caller to a \
-            bulletin board system. Write 5 to 7 short sentences: now, the next day or two, and the week ahead, warm and a little \
+            bulletin board system. Write 4 or 5 short sentences: now, the next day or two, and the week ahead, warm and a little \
             showy, with one bit of practical advice (a coat, an umbrella, sunscreen). Plain text for an 80-column terminal: no \
             markdown, no emoji, no lists. Use the units given and don't invent numbers.";
         let prompt = format!(
@@ -888,7 +1063,7 @@ impl Session {
                     a = &mut ask => break a,
                     _ = tokio::time::sleep(self.idle_pause(110)) => {
                         let t = st.t();
-                        draw(&mut st.cv, t, f, place);
+                        studio(&mut st.cv, t, f, place, &format!("coming up: the forecast for {place}"), &[], false);
                         self.stage_show(st, true).await?;
                         if self.key_waiting().await? {
                             let k = self.read_key().await?;
@@ -917,13 +1092,36 @@ impl Session {
             return Ok(());
         };
         self.screen.write_bytes(format!("\x1b[{STATUS_ROW};1H\x1b[0m\x1b[K").as_bytes());
-        let lines: Vec<String> = text.lines().flat_map(|l| crate::multinode::wrap(l.trim(), 70)).filter(|l| !l.is_empty()).take(16).collect();
-        let t = st.t();
-        draw(&mut st.cv, t, f, place);
-        forecast_box(&mut st.cv, &format!("the forecast for {place}"), &lines);
-        self.stage_show(st, false).await?;
-        self.stage_line(MSG_ROW, &painted("press a key", [150, 160, 180]), st.truecolor);
-        self.read_key().await?;
+        // He reads it a line at a time, a page at a time; a key shows the
+        // rest of the page, then the next.
+        let lines: Vec<String> = text.lines().flat_map(|l| crate::multinode::wrap(l.trim(), THIRD.2 - THIRD.0 - 4)).filter(|l| !l.is_empty()).collect();
+        let title = format!("the forecast for {place}");
+        let pages: Vec<&[String]> = lines.chunks(PAGE).collect();
+        for (n, page) in pages.iter().enumerate() {
+            let more = n + 1 < pages.len();
+            self.stage_line(MSG_ROW, &painted(if more { "a key for more" } else { "press a key" }, [150, 160, 180]), st.truecolor);
+            let start = st.t();
+            let mut all = false;
+            loop {
+                let t = st.t();
+                let read = (t - start) / LINE_SECS;
+                let shown = if all { page.len() } else { (read as usize + 1).min(page.len()) };
+                studio(&mut st.cv, t, f, place, &title, &page[..shown], !all && read < page.len() as f32);
+                self.stage_show(st, true).await?;
+                if self.key_waiting().await? {
+                    let k = self.read_key().await?;
+                    if matches!(k, Key::Esc) || k.upper() == Some('Q') {
+                        return Ok(());
+                    }
+                    if shown < page.len() {
+                        all = true;
+                        continue;
+                    }
+                    break;
+                }
+                tokio::time::sleep(self.idle_pause(110)).await;
+            }
+        }
         Ok(())
     }
 
