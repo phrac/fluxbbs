@@ -132,7 +132,12 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   Software's AI-WX door but our own: the sky over the caller's place in
   animated half-block pixels, the temperature large, the next 24 hours
   and the week, from Open-Meteo; `f` has the AI read it like a TV
-  forecaster. A caller's place is kept; `WX <place>` shows a fixed one.
+  forecaster, a weatherman at a map with radar and fronts, his words in
+  the lower third. `h` is the last 30 days against the 1991-2020 normal
+  and the day's records since 1940, `d` the U.S. Drought Monitor for the
+  caller's county (and the rain against the normal anywhere), `n` the
+  country on a map colored by the temperature, the cities' readings on
+  it. A caller's place is kept; `WX <place>` shows a fixed one.
   A profile location that's only a state or a country isn't used: it
   asks the town.
   ([BUILDING](BUILDING.md))

@@ -4,17 +4,22 @@
 //! and snow falling, lightning now and then), the temperature large,
 //! the conditions beside it, the next 24 hours as a line and the week as
 //! a strip of days. With the AI built in and on, `f` has it read the
-//! forecast like a TV weatherman.
+//! forecast like a TV weatherman. `h` is the last month against the
+//! normal and the records for the day (`history`), `d` the U.S. Drought
+//! Monitor for the caller's county (`drought`), `n` the country's
+//! weather on a map (`nation`).
 //!
 //! Forecasts come from Open-Meteo (open-meteo.com: free, no key), kept
 //! ten minutes a place. A caller's place is the one they last picked,
 //! else their profile's location, else they're asked; `WX <place>` on a
 //! menu shows a fixed place instead.
 
+use std::any::Any;
 use std::collections::HashMap;
+use std::future::Future;
 use std::io;
 use std::path::Path;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use rusqlite::{Connection, OptionalExtension, params};
@@ -23,6 +28,10 @@ use serde_json::Value;
 use crate::input::{Key, ReadOpts};
 use crate::pixels::{Canvas, Rgb, Stage, add, hash, ink, mix, painted, rgb, scale};
 use crate::session::Session;
+
+mod drought;
+mod history;
+mod nation;
 
 const MSG_ROW: u16 = 23;
 const STATUS_ROW: u16 = 24;
@@ -84,25 +93,67 @@ impl Units {
     fn speed(self) -> &'static str {
         if self == Units::Us { "mph" } else { "km/h" }
     }
+    fn rain(self) -> &'static str {
+        if self == Units::Us { "in" } else { "mm" }
+    }
+    /// Rain, to the hundredth of an inch or the millimeter.
+    fn rain_amount(self, v: f32) -> String {
+        if self == Units::Us { format!("{v:.2} {}", self.rain()) } else { format!("{v:.0} {}", self.rain()) }
+    }
+    /// Open-Meteo's parameters for these units.
+    fn query(self) -> Vec<(&'static str, String)> {
+        if self == Units::Us {
+            vec![("temperature_unit", "fahrenheit".into()), ("wind_speed_unit", "mph".into()), ("precipitation_unit", "inch".into())]
+        } else {
+            Vec::new()
+        }
+    }
+    fn fahrenheit(self, t: f32) -> f32 {
+        if self == Units::Us { t } else { t * 9.0 / 5.0 + 32.0 }
+    }
+}
+
+/// The TV map's color for a temperature: purple through blue, green,
+/// yellow and orange to red.
+fn temp_color(units: Units, t: f32) -> Rgb {
+    const STOPS: [(f32, [u8; 3]); 8] =
+        [(-10.0, [150, 80, 200]), (10.0, [90, 90, 230]), (32.0, [60, 140, 255]), (50.0, [60, 200, 120]), (65.0, [230, 220, 60]), (80.0, [250, 150, 40]), (95.0, [230, 50, 40]), (110.0, [150, 20, 30])];
+    let f = units.fahrenheit(t);
+    let c = |i: usize| rgb(STOPS[i].1[0], STOPS[i].1[1], STOPS[i].1[2]);
+    if f <= STOPS[0].0 {
+        return c(0);
+    }
+    for i in 1..STOPS.len() {
+        if f <= STOPS[i].0 {
+            return mix(c(i - 1), c(i), (f - STOPS[i - 1].0) / (STOPS[i].0 - STOPS[i - 1].0));
+        }
+    }
+    c(STOPS.len() - 1)
 }
 
 /// Places callers picked, and forecasts lately fetched.
 pub struct WeatherStore {
     db: Mutex<Connection>,
     cache: Mutex<HashMap<String, (Instant, Forecast)>>,
+    /// The rest (the almanac, the drought, the country), each kept as long
+    /// as its reader says.
+    memo: Mutex<HashMap<String, Kept>>,
 }
+
+/// Something the weather keeps, and when it was fetched.
+type Kept = (Instant, Arc<dyn Any + Send + Sync>);
 
 impl WeatherStore {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let mut db = crate::sysdata::open_db(path)?;
         crate::sysdata::migrate(&mut db, "weather", SCHEMA, &[])?;
-        Ok(Self { db: Mutex::new(db), cache: Mutex::default() })
+        Ok(Self { db: Mutex::new(db), cache: Mutex::default(), memo: Mutex::default() })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
         let mut db = Connection::open_in_memory()?;
         crate::sysdata::migrate(&mut db, "weather", SCHEMA, &[])?;
-        Ok(Self { db: Mutex::new(db), cache: Mutex::default() })
+        Ok(Self { db: Mutex::new(db), cache: Mutex::default(), memo: Mutex::default() })
     }
 
     pub fn place(&self, user: u32) -> Option<Place> {
@@ -129,6 +180,19 @@ impl WeatherStore {
 
     fn cached(&self, key: &str) -> Option<Forecast> {
         self.cache.lock().unwrap_or_else(|e| e.into_inner()).get(key).filter(|(at, _)| at.elapsed() < KEEP).map(|(_, f)| f.clone())
+    }
+
+    /// Something kept under `key`, if it's younger than `keep`.
+    fn recall<T: Clone + Send + Sync + 'static>(&self, key: &str, keep: Duration) -> Option<T> {
+        let m = self.memo.lock().unwrap_or_else(|e| e.into_inner());
+        m.get(key).filter(|(at, _)| at.elapsed() < keep).and_then(|(_, v)| v.downcast_ref::<T>().cloned())
+    }
+
+    /// Keep `v` under `key` (anything a day old goes).
+    fn remember<T: Send + Sync + 'static>(&self, key: String, v: T) {
+        let mut m = self.memo.lock().unwrap_or_else(|e| e.into_inner());
+        m.retain(|_, (at, _)| at.elapsed() < Duration::from_secs(86_400));
+        m.insert(key, (Instant::now(), Arc::new(v)));
     }
 
     fn keep(&self, key: String, f: &Forecast) {
@@ -984,6 +1048,18 @@ impl Session {
                     self.weather_forecaster(st, &f, &place.name).await?;
                     st.enc.forget();
                 }
+                Some('H') => {
+                    self.weather_history(st, place, units).await?;
+                    st.enc.forget();
+                }
+                Some('D') => {
+                    self.weather_drought(st, place, units).await?;
+                    st.enc.forget();
+                }
+                Some('N') => {
+                    self.weather_nation(st, place, units).await?;
+                    st.enc.forget();
+                }
                 _ if matches!(key, Key::Esc) => return Ok(()),
                 Some('Q') => return Ok(()),
                 _ => {}
@@ -991,11 +1067,60 @@ impl Session {
         }
     }
 
+    /// Wait for `fut`, drawing `frame` meanwhile; None if the caller gave
+    /// up (Esc or q).
+    async fn weather_wait<F: Future>(&mut self, st: &mut Stage, fut: F, mut frame: impl FnMut(&mut Canvas, f32)) -> io::Result<Option<F::Output>> {
+        tokio::pin!(fut);
+        loop {
+            tokio::select! {
+                v = &mut fut => return Ok(Some(v)),
+                _ = tokio::time::sleep(self.idle_pause(110)) => {
+                    let t = st.t();
+                    frame(&mut st.cv, t);
+                    self.stage_show(st, true).await?;
+                    if self.key_waiting().await? {
+                        let k = self.read_key().await?;
+                        if matches!(k, Key::Esc) || k.upper() == Some('Q') {
+                            return Ok(None);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    /// Draw `frame` until a key, and say which.
+    async fn weather_hold(&mut self, st: &mut Stage, mut frame: impl FnMut(&mut Canvas, f32)) -> io::Result<Key> {
+        loop {
+            let t = st.t();
+            frame(&mut st.cv, t);
+            self.stage_show(st, true).await?;
+            if self.key_waiting().await? {
+                return self.read_key().await;
+            }
+            tokio::time::sleep(self.idle_pause(110)).await;
+        }
+    }
+
+    /// The bottom row of a page off the weather: its keys, then a note.
+    fn weather_footer(&mut self, st: &Stage, note: &str) {
+        let mut out = format!("\x1b[{STATUS_ROW};1H\x1b[0m\x1b[K ").into_bytes();
+        ink(&mut out, [130, 140, 160], st.truecolor);
+        out.extend(b"[");
+        ink(&mut out, [255, 230, 140], st.truecolor);
+        out.extend(b"q");
+        ink(&mut out, [130, 140, 160], st.truecolor);
+        out.extend(b"]uit  ");
+        out.extend(fluxbbs_term::cp437::encode(note));
+        out.extend(b"\x1b[0m");
+        self.screen.write_bytes(&out);
+    }
+
     fn weather_status(&mut self, st: &Stage, fixed: bool) {
         let mut out = format!("\x1b[{STATUS_ROW};1H\x1b[0m\x1b[K ").into_bytes();
         let ai = cfg!(feature = "ai") && self.state.config().ai.enabled && self.state.config().weather.ai_forecast;
         let mut first = true;
-        for (k, rest) in [("f", "orecaster"), ("l", "ocation"), ("q", "uit")] {
+        for (k, rest) in [("f", "orecaster"), ("h", "istory"), ("d", "rought"), ("n", "ation"), ("l", "ocation"), ("q", "uit")] {
             if (k == "f" && !ai) || (k == "l" && fixed) {
                 continue;
             }
