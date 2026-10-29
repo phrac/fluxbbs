@@ -272,6 +272,7 @@ impl Session {
             "*W" if self.is_sysop() => self.screen_viewer().await?,
             // New: the TheDraw fonts, the board's names set in each.
             "*J" if self.is_sysop() => self.font_viewer().await?,
+            "*-" if self.is_sysop() => self.message_trash().await?,
             "AG" => self.art_gallery().await?,
             "UT" => self.choose_theme().await?,
             "UK" => self.ssh_keys_edit().await?,

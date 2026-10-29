@@ -1632,7 +1632,7 @@ impl Session {
                     Some('D') if self.ok_to_delete(a, &m) => {
                         let mut x = m.clone();
                         x.deleted = !x.deleted;
-                        self.state.msgs.set_deleted(x.id, x.deleted).map_err(io_err)?;
+                        self.state.msgs.set_deleted(x.id, x.deleted, &self.user.handle).map_err(io_err)?;
                         tracing::info!("{}: message {} in {} {}", self.user.handle, x.num, a.area.name, if x.deleted { "deleted" } else { "undeleted" });
                         cur = None;
                     }

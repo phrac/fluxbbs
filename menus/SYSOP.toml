@@ -261,6 +261,15 @@ on = "|B1Font viewer"
 off = "|B0Font viewer"
 
 [[command]]
+keys = "-"
+command = "*-"
+acs = "s250"
+desc = "Message trash"
+help = "[sysop] Deleted posts: restore them, or purge them now"
+on = "|B1Message trash"
+off = "|B0Message trash"
+
+[[command]]
 keys = "X"
 command = "*X"
 acs = "s250"

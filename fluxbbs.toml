@@ -124,6 +124,9 @@ board_create_acs = ""
 board_folder = ""
 boards_per_caller = 1
 board_empty_days = 30
+# Deleted posts wait in the trash (*- on the SysOp menu) this many days,
+# restorable, then go for good (0: kept).
+keep_deleted_days = 30
 
 [files]
 use_file_points = false

@@ -217,6 +217,19 @@ there, and it says so. Both settings are in `[messages]`, and in `*C`,
 Caller Boards ("Take-back minutes", "Burn points"). Moderators deleting
 someone else's post still use the usual delete.
 
+#### The trash
+
+A deleted post (and a burned one's stub) goes to the trash, with when
+and by whom. `D` on it again in the reader brings it back, and `*-` on
+the SysOp menu lists the whole trash, newest first, with the days each
+has left: a number, then `R` restores it, `V` reads it, `P` purges it
+now. After `keep_deleted_days` (`[messages]`, 30 to start; 0 keeps them)
+the board purges it for good, with its comments' links, pins, pushes
+and attachment, checking at startup and then daily, so there's no event
+to set up. In the original, deleted messages stayed till the SysOp
+packed the area (`maPackArea`). Deleted email doesn't wait: it's gone at
+once.
+
 #### Editor hints
 
 As the full-screen editor opens, its prompt row shows one of the
@@ -601,7 +614,7 @@ An event's command goes to the shell, or is one of the built-in jobs:
 
 | Job | Does |
 |---|---|
-| `pack-messages` | removes callers' boards never posted in (`board_empty_days`); messages themselves are never packed away |
+| `pack-messages` | removes callers' boards never posted in (`board_empty_days`); deleted messages go from the trash by themselves ([The trash](#the-trash)) |
 | `pack-files` | packs the file areas |
 | `backup [DAYS] [DIR]` | backs up the database and settings, keeping DAYS days (new; [SYSOP](SYSOP.md#backups)) |
 | `dos COMMAND` | runs a DOS program or batch file in the built-in machine, for a door's maintenance |

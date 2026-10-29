@@ -964,3 +964,9 @@ FontViewFind = "|U4Find a font |U5(|U4file or face name|U5)|U4: |U3"
 FontViewNone = "|U4No TheDraw fonts in |U6%S1|U5 (|U4[paths] fonts|U5)|U4."
 # Posting uploaded ANSI as it came (new).
 MsgUploadAsIs = "|U4That's ANSI|U5: |U4post it as uploaded, without the editor |U5(|U4which would cut its lines|U5)|U4? "
+# The trash (new): deleted posts, restorable till they're purged.
+TrashEmpty = "|U1 The trash is empty."
+TrashWhich = "|U4Which |U5(|U4number|U5, |U4enter quits|U5)|U4: |U3"
+TrashOne = "|U4%S1 #%S2 |U5» |U3%S3 |U5(|U4deleted by %S4|U5)"
+TrashWhat = "|U5[|U3R|U5]|U4estore  |U5[|U3V|U5]|U4iew  |U5[|U3P|U5]|U4urge now  |U5[|U3Q|U5]|U4uit: |U3"
+TrashSure = "|U4Gone for good, no undoing it|U5. |U4Sure? "

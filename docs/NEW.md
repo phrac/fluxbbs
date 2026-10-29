@@ -504,6 +504,10 @@ All in [DOORS](DOORS.md).
 - `*W` screen viewer: every screen with its random variants and weekday
   overrides, and any one shown as a caller sees it, effects and all.
   Art taller than the screen scrolls. ([ARTWORK](ARTWORK.md#trying-a-screen))
+- `*-` the trash: deleted posts, newest first, with who deleted them and
+  the days left before they're purged (`[messages] keep_deleted_days`,
+  30 to start), to restore, read or purge now; the board empties it
+  daily by itself. ([FEATURES](FEATURES.md#the-trash))
 - `*J` font viewer: every TheDraw font in `fonts/` (`[paths] fonts`), a
   face at a time, with the board's name, short name and super short
   name set in it, cut off at the screen's edge; `n`/`p` step, `f` finds
@@ -544,6 +548,7 @@ All in [DOORS](DOORS.md).
 | `*O` | logon sequence |
 | `*W` | screen viewer: any screen or variant, as callers see it |
 | `*J` | font viewer: the board's names in every TheDraw font |
+| `*-` | the trash: deleted posts to restore or purge |
 
 ### New display codes
 

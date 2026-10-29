@@ -280,7 +280,7 @@ impl Session {
             }
         } else if self.ok_to_delete(a, &m) {
             m.deleted = !m.deleted;
-            self.state.msgs.set_deleted(m.id, m.deleted).map_err(io_err)?;
+            self.state.msgs.set_deleted(m.id, m.deleted, &self.user.handle).map_err(io_err)?;
             self.say_line(if m.deleted { "MsgDeleted" } else { "MsgUndeleted" }).await?;
             tracing::info!("{}: message {} in {} {}, plain text", self.user.handle, m.num, a.area.name, if m.deleted { "deleted" } else { "undeleted" });
         } else {

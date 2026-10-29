@@ -1239,6 +1239,9 @@ pub struct Messages {
     /// New: the storage key of the area new callers start in (blank: the
     /// first), so it stays put when areas are moved.
     pub new_user_area: String,
+    /// New: days a deleted post stays in the trash, restorable, before
+    /// it's gone for good (0: kept).
+    pub keep_deleted_days: u32,
 }
 
 impl Default for Messages {
@@ -1273,6 +1276,7 @@ impl Default for Messages {
             take_back_minutes: 15,
             burn_points: 25,
             new_user_area: String::new(),
+            keep_deleted_days: 30,
         }
     }
 }

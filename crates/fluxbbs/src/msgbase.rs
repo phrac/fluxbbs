@@ -47,6 +47,19 @@ pub struct Message {
     pub lines: Vec<String>,
 }
 
+/// New: a post in the trash (deleted, not yet purged).
+#[derive(Debug, Clone)]
+pub struct Trashed {
+    pub id: i64,
+    pub area: String,
+    pub num: u32,
+    pub from: String,
+    pub subject: String,
+    /// When it was deleted (None if that wasn't kept).
+    pub at: Option<NaiveDateTime>,
+    pub by: String,
+}
+
 /// A push (new, after PTT's 推/噓/→): a one-line reaction under a message,
 /// up (1), down (-1) or a comment (0). A caller has one vote on a
 /// message; comments may repeat.
@@ -154,6 +167,10 @@ const STEPS: &[Step] = &[
     // When a reply began waiting for its parent (they're given up a
     // while after they came, not after they were written).
     Step::Column("ftn_replies", "at", "TEXT NOT NULL DEFAULT ''"),
+    // The trash: when a post was deleted (board time) and by whom; it
+    // goes for good `keep_deleted_days` later.
+    Step::Column("messages", "deleted_at", "TEXT NOT NULL DEFAULT ''"),
+    Step::Column("messages", "deleted_by", "TEXT NOT NULL DEFAULT ''"),
 ];
 
 const SCHEMA: &str = "
@@ -181,6 +198,8 @@ CREATE TABLE IF NOT EXISTS messages (
     body       TEXT NOT NULL,
     tag        INTEGER NOT NULL DEFAULT 0,
     reply_to   INTEGER NOT NULL DEFAULT 0,
+    deleted_at TEXT NOT NULL DEFAULT '',
+    deleted_by TEXT NOT NULL DEFAULT '',
     UNIQUE (area, num)
 );
 CREATE TABLE IF NOT EXISTS attachments (
@@ -563,8 +582,9 @@ impl MsgBase {
     }
 
     /// Delete or undelete a message, leaving the rest of the row alone (a
-    /// copy read earlier mustn't undo an edit made since).
-    pub fn set_deleted(&self, id: i64, deleted: bool) -> anyhow::Result<()> {
+    /// copy read earlier mustn't undo an edit made since). New: a deleted
+    /// one is in the trash, with when and `by` whom, till it's purged.
+    pub fn set_deleted(&self, id: i64, deleted: bool, by: &str) -> anyhow::Result<()> {
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         let row: Option<(i64, bool, bool)> =
@@ -572,7 +592,8 @@ impl MsgBase {
         if let Some((parent, private, was)) = row
             && was != deleted
         {
-            tx.execute("UPDATE messages SET deleted = ?2 WHERE id = ?1", params![id, deleted])?;
+            let (at, by) = if deleted { (crate::clock::now().naive_local().to_string(), by) } else { (String::new(), "") };
+            tx.execute("UPDATE messages SET deleted = ?2, deleted_at = ?3, deleted_by = ?4 WHERE id = ?1", params![id, deleted, at, by])?;
             if parent != 0 {
                 let by = if deleted { "MAX(replies - 1, 0)" } else { "replies + 1" };
                 tx.execute(&format!("UPDATE messages SET replies = {by} WHERE id = ?1 AND {COUNTS}"), params![parent, private])?;
@@ -644,6 +665,50 @@ impl MsgBase {
         tx.execute("UPDATE messages SET reply_to = 0 WHERE reply_to = ?1", [id])?;
         tx.commit()?;
         Ok(())
+    }
+
+    /// New: the trash, the latest deleted first.
+    pub fn trash(&self) -> anyhow::Result<Vec<Trashed>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare(
+            "SELECT id, area, num, from_name, subject, deleted_at, deleted_by FROM messages WHERE deleted ORDER BY deleted_at DESC, id DESC",
+        )?;
+        let rows = stmt
+            .query_map([], |r| {
+                let at: String = r.get(5)?;
+                Ok(Trashed {
+                    id: r.get(0)?,
+                    area: r.get(1)?,
+                    num: r.get(2)?,
+                    from: r.get(3)?,
+                    subject: r.get(4)?,
+                    at: NaiveDateTime::parse_from_str(&at, "%Y-%m-%d %H:%M:%S%.f").ok(),
+                    by: r.get(6)?,
+                })
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// New: posts deleted with no date kept (before the trash) are dated
+    /// `now`, so their days start from it.
+    pub fn date_trash(&self, now: NaiveDateTime) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.execute("UPDATE messages SET deleted_at = ?1 WHERE deleted AND deleted_at = ''", [now.to_string()])? as u32)
+    }
+
+    /// New: empty the trash of what was deleted before `before`. Returns
+    /// how many went.
+    pub fn purge_trash(&self, before: NaiveDateTime) -> anyhow::Result<u32> {
+        let ids: Vec<i64> = {
+            let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+            let mut stmt = db.prepare("SELECT id FROM messages WHERE deleted AND deleted_at != '' AND deleted_at < ?1")?;
+            stmt.query_map([before.to_string()], |r| r.get(0))?.collect::<Result<_, _>>()?
+        };
+        for id in &ids {
+            self.purge(*id)?;
+        }
+        Ok(ids.len() as u32)
     }
 
     /// Purge an area's deleted messages (email earlier versions kept
@@ -1079,7 +1144,7 @@ impl MsgBase {
             tx.commit()?;
             attached
         };
-        self.set_deleted(msg_id, true)?;
+        self.set_deleted(msg_id, true, "its author")?;
         Ok(attached)
     }
 
@@ -1398,6 +1463,31 @@ mod tests {
     }
 
     #[test]
+    fn the_trash_keeps_then_empties() {
+        let mb = MsgBase::open_memory().unwrap();
+        let mut a = msg("GEN", "All", "first");
+        mb.add(&mut a).unwrap();
+        let mut b = msg("GEN", "All", "second");
+        mb.add(&mut b).unwrap();
+        assert!(mb.trash().unwrap().is_empty());
+        mb.set_deleted(a.id, true, "phrac").unwrap();
+        let t = mb.trash().unwrap();
+        assert_eq!((t.len(), t[0].id, t[0].by.as_str(), t[0].num), (1, a.id, "phrac", a.num));
+        assert!(t[0].at.is_some(), "when it went is kept");
+        // Restored, it's out of the trash and keeps nothing of it.
+        mb.set_deleted(a.id, false, "phrac").unwrap();
+        assert!(mb.trash().unwrap().is_empty());
+        mb.set_deleted(a.id, true, "phrac").unwrap();
+        mb.set_deleted(b.id, true, "Fiend").unwrap();
+        // Only what was deleted before the cutoff goes.
+        let now = crate::clock::now().naive_local();
+        assert_eq!(mb.purge_trash(now - chrono::Duration::days(1)).unwrap(), 0);
+        assert_eq!(mb.purge_trash(now + chrono::Duration::seconds(5)).unwrap(), 2);
+        assert!(mb.by_id(a.id).unwrap().is_none() && mb.by_id(b.id).unwrap().is_none());
+        assert!(mb.trash().unwrap().is_empty());
+    }
+
+    #[test]
     fn private_and_deleted_replies_dont_count() {
         let mb = MsgBase::open_memory().unwrap();
         let mut p = msg("GEN", "All", "public");
@@ -1409,10 +1499,10 @@ mod tests {
         r.reply_to = p.id;
         mb.add(&mut r).unwrap();
         assert_eq!(mb.by_id(p.id).unwrap().unwrap().replies, 1, "the private reply isn't shown");
-        mb.set_deleted(r.id, true).unwrap();
-        mb.set_deleted(r.id, true).unwrap();
+        mb.set_deleted(r.id, true, "sysop").unwrap();
+        mb.set_deleted(r.id, true, "sysop").unwrap();
         assert_eq!(mb.by_id(p.id).unwrap().unwrap().replies, 0);
-        mb.set_deleted(r.id, false).unwrap();
+        mb.set_deleted(r.id, false, "sysop").unwrap();
         assert_eq!(mb.by_id(p.id).unwrap().unwrap().replies, 1);
         // Between private messages, it counts.
         let mut q = msg("EMAIL", "Fiend", "letter");
@@ -1458,7 +1548,7 @@ mod tests {
         mb.purge(b.id).unwrap();
         assert!(mb.by_id(b.id).unwrap().is_none());
         assert_eq!(mb.by_id(a.id).unwrap().unwrap().replies, 0, "the reply no longer counts");
-        mb.set_deleted(c.id, true).unwrap();
+        mb.set_deleted(c.id, true, "sysop").unwrap();
         assert_eq!(mb.purge_deleted("EMAIL").unwrap(), 1);
         let left: Vec<String> = mb.all("EMAIL").unwrap().into_iter().map(|m| m.lines[0].clone()).collect();
         assert_eq!(left, ["hi"]);
@@ -1525,7 +1615,7 @@ mod tests {
         assert_eq!(mb.karma(1).unwrap(), (1, 1, 1));
         assert_eq!(mb.recent_pushes(at(5)).unwrap().len(), 2);
         assert_eq!(mb.remove_pushes(a.id, 2).unwrap(), 3);
-        mb.set_deleted(b.id, true).unwrap();
+        mb.set_deleted(b.id, true, "sysop").unwrap();
         assert!(mb.recent_pushes(at(0)).unwrap().iter().all(|p| p.0 == a.id));
         mb.purge(b.id).unwrap();
         assert!(mb.pushes(b.id).unwrap().is_empty());

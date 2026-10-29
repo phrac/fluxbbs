@@ -101,6 +101,7 @@ mod ftntoss;
 mod filebase;
 mod files;
 mod transfer;
+mod trash;
 #[cfg(feature = "effects")]
 mod tvoff;
 mod upltest;
@@ -719,6 +720,7 @@ async fn main() -> anyhow::Result<()> {
         tracing::warn!("ftn: {p}");
     }
     tokio::spawn(events::scheduler(state.clone()));
+    tokio::spawn(trash::keeper(state.clone()));
     #[cfg(feature = "meshcore")]
     tokio::spawn(meshcore::run(state.clone()));
     #[cfg(feature = "ftn")]

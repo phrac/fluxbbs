@@ -979,10 +979,10 @@ mod tests {
         std::fs::remove_file(&files[0]).unwrap();
         // Deleted when scanned, restored after: it still goes.
         let gone = post("second thoughts", 0, vec!["x"]);
-        state.msgs.set_deleted(gone.id, true).unwrap();
+        state.msgs.set_deleted(gone.id, true, "SysOp").unwrap();
         post("after it", 0, vec!["y"]);
         assert_eq!(scan(&state).unwrap(), 1);
-        state.msgs.set_deleted(gone.id, false).unwrap();
+        state.msgs.set_deleted(gone.id, false, "SysOp").unwrap();
         assert_eq!(scan(&state).unwrap(), 1);
         assert_eq!(scan(&state).unwrap(), 0);
         let _ = std::fs::remove_dir_all(&dir);
