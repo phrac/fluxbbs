@@ -27,8 +27,8 @@ will do for a first call), or telnet to `disfluxbbs.com`.
 
 | | |
 |---|---|
-| ![Message boards](docs/screenshots/boards.png) | ![Threads](docs/screenshots/threads.png) |
-| **Message boards** after PTT: what's new, who moderates, the latest post, and boards callers run themselves. AgoraNet echomail sits in its own folder. | **Threads**, with up and down votes and reply counts. Comments sit under each post. |
+| ![Message boards](docs/screenshots/boards.png) | ![A thread as a tree](docs/screenshots/threads.png) |
+| **Message boards** after PTT: what's new, who moderates, the latest post, and boards callers run themselves. AgoraNet echomail sits in its own folder. | **A thread as a tree**: replies and comments hang under what they answer, with the post's up and down votes. |
 | ![The message editor](docs/screenshots/editor.png) | ![Online games](docs/screenshots/doors.png) |
 | **The full-screen editor** in vim mode. `9dd` trimmed the quote to the part being answered. `ins nor` in the status bar is normal mode. | **Doors**: LORD, BRE and Tradewars in a DOS machine built into the board, native ones like Usurper, and games written for disflux. |
 | ![AI chat](docs/screenshots/ai.png) | ![The art gallery](docs/screenshots/gallery.png) |
