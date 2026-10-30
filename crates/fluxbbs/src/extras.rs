@@ -739,7 +739,8 @@ impl Session {
     /// `userConfiguration` (`UC`). USERCFG.ANS marks each field with
     /// `~XY`: X is the field (A password .. O zip code; new: P SSH keys,
     /// Q the profile, R time zone, S text mode, T-V code and Markdown
-    /// colors, W animations, X the screen saver), Y the key that edits
+    /// colors, W animations, X the screen saver, Y the email address, Z
+    /// the editor's keys), Y the key that edits
     /// it. `~**` is where the command key is read.
     pub async fn user_config(&mut self) -> io::Result<()> {
         self.user_config_screen("USERCFG").await
@@ -861,6 +862,8 @@ impl Session {
             'Y' if u.mail_address.is_empty() => "none".into(),
             'Y' if u.mail_verified.is_empty() => format!("{} (unconfirmed)", squish(&u.mail_address, 14)),
             'Y' => squish(&u.mail_address, 28),
+            // New: vim keys in the full-screen editor, or its own.
+            'Z' => if u.editor_keys == "vim" { "vim" } else { "standard" }.into(),
             'X' => match crate::sysconfig::SAVERS.iter().find(|s| s.0 == u.saver) {
                 Some(s) => s.0.into(),
                 None => "board's".into(),
@@ -923,6 +926,7 @@ impl Session {
                 self.apply_text_mode();
             }
             'W' => self.user.animate = if self.user.animate == "off" { String::new() } else { "off".into() },
+            'Z' => self.user.editor_keys = if self.user.editor_keys == "vim" { String::new() } else { "vim".into() },
             // Change or confirm it (`UV`).
             #[cfg(feature = "email")]
             'Y' if self.email_on() => self.email_check("").await?,
@@ -1025,6 +1029,7 @@ impl Session {
             ('V', 'M', "Markdown theme"),
             ('W', 'V', "Animations"),
             ('X', 'D', "Screen saver"),
+            ('Z', 'I', "Editor keys"),
         ]
         .to_vec();
         // New: the email address, where the board asks for one.
@@ -1052,7 +1057,7 @@ impl Session {
             self.newline();
             let Some(c) = key.upper().filter(|_| !matches!(key, Key::Enter | Key::Esc)) else { return Ok(()) };
             if let Some(&(f, _, name)) = items.iter().find(|(_, k, _)| *k == c) {
-                if !"AHIJKLMNRSTUVWXY".contains(f) {
+                if !"AHIJKLMNRSTUVWXYZ".contains(f) {
                     self.show(&format!("|U1{name}|U2: |U3")).await?;
                 }
                 self.edit_user_field(f).await?;

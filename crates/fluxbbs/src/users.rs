@@ -95,7 +95,8 @@ CREATE TABLE IF NOT EXISTS users (
     animate       TEXT NOT NULL DEFAULT '',
     saver         TEXT NOT NULL DEFAULT '',
     mail_address  TEXT NOT NULL DEFAULT '',
-    mail_verified TEXT NOT NULL DEFAULT ''
+    mail_verified TEXT NOT NULL DEFAULT '',
+    editor_keys   TEXT NOT NULL DEFAULT ''
 );
 -- New: a SysOp's private notes on a caller, dated, for SysOps only.
 CREATE TABLE IF NOT EXISTS user_notes (
@@ -120,7 +121,7 @@ const COLUMNS: &[&str] = &[
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
     "file_scan", "theme", "last_rep", "bank_time", "bank_kb", "bank_time_in", "bank_time_out",
     "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "last_call_at", "area_sort",
-    "fav_boards", "profile_header", "show_real_name", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate", "saver", "mail_address", "mail_verified",
+    "fav_boards", "profile_header", "show_real_name", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate", "saver", "mail_address", "mail_verified", "editor_keys",
 ];
 
 fn write(db: &Connection, u: &User) -> anyhow::Result<()> {
@@ -163,6 +164,7 @@ const STEPS: &[Step] = &[
     Step::Column("users", "bank_time_out", "INTEGER NOT NULL DEFAULT 0"),
     Step::Column("users", "bank_kb_in", "INTEGER NOT NULL DEFAULT 0"),
     Step::Column("users", "bank_kb_out", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("users", "editor_keys", "TEXT NOT NULL DEFAULT ''"),
 ];
 
 fn palette_to_text(p: &Palette) -> String {
@@ -266,6 +268,7 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         saver: r.get("saver")?,
         mail_address: r.get("mail_address")?,
         mail_verified: r.get("mail_verified")?,
+        editor_keys: r.get("editor_keys")?,
     })
 }
 
@@ -313,6 +316,7 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.saver.clone()),
         Box::new(u.mail_address.clone()),
         Box::new(u.mail_verified.clone()),
+        Box::new(u.editor_keys.clone()),
     ]
 }
 

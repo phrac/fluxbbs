@@ -110,6 +110,9 @@ pub struct User {
     /// New: their screen saver (`rain`, `stars`, `fire`, `random`);
     /// blank for the board's.
     pub saver: String,
+    /// New: `vim` for vim keys in the full-screen editor; blank for its
+    /// own.
+    pub editor_keys: String,
     /// New: their email address (`emailver`), shown to them and SysOps
     /// only, and the day it was confirmed (blank: not yet).
     pub mail_address: String,
@@ -207,6 +210,7 @@ impl Default for User {
             md_theme: String::new(),
             animate: String::new(),
             saver: String::new(),
+            editor_keys: String::new(),
             mail_address: String::new(),
             mail_verified: String::new(),
             time_zone: String::new(),
@@ -320,6 +324,7 @@ impl User {
                 md_theme,
                 animate,
                 saver,
+                editor_keys,
                 mail_address,
                 mail_verified,
             ],
@@ -414,6 +419,7 @@ impl User {
                 md_theme,
                 animate,
                 saver,
+                editor_keys,
                 mail_address,
                 mail_verified,
                             total_calls,

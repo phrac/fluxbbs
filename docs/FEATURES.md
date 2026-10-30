@@ -239,6 +239,30 @@ on the main menu tells the SysOp what the board should do. They're the
 strings `FsHint1`, `FsHint2`... (`*E` changes them; add more by number,
 or blank one to drop it).
 
+#### Vim keys
+
+A caller who sets "editor keys" to vim in their configuration (`UC`,
+field `Z`; `i` on disflux's screen) gets vim's two modes in the
+full-screen editor. It opens in normal mode, and the insert flag (`~IN`)
+shows `nor` there:
+
+- `h` `j` `k` `l` (and the arrows), `w` `b`, `0` `^` `$`, `gg` `G`
+  (`5G` for line 5);
+- `dd` deletes the line (`3dd` three: the quickest way to drop quoted
+  lines you're not answering), `yy` copies it, `p` and `P` put them
+  below or above, `x` and `D` delete characters, `J` joins lines, `u`
+  undoes;
+- `i` `a` `I` `A` `o` `O` start typing, and Esc goes back to normal
+  mode;
+- `:` is the command line: `:w`, `:wq` or `:x` save (posting is
+  saving and leaving at once), `:q` asks before throwing the message
+  away and `:q!` doesn't, `:12` goes to line 12, and `:` with Enter
+  alone opens the editor's own commands (title, quote, anonymous...).
+  `ZZ` saves too.
+
+Counts work before any of them. Ctrl-X still saves in either mode, and
+the arrows, PgUp/PgDn and the Ctrl keys work as always.
+
 #### Attachments
 
 A file can be attached to a message. This follows the manual.

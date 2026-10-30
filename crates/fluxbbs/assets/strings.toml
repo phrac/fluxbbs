@@ -970,3 +970,7 @@ TrashWhich = "|U4Which |U5(|U4number|U5, |U4enter quits|U5)|U4: |U3"
 TrashOne = "|U4%S1 #%S2 |U5» |U3%S3 |U5(|U4deleted by %S4|U5)"
 TrashWhat = "|U5[|U3R|U5]|U4estore  |U5[|U3V|U5]|U4iew  |U5[|U3P|U5]|U4urge now  |U5[|U3Q|U5]|U4uit: |U3"
 TrashSure = "|U4Gone for good, no undoing it|U5. |U4Sure? "
+# The message editor's vim keys (new): the mode, in the prompt row.
+FsVimNormal = "|U2-- |U1normal |U2-- |U3i a o|U1 type  |U3dd|U1 delete line  |U3u|U1 undo  |U3:wq|U1 save  |U3:q!|U1 abort"
+FsVimInsert = "|U2-- |U1insert |U2-- |U3esc|U1 back to normal"
+FsVimUnknown = "|U1unknown|U2: |U3%S1|U2 (|U3:wq :q :q! :N|U2, |U3:|U2 and enter for the menu)"

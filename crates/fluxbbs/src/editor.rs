@@ -39,6 +39,9 @@ pub struct Draft {
     pub col: usize,
     pub insert: bool,
     cut: Option<Vec<char>>,
+    /// Vim keys: what `dd` and `yy` took, and what `u` goes back to.
+    reg: Vec<Vec<char>>,
+    undo: Vec<(Vec<Vec<char>>, usize, usize)>,
 }
 
 impl Draft {
@@ -48,7 +51,7 @@ impl Draft {
         if lines.is_empty() {
             lines.push(Vec::new());
         }
-        Self { lines, row: 0, col: 0, insert: true, cut: None }
+        Self { lines, row: 0, col: 0, insert: true, cut: None, reg: Vec::new(), undo: Vec::new() }
     }
 
     pub fn line(&self, i: usize) -> Option<String> {
@@ -294,6 +297,344 @@ impl Draft {
         self.row = (self.row as isize + rows).clamp(0, self.lines.len() as isize - 1) as usize;
         self.clamp_col();
     }
+
+    /// Vim's normal mode sits on a character, never after the last.
+    pub fn normal_col(&mut self) {
+        self.col = self.col.min(self.lines[self.row].len().saturating_sub(1));
+    }
+
+    /// Esc out of insert mode: back one, as vim does.
+    pub fn vim_normal(&mut self) {
+        self.col = self.col.saturating_sub(1);
+        self.normal_col();
+    }
+
+    fn snapshot(&mut self) {
+        if self.undo.len() >= 100 {
+            self.undo.remove(0);
+        }
+        self.undo.push((self.lines.clone(), self.row, self.col));
+    }
+
+    fn first_char(&mut self) {
+        self.col = self.lines[self.row].iter().position(|&c| c != ' ').unwrap_or(0);
+    }
+
+    fn go_row(&mut self, row: usize) {
+        self.trim_cur();
+        self.row = row.min(self.lines.len() - 1);
+    }
+
+    /// `w`: the start of the next word, on this line or a later one.
+    fn word_fwd(&mut self) {
+        let class = |c: char| if c == ' ' { 0 } else if c.is_alphanumeric() || c == '_' { 1 } else { 2 };
+        let line = &self.lines[self.row];
+        let mut col = self.col;
+        if let Some(&c) = line.get(col) {
+            let k = class(c);
+            while line.get(col).is_some_and(|&c| class(c) == k && k != 0) {
+                col += 1;
+            }
+        }
+        while line.get(col) == Some(&' ') {
+            col += 1;
+        }
+        if col < line.len() {
+            self.col = col;
+        } else if self.row + 1 < self.lines.len() {
+            self.go_row(self.row + 1);
+            self.first_char();
+        }
+    }
+
+    /// `b`: the start of this word, or of the one before.
+    fn word_back(&mut self) {
+        let class = |c: char| if c.is_alphanumeric() || c == '_' { 1 } else { 2 };
+        if self.lines[self.row][..self.col.min(self.lines[self.row].len())].iter().all(|&c| c == ' ') {
+            if self.row == 0 {
+                self.col = 0;
+                return;
+            }
+            self.go_row(self.row - 1);
+            self.col = self.lines[self.row].len();
+            if self.col == 0 {
+                return;
+            }
+        }
+        let line = &self.lines[self.row];
+        let mut col = self.col.min(line.len());
+        while col > 0 && line[col - 1] == ' ' {
+            col -= 1;
+        }
+        if col > 0 {
+            let k = class(line[col - 1]);
+            while col > 0 && line[col - 1] != ' ' && class(line[col - 1]) == k {
+                col -= 1;
+            }
+        }
+        self.col = col;
+    }
+
+    /// `dd`: `n` lines into the register, and gone.
+    fn delete_lines(&mut self, n: usize) -> Redraw {
+        let row = self.row;
+        let end = (row + n).min(self.lines.len());
+        self.reg = self.lines.drain(row..end).collect();
+        if self.lines.is_empty() {
+            self.lines.push(Vec::new());
+        }
+        self.row = row.min(self.lines.len() - 1);
+        self.first_char();
+        Redraw::From(row.min(self.row))
+    }
+
+    /// `p` and `P`: the register's lines below or above this one.
+    fn put(&mut self, below: bool) -> Redraw {
+        let room = MAX_LINES.saturating_sub(self.lines.len());
+        if self.reg.is_empty() || room == 0 {
+            return Redraw::Cursor;
+        }
+        let at = if below { self.row + 1 } else { self.row };
+        let n = self.reg.len().min(room);
+        let new: Vec<Vec<char>> = self.reg[..n].to_vec();
+        self.lines.splice(at..at, new);
+        self.trim_cur();
+        self.row = at;
+        self.first_char();
+        Redraw::From(at.min(self.row))
+    }
+
+    /// `o` and `O`: a new line below or above, to type on.
+    fn open_line(&mut self, below: bool) -> Redraw {
+        if self.lines.len() >= MAX_LINES {
+            return Redraw::Cursor;
+        }
+        self.trim_cur();
+        let at = if below { self.row + 1 } else { self.row };
+        self.lines.insert(at, Vec::new());
+        self.row = at;
+        self.col = 0;
+        Redraw::From(at)
+    }
+
+    /// `J`: the next line onto this one, a space between.
+    fn join(&mut self) -> Redraw {
+        let row = self.row;
+        if row + 1 >= self.lines.len() {
+            return Redraw::Cursor;
+        }
+        self.trim_cur();
+        let next: Vec<char> = self.lines[row + 1].iter().copied().skip_while(|&c| c == ' ').collect();
+        let len = self.lines[row].len();
+        let sep = usize::from(len > 0 && !next.is_empty());
+        if len + sep + next.len() > WIDTH {
+            return Redraw::Cursor;
+        }
+        self.lines.remove(row + 1);
+        if sep == 1 {
+            self.cur().push(' ');
+        }
+        self.cur().extend(next);
+        self.col = len;
+        Redraw::From(row)
+    }
+
+    /// New: vim's normal mode (the caller's `editor_keys`). What a key
+    /// did, or `Pass` for a key the editor handles as it always does
+    /// (the arrows, Ctrl-X, Ctrl-L...).
+    pub fn vim_key(&mut self, vim: &mut Vim, key: Key) -> VimDo {
+        use VimDo::{Commands, Edit, Insert, Pass, Save};
+        let c = match key {
+            Key::Char(c @ 0x20..=0x7E) => c as char,
+            Key::Enter => '+',
+            Key::Backspace => 'h',
+            Key::Del => 'x',
+            Key::Ins => 'i',
+            Key::Esc | Key::Tab => {
+                *vim = Vim::default();
+                return Edit(Redraw::Cursor);
+            }
+            _ => {
+                *vim = Vim::default();
+                return Pass;
+            }
+        };
+        let given = vim.count > 0;
+        if let Some(first) = vim.pending.take() {
+            let n = std::mem::take(&mut vim.count).max(1);
+            return match (first, c) {
+                ('d', 'd') => {
+                    self.snapshot();
+                    Edit(self.delete_lines(n))
+                }
+                ('y', 'y') => {
+                    self.reg = self.lines[self.row..(self.row + n).min(self.lines.len())].to_vec();
+                    Edit(Redraw::Cursor)
+                }
+                ('g', 'g') => {
+                    self.go_row(if given { n - 1 } else { 0 });
+                    self.first_char();
+                    Edit(Redraw::Cursor)
+                }
+                ('Z', 'Z') => Save,
+                _ => Edit(Redraw::Cursor),
+            };
+        }
+        if let Some(d) = c.to_digit(10)
+            && (d > 0 || given)
+        {
+            vim.count = (vim.count * 10 + d as usize).min(999);
+            return Edit(Redraw::Cursor);
+        }
+        let n = std::mem::take(&mut vim.count).max(1);
+        let last = self.lines.len() - 1;
+        let change = match c {
+            'd' | 'y' | 'g' | 'Z' => {
+                vim.pending = Some(c);
+                vim.count = if given { n } else { 0 };
+                return Edit(Redraw::Cursor);
+            }
+            'h' => {
+                self.col = self.col.saturating_sub(n);
+                Redraw::Cursor
+            }
+            'l' => {
+                self.col += n;
+                Redraw::Cursor
+            }
+            'j' | '+' => {
+                self.go_row(self.row + n);
+                if c == '+' {
+                    self.first_char();
+                }
+                Redraw::Cursor
+            }
+            'k' | '-' => {
+                self.go_row(self.row.saturating_sub(n));
+                if c == '-' {
+                    self.first_char();
+                }
+                Redraw::Cursor
+            }
+            'w' => {
+                (0..n).for_each(|_| self.word_fwd());
+                Redraw::Cursor
+            }
+            'b' => {
+                (0..n).for_each(|_| self.word_back());
+                Redraw::Cursor
+            }
+            '0' => {
+                self.col = 0;
+                Redraw::Cursor
+            }
+            '^' => {
+                self.first_char();
+                Redraw::Cursor
+            }
+            '$' => {
+                self.col = usize::MAX;
+                Redraw::Cursor
+            }
+            'G' => {
+                self.go_row(if given { n - 1 } else { last });
+                self.first_char();
+                Redraw::Cursor
+            }
+            'x' => {
+                if self.lines[self.row].is_empty() {
+                    return Edit(Redraw::Cursor);
+                }
+                self.snapshot();
+                let (row, col) = (self.row, self.col.min(self.lines[self.row].len() - 1));
+                let end = (col + n).min(self.lines[row].len());
+                self.lines[row].drain(col..end);
+                Redraw::Line(row)
+            }
+            'D' => {
+                self.snapshot();
+                let (row, col) = (self.row, self.col);
+                self.lines[row].truncate(col);
+                Redraw::Line(row)
+            }
+            'J' => {
+                self.snapshot();
+                let row = self.row;
+                (0..n.max(2) - 1).for_each(|_| {
+                    self.join();
+                });
+                Redraw::From(row)
+            }
+            'p' | 'P' => {
+                self.snapshot();
+                self.put(c == 'p')
+            }
+            'u' => match self.undo.pop() {
+                Some((lines, row, col)) => {
+                    (self.lines, self.row, self.col) = (lines, row, col);
+                    Redraw::From(0)
+                }
+                None => Redraw::Cursor,
+            },
+            'i' | 'a' | 'I' | 'A' | 'o' | 'O' => {
+                self.snapshot();
+                let len = self.lines[self.row].len();
+                let change = match c {
+                    'a' => {
+                        self.col = (self.col + 1).min(len);
+                        Redraw::Cursor
+                    }
+                    'I' => {
+                        self.first_char();
+                        Redraw::Cursor
+                    }
+                    'A' => {
+                        self.col = len;
+                        Redraw::Cursor
+                    }
+                    'o' | 'O' => self.open_line(c == 'o'),
+                    _ => Redraw::Cursor,
+                };
+                return Insert(change);
+            }
+            ':' => return Commands,
+            _ => Redraw::Cursor,
+        };
+        self.normal_col();
+        Edit(change)
+    }
+}
+
+/// New: vim keys' state between keys: normal mode or not, a count typed
+/// before a command, and the first key of `dd`, `yy`, `gg` or `ZZ`.
+#[derive(Debug, Default)]
+pub struct Vim {
+    pub normal: bool,
+    count: usize,
+    pending: Option<char>,
+}
+
+/// What vim's command line did.
+#[derive(Debug, PartialEq)]
+enum Ex {
+    Save,
+    Abort,
+    Done,
+    /// Done, with a word in the prompt row till the next key.
+    Said,
+}
+
+/// What a key did in vim's normal mode.
+#[derive(Debug, PartialEq)]
+pub enum VimDo {
+    Edit(Redraw),
+    /// Into insert mode.
+    Insert(Redraw),
+    /// `:`, the editor's command prompt.
+    Commands,
+    /// `ZZ`.
+    Save,
+    Pass,
 }
 
 /// What's being written, for the editor's header and commands.
@@ -570,7 +911,8 @@ impl Session {
     /// messages wait until it's done, so they don't land in the text.
     pub async fn edit_message(&mut self, ctx: EditCtx<'_>) -> io::Result<Option<EditResult>> {
         let held = std::mem::replace(&mut self.hold_node_msgs, true);
-        let result = self.edit_message_inner(ctx).await;
+        // Boxed: the editor's state is too big for a worker's stack.
+        let result = Box::pin(self.edit_message_inner(ctx)).await;
         self.hold_node_msgs = held;
         result
     }
@@ -594,11 +936,58 @@ impl Session {
         // name); the best match shows dimmed after the cursor, Tab takes it.
         let names = self.mention_names();
         let mut ghost: Option<usize> = None;
+        // New: vim keys, for a caller who asked for them; normal mode first.
+        let mut vim = (self.user.editor_keys == "vim").then(|| Vim { normal: true, ..Vim::default() });
+        if let Some(vm) = &vim {
+            d.normal_col();
+            if hinted {
+                self.fs_flag(*b"IN", "nor");
+                self.fs_render(&d, &mut v, Redraw::Cursor);
+            } else {
+                self.fs_mode(vm, &d, &mut v).await?;
+            }
+        }
         let saved = loop {
             let key = self.read_key().await?;
             if std::mem::take(&mut hinted) {
                 self.fs_info_clear(&d, &v);
-                self.fs_render(&d, &mut v, Redraw::Cursor);
+                match &vim {
+                    Some(vm) => self.fs_mode(vm, &d, &mut v).await?,
+                    None => self.fs_render(&d, &mut v, Redraw::Cursor),
+                }
+            }
+            if let Some(vm) = vim.as_mut() {
+                if vm.normal {
+                    match d.vim_key(vm, key) {
+                        VimDo::Edit(change) => {
+                            self.fs_render(&d, &mut v, change);
+                            continue;
+                        }
+                        VimDo::Insert(change) => {
+                            vm.normal = false;
+                            self.fs_render(&d, &mut v, change);
+                            self.fs_mode(vm, &d, &mut v).await?;
+                            continue;
+                        }
+                        VimDo::Commands => match self.fs_ex(&mut ctx, &mut d, &mut v).await? {
+                            Ex::Save => break true,
+                            Ex::Abort => break false,
+                            ex => {
+                                hinted = ex == Ex::Said;
+                                d.normal_col();
+                                self.fs_mode(vm, &d, &mut v).await?;
+                                continue;
+                            }
+                        },
+                        VimDo::Save => break true,
+                        VimDo::Pass => {}
+                    }
+                } else if key == Key::Esc {
+                    vm.normal = true;
+                    d.vim_normal();
+                    self.fs_mode(vm, &d, &mut v).await?;
+                    continue;
+                }
             }
             if let Some(row) = ghost.take()
                 && (v.first..v.first + v.rows as usize).contains(&row)
@@ -676,6 +1065,9 @@ impl Session {
                 Key::Char(c @ 0x80..=0xFF) => d.type_char(fluxbbs_term::cp437::TO_UNICODE[c as usize]),
                 _ => Redraw::Cursor,
             };
+            if vim.as_ref().is_some_and(|vm| vm.normal) {
+                d.normal_col();
+            }
             self.fs_render(&d, &mut v, change);
             let (typed, matches) = mention_matches(&names, &d);
             if let Some(first) = matches.first() {
@@ -961,6 +1353,69 @@ impl Session {
         self.show(&s).await
     }
 
+    /// New: vim's command line, at `:`. `:w`, `:wq` and `:x` save (which,
+    /// a message being posted, is also leaving), `:q` asks before it
+    /// throws the message away and `:q!` doesn't, `:N` goes to line N,
+    /// and Enter alone opens the editor's own commands.
+    async fn fs_ex(&mut self, ctx: &mut EditCtx<'_>, d: &mut Draft, v: &mut View) -> io::Result<Ex> {
+        self.screen.goto(1, v.info);
+        self.set_slot(Slot::Text);
+        self.screen.clear_eol();
+        self.write(":");
+        let typed = self.read_string(ReadOpts::new(20).esc_cancels()).await?;
+        let escaped = std::mem::take(&mut self.escaped);
+        self.fs_info_clear(d, v);
+        if escaped {
+            return Ok(Ex::Done);
+        }
+        let cmd = typed.trim();
+        match cmd {
+            "" => {
+                return Ok(match self.fs_command(ctx, d, v).await? {
+                    Some(true) => Ex::Save,
+                    Some(false) => Ex::Abort,
+                    None => Ex::Done,
+                });
+            }
+            "w" | "w!" | "wq" | "wq!" | "x" | "x!" => {
+                self.fs_info("FsSavingMsg", v).await?;
+                return Ok(Ex::Save);
+            }
+            "q!" | "cq" => return Ok(Ex::Abort),
+            "q" => {
+                self.fs_info("FsAskAbort", v).await?;
+                if self.yes_no(false).await? {
+                    return Ok(Ex::Abort);
+                }
+                self.fs_info_clear(d, v);
+            }
+            n if n.parse::<usize>().is_ok() => {
+                d.go_row(n.parse::<usize>().unwrap_or(1).saturating_sub(1));
+                d.first_char();
+            }
+            _ => {
+                self.screen.goto(1, v.info);
+                self.set_slot(Slot::Text);
+                self.screen.clear_eol();
+                let s = self.strings().fmt("FsVimUnknown", &[&fluxbbs_term::lit(cmd)]);
+                self.show(&s).await?;
+                return Ok(Ex::Said);
+            }
+        }
+        Ok(Ex::Done)
+    }
+
+    /// New: vim's mode, in the insert flag (`nor` in normal mode) and in
+    /// the prompt row when that row isn't one of the text's.
+    async fn fs_mode(&mut self, vim: &Vim, d: &Draft, v: &mut View) -> io::Result<()> {
+        self.fs_flag(*b"IN", if vim.normal { "nor" } else if d.insert { "On " } else { "Off" });
+        if !(v.top..v.top + v.rows).contains(&v.info) {
+            self.fs_info(if vim.normal { "FsVimNormal" } else { "FsVimInsert" }, v).await?;
+        }
+        self.fs_render(d, v, Redraw::Cursor);
+        Ok(())
+    }
+
     fn fs_info_clear(&mut self, d: &Draft, v: &View) {
         if (v.top..v.top + v.rows).contains(&v.info) {
             self.fs_line(d, v, v.first + (v.info - v.top) as usize);
@@ -1207,5 +1662,77 @@ mod tests {
         let mut d = Draft::new(&["@ph later".to_string()]);
         d.end();
         assert!(mention_matches(&names, &d).1.is_empty(), "the cursor has moved on");
+    }
+
+    fn vim(d: &mut Draft, vm: &mut Vim, keys: &str) -> VimDo {
+        let mut last = VimDo::Pass;
+        for c in keys.bytes() {
+            last = d.vim_key(vm, Key::Char(c));
+        }
+        last
+    }
+
+    fn lines(d: &Draft) -> Vec<String> {
+        (0..).map_while(|i| d.line(i)).collect()
+    }
+
+    #[test]
+    fn vim_dd_takes_quoted_lines_and_u_brings_them_back() {
+        let text: Vec<String> = ["Bob wrote:", "> one", "> two", "> three", "", "my reply"].map(String::from).to_vec();
+        let mut d = Draft::new(&text);
+        let mut vm = Vim { normal: true, ..Vim::default() };
+        assert_eq!(vim(&mut d, &mut vm, "j2dd"), VimDo::Edit(Redraw::From(1)));
+        assert_eq!(lines(&d), ["Bob wrote:", "> three", "", "my reply"]);
+        assert_eq!(d.row, 1);
+        vim(&mut d, &mut vm, "dd");
+        assert_eq!(lines(&d), ["Bob wrote:", "", "my reply"]);
+        vim(&mut d, &mut vm, "u");
+        assert_eq!(lines(&d), ["Bob wrote:", "> three", "", "my reply"]);
+        vim(&mut d, &mut vm, "uGp");
+        assert_eq!(lines(&d), ["Bob wrote:", "> one", "> two", "> three", "", "my reply", "> three"], "p puts what the last dd took");
+    }
+
+    #[test]
+    fn vim_motions_and_small_edits() {
+        let mut d = Draft::new(&["one two  three".to_string(), "  four".to_string()]);
+        let mut vm = Vim { normal: true, ..Vim::default() };
+        vim(&mut d, &mut vm, "w");
+        assert_eq!(d.col, 4);
+        vim(&mut d, &mut vm, "w");
+        assert_eq!(d.col, 9);
+        vim(&mut d, &mut vm, "w");
+        assert_eq!((d.row, d.col), (1, 2), "w goes on to the next line's first word");
+        vim(&mut d, &mut vm, "b");
+        assert_eq!((d.row, d.col), (0, 9));
+        vim(&mut d, &mut vm, "$");
+        assert_eq!(d.col, 13, "the last character, not after it");
+        vim(&mut d, &mut vm, "0x");
+        assert_eq!(lines(&d)[0], "ne two  three");
+        vim(&mut d, &mut vm, "J");
+        assert_eq!(lines(&d), ["ne two  three four"]);
+        vim(&mut d, &mut vm, "0wD");
+        assert_eq!(lines(&d), ["ne "]);
+        assert_eq!(d.col, 2);
+        vim(&mut d, &mut vm, "ggyyP");
+        assert_eq!(lines(&d), ["ne", "ne"], "trailing spaces go as the cursor leaves");
+    }
+
+    #[test]
+    fn vim_modes_and_commands() {
+        let mut d = Draft::new(&["abc".to_string()]);
+        let mut vm = Vim { normal: true, ..Vim::default() };
+        assert_eq!(vim(&mut d, &mut vm, "A"), VimDo::Insert(Redraw::Cursor));
+        assert_eq!(d.col, 3);
+        d.vim_normal();
+        assert_eq!(d.col, 2, "esc steps back, as vim does");
+        assert_eq!(vim(&mut d, &mut vm, "o"), VimDo::Insert(Redraw::From(1)));
+        assert_eq!(lines(&d), ["abc", ""]);
+        assert_eq!(vim(&mut d, &mut vm, ":"), VimDo::Commands);
+        assert_eq!(vim(&mut d, &mut vm, "ZZ"), VimDo::Save);
+        assert_eq!(d.vim_key(&mut vm, Key::Up), VimDo::Pass, "the arrows work as ever");
+        assert_eq!(vim(&mut d, &mut vm, "d"), VimDo::Edit(Redraw::Cursor));
+        assert_eq!(d.vim_key(&mut vm, Key::Esc), VimDo::Edit(Redraw::Cursor));
+        vim(&mut d, &mut vm, "d");
+        assert_eq!(lines(&d), ["abc", ""], "esc dropped the d, so a lone d is waiting again");
     }
 }

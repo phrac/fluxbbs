@@ -424,6 +424,7 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 | `~W?` | menus animating: on or off (new; plain-text key `v`) | none |
 | `~X?` | the screen saver: `board's`, `random`, `rain`, `stars` or `fire` (new; plain-text key `d`) | none |
 | `~Y?` | the email address, `(unconfirmed)` until its code comes back (new, with `[email]` on; plain-text key `o`) | none |
+| `~Z?` | the editor's keys: `standard` or `vim` (new; plain-text key `i`) | none |
 
 The second character is the field's key.
 
@@ -473,7 +474,7 @@ its marker, in the marker's color.
 | `~BL` | the text's last row; its color is the typed text's |
 | `~SL` | the row for prompts and hints (else the first text row) |
 | `~CM` | where the command key is typed (else a prompt asks) |
-| `~LN` / `~CN` / `~IN` | line, column, insert mode (`On`/`Off`) |
+| `~LN` / `~CN` / `~IN` | line, column, insert mode (`On`/`Off`; `nor` in vim's normal mode) |
 
 ### Chat
 
