@@ -337,6 +337,12 @@ pub struct MsgBase {
     /// Bumped by whatever can change what's new to someone (a post, a
     /// read, a delete), so figures kept from before know to look again.
     changes: std::sync::atomic::AtomicU64,
+    /// New: bumped by each post that lands, whoever wrote it (a caller,
+    /// FTN, QWK), so a list on someone's screen can redraw.
+    posted: std::sync::atomic::AtomicU64,
+    /// New: each post as it lands, for `newposts` to tell its board's
+    /// followers.
+    news: tokio::sync::broadcast::Sender<Message>,
 }
 
 impl MsgBase {
@@ -349,16 +355,26 @@ impl MsgBase {
         self.changes.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     }
 
+    /// How many posts have landed since the board started.
+    pub fn posted(&self) -> u64 {
+        self.posted.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Posts as they land, from now on.
+    pub fn subscribe(&self) -> tokio::sync::broadcast::Receiver<Message> {
+        self.news.subscribe()
+    }
+
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let mut db = crate::sysdata::open_db(path)?;
         migrate(&mut db, "msgbase", SCHEMA, STEPS)?;
-        Ok(Self { db: Mutex::new(db), changes: Default::default() })
+        Ok(Self { db: Mutex::new(db), changes: Default::default(), posted: Default::default(), news: tokio::sync::broadcast::channel(64).0 })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
         let mut db = Connection::open_in_memory()?;
         migrate(&mut db, "msgbase", SCHEMA, STEPS)?;
-        Ok(Self { db: Mutex::new(db), changes: Default::default() })
+        Ok(Self { db: Mutex::new(db), changes: Default::default(), posted: Default::default(), news: tokio::sync::broadcast::channel(64).0 })
     }
 
     /// Highest message number in an area (`mArea^.Msgs`).
@@ -385,7 +401,6 @@ impl MsgBase {
     /// Add a message, numbering it after the area's last (or keeping
     /// `m.num` if set, for imports).
     pub fn add(&self, m: &mut Message) -> anyhow::Result<()> {
-        self.changed();
         self.add_ftn(m, None)
     }
 
@@ -429,6 +444,10 @@ impl MsgBase {
         }
         db.commit()?;
         m.id = id;
+        self.changed();
+        self.posted.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        // Nobody listening (a tool, a test) is no error.
+        let _ = self.news.send(m.clone());
         Ok(())
     }
 

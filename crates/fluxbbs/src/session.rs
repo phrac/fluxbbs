@@ -50,6 +50,9 @@ pub enum BarPick {
     Quit,
     /// One of the spec's `keys`, with the row the bar was on (its `n`).
     Key(char, u32),
+    /// New: a post has landed (`bar_news`); draw the list again, the bar
+    /// on this row.
+    Refresh(u32),
 }
 
 /// A list for `area_bar`.
@@ -134,6 +137,14 @@ pub struct Session {
     pub(crate) cursor_reports: u32,
     /// The start of a cursor report whose end hasn't arrived yet.
     pub(crate) report_tail: Vec<u8>,
+    /// New: the posts count a key wait gives up at (`read_key_or_post`).
+    pub(crate) refresh_on: Option<u64>,
+    /// New: the posts count the next `area_bar` was drawn at, so it
+    /// redraws when one lands; None for a list that stays as it is.
+    pub(crate) bar_news: Option<u64>,
+    /// New: while a lightbar menu with a help line (`~HP`) waits, how much
+    /// of that line its text takes, so a notice can go there instead.
+    pub(crate) menu_help: Option<usize>,
     /// New: the terminal's answers to `ESC[c` and `ESC[<c` (without
     /// `ESC[` and `c`) and to DECRQSS (without `ESC P` and `ESC \`).
     pub(crate) device_attrs: Vec<String>,
@@ -405,6 +416,9 @@ impl Session {
             cursor_asks: 0,
             cursor_reports: 0,
             report_tail: Vec::new(),
+            refresh_on: None,
+            bar_news: None,
+            menu_help: None,
             device_attrs: Vec::new(),
             utf8_tail: Vec::new(),
             sent: 0,
@@ -1066,6 +1080,7 @@ impl Session {
     /// a digit no label goes on with starts a new number. `header` is
     /// for boards without the screens.
     pub async fn area_bar(&mut self, spec: &BarSpec<'_>) -> io::Result<BarPick> {
+        let news = self.bar_news.take();
         if self.plain() {
             return self.area_bar_plain(spec).await;
         }
@@ -1154,7 +1169,13 @@ impl Session {
                 self.write(&typed);
                 self.screen.clear_eol();
             }
-            let key = self.read_key().await?;
+            let key = match news {
+                Some(seen) => match self.read_key_or_post(seen).await? {
+                    Some(k) => k,
+                    None => return Ok(BarPick::Refresh(rows.get(cur).map_or(0, |r| r.n))),
+                },
+                None => self.read_key().await?,
+            };
             let prev = cur;
             let last = rows.len().saturating_sub(1);
             // While searching, text goes to the search and `/` again finds

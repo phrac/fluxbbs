@@ -31,6 +31,8 @@ pub enum NodeEvent {
     /// New: someone else (the SysOp, a vote) changed this node's caller's
     /// record, from `original` to `edited`; the session reads it again.
     AccountChanged { original: Box<crate::user::User>, edited: Box<crate::user::User> },
+    /// New: a line from the board itself (a post on a board they follow).
+    Notice { text: String },
 }
 
 impl NodeEvent {
@@ -122,6 +124,14 @@ impl Nodes {
     }
 
     /// (node number, info) for every busy node.
+    /// New: wake every node waiting for a key, to look again at what's on
+    /// its screen (a post has landed).
+    pub fn wake_all(&self) {
+        for w in &self.wakers {
+            w.notify_one();
+        }
+    }
+
     pub fn online(&self) -> Vec<(usize, NodeInfo)> {
         let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
         slots.iter().enumerate().filter_map(|(i, s)| s.clone().map(|n| (i + 1, n))).collect()
@@ -159,7 +169,7 @@ impl NodeGuard {
         // pages and SysOp chat events wait for `take_page` / `take_if`.
         let (take, keep): (Vec<_>, Vec<_>) = q
             .drain(..)
-            .partition(|e| matches!(e, NodeEvent::Message { .. }) || (chat && (e.is_chat() || matches!(e, NodeEvent::Kick { .. }))));
+            .partition(|e| matches!(e, NodeEvent::Message { .. } | NodeEvent::Notice { .. }) || (chat && (e.is_chat() || matches!(e, NodeEvent::Kick { .. }))));
         q.extend(keep);
         take
     }
@@ -203,7 +213,7 @@ impl NodeGuard {
     }
 
     pub fn has_messages(&self) -> bool {
-        self.nodes.inboxes.lock().unwrap_or_else(|e| e.into_inner())[self.index].iter().any(|e| matches!(e, NodeEvent::Message { .. }))
+        self.nodes.inboxes.lock().unwrap_or_else(|e| e.into_inner())[self.index].iter().any(|e| matches!(e, NodeEvent::Message { .. } | NodeEvent::Notice { .. }))
     }
 
     /// Wakes when something is sent to this node.

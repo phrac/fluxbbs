@@ -572,7 +572,13 @@ impl Session {
         let picked = loop {
             // After the screen saver, the menu's drawn again.
             let saver = menu.clear_before && self.animating();
-            let Some(key) = self.read_key_ambient(&mut ambient, saver).await? else { break "?".to_string() };
+            // A notice landing meanwhile goes in the help line (`menu_help`).
+            self.menu_help = has_help.then_some(help_len);
+            let key = self.read_key_ambient(&mut ambient, saver).await;
+            if let Some(len) = self.menu_help.take() {
+                help_len = len;
+            }
+            let Some(key) = key? else { break "?".to_string() };
             // New: Backspace brings the screen saver on at once (where
             // it can run); the menu's drawn again after.
             if key == Key::Backspace && saver && self.screensaver_now().await? {

@@ -283,6 +283,9 @@ All in [FEATURES](FEATURES.md#message-center).
   Deleted email goes for good, at once. Packing was for DOS-era disks.
 - Read tracking beyond the last-read pointer.
 - `MW` says how many posts are new at logon and offers to read them.
+- Live updates: lists of boards and threads redraw as posts land, and a
+  post on one of your boards is announced wherever you are.
+  ([FEATURES](FEATURES.md#live-updates))
 - Vim keys in the full-screen editor, for callers who ask for them (user
   config `Z`): `dd`, `3dd`, `u`, `o`, `:wq`, `:q!`, `ZZ` and the rest.
   ([FEATURES](FEATURES.md#vim-keys))

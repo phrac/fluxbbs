@@ -239,6 +239,19 @@ on the main menu tells the SysOp what the board should do. They're the
 strings `FsHint1`, `FsHint2`... (`*E` changes them; add more by number,
 or blank one to drop it).
 
+#### Live updates
+
+A post lands on the board, from a caller, echomail or QWK, and everyone
+online sees it without doing anything:
+
+- **On a board list or thread list**, the list draws itself again with
+  the post in it, the bar where it was.
+- **If the board is in your "my boards"** (or a folder of them is, such
+  as AgoraNet/), a line says so: `» new on General chat: the subject by
+  who`. It goes in the help line of a list or a lightbar menu, and
+  under the screen elsewhere. Not for your own posts, private mail, or
+  boards you can't read. The words are `NewPostNotice` (`*E`).
+
 #### Vim keys
 
 A caller who sets "editor keys" to vim in their configuration (`UC`,
@@ -250,8 +263,10 @@ shows `nor` there:
   (`5G` for line 5);
 - `dd` deletes the line (`3dd` three: the quickest way to drop quoted
   lines you're not answering), `yy` copies it, `p` and `P` put them
-  below or above, `x` and `D` delete characters, `J` joins lines, `u`
-  undoes;
+  below or above, `x`, `dw`, `d$` and `D` delete characters, `J` joins
+  lines, `u` undoes;
+- `cw` (or `ce`), `c$` (or `C`) and `cc` change the word, the rest of
+  the line or the whole line: it goes, and you're typing in its place;
 - `i` `a` `I` `A` `o` `O` start typing, and Esc goes back to normal
   mode;
 - `:` is the command line: `:w`, `:wq` or `:x` save (posting is
@@ -895,9 +910,7 @@ caller's own access allows:
 
 So it can say what's here and which keys to press.
 
-![The AI finding files on the board](screenshots/ai-files.png)
-
-![The AI giving the keys to download a file](screenshots/ai-howto.png)
+![The AI finding a pack and the keys to get it](screenshots/ai.png)
 
 ### Stats and context
 

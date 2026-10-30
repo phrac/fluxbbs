@@ -424,6 +424,9 @@ impl Session {
         let mut came_from: Option<u32> = None;
         loop {
             let level = path.last().copied();
+            // Counted before the figures, so a post landing while they're
+            // made still redraws them.
+            let posted = self.state.msgs.posted();
             let readers = self.readers_now();
             let week = crate::clock::now().naive_local() - chrono::Duration::days(7);
             let readable = self.readable_areas();
@@ -578,7 +581,10 @@ impl Session {
             };
             self.node.update(|n| n.activity = "Reading messages".into());
             let is_folder = |n: u32| n == FAV_ROW || (Some(n) != level && has_kids(n));
+            self.bar_news = Some(posted);
             match self.area_bar(&spec).await? {
+                // New: a post landed; the list again, the bar where it was.
+                BarPick::Refresh(n) => came_from = Some(n),
                 BarPick::Area(HOT_ROW) => {
                     if self.hot_list().await? {
                         return Ok(());
@@ -739,6 +745,7 @@ impl Session {
                 a = x;
             }
             let a = &a;
+            let posted = self.state.msgs.posted();
             let v = self.area_view(a)?;
             let by_id = v.by_id();
             let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
@@ -847,7 +854,10 @@ impl Session {
                 can_go_up: true,
                 keys: &keys,
             };
+            self.bar_news = Some(posted);
             match self.area_bar(&spec).await? {
+                // New: a post landed; the list again, the bar where it was.
+                BarPick::Refresh(n) => on_root = ts.get(n as usize).map(|t| t.msgs[0].0),
                 BarPick::Area(i) => {
                     let t = &ts[i as usize];
                     on_root = Some(t.msgs[0].0);

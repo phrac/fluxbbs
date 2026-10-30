@@ -974,3 +974,5 @@ TrashSure = "|U4Gone for good, no undoing it|U5. |U4Sure? "
 FsVimNormal = "|U2-- |U1normal |U2-- |U3i a o|U1 type  |U3dd|U1 delete line  |U3u|U1 undo  |U3:wq|U1 save  |U3:q!|U1 abort"
 FsVimInsert = "|U2-- |U1insert |U2-- |U3esc|U1 back to normal"
 FsVimUnknown = "|U1unknown|U2: |U3%S1|U2 (|U3:wq :q :q! :N|U2, |U3:|U2 and enter for the menu)"
+# A post on a board in the caller's "my boards", told as it lands (new).
+NewPostNotice = "|U2» |U1new on |U3%S1|U2: |U3%S2 |U1by |U3%S3"

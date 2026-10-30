@@ -237,6 +237,11 @@ impl Session {
                         if !self.hold_node_msgs && self.node.has_messages() {
                             self.show_node_messages();
                             self.flush().await?;
+                            // A notice for a list on screen is in its help
+                            // line: draw it again to show it.
+                            if self.refresh_on.is_some() && self.note.is_some() {
+                                return Ok(None);
+                            }
                         }
                         // Someone paging the SysOp here: ask, chat, then
                         // carry on waiting for whatever was being typed.
@@ -244,6 +249,10 @@ impl Session {
                             Box::pin(self.answer_page(from, user, reason)).await?;
                             self.flush().await?;
                             continue;
+                        }
+                        // New: a list on screen redraws once a post lands.
+                        if self.refresh_on.is_some_and(|seen| self.state.msgs.posted() != seen) {
+                            return Ok(None);
                         }
                         let waker = self.node.waker();
                         // Chat loops wait on the waker themselves (and
@@ -366,10 +375,28 @@ impl Session {
     /// Next key from the caller. Enter is a single `\r` whatever the
     /// client sends; VT/ANSI cursor-key sequences are decoded.
     pub async fn read_key(&mut self) -> io::Result<Key> {
+        // A prompt opened from a list waits for its key whatever lands.
+        let held = self.refresh_on.take();
+        let key = self.next_key().await;
+        self.refresh_on = held;
+        Ok(key?.expect("an idle wait without a refresh returns a key"))
+    }
+
+    /// New: [`Self::read_key`], or None once a post has landed since the
+    /// posts count was `seen` (`MsgBase::posted`): a list on screen
+    /// redraws.
+    pub async fn read_key_or_post(&mut self, seen: u64) -> io::Result<Option<Key>> {
+        let held = self.refresh_on.replace(seen);
+        let key = self.next_key().await;
+        self.refresh_on = held;
+        key
+    }
+
+    async fn next_key(&mut self) -> io::Result<Option<Key>> {
         loop {
-            let b = self.next_byte(Wait::Idle).await?.expect("idle wait returns a byte");
+            let Some(b) = self.next_byte(Wait::Idle).await? else { return Ok(None) };
             self.last_key = std::time::Instant::now();
-            return Ok(match b {
+            return Ok(Some(match b {
                 b'\r' | b'\n' => Key::Enter,
                 0x08 | 0x7F => Key::Backspace,
                 b'\t' => Key::Tab,
@@ -381,7 +408,7 @@ impl Session {
                     None => continue,
                 },
                 c => Key::Char(c),
-            });
+            }));
         }
     }
 

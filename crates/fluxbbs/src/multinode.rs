@@ -89,6 +89,35 @@ impl Session {
     /// Show node messages that have arrived (`nodeRead` for `nd_msg`).
     pub fn show_node_messages(&mut self) {
         for ev in self.node.take(false) {
+            if let NodeEvent::Notice { text } = &ev {
+                // A list on screen is about to redraw (`read_key_or_post`):
+                // its help line has room, where this would be wiped.
+                if self.refresh_on.is_some() {
+                    self.note = Some(text.clone());
+                    continue;
+                }
+                // A lightbar menu's help line, where its hints go.
+                if let Some(len) = self.menu_help {
+                    let (x, y, color) = (self.screen.where_x(), self.screen.where_y(), self.screen.color());
+                    self.goto_pos(*b"HP");
+                    self.write(&" ".repeat(len));
+                    self.goto_pos(*b"HP");
+                    let room = 80usize.saturating_sub(self.screen.where_x() as usize);
+                    let text = fluxbbs_term::codes::squish(text, room);
+                    self.menu_help = Some(self.visible_len(&fluxbbs_term::cp437::encode(&text)).min(room));
+                    self.write_with_controls(&text);
+                    self.screen.goto(x, y);
+                    self.screen.set_color(color);
+                    continue;
+                }
+                if self.screen.where_x() != 1 {
+                    self.newline();
+                }
+                self.write_with_controls(text);
+                self.set_slot(Slot::Text);
+                self.newline();
+                continue;
+            }
             if let NodeEvent::Message { from, user, text, broadcast } = ev {
                 let name = if broadcast { "NodeBCreceived" } else { "NodeMsgReceived" };
                 let head = self.strings().fmt(name, &[&user, &from.to_string()]);

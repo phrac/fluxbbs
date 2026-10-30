@@ -375,6 +375,34 @@ impl Draft {
         self.col = col;
     }
 
+    /// Where `n` words from the cursor end on this line: `cw`'s reach
+    /// (the word, not the space after it), or with `space` `dw`'s (on to
+    /// the next word).
+    fn words_end(&self, n: usize, space: bool) -> usize {
+        let class = |c: char| if c == ' ' { 0 } else if c.is_alphanumeric() || c == '_' { 1 } else { 2 };
+        let line = &self.lines[self.row];
+        let mut end = self.col.min(line.len());
+        for i in 0..n {
+            if i > 0 || line.get(end) == Some(&' ') {
+                while line.get(end) == Some(&' ') {
+                    end += 1;
+                }
+            }
+            if let Some(&c) = line.get(end) {
+                let k = class(c);
+                while line.get(end).is_some_and(|&c| class(c) == k) {
+                    end += 1;
+                }
+            }
+        }
+        if space {
+            while line.get(end) == Some(&' ') {
+                end += 1;
+            }
+        }
+        end
+    }
+
     /// `dd`: `n` lines into the register, and gone.
     fn delete_lines(&mut self, n: usize) -> Redraw {
         let row = self.row;
@@ -477,6 +505,25 @@ impl Draft {
                     Edit(Redraw::Cursor)
                 }
                 ('Z', 'Z') => Save,
+                ('d' | 'c', 'w' | 'e' | '$') => {
+                    self.snapshot();
+                    let (row, col) = (self.row, self.col.min(self.lines[self.row].len()));
+                    let end = if c == '$' { self.lines[row].len() } else { self.words_end(n, first == 'd' && c == 'w') };
+                    self.lines[row].drain(col..end);
+                    self.col = col;
+                    if first == 'c' {
+                        return Insert(Redraw::Line(row));
+                    }
+                    self.normal_col();
+                    Edit(Redraw::Line(row))
+                }
+                ('c', 'c') => {
+                    self.snapshot();
+                    let row = self.row;
+                    self.lines[row].clear();
+                    self.col = 0;
+                    Insert(Redraw::Line(row))
+                }
                 _ => Edit(Redraw::Cursor),
             };
         }
@@ -489,7 +536,7 @@ impl Draft {
         let n = std::mem::take(&mut vim.count).max(1);
         let last = self.lines.len() - 1;
         let change = match c {
-            'd' | 'y' | 'g' | 'Z' => {
+            'd' | 'c' | 'y' | 'g' | 'Z' => {
                 vim.pending = Some(c);
                 vim.count = if given { n } else { 0 };
                 return Edit(Redraw::Cursor);
@@ -551,10 +598,13 @@ impl Draft {
                 self.lines[row].drain(col..end);
                 Redraw::Line(row)
             }
-            'D' => {
+            'D' | 'C' => {
                 self.snapshot();
                 let (row, col) = (self.row, self.col);
                 self.lines[row].truncate(col);
+                if c == 'C' {
+                    return Insert(Redraw::Line(row));
+                }
                 Redraw::Line(row)
             }
             'J' => {
@@ -606,7 +656,8 @@ impl Draft {
 }
 
 /// New: vim keys' state between keys: normal mode or not, a count typed
-/// before a command, and the first key of `dd`, `yy`, `gg` or `ZZ`.
+/// before a command, and the first key of a two-key one (`dd`, `dw`, `cw`,
+/// `c$`, `yy`, `gg`, `ZZ`...).
 #[derive(Debug, Default)]
 pub struct Vim {
     pub normal: bool,
@@ -1715,6 +1766,37 @@ mod tests {
         assert_eq!(d.col, 2);
         vim(&mut d, &mut vm, "ggyyP");
         assert_eq!(lines(&d), ["ne", "ne"], "trailing spaces go as the cursor leaves");
+    }
+
+    #[test]
+    fn vim_change_and_delete_words() {
+        let mut vm = Vim { normal: true, ..Vim::default() };
+        let mut d = Draft::new(&["the quick  brown fox".to_string()]);
+        vim(&mut d, &mut vm, "w");
+        assert_eq!(vim(&mut d, &mut vm, "cw"), VimDo::Insert(Redraw::Line(0)));
+        assert_eq!(lines(&d), ["the   brown fox"], "cw takes the word, not the space after");
+        assert_eq!(d.col, 4);
+        d.vim_normal();
+        let mut d = Draft::new(&["the quick  brown fox".to_string()]);
+        vim(&mut d, &mut vm, "wdw");
+        assert_eq!(lines(&d), ["the brown fox"], "dw takes the spaces too");
+        vim(&mut d, &mut vm, "2dw");
+        assert_eq!(lines(&d), ["the "]);
+        let mut d = Draft::new(&["keep this, drop that".to_string()]);
+        vim(&mut d, &mut vm, "2w");
+        assert_eq!(vim(&mut d, &mut vm, "c$"), VimDo::Insert(Redraw::Line(0)));
+        assert_eq!(lines(&d), ["keep this"]);
+        assert_eq!(vim(&mut d, &mut vm, "cc"), VimDo::Insert(Redraw::Line(0)));
+        assert_eq!(lines(&d), [""]);
+        vim(&mut d, &mut vm, "u");
+        assert_eq!(lines(&d), ["keep this"]);
+        let mut d = Draft::new(&["abc def".to_string()]);
+        vim(&mut d, &mut vm, "w");
+        assert_eq!(vim(&mut d, &mut vm, "C"), VimDo::Insert(Redraw::Line(0)));
+        assert_eq!(lines(&d), ["abc "]);
+        let mut d = Draft::new(&["abc def".to_string()]);
+        vim(&mut d, &mut vm, "d$");
+        assert_eq!(lines(&d), [""]);
     }
 
     #[test]

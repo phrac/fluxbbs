@@ -68,6 +68,7 @@ impl Session {
                     }
                     start = areas.iter().position(|a| a.1 == n).unwrap_or(0);
                 }
+                BarPick::Refresh(_) => {}
                 BarPick::Up | BarPick::Stay | BarPick::Quit => return Ok(()),
             }
         }

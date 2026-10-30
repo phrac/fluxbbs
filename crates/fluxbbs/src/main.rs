@@ -109,6 +109,7 @@ mod upscan;
 #[cfg(feature = "weather")]
 mod weather;
 mod web;
+mod newposts;
 mod nodes;
 mod pager;
 #[cfg(feature = "pdf")]
@@ -728,6 +729,7 @@ async fn run() -> anyhow::Result<()> {
     }
     tokio::spawn(events::scheduler(state.clone()));
     tokio::spawn(trash::keeper(state.clone()));
+    tokio::spawn(newposts::watch(state.clone()));
     #[cfg(feature = "meshcore")]
     tokio::spawn(meshcore::run(state.clone()));
     #[cfg(feature = "ftn")]

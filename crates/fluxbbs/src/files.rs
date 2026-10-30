@@ -351,6 +351,7 @@ impl Session {
                         level = level.and_then(|g| fareas.parent_of(g));
                         continue;
                     }
+                    BarPick::Refresh(_) => continue,
                     BarPick::Stay | BarPick::Quit | BarPick::Key(..) => {
                         if level.is_some() {
                             self.announce_farea().await?;
