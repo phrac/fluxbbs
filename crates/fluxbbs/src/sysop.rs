@@ -1380,10 +1380,14 @@ impl Session {
                 self.prompt_key().await?;
             } else {
                 self.show("|U2-- |U1Move the file itself|U2? ").await?;
-                if self.yes_no(true).await? {
-                    std::fs::create_dir_all(self.farea_dir(&to))?;
-                    move_file(&src, &dst)?;
+                if !self.yes_no(true).await? {
+                    // New: the stock board moved the record anyway, leaving it in an area
+                    // whose directory doesn't have the file; the record goes where the file goes.
+                    self.show_line(self.strings().get("MoveFileKept")).await?;
+                    return self.prompt_key().await;
                 }
+                std::fs::create_dir_all(self.farea_dir(&to))?;
+                move_file(&src, &dst)?;
             }
         }
         self.state.files.move_to(&from.file, fr.num, &to.file).map_err(io_err)?;

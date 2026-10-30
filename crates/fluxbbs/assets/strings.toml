@@ -978,3 +978,8 @@ FsVimUnknown = "|U1unknown|U2: |U3%S1|U2 (|U3:wq :q :q! :N|U2, |U3:|U2 and enter
 NewPostNotice = "|U2» |U1new on |U3%S1|U2: |U3%S2 |U1by |U3%S3"
 # The browser's info or edit on something that is not a file in an area (new).
 GalleryNotRecord = "|U4Info and edit are for files in an area|U5; |U4folders and pieces inside a pack have no record|U5."
+
+# Viewing a file whose record is in an area but whose file isn't on disk (new).
+FileNotOnDisk = "|U4%F |U5isn't in this area's directory|U5; |U4the record is here but the file is gone or was moved|U5."
+# Declining to move the file itself in the file editor's move: nothing moves (new).
+MoveFileKept = "|U4Nothing moved|U5: |U4a record moved without its file points at nothing|U5."

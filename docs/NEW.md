@@ -243,6 +243,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   oldest, type or size. ([FILES](FILES.md#art-gallery))
 - The gallery and the file browser show a file's info on I and edit it
   on E (co-SysOp and up), as the file lister does.
+- Moving a file in the file editor (`=`) moves nothing if you say no to moving the file itself
+  (the original moved the record anyway, pointing it at nothing), and viewing a record whose
+  file is missing says so instead of hanging up.
 - Art drawn in 24-bit or 256 colour shows in its own colours in the
   scrolling viewer, not only when played.
 - PDFs in the browser: the text to read, and the pages as pictures

@@ -1558,6 +1558,12 @@ impl Session {
 
     pub(crate) async fn view_archive_file(&mut self, a: &FAreaRef, f: &FileRec) -> io::Result<()> {
         let path = self.farea_dir(&a.area).join(&f.name);
+        // New: a record whose file is gone says so, rather than ending the call.
+        if !path.is_file() {
+            let msg = self.strings().get("FileNotOnDisk").replace("%F", &f.name);
+            self.show_line(&msg).await?;
+            return self.prompt_key().await;
+        }
         // Don't carry the lister's bar colour into a fresh screen.
         self.screen.set_color(Color::DEFAULT);
         match crate::upscan::kind_of(&f.name) {
