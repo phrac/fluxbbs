@@ -815,12 +815,17 @@ impl Session {
             }
             let shown = if dos { "D:\\".to_string() } else { format!("{}/", dir.display()) };
             let info = self.drop_info(shown);
+            let mut written = Vec::new();
             for (name, write) in drop_files(kind) {
-                std::fs::write(dir.join(name), write(&info))?;
+                let data = write(&info);
+                std::fs::write(dir.join(name), &data)?;
+                if *name == "DOOR.SYS" {
+                    written = data;
+                }
             }
-            io::Result::Ok(dir)
+            io::Result::Ok((dir, written))
         })();
-        let dir = match prepared {
+        let (dir, written) = match prepared {
             Ok(d) => d,
             Err(e) => {
                 tracing::error!("door drop directory {}: {e}", dir.display());
@@ -858,7 +863,7 @@ impl Session {
         self.full_screen_done();
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
         if kind == '7' {
-            self.door_readback(&dir);
+            self.door_readback(&dir, &written);
         }
         match result {
             // The shell couldn't find it.
@@ -882,8 +887,16 @@ impl Session {
     /// left (up to the day's allowance) and uploads, downloads and today's
     /// download kbytes (only upwards). Not the security level: a door has
     /// no business raising that.
-    fn door_readback(&mut self, dir: &Path) {
+    ///
+    /// New: a DOOR.SYS the door left as written is not read back. Its time
+    /// left is from when the door started, so taking it would hand back
+    /// every minute spent in a door that never wrote the file, or that the
+    /// caller hung up on.
+    fn door_readback(&mut self, dir: &Path, written: &[u8]) {
         let Ok(data) = std::fs::read(dir.join("DOOR.SYS")) else { return };
+        if data == written {
+            return;
+        }
         let text = fluxbbs_term::cp437::decode(&data);
         let rb = readback(&text);
         let u = &mut self.user;

@@ -69,7 +69,10 @@ It takes:
 - the time left, up to the day's allowance;
 - the upload, download and today's-kbytes counts, only upwards.
 
-It never takes the security level.
+It never takes the security level. A DOOR.SYS the door left exactly as
+the board wrote it isn't read back: its time left is from when the door
+started, and taking it would refund the time spent in a door that never
+writes the file, or one the caller hung up on.
 
 ### How the drop files differ from the original's
 

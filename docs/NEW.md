@@ -441,6 +441,8 @@ All in [DOORS](DOORS.md).
 - `[dos] emulator` runs a door under DOSBox instead, for one the
   machine can't run.
 - `dosrun` tries a door outside the board.
+- `D7` ignores a DOOR.SYS the door didn't change, so a door that never
+  writes it (or a hangup) doesn't refund the time spent in it.
 - Leaving a door logs the bytes typed, passed on and shown, and when
   the last key came, so a door that seems to ignore keys shows whether
   they reached it.
