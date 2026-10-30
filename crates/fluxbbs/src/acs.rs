@@ -29,6 +29,8 @@ pub struct AcsEnv {
     pub ratio_ok: bool,
     /// The node the caller is on (`N`, 2.0).
     pub node: u32,
+    /// New: calls made, this one included (`L`): `!l2` is a first call.
+    pub calls: u32,
 }
 
 pub fn check(expr: &str, env: &AcsEnv) -> bool {
@@ -142,6 +144,7 @@ impl Parser<'_> {
             'X' => e.conf_file == self.number(),
             'Y' => e.minute_of_day >= self.number(),
             'Z' => e.ratio_ok,
+            'L' => e.calls >= self.number(),
             _ => false,
         }
     }
@@ -215,6 +218,8 @@ mod tests {
         assert!(!check("(s255|fb)&gf", &e));
         assert!(check("!(s255)&t30&v", &e));
         assert!(!check("t31", &e));
+        let first = AcsEnv { calls: 1, ..env() };
+        assert!(check("!l2", &first) && !check("!l2", &AcsEnv { calls: 2, ..env() }));
         let on2 = AcsEnv { node: 2, ..env() };
         assert!(check("n2", &on2) && !check("n1", &on2) && check("!n1", &on2));
     }

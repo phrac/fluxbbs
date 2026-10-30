@@ -541,6 +541,7 @@ impl Session {
             minute_of_day: now.hour() * 60 + now.minute(),
             ratio_ok: ratio >= level_req,
             node: self.node.number() as u32,
+            calls: u.total_calls,
         };
         acs::check(expr, &env)
     }

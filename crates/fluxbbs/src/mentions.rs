@@ -36,6 +36,7 @@ fn env_for(state: &BbsState, u: &User) -> AcsEnv {
         weekday: now.weekday().num_days_from_sunday(),
         minute_of_day: now.hour() * 60 + now.minute(),
         ratio_ok: (u.posts * 100).checked_div(u.total_calls).unwrap_or(0) >= level_req,
+        calls: u.total_calls,
         ..AcsEnv::default()
     }
 }
