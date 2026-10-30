@@ -129,8 +129,13 @@ impl Session {
     /// Hand the connection back to the terminal model after raw bytes.
     async fn after_transfer(&mut self) -> io::Result<()> {
         // Swallow stray protocol bytes (e.g. the receiver's "OO").
+        // Half a second of quiet ends it, and three seconds at most: a
+        // caller pressing keys to get the board back must not keep it here.
         let mut buf = [0u8; 512];
-        while let Ok(Ok(n)) = tokio::time::timeout(Duration::from_millis(500), self.io.read(&mut buf)).await {
+        let until = tokio::time::Instant::now() + Duration::from_secs(3);
+        while tokio::time::Instant::now() < until
+            && let Ok(Ok(n)) = tokio::time::timeout(Duration::from_millis(500), self.io.read(&mut buf)).await
+        {
             if n == 0 {
                 return Err(io::ErrorKind::UnexpectedEof.into());
             }
@@ -206,6 +211,7 @@ impl Session {
         let mut ended = false;
         let mut pending = self.take_pending_input();
         let mut idle = Duration::ZERO;
+        let mut cancel = CanWatch::default();
         let mut buf = vec![0u8; 8192];
         loop {
             if start_next && !finishing {
@@ -265,7 +271,17 @@ impl Session {
                 Action::Idle if ended => break,
                 Action::Idle => {
                     if !pending.is_empty() {
-                        let used = tx.submit_wire(&pending).map_err(zerr)?;
+                        // A protocol error (corrupt data, a sender that died
+                        // mid-packet) ends the transfer, not the call.
+                        let used = match tx.submit_wire(&pending) {
+                            Ok(used) => used,
+                            Err(e) => {
+                                tracing::info!("{}: download stopped: {e:?}", self.user.handle);
+                                pending.clear();
+                                tx.abort();
+                                continue;
+                            }
+                        };
                         pending.drain(..used.min(pending.len()));
                         if used > 0 {
                             continue;
@@ -275,6 +291,11 @@ impl Session {
                         Ok(Ok(0)) => return Err(io::ErrorKind::UnexpectedEof.into()),
                         Ok(Ok(n)) => {
                             idle = Duration::ZERO;
+                            if cancel.saw_cancel(&buf[..n]) {
+                                tracing::info!("{}: download cancelled", self.user.handle);
+                                tx.abort();
+                                continue;
+                            }
                             pending.extend_from_slice(&buf[..n]);
                         }
                         Ok(Err(e)) => return Err(e),
@@ -301,7 +322,11 @@ impl Session {
         let mut file: Option<(tokio::fs::File, PathBuf, u64)> = None;
         let mut ended = false;
         let mut pending = self.take_pending_input();
+        // Time since the upload last moved: bytes alone don't count, or a
+        // caller whose terminal gave up and who is pressing keys to get the
+        // board back would keep it waiting for ever.
         let mut idle = Duration::ZERO;
+        let mut cancel = CanWatch::default();
         let mut buf = vec![0u8; 8192];
         loop {
             match rx.poll() {
@@ -328,8 +353,10 @@ impl Session {
                         continue;
                     }
                     file = Some((tokio::fs::File::create(&path).await?, path, 0));
+                    idle = Duration::ZERO;
                 }
                 Action::WriteFile(bytes) => {
+                    idle = Duration::ZERO;
                     let n = bytes.len();
                     let bytes = bytes.to_vec();
                     if let Some((f, _, written)) = file.as_mut() {
@@ -361,16 +388,34 @@ impl Session {
                 Action::Idle if ended => break,
                 Action::Idle => {
                     if !pending.is_empty() {
-                        let used = rx.submit_wire(&pending).map_err(zerr)?;
+                        let used = match rx.submit_wire(&pending) {
+                            Ok(used) => used,
+                            Err(e) => {
+                                tracing::info!("{}: upload stopped: {e:?}", self.user.handle);
+                                pending.clear();
+                                rx.abort().map_err(zerr)?;
+                                continue;
+                            }
+                        };
                         pending.drain(..used.min(pending.len()));
                         if used > 0 {
                             continue;
                         }
                     }
+                    let read = tokio::time::Instant::now();
                     match tokio::time::timeout(POLL, self.io.read(&mut buf)).await {
                         Ok(Ok(0)) => return Err(io::ErrorKind::UnexpectedEof.into()),
                         Ok(Ok(n)) => {
-                            idle = Duration::ZERO;
+                            if cancel.saw_cancel(&buf[..n]) {
+                                tracing::info!("{}: upload cancelled", self.user.handle);
+                                rx.abort().map_err(zerr)?;
+                                continue;
+                            }
+                            idle += read.elapsed();
+                            if idle >= STALL {
+                                rx.abort().map_err(zerr)?;
+                                continue;
+                            }
                             pending.extend_from_slice(&buf[..n]);
                         }
                         Ok(Err(e)) => return Err(e),
@@ -424,6 +469,26 @@ impl Session {
     }
 }
 
+/// The other end's cancel: a caller who aborts in their terminal sends a
+/// run of CAN (Ctrl-X) bytes, as lrzsz does, rather than a ZCAN frame, and
+/// `zmodem2` only stops for the frame. A real Zmodem stream never has two
+/// CANs in a row (CAN is ZDLE, and what follows a ZDLE is never another),
+/// so five in a row, across reads, is the caller giving up.
+#[derive(Default)]
+struct CanWatch(u8);
+
+impl CanWatch {
+    fn saw_cancel(&mut self, bytes: &[u8]) -> bool {
+        for &b in bytes {
+            self.0 = if b == 0x18 { self.0.saturating_add(1) } else { 0 };
+            if self.0 >= 5 {
+                return true;
+            }
+        }
+        false
+    }
+}
+
 /// `dir/name`, or `dir/name.1` etc. if that exists.
 fn unique_path(dir: &Path, name: &str) -> PathBuf {
     let first = dir.join(name);
@@ -445,5 +510,14 @@ mod tests {
         assert_eq!(safe_name(b"..hidden").as_deref(), Some("hidden"));
         assert_eq!(safe_name(b"a b;c").as_deref(), Some("a_b_c"));
         assert_eq!(safe_name(b"../"), None);
+    }
+
+    #[test]
+    fn five_cans_in_a_row_are_a_cancel_across_reads_and_escapes_are_not() {
+        let mut w = CanWatch::default();
+        // ZDLE-escaped data: a CAN is always followed by something else.
+        assert!(!w.saw_cancel(&[0x18, 0x58, 0x18, 0x58, 0x18, 0x6c, 0x18, 0x58]));
+        assert!(!w.saw_cancel(&[0x18, 0x18, 0x18]));
+        assert!(w.saw_cancel(&[0x18, 0x18, 0x08]));
     }
 }
