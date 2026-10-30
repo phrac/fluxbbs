@@ -1,11 +1,12 @@
 # flux/bbs
 
-flux/bbs brings modern features to the classic BBS without changing how
-it feels. You still dial in to 80 columns of ANSI art, lightbar menus and
-hot keys. You still play LORD and Tradewars, and you still page the
-SysOp. Under that sit SSH, threads you can vote on, vim keys in the
-editor, echomail over binkp, and an AI that knows its way around the
-board.
+flux/bbs is an advanced BBS that brings modern features to the classic
+board without changing how it feels. You still dial in to 80 columns of
+ANSI art, lightbar menus and hot keys. You still play LORD and
+Tradewars, and you still page the SysOp. Under that sit SSH, threads
+you can vote on, lists that update as posts land, vim keys in the
+editor, echomail over binkp, a built-in DOS machine for doors, and an
+AI that knows its way around the board.
 
 It is written in Rust and began as a port of the Iniquity BBS
 (1.00a26r5). Iniquity's screens, menus and prompts are all still here,
@@ -13,15 +14,16 @@ and nothing new is allowed to look like a web page.
 
 ![disflux's main menu](docs/screenshots/main.png)
 
-*The main menu on [disflux](#disflux), the live board running flux/bbs:
-a graffiti logo, a lightbar, and time left in the status bar, as in
-1995. The noise above the logo moves.*
+*The main menu on [disflux](#disflux), flux/bbs world HQ: a graffiti
+logo, a lightbar, and time left in the status bar, as in 1995. The
+noise above the logo moves.*
 
-## disflux
+## disflux, world HQ
 
-These are screenshots of disflux, the live board, taken from a copy of
-its data. Call it with `ssh -p 2222 yourhandle@disfluxbbs.com` (any
-name will do for a first call), or telnet to `disfluxbbs.com`.
+disflux is flux/bbs world HQ: the board it's built on and for, where
+every feature runs first. These screenshots are from a copy of its
+data. Call it with `ssh -p 2222 yourhandle@disfluxbbs.com` (any name
+will do for a first call), or telnet to `disfluxbbs.com`.
 
 | | |
 |---|---|
@@ -29,8 +31,10 @@ name will do for a first call), or telnet to `disfluxbbs.com`.
 | **Message boards** after PTT: what's new, who moderates, the latest post, and boards callers run themselves. AgoraNet echomail sits in its own folder. | **Threads**, with up and down votes and reply counts. Comments sit under each post. |
 | ![The message editor](docs/screenshots/editor.png) | ![Online games](docs/screenshots/doors.png) |
 | **The full-screen editor** in vim mode. `9dd` trimmed the quote to the part being answered. `ins nor` in the status bar is normal mode. | **Doors**: LORD, BRE and Tradewars in a DOS machine built into the board, native ones like Usurper, and games written for disflux. |
-| ![The screen saver](docs/screenshots/saver.png) | ![The art gallery](docs/screenshots/gallery.png) |
-| **Screen savers**: a warp starfield, digital rain or the demoscene fire, after a minute idle at a menu. | **The art gallery**, with ANSI playback and animated GIFs. |
+| ![AI chat](docs/screenshots/ai.png) | ![The art gallery](docs/screenshots/gallery.png) |
+| **AI chat**: asked where a pack is, it searched the files, found it, and said which keys get it. It runs on the board's own models. | **The art gallery**: the scene's packs, opened in place, their pieces played back at modem speed. Here, ACiD's monthly packs from 1993 to 1996. |
+| ![The screen saver](docs/screenshots/saver.png) | |
+| **Screen savers**: digital rain (here, in the board's colors), a warp starfield or the demoscene fire, after a minute idle at a menu. | |
 
 The whole board runs in one process. SQLite and TOML files hold its
 data and settings. An old Iniquity board imports and looks the same.
@@ -72,8 +76,6 @@ on port 2222 and telnet on 23. Logs are in `docker logs fluxbbs`.
 [SYSOP.md](docs/SYSOP.md#running-in-a-container) has the details.
 
 ## What it does
-
-![The AI giving the keys to download a file](docs/screenshots/ai-howto.png)
 
 ### Connecting and security
 
