@@ -106,6 +106,9 @@ pub enum Token {
     Ext2(u8),
     /// New, `%>` in a file: the rest of the line ends at the right edge.
     AlignRight,
+    /// New, `%[FONT.TDF,face,width]text%]` in a file: the text (codes and
+    /// all) set in a TheDraw font.
+    Font { spec: Vec<u8>, text: Vec<u8> },
 }
 
 /// Whether the text is a prompt string or a display file; files also get
@@ -178,6 +181,17 @@ pub fn tokenize(src: &[u8], source: Source) -> Vec<Token> {
                 }
                 b'%' if a.is_ascii_alphanumeric() || a == b'@' => emit!(Token::Mci([a, b]), 3),
                 b'%' if file && a == b'>' => emit!(Token::AlignRight, 2),
+                b'%' if file && a == b'[' => {
+                    // One line at most; anything else is plain text.
+                    let rest = &src[i + 2..src.len().min(i + 2 + 200)];
+                    let line = &rest[..rest.iter().position(|&c| c == b'\r' || c == b'\n').unwrap_or(rest.len())];
+                    if let Some(close) = line.iter().position(|&c| c == b']')
+                        && let Some(end) = line[close..].windows(2).position(|w| w == b"%]")
+                    {
+                        let (spec, text) = (line[..close].to_vec(), line[close + 1..close + end].to_vec());
+                        emit!(Token::Font { spec, text }, 2 + close + end + 2)
+                    }
+                }
                 b'@' | b'&' | b'{' | b'}' => {
                     if let Some(n) = two_digits(a, b) {
                         let tok = match c {
@@ -588,6 +602,13 @@ mod tests {
         assert_eq!(tokenize(b"~LN", Source::String), vec![Text(b"~LN".to_vec())]);
         assert_eq!(tokenize(b"a%>b", Source::File), vec![Text(b"a".to_vec()), AlignRight, Text(b"b".to_vec())]);
         assert_eq!(tokenize(b"50%>", Source::String), vec![Text(b"50%>".to_vec())]);
+        assert_eq!(
+            tokenize(b"a%[X.TDF,2,30]hi %UN%]b", Source::File),
+            vec![Text(b"a".to_vec()), Font { spec: b"X.TDF,2,30".to_vec(), text: b"hi %UN".to_vec() }, Text(b"b".to_vec())]
+        );
+        // Unclosed, or in a prompt: as it is.
+        assert_eq!(tokenize(b"%[X]hi", Source::File), vec![Text(b"%[X]hi".to_vec())]);
+        assert_eq!(tokenize(b"%[X]hi%]", Source::String), vec![Text(b"%[X]hi%]".to_vec())]);
         assert_eq!(visible_bytes(b"\x1b[1;35mab\x1b[0mc"), 3);
     }
 

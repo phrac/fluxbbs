@@ -525,6 +525,8 @@ All in [DOORS](DOORS.md).
   skip the rest.
 - A screen step can be shown only to callers who pass an ACS (`acs =
   "s100"`), asked for when the step is inserted.
+- Screens can set text in a TheDraw font as they are shown
+  (`%[FONT.TDF,face,width]%UN%]`), so a caller's handle can be a logo.
 - `*V` events run by the server's own scheduler, with built-in pack
   jobs.
 - Backups: the database (snapshotted while the board runs), settings,

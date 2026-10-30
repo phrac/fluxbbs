@@ -810,8 +810,62 @@ impl Session {
             }
             // Only a whole screen (`display`) can measure the line.
             Token::AlignRight => {}
+            Token::Font { spec, text } => self.draw_font(&spec, &text, waves),
         }
         Ok(())
+    }
+
+    /// New: `%[FONT.TDF,face,width]text%]`, the text (its codes filled in)
+    /// set in a TheDraw font from `[paths] fonts` at the cursor, rows going
+    /// down; the cursor ends under it, where it started. `face` is a face's
+    /// number in the file (1 is the first) or its name, and `width` the
+    /// most columns it may take (to the right edge if left out). A text
+    /// too wide for that, or a font that isn't there, is written plainly.
+    /// Block and outline faces take the current color; color faces their own.
+    fn draw_font(&mut self, spec: &[u8], text: &[u8], waves: Option<&Waves>) {
+        let spec = String::from_utf8_lossy(spec);
+        let mut parts = spec.split(',').map(str::trim);
+        let file = parts.next().unwrap_or_default();
+        let face = parts.next().unwrap_or("1");
+        let (x0, y0, pen) = self.here();
+        let width = parts.next().and_then(|w| w.parse::<u16>().ok()).unwrap_or(80u16.saturating_sub(x0) + 1);
+        let mut word = String::new();
+        for t in tokenize(text, Source::String) {
+            let v = match t {
+                Token::Text(b) => fluxbbs_term::cp437::decode(&b),
+                Token::Mci(c) => self.mci_value(c).unwrap_or_default(),
+                Token::Ext(c) => waves.and_then(|w| w.get(&c)).cloned().unwrap_or_default(),
+                _ => continue,
+            };
+            // A value's own colour codes don't belong in a font.
+            for t in tokenize_str(&v, Source::String) {
+                if let Token::Text(b) = t {
+                    word.push_str(&fluxbbs_term::cp437::decode(&b));
+                }
+            }
+        }
+        let cfg = self.state.config();
+        let fonts = if file.is_empty() || file.contains("..") || file.contains('/') {
+            Vec::new()
+        } else {
+            crate::tdf::read(&cfg.resolve(&cfg.paths.fonts).join(file))
+        };
+        let font = match face.parse::<usize>() {
+            Ok(n) => fonts.get(n.saturating_sub(1)),
+            Err(_) => fonts.iter().find(|f| f.name.eq_ignore_ascii_case(face)),
+        };
+        let set = font.map(|f| (f.kind, f.set(&word))).filter(|(_, (_, w, _))| *w > 0 && *w <= width);
+        let Some((kind, (cells, _, h))) = set else {
+            self.write(&squish(&word, width as usize));
+            return;
+        };
+        for c in cells {
+            self.screen.goto(x0 + c.x, y0 + c.y);
+            self.screen.set_color(if kind == 2 { Color::new(c.fg, c.bg) } else { pen });
+            self.screen.write_bytes(&[c.ch]);
+        }
+        self.screen.goto(x0, y0 + h);
+        self.screen.set_color(pen);
     }
 
     /// Finish a display: go back to a `|**` saved position.

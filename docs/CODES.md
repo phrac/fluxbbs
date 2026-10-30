@@ -20,6 +20,7 @@ a code and doesn't show it.
 | `%UN` | a value | [Values](#values-xx) |
 | `{20`, `}20` | a width for the next value | [Fitting values](#fitting-values-nn-and-nn) |
 | `%>` | right-align the rest of the line (screens) | [Right-aligning](#right-aligning-in-screens-) |
+| `%[FONT.TDF,1,30]%UN%]` | text set in a TheDraw font (screens) | [TheDraw fonts](#thedraw-fonts-in-screens-text) |
 | `%%NAME`, `%!script` | a prompt string's prefix | [Prompt strings only](#prompt-strings-only) |
 | `~XX`, `^NN` | a screen marker | [Screen markers](#screen-markers-xx-and-nn) |
 
@@ -314,6 +315,21 @@ New: in a screen, `%>` puts the rest of its line against the right edge
 say.
 
 In a prompt string, `%>` works only at the start (see below).
+
+## TheDraw fonts in screens: `%[...]text%]`
+
+New: in a screen, `%[FONT.TDF,face,width]text%]` sets the text in a
+TheDraw font from `[paths] fonts`, at the cursor, rows going down; the
+cursor ends under it, back at the column it started. Codes in the text
+are filled in first, so `%[SCD-L2X.TDF,SCD-Lines Re,30]%UN%]` sets the
+caller's handle.
+
+- `face` is a face's number in the file (1 is the first) or its name.
+- `width` is the most columns it may take; left out, to the right edge.
+- A text too wide for that, or a font that isn't there, is written as
+  plain text in the current color, cut to the width.
+- Block and outline faces take the current color; color faces their own.
+- The whole code stays on one line.
 
 ## Prompt strings only
 
