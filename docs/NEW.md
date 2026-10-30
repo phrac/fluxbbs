@@ -246,6 +246,7 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - Moving a file in the file editor (`=`) moves nothing if you say no to moving the file itself
   (the original moved the record anyway, pointing it at nothing), and viewing a record whose
   file is missing says so instead of hanging up.
+- View in the file lister and editor opens pictures and PDFs as the gallery does.
 - Art drawn in 24-bit or 256 colour shows in its own colours in the
   scrolling viewer, not only when played.
 - PDFs in the browser: the text to read, and the pages as pictures

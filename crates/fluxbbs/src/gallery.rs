@@ -925,6 +925,21 @@ impl Session {
         }
     }
 
+    /// A picture or a PDF in a file area, from the file lister or editor
+    /// (new); false if it's neither, for the caller to view another way.
+    pub(crate) async fn view_disk_media(&mut self, name: &str, path: &Path) -> io::Result<bool> {
+        let src = Src::Disk(path.to_path_buf());
+        if is_pdf(name) {
+            self.pdf_open(name, &src, false).await?;
+        } else if is_image(name) {
+            self.gallery_picture(name, &src).await?;
+        } else {
+            return Ok(false);
+        }
+        self.clear_screen();
+        Ok(true)
+    }
+
     /// Without PDFs built in (`pdf`) there's no PDF to open; `is_pdf`
     /// never says there is.
     #[cfg(not(feature = "pdf"))]

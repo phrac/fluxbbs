@@ -1566,6 +1566,10 @@ impl Session {
         }
         // Don't carry the lister's bar colour into a fresh screen.
         self.screen.set_color(Color::DEFAULT);
+        // New: pictures and PDFs open as they do in the gallery.
+        if self.view_disk_media(&f.name, &path).await? {
+            return Ok(());
+        }
         match crate::upscan::kind_of(&f.name) {
             crate::upscan::Kind::Text => self.view_text_file(&path, &f.name, &a.area.name).await,
             k @ (crate::upscan::Kind::Zip | crate::upscan::Kind::TarGz | crate::upscan::Kind::Tar | crate::upscan::Kind::Gzip) => {
