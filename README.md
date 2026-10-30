@@ -1,16 +1,40 @@
 # flux/bbs
 
-flux/bbs is a bulletin board system for today's internet. Callers reach
-it over SSH or telnet, with SyncTERM or any terminal. It is written in
-Rust, began as a port of the Iniquity BBS (1.00a26r5), and has grown a
-lot since: a DOS machine for doors, FTN mail, a message center after
-PTT, AI chat and an art gallery.
+flux/bbs brings modern features to the classic BBS without changing how
+it feels. You still dial in to 80 columns of ANSI art, lightbar menus and
+hot keys. You still play LORD and Tradewars, and you still page the
+SysOp. Under that sit SSH, threads you can vote on, vim keys in the
+editor, echomail over binkp, and an AI that knows its way around the
+board.
 
-![The art gallery](docs/screenshots/gallery.png)
+It is written in Rust and began as a port of the Iniquity BBS
+(1.00a26r5). Iniquity's screens, menus and prompts are all still here,
+and nothing new is allowed to look like a web page.
+
+![disflux's main menu](docs/screenshots/main.png)
+
+*The main menu on [disflux](#disflux), the live board running flux/bbs:
+a graffiti logo, a lightbar, and time left in the status bar, as in
+1995. The noise above the logo moves.*
+
+## disflux
+
+These are screenshots of disflux, the live board, taken from a copy of
+its data. Call it with `ssh -p 2222 yourhandle@disfluxbbs.com` (any
+name will do for a first call), or telnet to `disfluxbbs.com`.
+
+| | |
+|---|---|
+| ![Message boards](docs/screenshots/boards.png) | ![Threads](docs/screenshots/threads.png) |
+| **Message boards** after PTT: what's new, who moderates, the latest post, and boards callers run themselves. AgoraNet echomail sits in its own folder. | **Threads**, with up and down votes and reply counts. Comments sit under each post. |
+| ![The message editor](docs/screenshots/editor.png) | ![Online games](docs/screenshots/doors.png) |
+| **The full-screen editor** in vim mode. `9dd` trimmed the quote to the part being answered. `ins nor` in the status bar is normal mode. | **Doors**: LORD, BRE and Tradewars in a DOS machine built into the board, native ones like Usurper, and games written for disflux. |
+| ![The screen saver](docs/screenshots/saver.png) | ![The art gallery](docs/screenshots/gallery.png) |
+| **Screen savers**: a warp starfield, digital rain or the demoscene fire, after a minute idle at a menu. | **The art gallery**, with ANSI playback and animated GIFs. |
 
 The whole board runs in one process. SQLite and TOML files hold its
-data and settings. Iniquity's stock screens, menus and prompts are
-kept, so an old Iniquity board imports and looks the same. The program,
+data and settings. An old Iniquity board imports and looks the same.
+The program,
 crates, files and container are named `fluxbbs`, since a slash can't go
 there.
 
@@ -61,7 +85,7 @@ on port 2222 and telnet on 23. Logs are in `docker logs fluxbbs`.
 
 ### Messages
 
-- Areas, conferences, the full-screen editor, newscans, email and attachments
+- Areas, conferences, the full-screen editor (with [vim keys](docs/FEATURES.md#vim-keys) for those who want them), newscans, email and attachments
 - A [message center](docs/FEATURES.md#message-center) after PTT
 - [QWK](docs/FEATURES.md#qwk-offline-mail) offline mail
 - [FTN echomail](docs/FEATURES.md#ftn-echomail) over binkp

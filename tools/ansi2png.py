@@ -61,9 +61,11 @@ def render(data, rows_max=60):
                     elif 100 <= p <= 107: bg = ANSI2DOS[p-100] | 8
                     elif p == 22: bold = False
             elif f in b'Hf':
-                y = (ps[0] if ps and ps[0] else 1) - 1; x = (ps[1] if len(ps) > 1 and ps[1] else 1) - 1
+                y = (ps[0] if ps and ps[0] else 1) - 1; x = min(79, (ps[1] if len(ps) > 1 and ps[1] else 1) - 1)
+                # A terminal keeps the cursor on the screen (`ESC[255;1H` is the bottom row).
+                if scroll: y = min(y, scroll - 1)
             elif f == b'A': y = max(0, y - n)
-            elif f == b'B': y += n
+            elif f == b'B': y = min(y + n, scroll - 1) if scroll else y + n
             elif f == b'C': x = min(79, x + n)
             elif f == b'D': x = max(0, x - n)
             elif f == b'J': grid.clear(); x = y = 0
@@ -81,7 +83,7 @@ def render(data, rows_max=60):
             x += 1
             if x >= 80: x = 0; y = scrolled(y + 1)
         i += 1
-    rows = min(rows_max, max([p[1] for p in grid] + [0]) + 1)
+    rows = scroll or min(rows_max, max([p[1] for p in grid] + [0]) + 1)
     img = Image.new('RGB', (80 * W, rows * H), (0, 0, 0))
     d = ImageDraw.Draw(img)
     for (cx, cy), (ch, f, bgc) in grid.items():
