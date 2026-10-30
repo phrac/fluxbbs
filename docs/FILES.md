@@ -396,6 +396,8 @@ too.
 | P | plays it as it was sent in its day, which is how animated ANSIs animate; any key stops it |
 | S | cycles the play speed: instant, 2400, 9600, 14400, 28800, 38400, 57600, 115200 |
 | R | reorders the list: by name, newest first, oldest first, by type, by size (biggest first); folders stay at the top, and the order lasts the visit |
+| I | the file's information, as the file lister shows it (files in an area; not folders, or pieces inside a pack) |
+| E | edits it, for a co-SysOp and up: a SysOp gets the file editor (`*Y`) on that file, a co-SysOp its description |
 | D | downloads the piece (pulled out of its pack) or a whole pack, for `download_acs` |
 
 A file of a file area downloads the usual way instead, with that
@@ -416,7 +418,7 @@ screen.
 | `~TL` / `~BL` | the list rows |
 | `~FN`, `~FS`, `~FD` | the name, size and description columns |
 | `~PI` | the info line |
-| `~PM` | the lightbar menu of open, play, speed, reorder, get and back |
+| `~PM` | the lightbar menu of open, play, speed, reorder, get, info, edit and back |
 | `~C1`-`~C6` | its colors |
 | `~S` / `~E` | the scroll bar |
 | `~FA` | where you are |

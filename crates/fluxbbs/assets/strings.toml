@@ -976,3 +976,5 @@ FsVimInsert = "|U2-- |U1insert |U2-- |U3esc|U1 back to normal"
 FsVimUnknown = "|U1unknown|U2: |U3%S1|U2 (|U3:wq :q :q! :N|U2, |U3:|U2 and enter for the menu)"
 # A post on a board in the caller's "my boards", told as it lands (new).
 NewPostNotice = "|U2» |U1new on |U3%S1|U2: |U3%S2 |U1by |U3%S3"
+# The browser's info or edit on something that is not a file in an area (new).
+GalleryNotRecord = "|U4Info and edit are for files in an area|U5; |U4folders and pieces inside a pack have no record|U5."

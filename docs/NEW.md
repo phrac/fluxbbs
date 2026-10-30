@@ -241,6 +241,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   ([FILES](FILES.md#art-gallery))
 - The gallery and the file browser reorder on R: by name, newest,
   oldest, type or size. ([FILES](FILES.md#art-gallery))
+- The gallery and the file browser show a file's info on I and edit it
+  on E (co-SysOp and up), as the file lister does.
 - Art drawn in 24-bit or 256 colour shows in its own colours in the
   scrolling viewer, not only when played.
 - PDFs in the browser: the text to read, and the pages as pictures

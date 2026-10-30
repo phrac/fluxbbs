@@ -568,6 +568,31 @@ impl Session {
                     path.last_mut().expect("root").2 = i;
                     self.gallery_download(&items[i]).await?;
                 }
+                Pick::Info(i) => {
+                    path.last_mut().expect("root").2 = i;
+                    if let Some((_, f)) = items.get(i).and_then(record).cloned() {
+                        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                        self.clear_screen();
+                        self.file_info(&f).await?;
+                        self.prompt_key().await?;
+                    }
+                }
+                // A SysOp gets the whole file editor; a co-SysOp, the description.
+                Pick::Edit(i) => {
+                    path.last_mut().expect("root").2 = i;
+                    if let Some((n, f)) = items.get(i).and_then(record).cloned() {
+                        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                        self.clear_screen();
+                        if self.is_sysop() {
+                            if let Some(a) = self.farea(n) {
+                                // Boxed: the editor can open the browser, which can open the editor.
+                                Box::pin(self.file_editor_at(a, f.num)).await?;
+                            }
+                        } else {
+                            self.edit_description(f).await?;
+                        }
+                    }
+                }
                 // The next order, keeping the bar on the same piece.
                 Pick::Resort(i) => {
                     self.gallery_order = self.gallery_order.next();
@@ -640,7 +665,14 @@ impl Session {
     /// down move the bar, left and right the menu; Enter runs the menu's
     /// choice, or a key its first letter.
     async fn gallery_pick(&mut self, screen: &str, place: &str, items: &[Item], start: usize, speed: &mut u32) -> io::Result<Pick> {
-        let mut menu = MenuBar { items: &["open", "play", "speed", "reorder", "get", "back"], off: vec![false; 6], pos: 0, xs: Vec::new() };
+        // New: info and edit, as the file lister has them; edit for a co-SysOp and up.
+        let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
+        let mut menu = MenuBar {
+            items: &["open", "play", "speed", "reorder", "get", "info", "edit", "back"],
+            off: vec![false, false, false, false, false, false, !cosysop, false],
+            pos: 0,
+            xs: Vec::new(),
+        };
         let mut cur = start.min(items.len().saturating_sub(1));
         let mut first = 0usize;
         let mut l = self.lister_layout(false);
@@ -768,6 +800,8 @@ impl Session {
                     // New: R cycles the order (S is speed, O is open).
                     Some('R') => Some("reorder"),
                     Some('G' | 'D') => Some("get"),
+                    Some('I') => Some("info"),
+                    Some('E') if cosysop => Some("edit"),
                     Some('B') => Some("back"),
                     // Q leaves altogether; back goes up a level.
                     Some('Q') => return Ok(Pick::Quit),
@@ -794,6 +828,9 @@ impl Session {
                         note = Some(self.strings().fmt("GallerySpeed", &[&shown]));
                     }
                     "reorder" => return Ok(Pick::Resort(cur)),
+                    "info" if items.get(cur).is_some_and(|i| record(i).is_some()) => return Ok(Pick::Info(cur)),
+                    "edit" if items.get(cur).is_some_and(|i| record(i).is_some()) => return Ok(Pick::Edit(cur)),
+                    "info" | "edit" => note = Some(self.strings().get("GalleryNotRecord").to_string()),
                     "back" => return Ok(Pick::Back),
                     _ => {}
                 }
@@ -1264,6 +1301,18 @@ enum Pick {
     Download(usize),
     /// New: list the place again in the next order, the bar on this item.
     Resort(usize),
+    /// New: the file's record (`faFileInfo`), and the file editor, as in the file lister.
+    Info(usize),
+    Edit(usize),
+}
+
+/// The file base's record for an item, when it is a file in an area (not a
+/// folder, or a piece inside a pack): its area number and the record.
+fn record(item: &Item) -> Option<&(u32, crate::filebase::FileRec)> {
+    match item {
+        Item::Art { rec: Some(r), .. } | Item::Folder { rec: Some(r), .. } => Some(r),
+        _ => None,
+    }
 }
 
 /// A PDF, shown as one (with PDFs built in, `pdf`); without, it's just a
