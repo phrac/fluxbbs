@@ -108,6 +108,9 @@ pub struct Caller {
 }
 
 pub struct Session {
+    /// New: the order the art gallery and file browser list a place in, kept
+    /// for the visit (R in the gallery cycles it).
+    pub(crate) gallery_order: crate::gallery::Order,
     pub state: Arc<BbsState>,
     pub caller: Caller,
     pub node: NodeGuard,
@@ -399,6 +402,7 @@ impl Session {
         screen.set_palette256(palette256 && charset == Charset::Cp437);
         let user = User { palette: state.config().colors.clone(), ..User::default() };
         Self {
+            gallery_order: crate::gallery::Order::default(),
             state,
             caller,
             node,

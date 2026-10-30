@@ -8,6 +8,8 @@
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
+use chrono::NaiveDate;
+
 use fluxbbs_term::Slot;
 use fluxbbs_term::codes::{resize, squish};
 
@@ -149,8 +151,79 @@ type Rec = Option<(u32, FileRec)>;
 
 #[derive(Debug, Clone)]
 enum Item {
-    Folder { name: String, place: Place, pack: bool, rec: Rec },
-    Art { name: String, size: u64, sauce: Option<Sauce>, src: Src, rec: Rec },
+    Folder { name: String, place: Place, pack: bool, rec: Rec, when: Option<NaiveDate> },
+    Art { name: String, size: u64, sauce: Option<Sauce>, src: Src, rec: Rec, when: Option<NaiveDate> },
+}
+
+/// New: the order the gallery lists a place in. Folders stay first, by name;
+/// the rest - packs and pieces - go in this order.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub(crate) enum Order {
+    #[default]
+    Name,
+    Newest,
+    Oldest,
+    Type,
+    Size,
+}
+
+impl Order {
+    /// The next order, for the key that cycles them.
+    fn next(self) -> Order {
+        match self {
+            Order::Name => Order::Newest,
+            Order::Newest => Order::Oldest,
+            Order::Oldest => Order::Type,
+            Order::Type => Order::Size,
+            Order::Size => Order::Name,
+        }
+    }
+
+    fn word(self) -> &'static str {
+        match self {
+            Order::Name => "name",
+            Order::Newest => "newest first",
+            Order::Oldest => "oldest first",
+            Order::Type => "type",
+            Order::Size => "size, biggest first",
+        }
+    }
+}
+
+/// When a file was put there: its record's upload date, or the file's own.
+fn mtime(path: &Path) -> Option<NaiveDate> {
+    let t = std::fs::metadata(path).ok()?.modified().ok()?;
+    Some(chrono::DateTime::<chrono::Utc>::from(t).date_naive())
+}
+
+fn rec_date(f: &FileRec, path: &Path) -> Option<NaiveDate> {
+    f.uploaded.or(f.date).or_else(|| mtime(path))
+}
+
+/// Put `items` in `order`: folders that are not packs first, by name, as
+/// they were; then everything else.
+fn sort_items(items: &mut [Item], order: Order) {
+    let folders = items.iter().take_while(|i| matches!(i, Item::Folder { pack: false, .. })).count();
+    let rest = &mut items[folders..];
+    let name = |i: &Item| match i {
+        Item::Folder { name, .. } | Item::Art { name, .. } => name.to_lowercase(),
+    };
+    let when = |i: &Item| match i {
+        Item::Folder { when, .. } | Item::Art { when, .. } => *when,
+    };
+    let size = |i: &Item| match i {
+        Item::Art { size, .. } => *size,
+        Item::Folder { rec, .. } => rec.as_ref().map_or(0, |r| r.1.size),
+    };
+    let ext = |i: &Item| name(i).rsplit_once('.').map(|(_, e)| e.to_string()).unwrap_or_default();
+    match order {
+        Order::Name => rest.sort_by_key(name),
+        // Undated ones last either way: an unknown date is not "the oldest".
+        Order::Newest => rest.sort_by_key(|i| (when(i).is_none(), std::cmp::Reverse(when(i)), name(i))),
+        Order::Oldest => rest.sort_by_key(|i| (when(i).is_none(), when(i), name(i))),
+        Order::Type => rest.sort_by_key(|i| (ext(i), name(i))),
+        Order::Size => rest.sort_by_key(|i| (std::cmp::Reverse(size(i)), name(i))),
+    }
 }
 
 pub(crate) fn is_art(name: &str) -> bool {
@@ -218,13 +291,13 @@ fn list(place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
                     continue;
                 }
                 if path.is_dir() {
-                    folders.push(Item::Folder { name, place: Place::Dir(path), pack: false, rec: None });
+                    folders.push(Item::Folder { name, when: mtime(&path), place: Place::Dir(path), pack: false, rec: None });
                 } else if is_zip(&name) {
-                    folders.push(Item::Folder { name, place: Place::Zip { zip: path, prefix: String::new() }, pack: true, rec: None });
+                    folders.push(Item::Folder { name, when: mtime(&path), place: Place::Zip { zip: path, prefix: String::new() }, pack: true, rec: None });
                 } else if is_art(&name) || is_image(&name) {
                     let size = e.metadata().map(|m| m.len()).unwrap_or(0);
                     let sauce = if is_image(&name) { None } else { disk_sauce(&path) };
-                    art.push(Item::Art { sauce, name, size, src: Src::Disk(path), rec: None });
+                    art.push(Item::Art { sauce, name, size, when: mtime(&path), src: Src::Disk(path), rec: None });
                 }
             }
         }
@@ -235,27 +308,28 @@ fn list(place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
             let mut seen = Vec::new();
             for i in 0..z.len() {
                 let Ok(mut f) = z.by_index(i) else { continue };
+                let when = f.last_modified().and_then(|d| NaiveDate::from_ymd_opt(d.year() as i32, d.month() as u32, d.day() as u32));
                 let Some(full) = f.enclosed_name().map(|p| p.to_string_lossy().replace('\\', "/")) else { continue };
                 let Some(rest) = full.strip_prefix(prefix.as_str()) else { continue };
                 if let Some((dir, _)) = rest.split_once('/') {
                     if !seen.contains(&dir.to_string()) {
                         seen.push(dir.to_string());
                         let place = Place::Zip { zip: zip.clone(), prefix: format!("{prefix}{dir}/") };
-                        folders.push(Item::Folder { name: dir.to_string(), place, pack: false, rec: None });
+                        folders.push(Item::Folder { name: dir.to_string(), place, pack: false, rec: None, when: None });
                     }
                 } else if !f.is_dir() && (is_image(rest) || mode.all && !is_art(rest)) {
-                    art.push(Item::Art { name: rest.to_string(), size: f.size(), sauce: None, src: Src::Zip(zip.clone(), full), rec: None });
+                    art.push(Item::Art { name: rest.to_string(), size: f.size(), sauce: None, src: Src::Zip(zip.clone(), full), rec: None, when });
                 } else if !f.is_dir() && is_art(rest) {
                     // Reading the piece for its SAUCE: art files are small.
                     let mut data = Vec::new();
                     let _ = (&mut f).take(MAX_PIECE).read_to_end(&mut data);
-                    art.push(Item::Art { name: rest.to_string(), size: f.size(), sauce: parse_sauce(&data), src: Src::Zip(zip.clone(), full), rec: None });
+                    art.push(Item::Art { name: rest.to_string(), size: f.size(), sauce: parse_sauce(&data), src: Src::Zip(zip.clone(), full), rec: None, when });
                 }
             }
         }
         Place::Tar { tar, kind, prefix } => {
             let mut seen = Vec::new();
-            for (full, size, _) in crate::upscan::tar_listing(tar, *kind, mode.cap)? {
+            for (full, size, when) in crate::upscan::tar_listing(tar, *kind, mode.cap)? {
                 // Tars often name everything "./something".
                 let shown = full.trim_start_matches("./");
                 let Some(rest) = shown.strip_prefix(prefix.as_str()) else { continue };
@@ -263,10 +337,10 @@ fn list(place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
                     if !seen.contains(&dir.to_string()) {
                         seen.push(dir.to_string());
                         let place = Place::Tar { tar: tar.clone(), kind: *kind, prefix: format!("{prefix}{dir}/") };
-                        folders.push(Item::Folder { name: dir.to_string(), place, pack: false, rec: None });
+                        folders.push(Item::Folder { name: dir.to_string(), place, pack: false, rec: None, when: None });
                     }
                 } else if !rest.is_empty() && (mode.all || is_art(rest) || is_image(rest)) {
-                    art.push(Item::Art { name: rest.to_string(), size, sauce: None, src: Src::Tar(tar.clone(), *kind, full.clone()), rec: None });
+                    art.push(Item::Art { name: rest.to_string(), size, sauce: None, src: Src::Tar(tar.clone(), *kind, full.clone()), rec: None, when });
                 }
             }
         }
@@ -420,7 +494,8 @@ impl Session {
             {
                 self.user.cur_file_area = n;
             }
-            let items = self.gallery_list(&place, mode).await?;
+            let mut items = self.gallery_list(&place, mode).await?;
+            sort_items(&mut items, self.gallery_order);
             if let Some(name) = focus.take()
                 && let Some(i) = items.iter().position(|it| match it {
                     Item::Folder { name: n, .. } | Item::Art { name: n, .. } => n.eq_ignore_ascii_case(&name),
@@ -493,6 +568,13 @@ impl Session {
                     path.last_mut().expect("root").2 = i;
                     self.gallery_download(&items[i]).await?;
                 }
+                // The next order, keeping the bar on the same piece.
+                Pick::Resort(i) => {
+                    self.gallery_order = self.gallery_order.next();
+                    focus = items.get(i).map(|it| match it {
+                        Item::Folder { name, .. } | Item::Art { name, .. } => name.clone(),
+                    });
+                }
             }
         }
     }
@@ -505,7 +587,7 @@ impl Session {
             return Ok(self
                 .farea_children(None)
                 .into_iter()
-                .map(|c| Item::Folder { name: fa.areas[c as usize - 1].name.clone(), place: Place::Area(c), pack: false, rec: None })
+                .map(|c| Item::Folder { name: fa.areas[c as usize - 1].name.clone(), place: Place::Area(c), pack: false, rec: None, when: None })
                 .collect());
         }
         let Place::Area(n) = place else {
@@ -515,7 +597,7 @@ impl Session {
         let fa = self.state.fareas();
         let mut out = Vec::new();
         for c in self.farea_children(Some(*n)) {
-            out.push(Item::Folder { name: fa.areas[c as usize - 1].name.clone(), place: Place::Area(c), pack: false, rec: None });
+            out.push(Item::Folder { name: fa.areas[c as usize - 1].name.clone(), place: Place::Area(c), pack: false, rec: None, when: None });
         }
         let Some(a) = self.farea(*n) else { return Ok(out) };
         let dir = self.farea_dir(&a.area);
@@ -528,21 +610,22 @@ impl Session {
             if !path.is_file() {
                 continue;
             }
+            let when = rec_date(&f, &path);
             let tar = match crate::upscan::kind_of(&f.name) {
                 k @ (Kind::Tar | Kind::TarGz | Kind::Gzip) if mode.all => Some(k),
                 _ => None,
             };
             if is_zip(&f.name) {
                 let place = Place::Zip { zip: path, prefix: String::new() };
-                packs.push(Item::Folder { name: f.name.clone(), place, pack: true, rec: Some((*n, f)) });
+                packs.push(Item::Folder { name: f.name.clone(), place, pack: true, rec: Some((*n, f)), when });
             } else if let Some(kind) = tar {
                 let place = Place::Tar { tar: path, kind, prefix: String::new() };
-                packs.push(Item::Folder { name: f.name.clone(), place, pack: true, rec: Some((*n, f)) });
+                packs.push(Item::Folder { name: f.name.clone(), place, pack: true, rec: Some((*n, f)), when });
             } else if mode.all && !is_art(&f.name) {
-                art.push(Item::Art { name: f.name.clone(), size: f.size, sauce: None, src: Src::Disk(path), rec: Some((*n, f)) });
+                art.push(Item::Art { name: f.name.clone(), size: f.size, sauce: None, src: Src::Disk(path), rec: Some((*n, f)), when });
             } else if is_art(&f.name) || is_image(&f.name) {
                 let sauce = if is_image(&f.name) { None } else { disk_sauce(&path) };
-                art.push(Item::Art { name: f.name.clone(), size: f.size, sauce, src: Src::Disk(path), rec: Some((*n, f)) });
+                art.push(Item::Art { name: f.name.clone(), size: f.size, sauce, src: Src::Disk(path), rec: Some((*n, f)), when });
             }
         }
         out.extend(packs);
@@ -557,13 +640,15 @@ impl Session {
     /// down move the bar, left and right the menu; Enter runs the menu's
     /// choice, or a key its first letter.
     async fn gallery_pick(&mut self, screen: &str, place: &str, items: &[Item], start: usize, speed: &mut u32) -> io::Result<Pick> {
-        let mut menu = MenuBar { items: &["open", "play", "speed", "get", "back"], off: vec![false; 5], pos: 0, xs: Vec::new() };
+        let mut menu = MenuBar { items: &["open", "play", "speed", "reorder", "get", "back"], off: vec![false; 6], pos: 0, xs: Vec::new() };
         let mut cur = start.min(items.len().saturating_sub(1));
         let mut first = 0usize;
         let mut l = self.lister_layout(false);
         let mut redraw = true;
-        // A word in place of the info line, after a key that can't act.
-        let mut note: Option<String> = None;
+        // A word in place of the info line, after a key that can't act - or, on
+        // a fresh listing in an order other than by name, which order it is.
+        let mut note: Option<String> = (self.gallery_order != Order::Name)
+            .then(|| format!("in order of {} - R to reorder", self.gallery_order.word()));
         // New: the screen's effects (GALLERY.FX) run while it waits.
         let mut amb: Option<crate::ambient::Ambient> = None;
         loop {
@@ -680,6 +765,8 @@ impl Session {
                     Some('O') => Some("open"),
                     Some('P') => Some("play"),
                     Some('S') => Some("speed"),
+                    // New: R cycles the order (S is speed, O is open).
+                    Some('R') => Some("reorder"),
                     Some('G' | 'D') => Some("get"),
                     Some('B') => Some("back"),
                     // Q leaves altogether; back goes up a level.
@@ -706,6 +793,7 @@ impl Session {
                         let shown = if *speed == 0 { "instant".to_string() } else { format!("{speed}") };
                         note = Some(self.strings().fmt("GallerySpeed", &[&shown]));
                     }
+                    "reorder" => return Ok(Pick::Resort(cur)),
                     "back" => return Ok(Pick::Back),
                     _ => {}
                 }
@@ -1174,6 +1262,8 @@ enum Pick {
     Open(usize),
     Play(usize),
     Download(usize),
+    /// New: list the place again in the next order, the bar on this item.
+    Resort(usize),
 }
 
 /// A PDF, shown as one (with PDFs built in, `pdf`); without, it's just a
@@ -1291,5 +1381,48 @@ mod tests {
     fn playback_is_defanged() {
         let p = playable(b"\x1b[1;31mA\x1b]0;t\x07\x1b[6n\x00B\r\n\x1aSAUCE00");
         assert_eq!(p, b"\x1b[1;31mA]0;t B\r\n".to_vec());
+    }
+
+    fn piece(name: &str, size: u64, when: Option<(i32, u32, u32)>) -> Item {
+        Item::Art {
+            name: name.into(),
+            size,
+            sauce: None,
+            src: Src::Disk(PathBuf::from(name)),
+            rec: None,
+            when: when.and_then(|(y, m, d)| NaiveDate::from_ymd_opt(y, m, d)),
+        }
+    }
+
+    fn names(items: &[Item]) -> Vec<String> {
+        items
+            .iter()
+            .map(|i| match i {
+                Item::Folder { name, .. } | Item::Art { name, .. } => name.clone(),
+            })
+            .collect()
+    }
+
+    #[test]
+    fn the_gallery_sorts_by_newest_oldest_type_and_size_with_folders_first() {
+        let folder = Item::Folder { name: "packs".into(), place: Place::Areas, pack: false, rec: None, when: None };
+        let mut items = vec![
+            folder.clone(),
+            piece("b.ans", 300, Some((2026, 10, 1))),
+            piece("a.png", 900, Some((2026, 10, 30))),
+            piece("c.ans", 50, None),
+            piece("d.gif", 500, Some((2025, 1, 1))),
+        ];
+        sort_items(&mut items, Order::Newest);
+        assert_eq!(names(&items), ["packs", "a.png", "b.ans", "d.gif", "c.ans"], "undated last");
+        sort_items(&mut items, Order::Oldest);
+        assert_eq!(names(&items), ["packs", "d.gif", "b.ans", "a.png", "c.ans"]);
+        sort_items(&mut items, Order::Type);
+        assert_eq!(names(&items), ["packs", "b.ans", "c.ans", "d.gif", "a.png"]);
+        sort_items(&mut items, Order::Size);
+        assert_eq!(names(&items), ["packs", "a.png", "d.gif", "b.ans", "c.ans"]);
+        sort_items(&mut items, Order::Name);
+        assert_eq!(names(&items), ["packs", "a.png", "b.ans", "c.ans", "d.gif"]);
+        assert_eq!(Order::Size.next(), Order::Name, "the orders go round");
     }
 }

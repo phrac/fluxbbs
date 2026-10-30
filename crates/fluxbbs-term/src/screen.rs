@@ -885,7 +885,7 @@ fn strip_escapes(b: &[u8]) -> Vec<u8> {
     out
 }
 
-fn xterm256(n: u16) -> [u8; 3] {
+pub fn xterm256(n: u16) -> [u8; 3] {
     match n {
         0..=15 => VGA[([0, 4, 2, 6, 1, 5, 3, 7][(n & 7) as usize] | (n & 8)) as usize],
         16..=231 => {

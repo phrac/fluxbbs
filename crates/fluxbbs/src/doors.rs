@@ -964,7 +964,11 @@ impl Session {
     /// loses the characters DOS would act on, and `%PN` is `D:\`.
     fn door_command(&self, cmd: &str, dir: &Path, dos: bool) -> String {
         let cfg = self.state.config();
-        let path = |p: &Path| cfg.resolve(p).to_string_lossy().into_owned();
+        // Absolute: a native door runs in its node's drop directory, so a
+        // board started without a config path (the container's) would hand
+        // it `data`, and the door would read `data` under its node.
+        let abs = |p: PathBuf| std::path::absolute(&p).unwrap_or(p);
+        let path = |p: &Path| abs(cfg.resolve(p)).to_string_lossy().into_owned();
         let chars: Vec<char> = cmd.chars().collect();
         let mut out = String::new();
         let mut i = 0;
@@ -976,7 +980,7 @@ impl Session {
                     b"PT" => Some(path(&cfg.paths.text)),
                     b"PM" => Some(path(&cfg.paths.menus)),
                     b"PN" if dos => Some("D:\\".into()),
-                    b"PN" => Some(dir.to_string_lossy().into_owned()),
+                    b"PN" => Some(abs(dir.to_path_buf()).to_string_lossy().into_owned()),
                     b"BR" | b"BP" => Some(BAUD.into()),
                     b"CP" => Some(COM.into()),
                     _ => self.mci_value(code),

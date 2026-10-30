@@ -41,8 +41,8 @@ runs in that directory.
 
 | Code | Is |
 |---|---|
-| `%PN` | the node's drop directory (`D:\` in DOS commands) |
-| `%PD` | the data directory |
+| `%PN` | the node's drop directory, as a full path (`D:\` in DOS commands) |
+| `%PD` | the data directory, as a full path (a native door runs in its drop directory, so a relative one would point under it) |
 | `%PT` | the text directory |
 | `%PM` | the menu directory |
 | `%BR`, `%BP` | the baud rate, always 38400 |

@@ -239,6 +239,10 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - The art gallery (`AG`), after Mystic's: a folder or a file area of
   art, played at a chosen speed, SAUCE shown.
   ([FILES](FILES.md#art-gallery))
+- The gallery and the file browser reorder on R: by name, newest,
+  oldest, type or size. ([FILES](FILES.md#art-gallery))
+- Art drawn in 24-bit or 256 colour shows in its own colours in the
+  scrolling viewer, not only when played.
 - PDFs in the browser: the text to read, and the pages as pictures
   (Poppler). ([FILES](FILES.md#art-gallery))
 - Upload screening: allowed types, contents matching the name, and a

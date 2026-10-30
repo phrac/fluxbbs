@@ -26,11 +26,14 @@ pub struct Attr {
     bright_back: bool,
     /// New: code's shaded background (`Session::look`).
     shade: bool,
-    /// New: a 24-bit foreground (a theme's), in place of `fore`.
+    /// New: a 24-bit foreground (a theme's, or the art's own), in place of `fore`.
     rgb: Option<[u8; 3]>,
+    /// New: a 24-bit background, in place of `back`: art drawn in truecolor
+    /// (`48;2;r;g;b`) sets one per cell.
+    rgb_back: Option<[u8; 3]>,
 }
 
-const PLAIN: Attr = Attr { fore: 7, back: 0, bright_back: false, shade: false, rgb: None };
+const PLAIN: Attr = Attr { fore: 7, back: 0, bright_back: false, shade: false, rgb: None, rgb_back: None };
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub struct Cell {
@@ -90,7 +93,7 @@ pub fn from_lines(lines: &[crate::markup::Line], look: &crate::markup::Look) -> 
         .map(|l| {
             let mut row = Vec::new();
             for s in l {
-                let attr = Attr { fore: s.ink.color(), back: 0, bright_back: false, shade: s.shade, rgb: look.rgb(s.ink, s.shade) };
+                let attr = Attr { fore: s.ink.color(), back: 0, bright_back: false, shade: s.shade, rgb: look.rgb(s.ink, s.shade), rgb_back: None };
                 for ch in cp437::encode(&s.text) {
                     if row.len() < WIDTH {
                         row.push(Cell { ch: if ch < 0x20 { b' ' } else { ch }, attr });
@@ -161,7 +164,11 @@ pub fn render(text: &[u8], utf8: bool) -> Vec<Vec<Cell>> {
                     b's' => saved = (x, y),
                     b'u' => (x, y) = saved,
                     b'm' => {
-                        for &p in if raw.is_empty() { &[0][..] } else { &params[..] } {
+                        let ps: &[usize] = if raw.is_empty() { &[0][..] } else { &params[..] };
+                        let mut k = 0;
+                        while k < ps.len() {
+                            let p = ps[k];
+                            k += 1;
                             match p {
                                 0 => {
                                     attr = PLAIN;
@@ -171,18 +178,55 @@ pub fn render(text: &[u8], utf8: bool) -> Vec<Vec<Cell>> {
                                 22 => attr.fore &= 7,
                                 5 | 6 => blink = true,
                                 25 => blink = false,
-                                30..=37 => attr.fore = (attr.fore & 8) | ansi(p as u8 - 30),
-                                90..=97 => attr.fore = 8 | ansi(p as u8 - 90),
-                                39 => attr.fore = (attr.fore & 8) | 7,
+                                30..=37 => {
+                                    attr.fore = (attr.fore & 8) | ansi(p as u8 - 30);
+                                    attr.rgb = None;
+                                }
+                                90..=97 => {
+                                    attr.fore = 8 | ansi(p as u8 - 90);
+                                    attr.rgb = None;
+                                }
+                                39 => {
+                                    attr.fore = (attr.fore & 8) | 7;
+                                    attr.rgb = None;
+                                }
                                 40..=47 => {
                                     attr.back = ansi(p as u8 - 40);
+                                    attr.rgb_back = None;
                                     aix_bright = false;
                                 }
                                 100..=107 => {
                                     attr.back = ansi(p as u8 - 100);
+                                    attr.rgb_back = None;
                                     aix_bright = true;
                                 }
-                                49 => attr.back = 0,
+                                49 => {
+                                    attr.back = 0;
+                                    attr.rgb_back = None;
+                                }
+                                // New: 24-bit (`38;2;r;g;b`) and 256-colour (`38;5;n`) colour,
+                                // read whole - their numbers are not SGR codes of their own, and
+                                // reading them one at a time turned a 0 among them into a reset.
+                                38 | 48 => {
+                                    let rgb = match ps.get(k) {
+                                        Some(2) if k + 3 < ps.len() => {
+                                            let c = [ps[k + 1], ps[k + 2], ps[k + 3]].map(|v| v.min(255) as u8);
+                                            k += 4;
+                                            Some(c)
+                                        }
+                                        Some(5) if k + 1 < ps.len() => {
+                                            let c = fluxbbs_term::screen::xterm256(ps[k + 1].min(255) as u16);
+                                            k += 2;
+                                            Some(c)
+                                        }
+                                        _ => None,
+                                    };
+                                    if p == 38 {
+                                        attr.rgb = rgb;
+                                    } else {
+                                        attr.rgb_back = rgb;
+                                    }
+                                }
                                 _ => {}
                             }
                         }
@@ -284,7 +328,9 @@ fn row_bytes(cells: &[Cell], shade: &str) -> Vec<u8> {
     for c in cells {
         if cur != Some(c.attr) {
             let a = c.attr;
-            let back = if a.shade && !shade.is_empty() {
+            let back = if let Some([r, g, b]) = a.rgb_back {
+                format!("48;2;{r};{g};{b}")
+            } else if a.shade && !shade.is_empty() {
                 shade.to_string()
             } else {
                 (if a.bright_back { 100 } else { 40 } + ansi(a.back) as u16).to_string()
@@ -404,8 +450,8 @@ mod tests {
     #[test]
     fn colours_and_wrapping() {
         let g = render(b"\x1b[1;33;44mA\x1b[5;42mB\x1b[0m", false);
-        assert_eq!(g[0][0].attr, Attr { fore: 14, back: 1, bright_back: false, shade: false, rgb: None });
-        assert_eq!(g[0][1].attr, Attr { fore: 14, back: 2, bright_back: true, shade: false, rgb: None });
+        assert_eq!(g[0][0].attr, Attr { fore: 14, back: 1, bright_back: false, shade: false, rgb: None, rgb_back: None });
+        assert_eq!(g[0][1].attr, Attr { fore: 14, back: 2, bright_back: true, shade: false, rgb: None, rgb_back: None });
         let long = vec![b'x'; 85];
         assert_eq!(render(&long, false)[1].len(), 5);
         // A title-setting sequence draws nothing and isn't passed on.
@@ -462,5 +508,17 @@ mod tests {
         assert_eq!(text, ["  Title", "", "body"]);
         // A coloured background isn't blank.
         assert_eq!(trimmed(render(b"\x1b[44m   \x1b[0m\r\nx", false)).len(), 2);
+    }
+
+    #[test]
+    fn truecolor_art_keeps_its_colours_and_a_zero_inside_one_is_not_a_reset() {
+        // A half-block picture's cell: both colours 24-bit, with zeros among the numbers.
+        let g = render(b"\x1b[48;2;132;0;68m\x1b[38;2;255;34;183m\xdc\x1b[38;5;196mX", false);
+        assert_eq!(g[0][0].attr.rgb, Some([255, 34, 183]));
+        assert_eq!(g[0][0].attr.rgb_back, Some([132, 0, 68]));
+        assert_eq!(g[0][1].attr.rgb, Some([255, 0, 0]), "256-colour red");
+        assert_eq!(g[0][1].attr.rgb_back, Some([132, 0, 68]), "the background carried on");
+        let out = String::from_utf8_lossy(&row_bytes(&g[0], "")).to_string();
+        assert!(out.contains("38;2;255;34;183;48;2;132;0;68"), "{out}");
     }
 }
