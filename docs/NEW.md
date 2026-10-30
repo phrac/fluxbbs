@@ -523,6 +523,8 @@ All in [DOORS](DOORS.md).
   on and off. ([FEATURES](FEATURES.md#in-detail))
 - It has "new users stop here", and a fast logon step that offers to
   skip the rest.
+- A screen step can be shown only to callers who pass an ACS (`acs =
+  "s100"`), asked for when the step is inserted.
 - `*V` events run by the server's own scheduler, with built-in pack
   jobs.
 - Backups: the database (snapshotted while the board runs), settings,

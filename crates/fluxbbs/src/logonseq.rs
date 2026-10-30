@@ -26,6 +26,9 @@ pub struct Step {
     /// The screen a `screen` step shows.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub screen: String,
+    /// New: who a `screen` step is shown to (an ACS); everyone if empty.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub acs: String,
 }
 
 fn yes() -> bool {
@@ -68,7 +71,7 @@ const STOCK: [&str; 13] = [
 
 impl Sequence {
     pub fn stock() -> Self {
-        let steps = STOCK.iter().map(|k| Step { kind: k.to_string(), on: true, screen: String::new() }).collect();
+        let steps = STOCK.iter().map(|k| Step { kind: k.to_string(), on: true, screen: String::new(), acs: String::new() }).collect();
         Self { steps }
     }
 
@@ -80,7 +83,8 @@ impl Sequence {
         let text = format!(
             "# The logon sequence (*O): the steps a caller goes through after\n\
              # logging in, in order. `on = false` skips one. A screen step shows\n\
-             # `screen` from the text directory. Kinds:\n# {}\n\n{}",
+             # `screen` from the text directory, to callers who pass `acs` if it\n\
+             # has one. Kinds:\n# {}\n\n{}",
             KINDS.iter().map(|k| k.0).collect::<Vec<_>>().join(", "),
             toml::to_string_pretty(self).expect("sequence serializes")
         );
@@ -103,7 +107,11 @@ impl Sequence {
 
 pub fn label(s: &Step) -> String {
     let name = KINDS.iter().find(|k| k.0 == s.kind).map_or(s.kind.as_str(), |k| k.1);
-    if s.kind == "screen" { format!("Show {}", s.screen.to_ascii_uppercase()) } else { name.to_string() }
+    match s.kind.as_str() {
+        "screen" if !s.acs.is_empty() => format!("Show {} ({})", s.screen.to_ascii_uppercase(), s.acs),
+        "screen" => format!("Show {}", s.screen.to_ascii_uppercase()),
+        _ => name.to_string(),
+    }
 }
 
 fn first(command: &str, param: &str, acs: &str, desc: &str) -> Command {
@@ -139,7 +147,7 @@ fn step_commands(s: &Step, menus: &[PathBuf], fallback: &str) -> Vec<Command> {
                     .collect()
             })
             .unwrap_or_default(),
-        "screen" if !s.screen.is_empty() => vec![first("-F", &s.screen, "", "Show a screen")],
+        "screen" if !s.screen.is_empty() => vec![first("-F", &s.screen, &s.acs, "Show a screen")],
         "slots" => vec![first("AL", "free", "", "A free slot pull")],
         "email" => vec![first("UV", "logon", "", "Email address and its code")],
         "lottery" => vec![first("!P", "draw", "", "Last night's lottery draw")],
@@ -241,7 +249,7 @@ impl Session {
         }
         let Some(kind) = self.cfg_ask_number("Insert which step?", 1, KINDS.len() as u32).await? else { return Ok(false) };
         let kind = KINDS[kind as usize - 1].0;
-        let mut screen = String::new();
+        let (mut screen, mut acs) = (String::new(), String::new());
         if kind == "screen" {
             self.write_with_controls("|U1Screen's name (e.g. BULLETIN)|U2: |U3");
             screen = self.read_string(crate::input::ReadOpts::new(8).case(crate::input::Case::Upper)).await?;
@@ -249,10 +257,13 @@ impl Session {
             if screen.is_empty() {
                 return Ok(false);
             }
+            self.write_with_controls("|U1Shown to (ACS, e.g. s100; enter for everyone)|U2: |U3");
+            acs = self.read_string(crate::input::ReadOpts::new(20)).await?.trim().to_string();
+            self.newline();
         }
         let n = seq.steps.len() as u32;
         let Some(at) = self.cfg_ask_number("Insert before which step?", 1, n + 1).await? else { return Ok(false) };
-        seq.steps.insert(at as usize - 1, Step { kind: kind.into(), on: true, screen });
+        seq.steps.insert(at as usize - 1, Step { kind: kind.into(), on: true, screen, acs });
         Ok(true)
     }
 }
@@ -280,19 +291,19 @@ mod tests {
         let mut seq = Sequence::stock();
         seq.steps.retain(|s| s.kind != "oneliners");
         seq.steps[0].on = false;
-        seq.steps.push(Step { kind: "screen".into(), on: true, screen: "BULLETIN".into() });
+        seq.steps.push(Step { kind: "screen".into(), on: true, screen: "BULLETIN".into(), acs: "s100".into() });
         let back: Sequence = toml::from_str(&toml::to_string_pretty(&seq).unwrap()).unwrap();
         assert_eq!(back, seq);
         let cmds = seq.commands(&[PathBuf::from("/nonexistent")], "MAIN");
         assert!(!cmds.iter().any(|c| c.command == "IM"));
-        assert_eq!(cmds[cmds.len() - 2].param, "BULLETIN");
+        assert_eq!((cmds[cmds.len() - 2].param.as_str(), cmds[cmds.len() - 2].acs.as_str()), ("BULLETIN", "s100"));
         assert_eq!(cmds.last().unwrap().param, "MAIN");
     }
 
     #[test]
     fn fast_logon_asks_then_skips_to_the_fallback() {
         let mut seq = Sequence::stock();
-        seq.steps.insert(0, Step { kind: "fastlogon".into(), on: true, screen: String::new() });
+        seq.steps.insert(0, Step { kind: "fastlogon".into(), on: true, screen: String::new(), acs: String::new() });
         let cmds = seq.commands(&[PathBuf::from("/nonexistent")], "MAIN");
         assert_eq!((cmds[0].command.as_str(), cmds[0].acs.as_str()), ("?N", "s50"));
         assert_eq!((cmds[1].command.as_str(), cmds[1].param.as_str(), cmds[1].acs.as_str()), ("-^", "MAIN", "s50*"));
