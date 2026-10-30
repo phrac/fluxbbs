@@ -199,6 +199,12 @@ the checkout):
 
 - A screen in the board's `text/` replaces the stock one of the same
   name. Anything it doesn't have comes from `stock_text`.
+- The stock screens and menus say FLUX/BBS in their logos. `python3
+  art/make.py /path/to/board` (from the checkout) makes them all again
+  with the board's own name, into its `text/` and `menus/`; run it
+  again after renaming the board. For Iniquity's own screens and menus
+  instead, point `stock_text` and `stock_menus` at `classic/text` and
+  `classic/menus`. [art/README.md](../art/README.md) has the details.
 - Menus work the same way. `*#` saves a changed stock menu into the
   board's `menus/`, so deleting it there brings the stock one back.
 - `data/`, `files/` and whatever the editors create stay with the

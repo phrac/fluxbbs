@@ -1,0 +1,40 @@
+type = "lightbar"
+title = "Goodbye Menu"
+prompt_name = "goodbye"
+help_file = "GOODBYE"
+prompt = ""
+fallback = "MAIN"
+generic_columns = 3
+upper_input = true
+
+[[command]]
+keys = "1"
+command = "HI"
+param = "|lf|u2Thanks for calling|u3, |u1%UN|u3."
+desc = "  logoff  "
+on = "|B1  logoff  "
+off = "|B0  logoff  "
+
+[[command]]
+keys = "2"
+command = "-^"
+param = "AUTOMSG"
+desc = " auto msg "
+on = "|B1 auto msg "
+off = "|B0 auto msg "
+
+[[command]]
+keys = "3"
+command = '-\'
+param = "MAIN"
+desc = "   quit   "
+on = "|B1   quit   "
+off = "|B0   quit   "
+
+[[command]]
+keys = "4"
+command = "EE"
+param = "1;Feedback;No"
+desc = " feedback "
+on = "|B1 feedback "
+off = "|B0 feedback "

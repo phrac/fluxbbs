@@ -1,13 +1,33 @@
+# The board's bbs list menu: a lightbar with hot keys over BBSLIST.ANS. Made by
+# art/mainmenu-gen.py bbslist (from the stock menu); change that, not this.
 title = "BBS List Menu"
 prompt_name = "bbs list"
 help_file = "BBSLIST"
-prompt = "%%MENUPMT1"
 acs = "s25"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
 upper_input = true
+type = "lightbar"
+
+[[command]]
+keys = "L"
+command = "BL"
+acs = "s25"
+desc = "Display BBS list"
+help = "Show the system BBS listing"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ml\u001b[0;30;41m) \u001b[0;1;37;41mdisplay bbs list               \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ml\u001b[0;1;30m) \u001b[38;2;255;255;255md\u001b[38;2;255;232;232mi\u001b[38;2;255;210;210ms\u001b[38;2;255;187;187mp\u001b[38;2;255;164;164ml\u001b[38;2;255;142;142ma\u001b[38;2;255;119;119my \u001b[38;2;249;79;79mb\u001b[38;2;238;68;68mb\u001b[38;2;227;57;57ms \u001b[38;2;204;34;34ml\u001b[38;2;193;23;23mi\u001b[38;2;181;11;11ms\u001b[38;2;170;0;0mt               \u001b[0m"
+
+[[command]]
+keys = "S"
+command = "BS"
+acs = "s25"
+desc = "Show a BBS"
+help = "Display information on a single BBS from the list"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ms\u001b[0;30;41m) \u001b[0;1;37;41mshow a bbs                     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ms\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;217;217mh\u001b[38;2;255;179;179mo\u001b[38;2;255;142;142mw \u001b[38;2;246;76;76ma \u001b[38;2;208;38;38mb\u001b[38;2;189;19;19mb\u001b[38;2;170;0;0ms                     \u001b[0m"
 
 [[command]]
 keys = "A"
@@ -15,8 +35,17 @@ command = "BA"
 acs = "s50"
 desc = "Add BBS to list"
 help = "Add a new entry to the BBS list"
-on = "|B1Add BBS to list"
-off = "|B0Add BBS to list"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ma\u001b[0;30;41m) \u001b[0;1;37;41madd a bbs to the list          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ma\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;238;238md\u001b[38;2;255;221;221md \u001b[38;2;255;187;187ma \u001b[38;2;255;153;153mb\u001b[38;2;255;136;136mb\u001b[38;2;255;119;119ms \u001b[38;2;255;85;85mt\u001b[38;2;246;76;76mo \u001b[38;2;230;60;60mt\u001b[38;2;221;51;51mh\u001b[38;2;212;42;42me \u001b[38;2;196;26;26ml\u001b[38;2;187;17;17mi\u001b[38;2;178;9;9ms\u001b[38;2;170;0;0mt          \u001b[0m"
+
+[[command]]
+keys = "Q"
+command = "-\\"
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the BBS list menu, returning to the previous"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mquit                           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;142mu\u001b[38;2;227;57;57mi\u001b[38;2;170;0;0mt                           \u001b[0m"
 
 [[command]]
 keys = "C"
@@ -25,6 +54,7 @@ param = "Ask"
 acs = "s250"
 desc = "Clear list"
 help = "[sysop] Clear entire BBS list"
+hidden = true
 on = "|B1Clear list"
 off = "|B0Clear list"
 
@@ -35,32 +65,6 @@ param = "Ask"
 acs = "s250"
 desc = "Delete BBS"
 help = "[sysop] Remove a BBS from the BBS listing"
+hidden = true
 on = "|B1Delete BBS"
 off = "|B0Delete BBS"
-
-[[command]]
-keys = "L"
-command = "BL"
-acs = "s25"
-desc = "Display BBS list"
-help = "Show the system BBS listing"
-on = "|B1Display BBS list"
-off = "|B0Display BBS list"
-
-[[command]]
-keys = "Q"
-command = '-\'
-param = "MAIN"
-desc = "Quit menu"
-help = "Exit the BBS list menu, returning to the previous"
-on = "|B1Quit menu"
-off = "|B0Quit menu"
-
-[[command]]
-keys = "S"
-command = "BS"
-acs = "s25"
-desc = "Show a BBS"
-help = "Display information on a single BBS from the list"
-on = "|B1Show a BBS"
-off = "|B0Show a BBS"

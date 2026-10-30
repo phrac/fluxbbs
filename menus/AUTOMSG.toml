@@ -1,31 +1,15 @@
+# The board's automessage menu: a lightbar with hot keys over AUTOMSG.ANS. Made by
+# art/mainmenu-gen.py automsg (from the stock menu); change that, not this.
 title = "AutoMessage Menu"
 prompt_name = "automessage"
 help_file = "AUTOMSG"
-prompt = "%%MENUPMT1"
 acs = "s25"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
 upper_input = true
-
-[[command]]
-keys = "Q"
-command = "-^"
-param = "MAIN"
-desc = "Quit menu"
-help = "Exit the automessage menu, return to main"
-on = "|B1Quit menu"
-off = "|B0Quit menu"
-
-[[command]]
-keys = "R"
-command = "AR"
-acs = "s50"
-desc = "Reply to automsg"
-help = "Reply to the author of the automessage [private; in email]"
-on = "|B1Reply to automsg"
-off = "|B0Reply to automsg"
+type = "lightbar"
 
 [[command]]
 keys = "S"
@@ -33,8 +17,8 @@ command = "AS"
 acs = "s25"
 desc = "Show automessage"
 help = "View the current system automessage"
-on = "|B1Show automessage"
-off = "|B0Show automessage"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ms\u001b[0;30;41m) \u001b[0;1;37;41mshow automessage               \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ms\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;232;232mh\u001b[38;2;255;210;210mo\u001b[38;2;255;187;187mw \u001b[38;2;255;142;142ma\u001b[38;2;255;119;119mu\u001b[38;2;255;96;96mt\u001b[38;2;249;79;79mo\u001b[38;2;238;68;68mm\u001b[38;2;227;57;57me\u001b[38;2;215;45;45ms\u001b[38;2;204;34;34ms\u001b[38;2;193;23;23ma\u001b[38;2;181;11;11mg\u001b[38;2;170;0;0me               \u001b[0m"
 
 [[command]]
 keys = "W"
@@ -42,5 +26,23 @@ command = "AW"
 acs = "s50"
 desc = "Write automessage"
 help = "Replace the current automessage with your own"
-on = "|B1Write automessage"
-off = "|B0Write automessage"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mw\u001b[0;30;41m) \u001b[0;1;37;41mwrite automessage              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mw\u001b[0;1;30m) \u001b[38;2;255;255;255mw\u001b[38;2;255;234;234mr\u001b[38;2;255;212;212mi\u001b[38;2;255;191;191mt\u001b[38;2;255;170;170me \u001b[38;2;255;128;128ma\u001b[38;2;255;106;106mu\u001b[38;2;255;85;85mt\u001b[38;2;244;74;74mo\u001b[38;2;234;64;64mm\u001b[38;2;223;53;53me\u001b[38;2;212;42;42ms\u001b[38;2;202;32;32ms\u001b[38;2;191;21;21ma\u001b[38;2;181;11;11mg\u001b[38;2;170;0;0me              \u001b[0m"
+
+[[command]]
+keys = "R"
+command = "AR"
+acs = "s50"
+desc = "Reply to automsg"
+help = "Reply to the author of the automessage [private; in email]"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mr\u001b[0;30;41m) \u001b[0;1;37;41mreply to its author            \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mr\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;255;236;236me\u001b[38;2;255;217;217mp\u001b[38;2;255;198;198ml\u001b[38;2;255;179;179my \u001b[38;2;255;142;142mt\u001b[38;2;255;123;123mo \u001b[38;2;255;85;85mi\u001b[38;2;246;76;76mt\u001b[38;2;236;66;66ms \u001b[38;2;217;47;47ma\u001b[38;2;208;38;38mu\u001b[38;2;198;28;28mt\u001b[38;2;189;19;19mh\u001b[38;2;179;9;9mo\u001b[38;2;170;0;0mr            \u001b[0m"
+
+[[command]]
+keys = "Q"
+command = "-^"
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the automessage menu, return to main"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mquit                           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;142mu\u001b[38;2;227;57;57mi\u001b[38;2;170;0;0mt                           \u001b[0m"

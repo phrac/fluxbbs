@@ -1,219 +1,15 @@
+# The board's sysop menu: a lightbar with hot keys over SYSOP.ANS. Made by
+# art/mainmenu-gen.py sysop (from the stock menu); change that, not this.
 title = "SysOp Menu"
 prompt_name = "sysop"
 help_file = "SYSOP"
-prompt = "%%MENUPMT1"
 acs = "s250"
 fallback = "MAIN"
 generic_columns = 3
 center_title = false
 pause_before = true
 upper_input = true
-
-[[command]]
-keys = "!"
-command = "*!"
-acs = "s250"
-desc = "File conference edit"
-help = "[sysop] Create/modify file conferences"
-on = "|B1File conference edit"
-off = "|B0File conference edit"
-
-[[command]]
-keys = "#"
-command = "*#"
-acs = "s255"
-desc = "Menu editor"
-help = "[sysop] Modify/create BBS menu files"
-on = "|B1Menu editor"
-off = "|B0Menu editor"
-
-[[command]]
-keys = "%"
-command = "*%"
-acs = "s255"
-desc = "Local upload"
-help = "[sysop] Upload file(s) locally to current file areas"
-on = "|B1Local upload"
-off = "|B0Local upload"
-
-[[command]]
-keys = ">"
-command = "*>"
-acs = "s255"
-desc = "Download any file"
-help = "[sysop] Download any file on computer by entering full path"
-on = "|B1Download any file"
-off = "|B0Download any file"
-
-[[command]]
-keys = "@"
-command = "*@"
-acs = "s250"
-desc = "Msg conference edit"
-help = "[sysop] Create/modify message conferences"
-on = "|B1Msg conference edit"
-off = "|B0Msg conference edit"
-
-[[command]]
-keys = "A"
-command = "*A"
-acs = "s250"
-desc = "Msg area editor"
-help = "[sysop] Create/modify message areas"
-on = "|B1Msg area editor"
-off = "|B0Msg area editor"
-
-[[command]]
-keys = "B"
-command = "*B"
-acs = "s250"
-desc = "BBS list editor"
-help = "[sysop] Edit the BBS listing"
-on = "|B1BBS list editor"
-off = "|B0BBS list editor"
-
-[[command]]
-keys = "C"
-command = "*C"
-acs = "s255"
-desc = "System config"
-help = "[sysop] Edit BBS system configuration"
-on = "|B1System config"
-off = "|B0System config"
-
-[[command]]
-keys = "D"
-command = "*D"
-acs = "s255"
-desc = "flux/bbs MicroDOS"
-help = "[sysop] Load the internal DOS emulator"
-on = "|B1flux/bbs MicroDOS"
-off = "|B0flux/bbs MicroDOS"
-
-[[command]]
-keys = "E"
-command = "*E"
-acs = "s250"
-desc = "String editor"
-help = "[sysop] Load the configurable string/prompt editor"
-on = "|B1String editor"
-off = "|B0String editor"
-
-[[command]]
-keys = "F"
-command = "*F"
-acs = "s250"
-desc = "File area edit"
-help = "[sysop] Create/modify file areas"
-on = "|B1File area edit"
-off = "|B0File area edit"
-
-[[command]]
-keys = "H"
-command = "*H"
-acs = "s250"
-desc = "Stat editor"
-help = "[sysop] Edit the system statistics (total calls, posts, etc)"
-on = "|B1Stat editor"
-off = "|B0Stat editor"
-
-[[command]]
-keys = "I"
-command = "*I"
-acs = "s250"
-desc = "Infoform editor"
-help = "[sysop] Edit infoforms"
-on = "|B1Infoform editor"
-off = "|B0Infoform editor"
-
-[[command]]
-keys = "P"
-command = "*P"
-acs = "s250"
-desc = "New user questions"
-help = "[sysop] Edit the questions new users are asked when they apply"
-on = "|B1New user questions"
-off = "|B0New user questions"
-
-[[command]]
-keys = "L"
-command = "*L"
-acs = "s250"
-desc = "Access level edit"
-help = "[sysop] Modify access level limits, ratios, and names"
-on = "|B1Access level edit"
-off = "|B0Access level edit"
-
-[[command]]
-keys = "M"
-command = "*M"
-acs = "s255"
-desc = "Modem setup"
-help = "[sysop] Edit BBS modem/node configuration"
-on = "|B1Modem setup"
-off = "|B0Modem setup"
-
-[[command]]
-keys = "O"
-command = "*O"
-acs = "s250"
-desc = "Logon sequence"
-help = "[sysop] Order the logon steps and turn them on or off"
-on = "|B1Logon sequence"
-off = "|B0Logon sequence"
-
-[[command]]
-keys = "G"
-command = "*G"
-acs = "s250"
-desc = "Security log"
-help = "[sysop] Bans and failed logins; lift a ban"
-on = "|B1Security log"
-off = "|B0Security log"
-
-[[command]]
-keys = "K"
-command = "*K"
-acs = "s250"
-desc = "Pack file areas"
-help = "[sysop] Remove records of files missing from their directories"
-on = "|B1Pack file areas"
-off = "|B0Pack file areas"
-
-[[command]]
-keys = "Q"
-command = '-\'
-desc = "Quit sysop menu"
-help = "Exit the sysop menu, and return to previous"
-on = "|B1Quit sysop menu"
-off = "|B0Quit sysop menu"
-
-[[command]]
-keys = "R"
-command = "*R"
-acs = "s250"
-desc = "Read email"
-help = "[sysop] Read/edit/reply all/any email (+recently deleted)"
-on = "|B1Read email"
-off = "|B0Read email"
-
-[[command]]
-keys = "S"
-command = "*S"
-acs = "s250"
-desc = "File area sort"
-help = "[sysop] Sort some/all file areas using area's defualt sort method"
-on = "|B1File area sort"
-off = "|B0File area sort"
-
-[[command]]
-keys = "T"
-command = "*T"
-acs = "s250"
-desc = "Textfile libraries"
-help = "[sysop] Edit sysop configurable textfile libraries"
-on = "|B1Textfile libraries"
-off = "|B0Textfile libraries"
+type = "lightbar"
 
 [[command]]
 keys = "U"
@@ -221,8 +17,71 @@ command = "*U"
 acs = "s255"
 desc = "User editor"
 help = "[sysop] The user editor; modify user information"
-on = "|B1User editor"
-off = "|B0User editor"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mu\u001b[0;30;41m) \u001b[0;1;37;41muser editor       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mu\u001b[0;1;30m) \u001b[38;2;255;255;255mu\u001b[38;2;255;221;221ms\u001b[38;2;255;187;187me\u001b[38;2;255;153;153mr \u001b[38;2;255;85;85me\u001b[38;2;238;68;68md\u001b[38;2;221;51;51mi\u001b[38;2;204;34;34mt\u001b[38;2;187;17;17mo\u001b[38;2;170;0;0mr       \u001b[0m"
+
+[[command]]
+keys = "L"
+command = "*L"
+acs = "s250"
+desc = "Access level edit"
+help = "[sysop] Modify access level limits, ratios, and names"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ml\u001b[0;30;41m) \u001b[0;1;37;41maccess levels     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ml\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;227;227mc\u001b[38;2;255;198;198mc\u001b[38;2;255;170;170me\u001b[38;2;255;142;142ms\u001b[38;2;255;113;113ms \u001b[38;2;241;71;71ml\u001b[38;2;227;57;57me\u001b[38;2;212;42;42mv\u001b[38;2;198;28;28me\u001b[38;2;184;14;14ml\u001b[38;2;170;0;0ms     \u001b[0m"
+
+[[command]]
+keys = "I"
+command = "*I"
+acs = "s250"
+desc = "Infoform editor"
+help = "[sysop] Edit infoforms"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mi\u001b[0;30;41m) \u001b[0;1;37;41minfoform editor   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mi\u001b[0;1;30m) \u001b[38;2;255;255;255mi\u001b[38;2;255;231;231mn\u001b[38;2;255;206;206mf\u001b[38;2;255;182;182mo\u001b[38;2;255;158;158mf\u001b[38;2;255;134;134mo\u001b[38;2;255;109;109mr\u001b[38;2;255;85;85mm \u001b[38;2;231;61;61me\u001b[38;2;219;49;49md\u001b[38;2;206;36;36mi\u001b[38;2;194;24;24mt\u001b[38;2;182;12;12mo\u001b[38;2;170;0;0mr   \u001b[0m"
+
+[[command]]
+keys = "P"
+command = "*P"
+acs = "s250"
+desc = "New user questions"
+help = "[sysop] Edit the questions new users are asked when they apply"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mp\u001b[0;30;41m) \u001b[0;1;37;41mnew user questions\u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mp\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;255;235;235me\u001b[38;2;255;215;215mw \u001b[38;2;255;175;175mu\u001b[38;2;255;155;155ms\u001b[38;2;255;135;135me\u001b[38;2;255;115;115mr \u001b[38;2;250;80;80mq\u001b[38;2;240;70;70mu\u001b[38;2;230;60;60me\u001b[38;2;220;50;50ms\u001b[38;2;210;40;40mt\u001b[38;2;200;30;30mi\u001b[38;2;190;20;20mo\u001b[38;2;180;10;10mn\u001b[38;2;170;0;0ms\u001b[0m"
+
+[[command]]
+keys = "G"
+command = "*G"
+acs = "s250"
+desc = "Security log"
+help = "[sysop] Bans and failed logins; lift a ban"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mg\u001b[0;30;41m) \u001b[0;1;37;41msecurity log      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mg\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;224;224me\u001b[38;2;255;193;193mc\u001b[38;2;255;162;162mu\u001b[38;2;255;131;131mr\u001b[38;2;255;100;100mi\u001b[38;2;247;77;77mt\u001b[38;2;232;62;62my \u001b[38;2;201;31;31ml\u001b[38;2;185;15;15mo\u001b[38;2;170;0;0mg      \u001b[0m"
+
+[[command]]
+keys = "R"
+command = "*R"
+acs = "s250"
+desc = "Read email"
+help = "[sysop] Read/edit/reply all/any email (+recently deleted)"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mr\u001b[0;30;41m) \u001b[0;1;37;41mread email        \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mr\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;255;217;217me\u001b[38;2;255;179;179ma\u001b[38;2;255;142;142md \u001b[38;2;246;76;76me\u001b[38;2;227;57;57mm\u001b[38;2;208;38;38ma\u001b[38;2;189;19;19mi\u001b[38;2;170;0;0ml        \u001b[0m"
+
+[[command]]
+keys = "H"
+command = "*H"
+acs = "s250"
+desc = "Stat editor"
+help = "[sysop] Edit the system statistics (total calls, posts, etc)"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mh\u001b[0;30;41m) \u001b[0;1;37;41mstat editor       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mh\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;221;221mt\u001b[38;2;255;187;187ma\u001b[38;2;255;153;153mt \u001b[38;2;255;85;85me\u001b[38;2;238;68;68md\u001b[38;2;221;51;51mi\u001b[38;2;204;34;34mt\u001b[38;2;187;17;17mo\u001b[38;2;170;0;0mr       \u001b[0m"
+
+[[command]]
+keys = "B"
+command = "*B"
+acs = "s250"
+desc = "BBS list editor"
+help = "[sysop] Edit the BBS listing"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mb\u001b[0;30;41m) \u001b[0;1;37;41mbbs list editor   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mb\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;231;231mb\u001b[38;2;255;206;206ms \u001b[38;2;255;158;158ml\u001b[38;2;255;134;134mi\u001b[38;2;255;109;109ms\u001b[38;2;255;85;85mt \u001b[38;2;231;61;61me\u001b[38;2;219;49;49md\u001b[38;2;206;36;36mi\u001b[38;2;194;24;24mt\u001b[38;2;182;12;12mo\u001b[38;2;170;0;0mr   \u001b[0m"
 
 [[command]]
 keys = "N"
@@ -230,35 +89,34 @@ command = "*N"
 acs = "s255"
 desc = "Caller notes"
 help = "[sysop] Private notes on a caller (the AI chat suits itself to them)"
-on = "|B1Caller notes"
-off = "|B0Caller notes"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mn\u001b[0;30;41m) \u001b[0;1;37;41mcaller notes      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mn\u001b[0;1;30m) \u001b[38;2;255;255;255mc\u001b[38;2;255;224;224ma\u001b[38;2;255;193;193ml\u001b[38;2;255;162;162ml\u001b[38;2;255;131;131me\u001b[38;2;255;100;100mr \u001b[38;2;232;62;62mn\u001b[38;2;216;46;46mo\u001b[38;2;201;31;31mt\u001b[38;2;185;15;15me\u001b[38;2;170;0;0ms      \u001b[0m"
 
 [[command]]
-keys = "V"
-command = "*V"
-acs = "s250"
-desc = "Event editor"
-help = "[sysop] Modify/setup system events"
-on = "|B1Event editor"
-off = "|B0Event editor"
+keys = "Q"
+command = "-\\"
+desc = "Quit sysop menu"
+help = "Exit the sysop menu, and return to previous"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mquit              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;142mu\u001b[38;2;227;57;57mi\u001b[38;2;170;0;0mt              \u001b[0m"
 
 [[command]]
-keys = "W"
-command = "*W"
+keys = "A"
+command = "*A"
 acs = "s250"
-desc = "Screen viewer"
-help = "[sysop] Show any screen, or one of its variants"
-on = "|B1Screen viewer"
-off = "|B0Screen viewer"
+desc = "Msg area editor"
+help = "[sysop] Create/modify message areas"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ma\u001b[0;30;41m) \u001b[0;1;37;41mmsg area editor   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ma\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;231;231ms\u001b[38;2;255;206;206mg \u001b[38;2;255;158;158ma\u001b[38;2;255;134;134mr\u001b[38;2;255;109;109me\u001b[38;2;255;85;85ma \u001b[38;2;231;61;61me\u001b[38;2;219;49;49md\u001b[38;2;206;36;36mi\u001b[38;2;194;24;24mt\u001b[38;2;182;12;12mo\u001b[38;2;170;0;0mr   \u001b[0m"
 
 [[command]]
-keys = "J"
-command = "*J"
+keys = "@"
+command = "*@"
 acs = "s250"
-desc = "Font viewer"
-help = "[sysop] The board's names set in every TheDraw font"
-on = "|B1Font viewer"
-off = "|B0Font viewer"
+desc = "Msg conference edit"
+help = "[sysop] Create/modify message conferences"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m@\u001b[0;30;41m) \u001b[0;1;37;41mmsg conferences   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m@\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;231;231ms\u001b[38;2;255;206;206mg \u001b[38;2;255;158;158mc\u001b[38;2;255;134;134mo\u001b[38;2;255;109;109mn\u001b[38;2;255;85;85mf\u001b[38;2;243;73;73me\u001b[38;2;231;61;61mr\u001b[38;2;219;49;49me\u001b[38;2;206;36;36mn\u001b[38;2;194;24;24mc\u001b[38;2;182;12;12me\u001b[38;2;170;0;0ms   \u001b[0m"
 
 [[command]]
 keys = "-"
@@ -266,17 +124,35 @@ command = "*-"
 acs = "s250"
 desc = "Message trash"
 help = "[sysop] Deleted posts: restore them, or purge them now"
-on = "|B1Message trash"
-off = "|B0Message trash"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m-\u001b[0;30;41m) \u001b[0;1;37;41mmessage trash     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m-\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;227;227me\u001b[38;2;255;198;198ms\u001b[38;2;255;170;170ms\u001b[38;2;255;142;142ma\u001b[38;2;255;113;113mg\u001b[38;2;255;85;85me \u001b[38;2;227;57;57mt\u001b[38;2;212;42;42mr\u001b[38;2;198;28;28ma\u001b[38;2;184;14;14ms\u001b[38;2;170;0;0mh     \u001b[0m"
 
 [[command]]
-keys = "X"
-command = "*X"
+keys = "F"
+command = "*F"
 acs = "s250"
-desc = "Protocol editor"
-help = "[sysop] Edit transfer protocol configuration"
-on = "|B1Protocol editor"
-off = "|B0Protocol editor"
+desc = "File area edit"
+help = "[sysop] Create/modify file areas"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mf\u001b[0;30;41m) \u001b[0;1;37;41mfile area editor  \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mf\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;255;232;232mi\u001b[38;2;255;210;210ml\u001b[38;2;255;187;187me \u001b[38;2;255;142;142ma\u001b[38;2;255;119;119mr\u001b[38;2;255;96;96me\u001b[38;2;249;79;79ma \u001b[38;2;227;57;57me\u001b[38;2;215;45;45md\u001b[38;2;204;34;34mi\u001b[38;2;193;23;23mt\u001b[38;2;181;11;11mo\u001b[38;2;170;0;0mr  \u001b[0m"
+
+[[command]]
+keys = "!"
+command = "*!"
+acs = "s250"
+desc = "File conference edit"
+help = "[sysop] Create/modify file conferences"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m!\u001b[0;30;41m) \u001b[0;1;37;41mfile conferences  \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m!\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;255;232;232mi\u001b[38;2;255;210;210ml\u001b[38;2;255;187;187me \u001b[38;2;255;142;142mc\u001b[38;2;255;119;119mo\u001b[38;2;255;96;96mn\u001b[38;2;249;79;79mf\u001b[38;2;238;68;68me\u001b[38;2;227;57;57mr\u001b[38;2;215;45;45me\u001b[38;2;204;34;34mn\u001b[38;2;193;23;23mc\u001b[38;2;181;11;11me\u001b[38;2;170;0;0ms  \u001b[0m"
+
+[[command]]
+keys = "S"
+command = "*S"
+acs = "s250"
+desc = "File area sort"
+help = "[sysop] Sort some/all file areas using area's defualt sort method"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ms\u001b[0;30;41m) \u001b[0;1;37;41mfile area sort    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ms\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;255;229;229mi\u001b[38;2;255;203;203ml\u001b[38;2;255;177;177me \u001b[38;2;255;124;124ma\u001b[38;2;255;98;98mr\u001b[38;2;248;78;78me\u001b[38;2;235;65;65ma \u001b[38;2;209;39;39ms\u001b[38;2;196;26;26mo\u001b[38;2;183;13;13mr\u001b[38;2;170;0;0mt    \u001b[0m"
 
 [[command]]
 keys = "Y"
@@ -284,8 +160,116 @@ command = "*Y"
 acs = "s250"
 desc = "File editor"
 help = "[sysop] Edit files (in current file area)"
-on = "|B1File editor"
-off = "|B0File editor"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41my\u001b[0;30;41m) \u001b[0;1;37;41mfile editor       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31my\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;255;221;221mi\u001b[38;2;255;187;187ml\u001b[38;2;255;153;153me \u001b[38;2;255;85;85me\u001b[38;2;238;68;68md\u001b[38;2;221;51;51mi\u001b[38;2;204;34;34mt\u001b[38;2;187;17;17mo\u001b[38;2;170;0;0mr       \u001b[0m"
+
+[[command]]
+keys = "K"
+command = "*K"
+acs = "s250"
+desc = "Pack file areas"
+help = "[sysop] Remove records of files missing from their directories"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mk\u001b[0;30;41m) \u001b[0;1;37;41mpack file areas   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mk\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;255;231;231ma\u001b[38;2;255;206;206mc\u001b[38;2;255;182;182mk \u001b[38;2;255;134;134mf\u001b[38;2;255;109;109mi\u001b[38;2;255;85;85ml\u001b[38;2;243;73;73me \u001b[38;2;219;49;49ma\u001b[38;2;206;36;36mr\u001b[38;2;194;24;24me\u001b[38;2;182;12;12ma\u001b[38;2;170;0;0ms   \u001b[0m"
+
+[[command]]
+keys = "%"
+command = "*%"
+acs = "s255"
+desc = "Local upload"
+help = "[sysop] Upload file(s) locally to current file areas"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m%\u001b[0;30;41m) \u001b[0;1;37;41mlocal upload      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m%\u001b[0;1;30m) \u001b[38;2;255;255;255ml\u001b[38;2;255;224;224mo\u001b[38;2;255;193;193mc\u001b[38;2;255;162;162ma\u001b[38;2;255;131;131ml \u001b[38;2;247;77;77mu\u001b[38;2;232;62;62mp\u001b[38;2;216;46;46ml\u001b[38;2;201;31;31mo\u001b[38;2;185;15;15ma\u001b[38;2;170;0;0md      \u001b[0m"
+
+[[command]]
+keys = ">"
+command = "*>"
+acs = "s255"
+desc = "Download any file"
+help = "[sysop] Download any file on computer by entering full path"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m>\u001b[0;30;41m) \u001b[0;1;37;41mdownload any file \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m>\u001b[0;1;30m) \u001b[38;2;255;255;255md\u001b[38;2;255;234;234mo\u001b[38;2;255;212;212mw\u001b[38;2;255;191;191mn\u001b[38;2;255;170;170ml\u001b[38;2;255;149;149mo\u001b[38;2;255;128;128ma\u001b[38;2;255;106;106md \u001b[38;2;244;74;74ma\u001b[38;2;234;64;64mn\u001b[38;2;223;53;53my \u001b[38;2;202;32;32mf\u001b[38;2;191;21;21mi\u001b[38;2;181;11;11ml\u001b[38;2;170;0;0me \u001b[0m"
+
+[[command]]
+keys = "C"
+command = "*C"
+acs = "s255"
+desc = "System config"
+help = "[sysop] Edit BBS system configuration"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mc\u001b[0;30;41m) \u001b[0;1;37;41msystem config     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mc\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;227;227my\u001b[38;2;255;198;198ms\u001b[38;2;255;170;170mt\u001b[38;2;255;142;142me\u001b[38;2;255;113;113mm \u001b[38;2;241;71;71mc\u001b[38;2;227;57;57mo\u001b[38;2;212;42;42mn\u001b[38;2;198;28;28mf\u001b[38;2;184;14;14mi\u001b[38;2;170;0;0mg     \u001b[0m"
+
+[[command]]
+keys = "O"
+command = "*O"
+acs = "s250"
+desc = "Logon sequence"
+help = "[sysop] Order the logon steps and turn them on or off"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mo\u001b[0;30;41m) \u001b[0;1;37;41mlogon sequence    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mo\u001b[0;1;30m) \u001b[38;2;255;255;255ml\u001b[38;2;255;229;229mo\u001b[38;2;255;203;203mg\u001b[38;2;255;177;177mo\u001b[38;2;255;150;150mn \u001b[38;2;255;98;98ms\u001b[38;2;248;78;78me\u001b[38;2;235;65;65mq\u001b[38;2;222;52;52mu\u001b[38;2;209;39;39me\u001b[38;2;196;26;26mn\u001b[38;2;183;13;13mc\u001b[38;2;170;0;0me    \u001b[0m"
+
+[[command]]
+keys = "#"
+command = "*#"
+acs = "s255"
+desc = "Menu editor"
+help = "[sysop] Modify/create BBS menu files"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m#\u001b[0;30;41m) \u001b[0;1;37;41mmenu editor       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m#\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;221;221me\u001b[38;2;255;187;187mn\u001b[38;2;255;153;153mu \u001b[38;2;255;85;85me\u001b[38;2;238;68;68md\u001b[38;2;221;51;51mi\u001b[38;2;204;34;34mt\u001b[38;2;187;17;17mo\u001b[38;2;170;0;0mr       \u001b[0m"
+
+[[command]]
+keys = "E"
+command = "*E"
+acs = "s250"
+desc = "String editor"
+help = "[sysop] Load the configurable string/prompt editor"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41me\u001b[0;30;41m) \u001b[0;1;37;41mstring editor     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31me\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;227;227mt\u001b[38;2;255;198;198mr\u001b[38;2;255;170;170mi\u001b[38;2;255;142;142mn\u001b[38;2;255;113;113mg \u001b[38;2;241;71;71me\u001b[38;2;227;57;57md\u001b[38;2;212;42;42mi\u001b[38;2;198;28;28mt\u001b[38;2;184;14;14mo\u001b[38;2;170;0;0mr     \u001b[0m"
+
+[[command]]
+keys = "T"
+command = "*T"
+acs = "s250"
+desc = "Textfile libraries"
+help = "[sysop] Edit sysop configurable textfile libraries"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mt\u001b[0;30;41m) \u001b[0;1;37;41mtext libraries    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;229;229me\u001b[38;2;255;203;203mx\u001b[38;2;255;177;177mt \u001b[38;2;255;124;124ml\u001b[38;2;255;98;98mi\u001b[38;2;248;78;78mb\u001b[38;2;235;65;65mr\u001b[38;2;222;52;52ma\u001b[38;2;209;39;39mr\u001b[38;2;196;26;26mi\u001b[38;2;183;13;13me\u001b[38;2;170;0;0ms    \u001b[0m"
+
+[[command]]
+keys = "W"
+command = "*W"
+acs = "s250"
+desc = "Screen viewer"
+help = "[sysop] Show any screen, or one of its variants"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mw\u001b[0;30;41m) \u001b[0;1;37;41mscreen viewer     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mw\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;227;227mc\u001b[38;2;255;198;198mr\u001b[38;2;255;170;170me\u001b[38;2;255;142;142me\u001b[38;2;255;113;113mn \u001b[38;2;241;71;71mv\u001b[38;2;227;57;57mi\u001b[38;2;212;42;42me\u001b[38;2;198;28;28mw\u001b[38;2;184;14;14me\u001b[38;2;170;0;0mr     \u001b[0m"
+
+[[command]]
+keys = "J"
+command = "*J"
+acs = "s250"
+desc = "Font viewer"
+help = "[sysop] The board's names set in every TheDraw font"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mj\u001b[0;30;41m) \u001b[0;1;37;41mtdf font viewer   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mj\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;231;231md\u001b[38;2;255;206;206mf \u001b[38;2;255;158;158mf\u001b[38;2;255;134;134mo\u001b[38;2;255;109;109mn\u001b[38;2;255;85;85mt \u001b[38;2;231;61;61mv\u001b[38;2;219;49;49mi\u001b[38;2;206;36;36me\u001b[38;2;194;24;24mw\u001b[38;2;182;12;12me\u001b[38;2;170;0;0mr   \u001b[0m"
+
+[[command]]
+keys = "V"
+command = "*V"
+acs = "s250"
+desc = "Event editor"
+help = "[sysop] Modify/setup system events"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mv\u001b[0;30;41m) \u001b[0;1;37;41mevent editor      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mv\u001b[0;1;30m) \u001b[38;2;255;255;255me\u001b[38;2;255;224;224mv\u001b[38;2;255;193;193me\u001b[38;2;255;162;162mn\u001b[38;2;255;131;131mt \u001b[38;2;247;77;77me\u001b[38;2;232;62;62md\u001b[38;2;216;46;46mi\u001b[38;2;201;31;31mt\u001b[38;2;185;15;15mo\u001b[38;2;170;0;0mr      \u001b[0m"
+
+[[command]]
+keys = "X"
+command = "*X"
+acs = "s250"
+desc = "Protocol editor"
+help = "[sysop] Edit transfer protocol configuration"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mx\u001b[0;30;41m) \u001b[0;1;37;41mprotocol editor   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mx\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;255;231;231mr\u001b[38;2;255;206;206mo\u001b[38;2;255;182;182mt\u001b[38;2;255;158;158mo\u001b[38;2;255;134;134mc\u001b[38;2;255;109;109mo\u001b[38;2;255;85;85ml \u001b[38;2;231;61;61me\u001b[38;2;219;49;49md\u001b[38;2;206;36;36mi\u001b[38;2;194;24;24mt\u001b[38;2;182;12;12mo\u001b[38;2;170;0;0mr   \u001b[0m"
 
 [[command]]
 keys = "Z"
@@ -293,5 +277,23 @@ command = "*Z"
 acs = "s250"
 desc = "Archiver config"
 help = "[sysop] Modify configuration of external archivers"
-on = "|B1Archiver config"
-off = "|B0Archiver config"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mz\u001b[0;30;41m) \u001b[0;1;37;41marchiver config   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mz\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;231;231mr\u001b[38;2;255;206;206mc\u001b[38;2;255;182;182mh\u001b[38;2;255;158;158mi\u001b[38;2;255;134;134mv\u001b[38;2;255;109;109me\u001b[38;2;255;85;85mr \u001b[38;2;231;61;61mc\u001b[38;2;219;49;49mo\u001b[38;2;206;36;36mn\u001b[38;2;194;24;24mf\u001b[38;2;182;12;12mi\u001b[38;2;170;0;0mg   \u001b[0m"
+
+[[command]]
+keys = "D"
+command = "*D"
+acs = "s255"
+desc = "flux/bbs MicroDOS"
+help = "[sysop] Load the internal DOS emulator"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41md\u001b[0;30;41m) \u001b[0;1;37;41mflux/bbs microdos \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31md\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;255;234;234ml\u001b[38;2;255;212;212mu\u001b[38;2;255;191;191mx\u001b[38;2;255;170;170m/\u001b[38;2;255;149;149mb\u001b[38;2;255;128;128mb\u001b[38;2;255;106;106ms \u001b[38;2;244;74;74mm\u001b[38;2;234;64;64mi\u001b[38;2;223;53;53mc\u001b[38;2;212;42;42mr\u001b[38;2;202;32;32mo\u001b[38;2;191;21;21md\u001b[38;2;181;11;11mo\u001b[38;2;170;0;0ms \u001b[0m"
+
+[[command]]
+keys = "M"
+command = "*M"
+acs = "s255"
+desc = "Modem setup"
+help = "[sysop] Edit BBS modem/node configuration"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mm\u001b[0;30;41m) \u001b[0;1;37;41mmodem setup       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mm\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;221;221mo\u001b[38;2;255;187;187md\u001b[38;2;255;153;153me\u001b[38;2;255;119;119mm \u001b[38;2;238;68;68ms\u001b[38;2;221;51;51me\u001b[38;2;204;34;34mt\u001b[38;2;187;17;17mu\u001b[38;2;170;0;0mp       \u001b[0m"

@@ -1,50 +1,52 @@
+# The board's main menu: a lightbar with hot keys over MAIN.ANS. Made by
+# art/mainmenu-gen.py main (from the stock menu); change that, not this.
 title = "Main Menu"
 prompt_name = "Main"
 help_file = "MAIN"
-prompt = "%%menupmt1"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
+type = "lightbar"
+
+[[effect]]
+kind = "decode"
+rows = [2, 2]
+cols = [4, 77]
+every = 10.0
+delay = 2.0
+amount = 1.8
+messages = ["NOBODY LEAVES", "STAY QUIET", "TRUST NO ONE", "WE SEE YOU", "KEEP DIGGING", "LOOK CLOSER", "NO WAY OUT", "ALMOST THERE", "READ BETWEEN", "NO CARRIER", "WE NEVER SLEEP", "SOMEONE IS LISTENING", "YOU WERE FOLLOWED", "LEAVE NO TRACE", "BURN AFTER READING", "TOO LATE NOW", "IT KNOWS YOUR NAME", "COUNT THE NODES", "WRONG NUMBER", "DONT LOOK UP", "THE LINE IS HOT", "NOT YOUR TERMINAL", "STILL CONNECTED", "ASK FOR NOBODY", "HANG UP NOW", "THEY KEPT THE TAPES", "LOGGED AND FILED", "CHECK YOUR SIX", "DIAL AGAIN LATER", "THE OPERATOR IS AWAKE", "EVERY KEY IS KEPT", "WHO GAVE YOU THIS NUMBER", "THE SYSOP IS WATCHING", "NOTHING IS DELETED", "ONE RING ONLY", "YOUR MODEM IS LOUD", "SPEAK IN CODES", "THE BOARD REMEMBERS", "DONT USE YOUR REAL NAME", "CARRIER DETECTED", "SOMEBODY ELSE IS ON", "THE WIRE IS WARM", "LEAVE BEFORE DAWN", "THEY TRACED THE LAST ONE", "PICK UP THE PHONE", "THE HANDSET IS OFF THE HOOK", "NOBODY CALLS TWICE", "RINGING RINGING RINGING", "THE BOX HUMS AT NIGHT", "READ THE TEXTFILES", "NOT A DRILL", "EYES ON THE DOOR", "THE TAPE IS ROLLING", "LATE NIGHT ONLY", "SAY NOTHING", "WRITE IT DOWN THEN BURN IT", "THE LIGHT IS ON", "SOMETHING IS DIALING IN", "NO ONE REMEMBERS 1995", "THE SYSOP NEVER SLEEPS", "YOU LEFT A TRAIL", "WE CLEANED IT UP", "THE LOGS KEEP THE REST", "THIS IS THE INSIDE", "ASK NO QUESTIONS", "EVERYONE IS A FED", "NOBODY IS A FED", "TRUST THE SILENCE", "LISTEN FOR THE CLICK", "THE CLICK IS THEM", "BREATHE QUIETLY", "HOLD THE LINE", "LINE NOISE LIES", "THE BAUD IS A LIE", "FULL SPEED AHEAD", "NO BAUD EMULATION", "STAY OFF THE PHONE", "THE WALL KEEPS SCORE", "SKULLS FOR LAMERS", "CALL ONLY AT THREE AM", "THE HUM IS NORMAL", "DONT TRUST THE LAST CALLER", "THE SCREEN FLICKERS FOR A REASON", "WE PATCHED THE HOLE", "THE DOOR WAS NEVER LOCKED", "FIRST RULE IS QUIET", "SECOND RULE IS QUIET", "THIRD RULE IS SKIP THIS", "PRESS NOTHING", "ALL CALLS RECORDED", "IT IS LATER THAN YOU THINK", "THE BELL RINGS ONCE", "OFF THE HOOK", "NOT ALL NODES ARE NODES", "ONE OF US IS A SCRIPT", "THE ECHO IS NOT YOU", "SOME LINES NEVER DROP", "GOODBYE IS A COMMAND", "THERE IS NO MAIN MENU", "YOU ARE ALREADY INSIDE"]
+
+[[effect]]
+kind = "decode"
+rows = [3, 8]
+cols = [4, 4]
+every = 10.0
+delay = 2.0
+amount = 1.8
+messages = ["INSIDE", "SILENT", "HIDDEN", "UNSEEN", "LISTEN", "WITHIN", "SECRET", "BEHIND", "LOCKED", "BURIED", "DEEPER", "ALWAYS", "BEWARE", "CIPHER", "DIALUP", "ESCAPE", "FOLLOW", "GHOSTS", "HACKED", "INTENT", "JAMMED", "KEEPER", "LOGGED", "MODEMS", "NOBODY", "OFFLIN", "PHREAK", "QUIETS", "RINGER", "SIGNAL", "TRACED", "UNSAID", "VOICES", "WIRING", "XCHNGE", "YELLOW", "ZEROED", "ACCESS", "BINARY", "CRYPTO", "DENIED", "ENCODE", "FILTER", "GUARDS", "HOOKED", "IGNORE", "JITTER", "KERNEL", "LEGEND", "MASKED", "NEEDLE", "OPENED", "PACKET", "QUEUED", "REWIND", "SCRIPT", "TAPPED", "UPLINK", "VECTOR", "WANTED", "XTRACT", "YONDER", "ZIPPED", "ANSWER", "BACKUP", "CARBON", "DECODE", "ERASED", "FROZEN", "GLITCH", "HOLLOW", "INTAKE", "JUMPER", "KEYPAD", "LATENT", "MIRROR", "NOISES", "ORACLE", "PIRATE", "QUORUM", "RELAYS", "SHADOW", "TUNNEL", "UNLOCK", "VANISH", "WIRETA", "YIELDS", "ZENITH", "ARCADE", "BEACON", "CASING", "DIALED", "EMBERS", "FORGED", "GAMBIT", "HUNTED", "ISSUED", "JARGON", "KINDLE", "LURKER", "MUFFLE", "NUMBER", "OUTAGE", "PULSES", "RUMORS", "STATIC", "TRANCE", "UNPLUG"]
+
+[[effect]]
+kind = "random"
+rows = [1, 8]
+every = 10.0
+delay = 2.0
+
+[[effect]]
+kind = "ripple"
+rows = [9, 20]
+every = 10.0
+delay = 6.0
 
 [[command]]
-keys = "A"
-command = "-/"
-param = "AUTOMSG"
+keys = "M"
+command = "MH"
 acs = "s25"
-desc = "AutoMsg menu"
-help = "Goto the automessage menu"
-on = "|B1AutoMsg menu"
-off = "|B0AutoMsg menu"
-
-[[command]]
-keys = "B"
-command = "-/"
-param = "BBSLIST"
-acs = "s25"
-desc = "BBS list menu"
-help = "Goto the BBS listing menu"
-on = "|B1BBS list menu"
-off = "|B0BBS list menu"
-
-[[command]]
-keys = "C"
-command = "UC"
-acs = "s25"
-desc = "User config"
-help = "Edit your user options/toggles"
-on = "|B1User config"
-off = "|B0User config"
-
-[[command]]
-keys = "D"
-command = "-/"
-param = "DOOR"
-acs = "s50"
-desc = "Doors menu"
-help = "Goto the online games menu"
-on = "|B1Doors menu"
-off = "|B0Doors menu"
+desc = "Message boards"
+help = "The message boards: read, post, vote and comment"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mm\u001b[0;30;45m) \u001b[0;1;37;45mmessage boards    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mm\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;229;255me\u001b[38;2;255;203;255ms\u001b[38;2;255;177;255ms\u001b[38;2;255;150;255ma\u001b[38;2;255;124;255mg\u001b[38;2;255;98;255me \u001b[38;2;235;65;235mb\u001b[38;2;222;52;222mo\u001b[38;2;209;39;209ma\u001b[38;2;196;26;196mr\u001b[38;2;183;13;183md\u001b[38;2;170;0;170ms    \u001b[0m"
 
 [[command]]
 keys = "E"
@@ -53,57 +55,8 @@ param = "EMAIL"
 acs = "s25"
 desc = "Email menu"
 help = "Goto the electronic mail menu"
-on = "|B1Email menu"
-off = "|B0Email menu"
-
-[[command]]
-keys = "F"
-command = "-^"
-param = "SCANFILE"
-acs = "s50"
-desc = "File menu"
-help = "Goto the file menu"
-on = "|B1File menu"
-off = "|B0File menu"
-
-[[command]]
-keys = "I"
-command = "IN"
-acs = "s25"
-desc = "Infoforms"
-help = "View/fill out your infoforms"
-on = "|B1Infoforms"
-off = "|B0Infoforms"
-
-[[command]]
-keys = "L"
-command = "LC"
-param = "All"
-acs = "s25"
-desc = "Today's callers"
-help = "Display list of today's callers"
-on = "|B1Today's callers"
-off = "|B0Today's callers"
-
-[[command]]
-keys = "M"
-command = "-^"
-param = "SCANMSG"
-acs = "s25"
-desc = "Message menu"
-help = "Goto the message menu"
-on = "|B1Message menu"
-off = "|B0Message menu"
-
-[[command]]
-keys = "N"
-command = "EE"
-param = "1;feedback"
-acs = "s25"
-desc = "Note to sysop"
-help = "Leave feedback to the sysop"
-on = "|B1Note to sysop"
-off = "|B0Note to sysop"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45me\u001b[0;30;45m) \u001b[0;1;37;45memail             \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35me\u001b[0;1;30m) \u001b[38;2;255;255;255me\u001b[38;2;255;170;255mm\u001b[38;2;255;85;255ma\u001b[38;2;212;42;212mi\u001b[38;2;170;0;170ml             \u001b[0m"
 
 [[command]]
 keys = "O"
@@ -112,46 +65,26 @@ param = "oneliner"
 acs = "s25"
 desc = "Oneliners"
 help = "Goto oneliners menu"
-on = "|B1Oneliners"
-off = "|B0Oneliners"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mo\u001b[0;30;45m) \u001b[0;1;37;45moneliners         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mo\u001b[0;1;30m) \u001b[38;2;255;255;255mo\u001b[38;2;255;212;255mn\u001b[38;2;255;170;255me\u001b[38;2;255;128;255ml\u001b[38;2;255;85;255mi\u001b[38;2;234;64;234mn\u001b[38;2;212;42;212me\u001b[38;2;191;21;191mr\u001b[38;2;170;0;170ms         \u001b[0m"
 
 [[command]]
-keys = "P"
-command = "CP"
-acs = "s25"
-desc = "Page sysop"
-help = "Page sysop for chat request"
-on = "|B1Page sysop"
-off = "|B0Page sysop"
-
-[[command]]
-keys = "Q"
+keys = "A"
 command = "-/"
-param = "QWKMAIL"
-acs = "s50"
-desc = "QWKmail menu"
-help = "Goto the offline mail menu"
-on = "|B1QWKmail menu"
-off = "|B0QWKmail menu"
-
-[[command]]
-keys = "S"
-command = "-/"
-param = "AUTOSIG"
+param = "AUTOMSG"
 acs = "s25"
-desc = "Autosig menu"
-help = "Goto the autosignature menu"
-on = "|B1Autosig menu"
-off = "|B0Autosig menu"
+desc = "AutoMsg menu"
+help = "Goto the automessage menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45ma\u001b[0;30;45m) \u001b[0;1;37;45mautomsg           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35ma\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;198;255mu\u001b[38;2;255;142;255mt\u001b[38;2;255;85;255mo\u001b[38;2;227;57;227mm\u001b[38;2;198;28;198ms\u001b[38;2;170;0;170mg           \u001b[0m"
 
 [[command]]
-keys = "U"
-command = "UL"
-acs = "s50"
-desc = "User listing"
-help = "Display list of all users on BBS"
-on = "|B1User listing"
-off = "|B0User listing"
+keys = "J"
+command = "AI"
+desc = "AI chat"
+help = "Chat with the board's AI (for callers the SysOp has let in)"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mj\u001b[0;30;45m) \u001b[0;1;37;45mai chat           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mj\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;198;255mi \u001b[38;2;255;85;255mc\u001b[38;2;227;57;227mh\u001b[38;2;198;28;198ma\u001b[38;2;170;0;170mt           \u001b[0m"
 
 [[command]]
 keys = "W"
@@ -159,8 +92,8 @@ command = "XL"
 acs = "s50"
 desc = "Who's online?"
 help = "Display a list of users currently online"
-on = "|B1Who's online?"
-off = "|B0Who's online?"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mw\u001b[0;30;45m) \u001b[0;1;37;45mwho's on          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mw\u001b[0;1;30m) \u001b[38;2;255;255;255mw\u001b[38;2;255;206;255mh\u001b[38;2;255;158;255mo\u001b[38;2;255;109;255m'\u001b[38;2;243;73;243ms \u001b[38;2;194;24;194mo\u001b[38;2;170;0;170mn          \u001b[0m"
 
 [[command]]
 keys = "X"
@@ -169,54 +102,37 @@ param = "multinod"
 acs = "s50"
 desc = "Multinode menu"
 help = "Goto the multinode interaction menu"
-on = "|B1Multinode menu"
-off = "|B0Multinode menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mx\u001b[0;30;45m) \u001b[0;1;37;45mnodes             \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mx\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;255;170;255mo\u001b[38;2;255;85;255md\u001b[38;2;212;42;212me\u001b[38;2;170;0;170ms             \u001b[0m"
 
 [[command]]
-keys = "Y"
-command = "-F"
-param = "USERSTAT"
+keys = "P"
+command = "CP"
 acs = "s25"
-desc = "Your stats"
-help = "Display user statistics screen"
-on = "|B1Your stats"
-off = "|B0Your stats"
+desc = "Page sysop"
+help = "Page sysop for chat request"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mp\u001b[0;30;45m) \u001b[0;1;37;45mpage sysop        \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mp\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;255;217;255ma\u001b[38;2;255;179;255mg\u001b[38;2;255;142;255me \u001b[38;2;246;76;246ms\u001b[38;2;227;57;227my\u001b[38;2;208;38;208ms\u001b[38;2;189;19;189mo\u001b[38;2;170;0;170mp        \u001b[0m"
 
 [[command]]
-keys = "Z"
-command = "LH"
-acs = "s50"
-desc = "History log"
-help = "Display BBS history log; daily totals"
-on = "|B1History log"
-off = "|B0History log"
-
-[[command]]
-keys = "%"
-command = "NV"
-param = "Show"
-acs = "s50"
-desc = "New user voting"
-help = "Vote on new users you have not yet voted on (if enabled)"
-on = "|B1New user voting"
-off = "|B0New user voting"
-
-[[command]]
-keys = "+"
-command = "UP"
+keys = "N"
+command = "EE"
+param = "1;feedback"
 acs = "s25"
-desc = "Change password"
-help = "Change your current password to something else [verifcation required]"
-on = "|B1Change password"
-off = "|B0Change password"
+desc = "Note to sysop"
+help = "Leave feedback to the sysop"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mn\u001b[0;30;45m) \u001b[0;1;37;45mfeedback          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mn\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;255;206;255me\u001b[38;2;255;158;255me\u001b[38;2;255;109;255md\u001b[38;2;243;73;243mb\u001b[38;2;219;49;219ma\u001b[38;2;194;24;194mc\u001b[38;2;170;0;170mk          \u001b[0m"
 
 [[command]]
-keys = "T"
-command = "-/"
-param = "timebank"
+keys = "F"
+command = "-^"
+param = "SCANFILE"
 acs = "s50"
-desc = "Time Bank"
-help = "None"
+desc = "File menu"
+help = "Goto the file menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mf\u001b[0;30;45m) \u001b[0;1;37;45mfiles             \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mf\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;255;170;255mi\u001b[38;2;255;85;255ml\u001b[38;2;212;42;212me\u001b[38;2;170;0;170ms             \u001b[0m"
 
 [[command]]
 keys = "R"
@@ -224,16 +140,44 @@ command = "AG"
 acs = "s25"
 desc = "Art gallery"
 help = "Browse the art gallery"
-on = "|B1Art gallery"
-off = "|B0Art gallery"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mr\u001b[0;30;45m) \u001b[0;1;37;45mart gallery       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mr\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;221;255mr\u001b[38;2;255;187;255mt \u001b[38;2;255;119;255mg\u001b[38;2;255;85;255ma\u001b[38;2;238;68;238ml\u001b[38;2;221;51;221ml\u001b[38;2;204;34;204me\u001b[38;2;187;17;187mr\u001b[38;2;170;0;170my       \u001b[0m"
 
 [[command]]
-keys = "J"
-command = "AI"
-desc = "AI chat"
-help = "Chat with the board's AI (for callers the SysOp has let in)"
-on = "|B1AI chat"
-off = "|B0AI chat"
+keys = "D"
+command = "-/"
+param = "DOOR"
+acs = "s50"
+desc = "Doors menu"
+help = "Goto the online games menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45md\u001b[0;30;45m) \u001b[0;1;37;45mdoors             \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35md\u001b[0;1;30m) \u001b[38;2;255;255;255md\u001b[38;2;255;170;255mo\u001b[38;2;255;85;255mo\u001b[38;2;212;42;212mr\u001b[38;2;170;0;170ms             \u001b[0m"
+
+[[command]]
+keys = "K"
+command = "!P"
+desc = "Points & lottery"
+help = "Your file points, tips, and the nightly lottery"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mk\u001b[0;30;45m) \u001b[0;1;37;45mpoints & lottery  \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mk\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;255;232;255mo\u001b[38;2;255;210;255mi\u001b[38;2;255;187;255mn\u001b[38;2;255;164;255mt\u001b[38;2;255;142;255ms \u001b[38;2;255;96;255m& \u001b[38;2;238;68;238ml\u001b[38;2;227;57;227mo\u001b[38;2;215;45;215mt\u001b[38;2;204;34;204mt\u001b[38;2;193;23;193me\u001b[38;2;181;11;181mr\u001b[38;2;170;0;170my  \u001b[0m"
+
+[[command]]
+keys = "B"
+command = "-/"
+param = "BBSLIST"
+acs = "s25"
+desc = "BBS list menu"
+help = "Goto the BBS listing menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mb\u001b[0;30;45m) \u001b[0;1;37;45mbbs list          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mb\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;206;255mb\u001b[38;2;255;158;255ms \u001b[38;2;243;73;243ml\u001b[38;2;219;49;219mi\u001b[38;2;194;24;194ms\u001b[38;2;170;0;170mt          \u001b[0m"
+
+[[command]]
+keys = "@"
+command = "WX"
+desc = "Weather"
+help = "The weather where you are: the sky now, the next day and the week"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m@\u001b[0;30;45m) \u001b[0;1;37;45mweather           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m@\u001b[0;1;30m) \u001b[38;2;255;255;255mw\u001b[38;2;255;198;255me\u001b[38;2;255;142;255ma\u001b[38;2;255;85;255mt\u001b[38;2;227;57;227mh\u001b[38;2;198;28;198me\u001b[38;2;170;0;170mr           \u001b[0m"
 
 [[command]]
 keys = "V"
@@ -242,5 +186,138 @@ param = "VOTING"
 acs = "s50"
 desc = "Voting booth"
 help = "Vote on questions, see results, add your own"
-on = "|B1Voting booth"
-off = "|B0Voting booth"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mv\u001b[0;30;45m) \u001b[0;1;37;45mvoting booth      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mv\u001b[0;1;30m) \u001b[38;2;255;255;255mv\u001b[38;2;255;224;255mo\u001b[38;2;255;193;255mt\u001b[38;2;255;162;255mi\u001b[38;2;255;131;255mn\u001b[38;2;255;100;255mg \u001b[38;2;232;62;232mb\u001b[38;2;216;46;216mo\u001b[38;2;201;31;201mo\u001b[38;2;185;15;185mt\u001b[38;2;170;0;170mh      \u001b[0m"
+
+[[command]]
+keys = "I"
+command = "IN"
+acs = "s25"
+desc = "Infoforms"
+help = "View/fill out your infoforms"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mi\u001b[0;30;45m) \u001b[0;1;37;45minfoforms         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mi\u001b[0;1;30m) \u001b[38;2;255;255;255mi\u001b[38;2;255;212;255mn\u001b[38;2;255;170;255mf\u001b[38;2;255;128;255mo\u001b[38;2;255;85;255mf\u001b[38;2;234;64;234mo\u001b[38;2;212;42;212mr\u001b[38;2;191;21;191mm\u001b[38;2;170;0;170ms         \u001b[0m"
+
+[[command]]
+keys = "H"
+command = "-F"
+param = "ABOUT"
+desc = "About flux/bbs"
+help = "What flux/bbs is and what it does"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mh\u001b[0;30;45m) \u001b[0;1;37;45mabout flux/bbs    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mh\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;229;255mb\u001b[38;2;255;203;255mo\u001b[38;2;255;177;255mu\u001b[38;2;255;150;255mt \u001b[38;2;255;98;255mf\u001b[38;2;248;78;248ml\u001b[38;2;235;65;235mu\u001b[38;2;222;52;222mx\u001b[38;2;209;39;209m/\u001b[38;2;196;26;196mb\u001b[38;2;183;13;183mb\u001b[38;2;170;0;170ms    \u001b[0m"
+
+[[command]]
+keys = "C"
+command = "UC"
+acs = "s25"
+desc = "User config"
+help = "Edit your user options/toggles"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mc\u001b[0;30;45m) \u001b[0;1;37;45mconfig            \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mc\u001b[0;1;30m) \u001b[38;2;255;255;255mc\u001b[38;2;255;187;255mo\u001b[38;2;255;119;255mn\u001b[38;2;238;68;238mf\u001b[38;2;204;34;204mi\u001b[38;2;170;0;170mg            \u001b[0m"
+
+[[command]]
+keys = "S"
+command = "-/"
+param = "AUTOSIG"
+acs = "s25"
+desc = "Autosig menu"
+help = "Goto the autosignature menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45ms\u001b[0;30;45m) \u001b[0;1;37;45mautosig           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35ms\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;198;255mu\u001b[38;2;255;142;255mt\u001b[38;2;255;85;255mo\u001b[38;2;227;57;227ms\u001b[38;2;198;28;198mi\u001b[38;2;170;0;170mg           \u001b[0m"
+
+[[command]]
+keys = "+"
+command = "UP"
+acs = "s25"
+desc = "Change password"
+help = "Change your current password to something else [verifcation required]"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m+\u001b[0;30;45m) \u001b[0;1;37;45mpassword          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m+\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;255;206;255ma\u001b[38;2;255;158;255ms\u001b[38;2;255;109;255ms\u001b[38;2;243;73;243mw\u001b[38;2;219;49;219mo\u001b[38;2;194;24;194mr\u001b[38;2;170;0;170md          \u001b[0m"
+
+[[command]]
+keys = "Y"
+command = "-F"
+param = "USERSTAT"
+acs = "s25"
+desc = "Your stats"
+help = "Display user statistics screen"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45my\u001b[0;30;45m) \u001b[0;1;37;45myour stats        \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35my\u001b[0;1;30m) \u001b[38;2;255;255;255my\u001b[38;2;255;217;255mo\u001b[38;2;255;179;255mu\u001b[38;2;255;142;255mr \u001b[38;2;246;76;246ms\u001b[38;2;227;57;227mt\u001b[38;2;208;38;208ma\u001b[38;2;189;19;189mt\u001b[38;2;170;0;170ms        \u001b[0m"
+
+[[command]]
+keys = "L"
+command = "LC"
+param = "All"
+acs = "s25"
+desc = "Today's callers"
+help = "Display list of today's callers"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45ml\u001b[0;30;45m) \u001b[0;1;37;45mlast callers      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35ml\u001b[0;1;30m) \u001b[38;2;255;255;255ml\u001b[38;2;255;224;255ma\u001b[38;2;255;193;255ms\u001b[38;2;255;162;255mt \u001b[38;2;255;100;255mc\u001b[38;2;247;77;247ma\u001b[38;2;232;62;232ml\u001b[38;2;216;46;216ml\u001b[38;2;201;31;201me\u001b[38;2;185;15;185mr\u001b[38;2;170;0;170ms      \u001b[0m"
+
+[[command]]
+keys = "U"
+command = "UL"
+acs = "s50"
+desc = "User listing"
+help = "Display list of all users on BBS"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mu\u001b[0;30;45m) \u001b[0;1;37;45musers             \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mu\u001b[0;1;30m) \u001b[38;2;255;255;255mu\u001b[38;2;255;170;255ms\u001b[38;2;255;85;255me\u001b[38;2;212;42;212mr\u001b[38;2;170;0;170ms             \u001b[0m"
+
+[[command]]
+keys = "Z"
+command = "LH"
+acs = "s50"
+desc = "History log"
+help = "Display BBS history log; daily totals"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mz\u001b[0;30;45m) \u001b[0;1;37;45mhistory           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mz\u001b[0;1;30m) \u001b[38;2;255;255;255mh\u001b[38;2;255;198;255mi\u001b[38;2;255;142;255ms\u001b[38;2;255;85;255mt\u001b[38;2;227;57;227mo\u001b[38;2;198;28;198mr\u001b[38;2;170;0;170my           \u001b[0m"
+
+[[command]]
+keys = ">"
+command = "-/"
+param = "MORE"
+desc = "More"
+help = "Offline mail (qwk), new user voting, and what else is used least"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m>\u001b[0;30;45m) \u001b[0;1;37;45mmore...           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m>\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;198;255mo\u001b[38;2;255;142;255mr\u001b[38;2;255;85;255me\u001b[38;2;227;57;227m.\u001b[38;2;198;28;198m.\u001b[38;2;170;0;170m.           \u001b[0m"
+
+[[command]]
+keys = "G"
+command = "-/"
+param = "GOODBYE"
+desc = "Goodbye"
+help = "Logoff system (goto goodbye menu)"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mg\u001b[0;30;45m) \u001b[0;1;37;45mgoodbye           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mg\u001b[0;1;30m) \u001b[38;2;255;255;255mg\u001b[38;2;255;198;255mo\u001b[38;2;255;142;255mo\u001b[38;2;255;85;255md\u001b[38;2;227;57;227mb\u001b[38;2;198;28;198my\u001b[38;2;170;0;170me           \u001b[0m"
+
+[[command]]
+keys = "Q"
+command = "-/"
+param = "QWKMAIL"
+acs = "s50"
+desc = "QWKmail menu"
+help = "Goto the offline mail menu"
+hidden = true
+on = "|B1QWKmail menu"
+off = "|B0QWKmail menu"
+
+[[command]]
+keys = "%"
+command = "NV"
+param = "Show"
+acs = "s50"
+desc = "New user voting"
+help = "Vote on new users you have not yet voted on (if enabled)"
+hidden = true
+on = "|B1New user voting"
+off = "|B0New user voting"
+
+[[command]]
+keys = "T"
+command = "-/"
+param = "timebank"
+acs = "s50"
+desc = "Time Bank"
+help = "None"
+hidden = true

@@ -1,0 +1,49 @@
+title = "Tarot Menu"
+prompt_name = "tarot"
+help_file = "TAROT"
+prompt = "%%MENUPMT1"
+acs = "s50"
+fallback = "DOOR"
+generic_columns = 2
+pause_before = false
+global = true
+upper_input = true
+
+[[command]]
+keys = "D"
+command = "AT"
+param = "day"
+acs = "s50"
+desc = "Card of the day"
+help = "Your card for today: the same one all day, another tomorrow"
+on = "|B1Card of the day"
+off = "|B0Card of the day"
+
+[[command]]
+keys = "T"
+command = "AT"
+param = "three"
+acs = "s50"
+desc = "Three cards"
+help = "Past, present and future, for a question of yours"
+on = "|B1Three cards"
+off = "|B0Three cards"
+
+[[command]]
+keys = "F"
+command = "AT"
+param = "fortune"
+acs = "s50"
+desc = "A fortune"
+help = "A fortune cookie, with lucky numbers"
+on = "|B1A fortune"
+off = "|B0A fortune"
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "DOOR"
+desc = "Quit menu"
+help = "Back to the door menu"
+on = "|B1Quit menu"
+off = "|B0Quit menu"

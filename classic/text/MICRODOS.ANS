@@ -1,0 +1,23 @@
+[0m[24Cflux/bbs MicroDOS Command Help
+[30C[1;30m(Temporary Version)[0m
+[1mMicroDOS Commands[30m:[0m
+
+[5C[1mHELP[0m[7CDisplay this help screen
+[5C[1mEXIT[0m[7CExit flux/bbs's DOS emulator
+[5C[1mDEL [0mx[6CDelete file(s)
+[5C[1mTYPE [0mx[5CDisplay a text file
+[5C[1mREN [0mx[6CRename a file
+[5C[1mDIR [0mx[6CFile directory
+[5C[1mCD [0mx[7CChange current directory
+[5C[1mMD [0mx[7CCreate (make) a directory
+[5C[1mRD [0mx[7CRemove a directory
+[5Cx[1m:[0m[9CChange the current drive
+[5C[1mCLS[0m[8CClear the screen
+[5C[1mSEND [0mx[5CTransmit file(s)
+[5C[1mRECEIVE [0mx  Receive file(s)
+[5C[1mVER[0m[8CDisplay MicroDOS version info
+[5C[1mDIRSIZE [0mx  Show directory info
+[5C[1mEDIT [0mx[5CEdit a text file (w/FsEditor)
+[5C[1mEXEC[0m x[5CExecute external program (use with caution!)
+--
+[0m

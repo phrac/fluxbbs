@@ -1,0 +1,55 @@
+title = "Offline Mail Menu"
+prompt_name = "offline mail"
+help_file = "QWKMAIL"
+prompt = "%%MENUPMT1"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+upper_input = true
+
+[[command]]
+keys = "D"
+command = "QD"
+acs = "s25"
+desc = "Download QWK packet"
+help = "Generate/download an offline mail [qwk] packet"
+on = "|B1Download QWK packet"
+off = "|B0Download QWK packet"
+
+[[command]]
+keys = "J"
+command = "MJ"
+param = "List"
+acs = "s25"
+desc = "Join msg conf"
+help = "Change to a new message conference"
+on = "|B1Join msg conf"
+off = "|B0Join msg conf"
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit off line mail, return to previous menu"
+on = "|B1Quit menu"
+off = "|B0Quit menu"
+
+[[command]]
+keys = "S"
+command = "MS"
+acs = "s25"
+desc = "Set newscan date"
+help = "Update message newscan pointer(s) to a specific date"
+on = "|B1Set newscan date"
+off = "|B0Set newscan date"
+
+[[command]]
+keys = "U"
+command = "QU"
+acs = "s25"
+desc = "Upload REP packet"
+help = "Upload mail reply [rep] packet"
+on = "|B1Upload REP packet"
+off = "|B0Upload REP packet"

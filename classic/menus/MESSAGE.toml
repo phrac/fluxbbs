@@ -1,0 +1,135 @@
+title = "Message Menu"
+prompt_name = "message"
+help_file = "MESSAGE"
+prompt = "%%MENUPMT2"
+acs = "s25"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+upper_input = true
+
+[[command]]
+keys = "A"
+command = "MC"
+acs = "s25"
+desc = "Change msg area"
+help = "Select a specific area to change to from list"
+on = "|B1Change msg area"
+off = "|B0Change msg area"
+
+[[command]]
+keys = "J"
+command = "MJ"
+param = "List"
+acs = "s25"
+desc = "Join msg conf"
+help = "Change to a new message conference"
+on = "|B1Join msg conf"
+off = "|B0Join msg conf"
+
+[[command]]
+keys = "L"
+command = "MA"
+acs = "s25"
+desc = "List areas"
+help = "Display a list of all accessible message areas"
+on = "|B1List areas"
+off = "|B0List areas"
+
+[[command]]
+keys = "N"
+command = "MW"
+param = "Read"
+acs = "s25"
+desc = "Newscan areas"
+help = "Scan for new (unread) messages (in current or all areas)"
+on = "|B1Newscan areas"
+off = "|B0Newscan areas"
+
+[[command]]
+keys = "P"
+command = "MP"
+acs = "s25"
+desc = "Post message"
+help = "Enter a message in the current message area"
+on = "|B1Post message"
+off = "|B0Post message"
+
+[[command]]
+keys = "T"
+command = "MF"
+acs = "s25"
+desc = "Top fillers"
+help = "Who has filled the most requests on the request boards"
+on = "|B1Top fillers"
+off = "|B0Top fillers"
+
+[[command]]
+keys = "Q"
+command = "-^"
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the message menu, return to main"
+on = "|B1Quit menu"
+off = "|B0Quit menu"
+
+[[command]]
+keys = "R"
+command = "MH"
+acs = "s25"
+desc = "Read messages"
+help = "The areas, their threads and what's new"
+on = "|B1Read messages"
+off = "|B0Read messages"
+
+[[command]]
+keys = "S"
+command = "MS"
+acs = "s25"
+desc = "Set newscan date"
+help = "Set message newscan pointer(s) to a specific date"
+on = "|B1Set newscan date"
+off = "|B0Set newscan date"
+
+[[command]]
+keys = "["
+command = "M["
+acs = "s25"
+desc = "Previous area"
+help = "Change to the previous message area"
+on = "|B1Previous area"
+off = "|B0Previous area"
+
+[[command]]
+keys = "]"
+command = "M]"
+acs = "s25"
+desc = "Next area"
+help = "Change to the previous message area"
+on = "|B1Next area"
+off = "|B0Next area"
+
+[[command]]
+keys = "#"
+command = "M#"
+desc = "Jump to area #"
+help = "None"
+
+[[command]]
+keys = "E"
+command = "ME"
+acs = "s25"
+desc = "Scan select"
+help = "Pick the message areas newscans look in"
+on = "|B1Scan select"
+off = "|B0Scan select"
+
+[[command]]
+keys = "B"
+command = "MO"
+acs = "s25"
+desc = "Text search"
+help = "Search messages for text, a name or a subject"
+on = "|B1Text search"
+off = "|B0Text search"

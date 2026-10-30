@@ -1,0 +1,50 @@
+title = "Voting Menu"
+prompt_name = "Voting"
+help_file = "VOTING"
+prompt = "|07Command|08:"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+
+[[command]]
+keys = "V"
+command = "VV"
+acs = "s50"
+desc = "Vote all"
+help = "Answer all questions that were not answered yet"
+
+[[command]]
+keys = "O"
+command = "VA"
+acs = "s50"
+desc = "Answer a question"
+help = "Answer only one question"
+
+[[command]]
+keys = "R"
+command = "VR"
+acs = "s50"
+desc = "See results"
+help = "See results for a question"
+
+[[command]]
+keys = "A"
+command = "VN"
+acs = "s50"
+desc = "Add a question"
+help = "Add a new voting question"
+
+[[command]]
+keys = "D"
+command = "VD"
+acs = "s255"
+desc = "Delete a question"
+help = "Delete a question"
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "MAIN"
+desc = "Quit"
+help = "Quit current menu"

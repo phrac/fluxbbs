@@ -36,6 +36,8 @@ COPY text /srv/inq/iniquity/text
 COPY themes /srv/inq/iniquity/themes
 COPY menus /srv/inq/iniquity/menus
 COPY scripts /srv/inq/iniquity/scripts
+# Iniquity's own screens and menus, for a board that wants them back.
+COPY classic /srv/inq/iniquity/classic
 USER bbs
 WORKDIR /srv/board
 EXPOSE 2222 2323

@@ -1,0 +1,54 @@
+title = "AutoSignature Menu"
+prompt_name = "autosig"
+help_file = "AUTOSIG"
+prompt = "%%MENUPMT1"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+upper_input = true
+
+[[command]]
+keys = "D"
+command = "SD"
+acs = "s25"
+desc = "Delete autosig"
+help = "Clear your current autosig; this will disable autosig use"
+on = "|B1Delete autosig"
+off = "|B0Delete autosig"
+
+[[command]]
+keys = "E"
+command = "SE"
+acs = "s25"
+desc = "Edit autosignature"
+help = "Modify your current autosignature (or create a new one)"
+on = "|B1Edit autosignature"
+off = "|B0Edit autosignature"
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "MAIN"
+desc = "Quit menu"
+help = "Quit autosignature menu and return to previous"
+on = "|B1Quit menu"
+off = "|B0Quit menu"
+
+[[command]]
+keys = "U"
+command = "SU"
+acs = "s25"
+desc = "Upload autosig"
+help = "Upload a prepared autosignature (in ascii/ansi format)"
+on = "|B1Upload autosig"
+off = "|B0Upload autosig"
+
+[[command]]
+keys = "V"
+command = "SS"
+acs = "s25"
+desc = "Show your autosig"
+help = "Display your autosig (in color) for 'testing'"
+on = "|B1Show your autosig"
+off = "|B0Show your autosig"

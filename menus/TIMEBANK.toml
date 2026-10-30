@@ -1,45 +1,59 @@
+# The board's time bank: a lightbar with hot keys over TIMEBANK.ANS. Made by
+# art/mainmenu-gen.py timebank (from the stock menu); change that, not this.
 title = "Time Bank Menu"
 prompt_name = "Timebank"
 help_file = "TIMEBANK"
-prompt = "|07Command|08:"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
+type = "lightbar"
 
 [[command]]
 keys = "D"
 command = "!D"
 desc = "Deposit time"
 help = "Deposit time in time bank"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41md\u001b[0;30;41m) \u001b[0;1;37;41mdeposit time                   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31md\u001b[0;1;30m) \u001b[38;2;255;255;255md\u001b[38;2;255;224;224me\u001b[38;2;255;193;193mp\u001b[38;2;255;162;162mo\u001b[38;2;255;131;131ms\u001b[38;2;255;100;100mi\u001b[38;2;247;77;77mt \u001b[38;2;216;46;46mt\u001b[38;2;201;31;31mi\u001b[38;2;185;15;15mm\u001b[38;2;170;0;0me                   \u001b[0m"
 
 [[command]]
 keys = "W"
 command = "!W"
 desc = "Withdraw time"
 help = "Withdraw time from time bank"
-
-[[command]]
-keys = "/D"
-command = "!E"
-desc = "Deposit kb"
-help = "Deposit download kbytes in bank"
-
-[[command]]
-keys = "/W"
-command = "!I"
-desc = "Withdraw kb"
-help = "Withdraw download kbytes from bank"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mw\u001b[0;30;41m) \u001b[0;1;37;41mwithdraw time                  \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mw\u001b[0;1;30m) \u001b[38;2;255;255;255mw\u001b[38;2;255;227;227mi\u001b[38;2;255;198;198mt\u001b[38;2;255;170;170mh\u001b[38;2;255;142;142md\u001b[38;2;255;113;113mr\u001b[38;2;255;85;85ma\u001b[38;2;241;71;71mw \u001b[38;2;212;42;42mt\u001b[38;2;198;28;28mi\u001b[38;2;184;14;14mm\u001b[38;2;170;0;0me                  \u001b[0m"
 
 [[command]]
 keys = "S"
 command = "!V"
 desc = "Stats"
 help = "View time bank stats"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ms\u001b[0;30;41m) \u001b[0;1;37;41mstats                          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ms\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;170;170mt\u001b[38;2;255;85;85ma\u001b[38;2;212;42;42mt\u001b[38;2;170;0;0ms                          \u001b[0m"
 
 [[command]]
 keys = "Q"
-command = '-\'
+command = "-\\"
 param = "MAIN"
 desc = "Quit"
 help = "Quit current menu"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mquit                           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;142mu\u001b[38;2;227;57;57mi\u001b[38;2;170;0;0mt                           \u001b[0m"
+
+[[command]]
+keys = "/D"
+command = "!E"
+desc = "Deposit kb"
+help = "Deposit download kbytes in bank"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m/d\u001b[0;30;41m) \u001b[0;1;37;41mdeposit kb                    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m/d\u001b[0;1;30m) \u001b[38;2;255;255;255md\u001b[38;2;255;217;217me\u001b[38;2;255;179;179mp\u001b[38;2;255;142;142mo\u001b[38;2;255;104;104ms\u001b[38;2;246;76;76mi\u001b[38;2;227;57;57mt \u001b[38;2;189;19;19mk\u001b[38;2;170;0;0mb                    \u001b[0m"
+
+[[command]]
+keys = "/W"
+command = "!I"
+desc = "Withdraw kb"
+help = "Withdraw download kbytes from bank"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m/w\u001b[0;30;41m) \u001b[0;1;37;41mwithdraw kb                   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m/w\u001b[0;1;30m) \u001b[38;2;255;255;255mw\u001b[38;2;255;221;221mi\u001b[38;2;255;187;187mt\u001b[38;2;255;153;153mh\u001b[38;2;255;119;119md\u001b[38;2;255;85;85mr\u001b[38;2;238;68;68ma\u001b[38;2;221;51;51mw \u001b[38;2;187;17;17mk\u001b[38;2;170;0;0mb                   \u001b[0m"

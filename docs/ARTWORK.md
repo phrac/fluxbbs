@@ -6,6 +6,10 @@ codes themselves are in [CODES.md](CODES.md).
 
 ## The basics
 
+- The stock screens and menus are disflux's, made by the scripts in
+  `art/` with the board's name in the logos: `python3 art/make.py
+  /path/to/board` makes them for yours. Iniquity's own are in
+  `classic/`. [art/README.md](../art/README.md) has both.
 - Screens live in `text/` as `NAME.ANS`.
 - Replace a file and the board uses it on its next display. No restart.
 - Copy the stock file and draw around its codes and markers. That's the

@@ -1,13 +1,15 @@
+# The board's tarot & fortunes: a lightbar with hot keys over TAROT.ANS. Made by
+# art/mainmenu-gen.py tarot (from the stock menu); change that, not this.
 title = "Tarot Menu"
 prompt_name = "tarot"
 help_file = "TAROT"
-prompt = "%%MENUPMT1"
 acs = "s50"
 fallback = "DOOR"
 generic_columns = 2
 pause_before = false
 global = true
 upper_input = true
+type = "lightbar"
 
 [[command]]
 keys = "D"
@@ -16,8 +18,8 @@ param = "day"
 acs = "s50"
 desc = "Card of the day"
 help = "Your card for today: the same one all day, another tomorrow"
-on = "|B1Card of the day"
-off = "|B0Card of the day"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45md\u001b[0;30;45m) \u001b[0;1;37;45mcard of the day                \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35md\u001b[0;1;30m) \u001b[38;2;255;255;255mc\u001b[38;2;255;231;255ma\u001b[38;2;255;206;255mr\u001b[38;2;255;182;255md \u001b[38;2;255;134;255mo\u001b[38;2;255;109;255mf \u001b[38;2;243;73;243mt\u001b[38;2;231;61;231mh\u001b[38;2;219;49;219me \u001b[38;2;194;24;194md\u001b[38;2;182;12;182ma\u001b[38;2;170;0;170my                \u001b[0m"
 
 [[command]]
 keys = "T"
@@ -26,8 +28,8 @@ param = "three"
 acs = "s50"
 desc = "Three cards"
 help = "Past, present and future, for a question of yours"
-on = "|B1Three cards"
-off = "|B0Three cards"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mt\u001b[0;30;45m) \u001b[0;1;37;45mthree cards                    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;221;255mh\u001b[38;2;255;187;255mr\u001b[38;2;255;153;255me\u001b[38;2;255;119;255me \u001b[38;2;238;68;238mc\u001b[38;2;221;51;221ma\u001b[38;2;204;34;204mr\u001b[38;2;187;17;187md\u001b[38;2;170;0;170ms                    \u001b[0m"
 
 [[command]]
 keys = "F"
@@ -36,14 +38,14 @@ param = "fortune"
 acs = "s50"
 desc = "A fortune"
 help = "A fortune cookie, with lucky numbers"
-on = "|B1A fortune"
-off = "|B0A fortune"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mf\u001b[0;30;45m) \u001b[0;1;37;45ma fortune                      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mf\u001b[0;1;30m) \u001b[38;2;255;255;255ma \u001b[38;2;255;170;255mf\u001b[38;2;255;128;255mo\u001b[38;2;255;85;255mr\u001b[38;2;234;64;234mt\u001b[38;2;212;42;212mu\u001b[38;2;191;21;191mn\u001b[38;2;170;0;170me                      \u001b[0m"
 
 [[command]]
 keys = "Q"
-command = '-\'
+command = "-\\"
 param = "DOOR"
 desc = "Quit menu"
 help = "Back to the door menu"
-on = "|B1Quit menu"
-off = "|B0Quit menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mq\u001b[0;30;45m) \u001b[0;1;37;45mquit                           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;255mu\u001b[38;2;227;57;227mi\u001b[38;2;170;0;170mt                           \u001b[0m"

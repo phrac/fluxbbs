@@ -1,41 +1,54 @@
+# The board's message menu: a lightbar with hot keys over MESSAGE.ANS. Made by
+# art/mainmenu-gen.py message (from the stock menu); change that, not this.
 title = "Message Menu"
 prompt_name = "message"
 help_file = "MESSAGE"
-prompt = "%%MENUPMT2"
 acs = "s25"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
 upper_input = true
+type = "lightbar"
+
+[[effect]]
+kind = "decode"
+rows = [1, 9]
+cols = [3, 11]
+every = 10.0
+delay = 2.0
+amount = 1.8
+messages = ["READ EVERYTHING", "POST OR LURK", "SOMEONE REPLIED", "THREADS DONT DIE", "SAY SOMETHING", "WE READ IT ALL", "QUOTE WISELY", "NO FLAMES", "LURKERS WELCOME", "LAST WORD WINS", "ECHOES CARRY", "YOUR TURN", "NOBODY FORGETS", "SIGN YOUR NAME", "OLD POSTS BITE", "NEW POSTS WAIT", "READ BEFORE YOU WRITE", "THE THREAD IS WATCHING", "REPLY IN KIND", "ONE MORE POST", "THE BOARD IS QUIET", "TOO QUIET", "SOMEBODY ASKED", "ANSWER THEM", "MARK IT READ", "DONT TOP POST", "KEEP IT SHORT", "KEEP IT REAL", "THE MODS ARE ASLEEP", "THE MODS ARE NOT ASLEEP", "VOTE IT UP", "VOTE IT DOWN", "LEAVE A COMMENT", "TAKE IT TO EMAIL", "TAKE IT OUTSIDE", "THE ARCHIVE REMEMBERS", "POSTED AT 3AM", "READ IT TWICE", "NOBODY SAW THAT", "EVERYBODY SAW THAT", "TWELVE NEW SINCE YESTERDAY", "YOU HAVE MAIL", "YOU HAD MAIL", "SOMEBODY QUOTED YOU", "THE BEST THREAD IS BURIED", "DIG FOR IT", "HOT RIGHT NOW", "COLD BY MORNING", "FLAME RETARDANT", "WORDS ARE CHEAP", "POSTS ARE FOREVER", "THE ECHO REACHES OTHER BOARDS", "OTHER BOARDS READ THIS", "BE NICE OR BE GONE", "SUBJECT LINES MATTER", "SPELL IT RIGHT", "OR DONT", "ASCII ONLY", "NO CAPS LOCK", "THE BOARD HAS A MEMORY", "NEW USER SAYS HI", "SAY HI BACK", "THE OLD TIMERS ARE WATCHING", "POST COUNT ISNT EVERYTHING", "IT KIND OF IS", "ONE LINE IS A POST", "A WALL IS NOT", "THREADS BRANCH", "FOLLOW THE BRANCH", "THE ROOT IS OLD", "NOBODY READS THE ROOT", "READ THE ROOT", "SOMEONE DISAGREES", "SOMEONE AGREES", "BOTH ARE WRONG", "ASK THE SYSOP", "DONT ASK THE SYSOP", "THE AI READS TOO", "IT POSTS AT NIGHT", "QUOTE THE AI", "OR DONT", "TAG YOUR FAVORITES", "MARK THE REST", "THE UNREAD PILE GROWS", "CATCH UP TOMORROW", "TOMORROW NEVER COMES", "POST SOMETHING TODAY", "SILENCE IS A REPLY", "A LURKER IS STILL A CALLER", "A CALLER IS STILL A USER", "USERS POST", "POSTERS STAY", "STAYERS RUN BOARDS", "RUN A BOARD", "ASK HOW", "THE REQUESTS BOARD DELIVERS", "ASK FOR A FILE", "SOMEONE HAS IT", "THEY ALWAYS DO"]
+
+[[effect]]
+kind = "decode"
+rows = [1, 9]
+cols = [69, 77]
+every = 10.0
+delay = 2.0
+amount = 1.8
+messages = ["THEY ALWAYS DO", "SOMEONE HAS IT", "ASK FOR A FILE", "THE REQUESTS BOARD DELIVERS", "ASK HOW", "RUN A BOARD", "STAYERS RUN BOARDS", "POSTERS STAY", "USERS POST", "A CALLER IS STILL A USER", "A LURKER IS STILL A CALLER", "SILENCE IS A REPLY", "POST SOMETHING TODAY", "TOMORROW NEVER COMES", "CATCH UP TOMORROW", "THE UNREAD PILE GROWS", "MARK THE REST", "TAG YOUR FAVORITES", "OR DONT", "QUOTE THE AI", "IT POSTS AT NIGHT", "THE AI READS TOO", "DONT ASK THE SYSOP", "ASK THE SYSOP", "BOTH ARE WRONG", "SOMEONE AGREES", "SOMEONE DISAGREES", "READ THE ROOT", "NOBODY READS THE ROOT", "THE ROOT IS OLD", "FOLLOW THE BRANCH", "THREADS BRANCH", "A WALL IS NOT", "ONE LINE IS A POST", "IT KIND OF IS", "POST COUNT ISNT EVERYTHING", "THE OLD TIMERS ARE WATCHING", "SAY HI BACK", "NEW USER SAYS HI", "THE BOARD HAS A MEMORY", "NO CAPS LOCK", "ASCII ONLY", "OR DONT", "SPELL IT RIGHT", "SUBJECT LINES MATTER", "BE NICE OR BE GONE", "OTHER BOARDS READ THIS", "THE ECHO REACHES OTHER BOARDS", "POSTS ARE FOREVER", "WORDS ARE CHEAP", "FLAME RETARDANT", "COLD BY MORNING", "HOT RIGHT NOW", "DIG FOR IT", "THE BEST THREAD IS BURIED", "SOMEBODY QUOTED YOU", "YOU HAD MAIL", "YOU HAVE MAIL", "TWELVE NEW SINCE YESTERDAY", "EVERYBODY SAW THAT", "NOBODY SAW THAT", "READ IT TWICE", "POSTED AT 3AM", "THE ARCHIVE REMEMBERS", "TAKE IT OUTSIDE", "TAKE IT TO EMAIL", "LEAVE A COMMENT", "VOTE IT DOWN", "VOTE IT UP", "THE MODS ARE NOT ASLEEP", "THE MODS ARE ASLEEP", "KEEP IT REAL", "KEEP IT SHORT", "DONT TOP POST", "MARK IT READ", "ANSWER THEM", "SOMEBODY ASKED", "TOO QUIET", "THE BOARD IS QUIET", "ONE MORE POST", "REPLY IN KIND", "THE THREAD IS WATCHING", "READ BEFORE YOU WRITE", "NEW POSTS WAIT", "OLD POSTS BITE", "SIGN YOUR NAME", "NOBODY FORGETS", "YOUR TURN", "ECHOES CARRY", "LAST WORD WINS", "LURKERS WELCOME", "NO FLAMES", "QUOTE WISELY", "WE READ IT ALL", "SAY SOMETHING", "THREADS DONT DIE", "SOMEONE REPLIED", "POST OR LURK", "READ EVERYTHING"]
+
+[[effect]]
+kind = "random"
+rows = [1, 9]
+every = 10.0
+delay = 2.0
+
+[[effect]]
+kind = "ripple"
+rows = [10, 17]
+every = 10.0
+delay = 6.0
 
 [[command]]
-keys = "A"
-command = "MC"
+keys = "R"
+command = "MH"
 acs = "s25"
-desc = "Change msg area"
-help = "Select a specific area to change to from list"
-on = "|B1Change msg area"
-off = "|B0Change msg area"
-
-[[command]]
-keys = "J"
-command = "MJ"
-param = "List"
-acs = "s25"
-desc = "Join msg conf"
-help = "Change to a new message conference"
-on = "|B1Join msg conf"
-off = "|B0Join msg conf"
-
-[[command]]
-keys = "L"
-command = "MA"
-acs = "s25"
-desc = "List areas"
-help = "Display a list of all accessible message areas"
-on = "|B1List areas"
-off = "|B0List areas"
+desc = "Read messages"
+help = "The areas, their threads and what's new"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46mr\u001b[0;30;46m) \u001b[0;1;37;46mread messages     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36mr\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;227;255;255me\u001b[38;2;198;255;255ma\u001b[38;2;170;255;255md \u001b[38;2;113;255;255mm\u001b[38;2;85;255;255me\u001b[38;2;71;241;241ms\u001b[38;2;57;227;227ms\u001b[38;2;42;212;212ma\u001b[38;2;28;198;198mg\u001b[38;2;14;184;184me\u001b[38;2;0;170;170ms     \u001b[0m"
 
 [[command]]
 keys = "N"
@@ -44,8 +57,8 @@ param = "Read"
 acs = "s25"
 desc = "Newscan areas"
 help = "Scan for new (unread) messages (in current or all areas)"
-on = "|B1Newscan areas"
-off = "|B0Newscan areas"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46mn\u001b[0;30;46m) \u001b[0;1;37;46mnew messages      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36mn\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;224;255;255me\u001b[38;2;193;255;255mw \u001b[38;2;131;255;255mm\u001b[38;2;100;255;255me\u001b[38;2;77;247;247ms\u001b[38;2;62;232;232ms\u001b[38;2;46;216;216ma\u001b[38;2;31;201;201mg\u001b[38;2;15;185;185me\u001b[38;2;0;170;170ms      \u001b[0m"
 
 [[command]]
 keys = "P"
@@ -53,77 +66,8 @@ command = "MP"
 acs = "s25"
 desc = "Post message"
 help = "Enter a message in the current message area"
-on = "|B1Post message"
-off = "|B0Post message"
-
-[[command]]
-keys = "T"
-command = "MF"
-acs = "s25"
-desc = "Top fillers"
-help = "Who has filled the most requests on the request boards"
-on = "|B1Top fillers"
-off = "|B0Top fillers"
-
-[[command]]
-keys = "Q"
-command = "-^"
-param = "MAIN"
-desc = "Quit menu"
-help = "Exit the message menu, return to main"
-on = "|B1Quit menu"
-off = "|B0Quit menu"
-
-[[command]]
-keys = "R"
-command = "MH"
-acs = "s25"
-desc = "Read messages"
-help = "The areas, their threads and what's new"
-on = "|B1Read messages"
-off = "|B0Read messages"
-
-[[command]]
-keys = "S"
-command = "MS"
-acs = "s25"
-desc = "Set newscan date"
-help = "Set message newscan pointer(s) to a specific date"
-on = "|B1Set newscan date"
-off = "|B0Set newscan date"
-
-[[command]]
-keys = "["
-command = "M["
-acs = "s25"
-desc = "Previous area"
-help = "Change to the previous message area"
-on = "|B1Previous area"
-off = "|B0Previous area"
-
-[[command]]
-keys = "]"
-command = "M]"
-acs = "s25"
-desc = "Next area"
-help = "Change to the previous message area"
-on = "|B1Next area"
-off = "|B0Next area"
-
-[[command]]
-keys = "#"
-command = "M#"
-desc = "Jump to area #"
-help = "None"
-
-[[command]]
-keys = "E"
-command = "ME"
-acs = "s25"
-desc = "Scan select"
-help = "Pick the message areas newscans look in"
-on = "|B1Scan select"
-off = "|B0Scan select"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46mp\u001b[0;30;46m) \u001b[0;1;37;46mpost message      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36mp\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;224;255;255mo\u001b[38;2;193;255;255ms\u001b[38;2;162;255;255mt \u001b[38;2;100;255;255mm\u001b[38;2;77;247;247me\u001b[38;2;62;232;232ms\u001b[38;2;46;216;216ms\u001b[38;2;31;201;201ma\u001b[38;2;15;185;185mg\u001b[38;2;0;170;170me      \u001b[0m"
 
 [[command]]
 keys = "B"
@@ -131,5 +75,159 @@ command = "MO"
 acs = "s25"
 desc = "Text search"
 help = "Search messages for text, a name or a subject"
-on = "|B1Text search"
-off = "|B0Text search"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46mb\u001b[0;30;46m) \u001b[0;1;37;46mtext search       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36mb\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;221;255;255me\u001b[38;2;187;255;255mx\u001b[38;2;153;255;255mt \u001b[38;2;85;255;255ms\u001b[38;2;68;238;238me\u001b[38;2;51;221;221ma\u001b[38;2;34;204;204mr\u001b[38;2;17;187;187mc\u001b[38;2;0;170;170mh       \u001b[0m"
+
+[[command]]
+keys = "H"
+command = "-F"
+param = "MSGGUIDE"
+desc = "How it works"
+help = "The keys for reading, posting, votes and comments"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46mh\u001b[0;30;46m) \u001b[0;1;37;46mhow it works      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36mh\u001b[0;1;30m) \u001b[38;2;255;255;255mh\u001b[38;2;224;255;255mo\u001b[38;2;193;255;255mw \u001b[38;2;131;255;255mi\u001b[38;2;100;255;255mt \u001b[38;2;62;232;232mw\u001b[38;2;46;216;216mo\u001b[38;2;31;201;201mr\u001b[38;2;15;185;185mk\u001b[38;2;0;170;170ms      \u001b[0m"
+
+[[command]]
+keys = "A"
+command = "MC"
+acs = "s25"
+desc = "Change msg area"
+help = "Select a specific area to change to from list"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46ma\u001b[0;30;46m) \u001b[0;1;37;46mchange area       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36ma\u001b[0;1;30m) \u001b[38;2;255;255;255mc\u001b[38;2;221;255;255mh\u001b[38;2;187;255;255ma\u001b[38;2;153;255;255mn\u001b[38;2;119;255;255mg\u001b[38;2;85;255;255me \u001b[38;2;51;221;221ma\u001b[38;2;34;204;204mr\u001b[38;2;17;187;187me\u001b[38;2;0;170;170ma       \u001b[0m"
+
+[[command]]
+keys = "L"
+command = "MA"
+acs = "s25"
+desc = "List areas"
+help = "Display a list of all accessible message areas"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46ml\u001b[0;30;46m) \u001b[0;1;37;46mlist areas        \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36ml\u001b[0;1;30m) \u001b[38;2;255;255;255ml\u001b[38;2;217;255;255mi\u001b[38;2;179;255;255ms\u001b[38;2;142;255;255mt \u001b[38;2;76;246;246ma\u001b[38;2;57;227;227mr\u001b[38;2;38;208;208me\u001b[38;2;19;189;189ma\u001b[38;2;0;170;170ms        \u001b[0m"
+
+[[command]]
+keys = "J"
+command = "MJ"
+param = "List"
+acs = "s25"
+desc = "Join msg conf"
+help = "Change to a new message conference"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46mj\u001b[0;30;46m) \u001b[0;1;37;46mjoin conference   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36mj\u001b[0;1;30m) \u001b[38;2;255;255;255mj\u001b[38;2;231;255;255mo\u001b[38;2;206;255;255mi\u001b[38;2;182;255;255mn \u001b[38;2;134;255;255mc\u001b[38;2;109;255;255mo\u001b[38;2;85;255;255mn\u001b[38;2;73;243;243mf\u001b[38;2;61;231;231me\u001b[38;2;49;219;219mr\u001b[38;2;36;206;206me\u001b[38;2;24;194;194mn\u001b[38;2;12;182;182mc\u001b[38;2;0;170;170me   \u001b[0m"
+
+[[command]]
+keys = "#"
+command = "M#"
+desc = "Jump to area #"
+help = "None"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46m#\u001b[0;30;46m) \u001b[0;1;37;46mjump to area #    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36m#\u001b[0;1;30m) \u001b[38;2;255;255;255mj\u001b[38;2;229;255;255mu\u001b[38;2;203;255;255mm\u001b[38;2;177;255;255mp \u001b[38;2;124;255;255mt\u001b[38;2;98;255;255mo \u001b[38;2;65;235;235ma\u001b[38;2;52;222;222mr\u001b[38;2;39;209;209me\u001b[38;2;26;196;196ma \u001b[38;2;0;170;170m#    \u001b[0m"
+
+[[command]]
+keys = "["
+command = "M["
+acs = "s25"
+desc = "Previous area"
+help = "Change to the previous message area"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46m[\u001b[0;30;46m) \u001b[0;1;37;46mprevious area     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36m[\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;227;255;255mr\u001b[38;2;198;255;255me\u001b[38;2;170;255;255mv\u001b[38;2;142;255;255mi\u001b[38;2;113;255;255mo\u001b[38;2;85;255;255mu\u001b[38;2;71;241;241ms \u001b[38;2;42;212;212ma\u001b[38;2;28;198;198mr\u001b[38;2;14;184;184me\u001b[38;2;0;170;170ma     \u001b[0m"
+
+[[command]]
+keys = "]"
+command = "M]"
+acs = "s25"
+desc = "Next area"
+help = "Change to the previous message area"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46m]\u001b[0;30;46m) \u001b[0;1;37;46mnext area         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36m]\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;212;255;255me\u001b[38;2;170;255;255mx\u001b[38;2;128;255;255mt \u001b[38;2;64;234;234ma\u001b[38;2;42;212;212mr\u001b[38;2;21;191;191me\u001b[38;2;0;170;170ma         \u001b[0m"
+
+[[command]]
+keys = "S"
+command = "MS"
+acs = "s25"
+desc = "Set newscan date"
+help = "Set message newscan pointer(s) to a specific date"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46ms\u001b[0;30;46m) \u001b[0;1;37;46mset newscan date  \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36ms\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;232;255;255me\u001b[38;2;210;255;255mt \u001b[38;2;164;255;255mn\u001b[38;2;142;255;255me\u001b[38;2;119;255;255mw\u001b[38;2;96;255;255ms\u001b[38;2;79;249;249mc\u001b[38;2;68;238;238ma\u001b[38;2;57;227;227mn \u001b[38;2;34;204;204md\u001b[38;2;23;193;193ma\u001b[38;2;11;181;181mt\u001b[38;2;0;170;170me  \u001b[0m"
+
+[[command]]
+keys = "E"
+command = "ME"
+acs = "s25"
+desc = "Scan select"
+help = "Pick the message areas newscans look in"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46me\u001b[0;30;46m) \u001b[0;1;37;46mscan select       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36me\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;221;255;255mc\u001b[38;2;187;255;255ma\u001b[38;2;153;255;255mn \u001b[38;2;85;255;255ms\u001b[38;2;68;238;238me\u001b[38;2;51;221;221ml\u001b[38;2;34;204;204me\u001b[38;2;17;187;187mc\u001b[38;2;0;170;170mt       \u001b[0m"
+
+[[command]]
+keys = "Q"
+command = "-^"
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the message menu, return to main"
+on = "\u001b[0;30;46m (\u001b[0;1;37;46mq\u001b[0;30;46m) \u001b[0;1;37;46mquit              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;36mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;142;255;255mu\u001b[38;2;57;227;227mi\u001b[38;2;0;170;170mt              \u001b[0m"
+
+[[command]]
+keys = "!NEW"
+command = "MX"
+param = "newest"
+desc = "newest"
+help = "|11newest post|03: |15{20%MB |07by |15{10%MF |07in |15{12%MK"
+on = "\u001b[0;30;46m                        @03 \u001b[0;1;37;46m{12%MB\u001b[0;30;46m » \u001b[0;1;37;46m{08%MD\u001b[0m"
+off = "\u001b[0m                        @03 \u001b[0;1;37m{12%MB \u001b[0;1;30m» \u001b[0;37m{08%MD\u001b[0m"
+
+[[command]]
+keys = "!HOT"
+command = "MX"
+param = "hot"
+desc = "hot"
+help = "|11most replies|03: |15{24%MH|07, |15%MR |07replies"
+on = "\u001b[0;30;46m                        @28 \u001b[0;1;37;46m{13%MH\u001b[0;30;46m » \u001b[0;1;37;46m{03%MR re\u001b[0m"
+off = "\u001b[0m                        @28 \u001b[0;1;37m{13%MH \u001b[0;1;30m» \u001b[0;37m{03%MR re\u001b[0m"
+
+[[command]]
+keys = "!LOUD"
+command = "MX"
+param = "loud"
+desc = "loudest"
+help = "|11loudest area this month|03: |15{20%ML|07, |15%MQ |07posts"
+on = "\u001b[0;30;46m                         @53 \u001b[0;1;37;46m{13%ML\u001b[0;30;46m » \u001b[0;1;37;46m{05%MQ\u001b[0m"
+off = "\u001b[0m                         @53 \u001b[0;1;37m{13%ML \u001b[0;1;30m» \u001b[0;37m{05%MQ\u001b[0m"
+
+[[command]]
+keys = "!DIG"
+command = "MX"
+param = "dig"
+desc = "dig"
+help = "|11dig this up|03: |07{44%MJ"
+on = "\u001b[0;30;46m                        @03 \u001b[0;1;37;46m{12%MV\u001b[0;30;46m » \u001b[0;1;37;46m{08%MJ\u001b[0m"
+off = "\u001b[0m                        @03 \u001b[0;1;37m{12%MV \u001b[0;1;30m» \u001b[0;37m{08%MJ\u001b[0m"
+
+[[command]]
+keys = "!MOUTH"
+command = "MX"
+param = "mouth"
+desc = "big mouth"
+help = "|11big mouth|03: |15{12%MC|07, |15%MX |07posts. their latest:"
+on = "\u001b[0;30;46m                        @28 \u001b[0;1;37;46m{12%MC\u001b[0;30;46m » \u001b[0;1;37;46m{06%MX\u001b[0m"
+off = "\u001b[0m                        @28 \u001b[0;1;37m{12%MC \u001b[0;1;30m» \u001b[0;37m{06%MX\u001b[0m"
+
+[[command]]
+keys = "!UNREAD"
+command = "MX"
+param = "unread"
+desc = "unread"
+help = "|11read the |15%MY |11new messages, a thread at a time"
+on = "\u001b[0;30;46m                         @53 \u001b[0;1;37;46m{05%MY\u001b[0;1;37;46m new\u001b[0;30;46m » \u001b[0;1;37;46m{06%MG all\u001b[0m"
+off = "\u001b[0m                         @53 \u001b[0;1;36m{05%MY\u001b[0;37m new \u001b[0;1;30m» \u001b[0;37m{06%MG all\u001b[0m"
+
+[[command]]
+keys = "T"
+command = "MF"
+acs = "s25"
+desc = "Top fillers"
+help = "Who has filled the most requests on the request boards"
+hidden = true
+on = "|B1Top fillers"
+off = "|B0Top fillers"

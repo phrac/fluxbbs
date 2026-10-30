@@ -1,3 +1,5 @@
+# The board's own MATRIX (the logon menu), in place of the stock one:
+# the lightbar themed to MATRIX.ANS. Made by art/matrix-menu-gen.py.
 type = "lightbar"
 title = "Login Matrix"
 prompt_name = "matrix"
@@ -10,35 +12,40 @@ upper_input = true
 [[command]]
 keys = "1"
 command = ">L"
-desc = "  |15l|07ogon |15t|07o |15b|07bs  "
-on = "|B1  |15l|07ogon |15t|07o |15b|07bs  "
-off = "|B0  |15l|07ogon |15t|07o |15b|07bs  "
+desc = "log on"
+help = "|08> |07you have an account. prove it."
+on = "|B4|12[ |15  log on   |12]"
+off = "|B0|08[ |07  log on   |08]"
 
 [[command]]
 keys = "2"
-command = "EE"
-param = "1;Matrix feedback;No"
-desc = " |15l|07eave |15f|07eedback "
-on = "|B1 |15l|07eave |15f|07eedback "
-off = "|B0 |15l|07eave |15f|07eedback "
+command = ">A"
+desc = "apply"
+help = "|08> |07new here? we will decide if you stay."
+on = "|B4|12[ |15  apply    |12]"
+off = "|B0|08[ |07  apply    |08]"
 
 [[command]]
 keys = "3"
-command = ">H"
-desc = "   |15l|07ogoff |15b|07bs   "
-on = "|B1   |15l|07ogoff |15b|07bs   "
-off = "|B0   |15l|07ogoff |15b|07bs   "
+command = ">C"
+desc = "page sysop"
+help = "|08> |07ring the bell. someone may answer."
+on = "|B4|12[ |15page sysop |12]"
+off = "|B0|08[ |07page sysop |08]"
 
 [[command]]
 keys = "4"
-command = ">A"
-desc = "  |15a|07pply |15a|07s |15n|07ew  "
-on = "|B1  |15a|07pply |15a|07s |15n|07ew  "
-off = "|B0  |15a|07pply |15a|07s |15n|07ew  "
+command = "EE"
+param = "1;Matrix feedback;No"
+desc = "feedback"
+help = "|08> |07leave a note for the sysop."
+on = "|B4|12[ |15 feedback  |12]"
+off = "|B0|08[ |07 feedback  |08]"
 
 [[command]]
 keys = "5"
-command = ">C"
-desc = "   |15p|07age |15s|07ysop   "
-on = "|B1   |15p|07age |15s|07ysop   "
-off = "|B0   |15p|07age |15s|07ysop   "
+command = ">H"
+desc = "hang up"
+help = "|08> |07the smart choice. no hard feelings."
+on = "|B4|12[ |15 hang up   |12]"
+off = "|B0|08[ |07 hang up   |08]"

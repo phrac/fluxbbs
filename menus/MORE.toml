@@ -1,0 +1,49 @@
+# The board's more: a lightbar with hot keys over MORE.ANS. Made by
+# art/mainmenu-gen.py more (from the stock menu); change that, not this.
+title = "More"
+prompt_name = "More"
+help_file = "MORE"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+type = "lightbar"
+
+[[command]]
+keys = "Q"
+command = "-/"
+param = "QWKMAIL"
+acs = "s50"
+desc = "QWKmail menu"
+help = "Goto the offline mail menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mq\u001b[0;30;45m) \u001b[0;1;37;45mqwk mail                       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;206;255mw\u001b[38;2;255;158;255mk \u001b[38;2;243;73;243mm\u001b[38;2;219;49;219ma\u001b[38;2;194;24;194mi\u001b[38;2;170;0;170ml                       \u001b[0m"
+
+[[command]]
+keys = "T"
+command = "-/"
+param = "timebank"
+acs = "s50"
+desc = "Time Bank"
+help = "None"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mt\u001b[0;30;45m) \u001b[0;1;37;45mtime bank                      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;212;255mi\u001b[38;2;255;170;255mm\u001b[38;2;255;128;255me \u001b[38;2;234;64;234mb\u001b[38;2;212;42;212ma\u001b[38;2;191;21;191mn\u001b[38;2;170;0;170mk                      \u001b[0m"
+
+[[command]]
+keys = "%"
+command = "NV"
+param = "Show"
+acs = "s50"
+desc = "New user voting"
+help = "Vote on new users you have not yet voted on (if enabled)"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m%\u001b[0;30;45m) \u001b[0;1;37;45mnew user voting                \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m%\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;255;231;255me\u001b[38;2;255;206;255mw \u001b[38;2;255;158;255mu\u001b[38;2;255;134;255ms\u001b[38;2;255;109;255me\u001b[38;2;255;85;255mr \u001b[38;2;231;61;231mv\u001b[38;2;219;49;219mo\u001b[38;2;206;36;206mt\u001b[38;2;194;24;194mi\u001b[38;2;182;12;182mn\u001b[38;2;170;0;170mg                \u001b[0m"
+
+[[command]]
+keys = "<"
+command = "-\\"
+param = "MAIN"
+desc = "Back"
+help = "Back to the main menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m<\u001b[0;30;45m) \u001b[0;1;37;45mback                           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m<\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;142;255ma\u001b[38;2;227;57;227mc\u001b[38;2;170;0;170mk                           \u001b[0m"

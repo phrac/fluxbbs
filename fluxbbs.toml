@@ -1,8 +1,8 @@
-# Iniquity BBS configuration, imported from the stock 1.00a26r5 install.
+# flux/bbs configuration, imported from the stock Iniquity 1.00a26r5 install.
 # Paths are relative to this file.
 
 [bbs]
-name = "Iniquity"
+name = "flux/bbs"
 location = "Somewhere, ??"
 phone = "(000)000-0000"
 sysop_alias = "SysOp"

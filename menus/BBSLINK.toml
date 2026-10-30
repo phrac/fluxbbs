@@ -1,13 +1,15 @@
+# The board's bbslink games: a lightbar with hot keys over BBSLINK.ANS. Made by
+# art/mainmenu-gen.py bbslink (from the stock menu); change that, not this.
 title = "BBSLink Games"
 prompt_name = "bbslink"
 help_file = "BBSLINK"
-prompt = "%%MENUPMT1"
 acs = "s50"
 fallback = "DOOR"
 generic_columns = 2
 pause_before = true
 global = true
 upper_input = true
+type = "lightbar"
 
 [[command]]
 keys = "M"
@@ -16,8 +18,8 @@ param = "menu"
 acs = "s50"
 desc = "All BBSLink games"
 help = "BBSLink's own list of every game it has"
-on = "|B1All BBSLink games"
-off = "|B0All BBSLink games"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mm\u001b[0;30;41m) \u001b[0;1;37;41mevery bbslink game \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mm\u001b[0;1;30m) \u001b[38;2;255;255;255me\u001b[38;2;255;235;235mv\u001b[38;2;255;215;215me\u001b[38;2;255;195;195mr\u001b[38;2;255;175;175my \u001b[38;2;255;135;135mb\u001b[38;2;255;115;115mb\u001b[38;2;255;95;95ms\u001b[38;2;250;80;80ml\u001b[38;2;240;70;70mi\u001b[38;2;230;60;60mn\u001b[38;2;220;50;50mk \u001b[38;2;200;30;30mg\u001b[38;2;190;20;20ma\u001b[38;2;180;10;10mm\u001b[38;2;170;0;0me \u001b[0m"
 
 [[command]]
 keys = "1"
@@ -26,8 +28,8 @@ param = "lord"
 acs = "s50"
 desc = "LORD"
 help = "Legend of the Red Dragon, with players from other boards"
-on = "|B1LORD"
-off = "|B0LORD"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m1\u001b[0;30;41m) \u001b[0;1;37;41mlord               \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m1\u001b[0;1;30m) \u001b[38;2;255;255;255ml\u001b[38;2;255;142;142mo\u001b[38;2;227;57;57mr\u001b[38;2;170;0;0md               \u001b[0m"
 
 [[command]]
 keys = "2"
@@ -36,8 +38,8 @@ param = "lord2"
 acs = "s50"
 desc = "LORD II"
 help = "Legend of the Red Dragon II: New World"
-on = "|B1LORD II"
-off = "|B0LORD II"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m2\u001b[0;30;41m) \u001b[0;1;37;41mlord ii            \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m2\u001b[0;1;30m) \u001b[38;2;255;255;255ml\u001b[38;2;255;198;198mo\u001b[38;2;255;142;142mr\u001b[38;2;255;85;85md \u001b[38;2;198;28;28mi\u001b[38;2;170;0;0mi            \u001b[0m"
 
 [[command]]
 keys = "3"
@@ -46,8 +48,8 @@ param = "teos"
 acs = "s50"
 desc = "Planets: TEOS"
 help = "Planets: The Exploration of Space"
-on = "|B1Planets: TEOS"
-off = "|B0Planets: TEOS"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m3\u001b[0;30;41m) \u001b[0;1;37;41mplanets: teos      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m3\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;255;227;227ml\u001b[38;2;255;198;198ma\u001b[38;2;255;170;170mn\u001b[38;2;255;142;142me\u001b[38;2;255;113;113mt\u001b[38;2;255;85;85ms\u001b[38;2;241;71;71m: \u001b[38;2;212;42;42mt\u001b[38;2;198;28;28me\u001b[38;2;184;14;14mo\u001b[38;2;170;0;0ms      \u001b[0m"
 
 [[command]]
 keys = "4"
@@ -56,8 +58,8 @@ param = "ooii"
 acs = "s50"
 desc = "Operation Overkill II"
 help = "Operation: Overkill II"
-on = "|B1Operation Overkill II"
-off = "|B0Operation Overkill II"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m4\u001b[0;30;41m) \u001b[0;1;37;41moverkill ii        \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m4\u001b[0;1;30m) \u001b[38;2;255;255;255mo\u001b[38;2;255;221;221mv\u001b[38;2;255;187;187me\u001b[38;2;255;153;153mr\u001b[38;2;255;119;119mk\u001b[38;2;255;85;85mi\u001b[38;2;238;68;68ml\u001b[38;2;221;51;51ml \u001b[38;2;187;17;17mi\u001b[38;2;170;0;0mi        \u001b[0m"
 
 [[command]]
 keys = "5"
@@ -66,8 +68,8 @@ param = "tw"
 acs = "s50"
 desc = "TradeWars 2002"
 help = "TradeWars 2002, against other boards' players"
-on = "|B1TradeWars 2002"
-off = "|B0TradeWars 2002"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m5\u001b[0;30;41m) \u001b[0;1;37;41mtradewars 2002     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m5\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;229;229mr\u001b[38;2;255;203;203ma\u001b[38;2;255;177;177md\u001b[38;2;255;150;150me\u001b[38;2;255;124;124mw\u001b[38;2;255;98;98ma\u001b[38;2;248;78;78mr\u001b[38;2;235;65;65ms \u001b[38;2;209;39;39m2\u001b[38;2;196;26;26m0\u001b[38;2;183;13;13m0\u001b[38;2;170;0;0m2     \u001b[0m"
 
 [[command]]
 keys = "6"
@@ -76,14 +78,14 @@ param = "bre"
 acs = "s50"
 desc = "Barren Realms Elite"
 help = "Barren Realms Elite, against other boards' empires"
-on = "|B1Barren Realms Elite"
-off = "|B0Barren Realms Elite"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m6\u001b[0;30;41m) \u001b[0;1;37;41mbarren realms elite\u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m6\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;236;236ma\u001b[38;2;255;217;217mr\u001b[38;2;255;198;198mr\u001b[38;2;255;179;179me\u001b[38;2;255;161;161mn \u001b[38;2;255;123;123mr\u001b[38;2;255;104;104me\u001b[38;2;255;85;85ma\u001b[38;2;246;76;76ml\u001b[38;2;236;66;66mm\u001b[38;2;227;57;57ms \u001b[38;2;208;38;38me\u001b[38;2;198;28;28ml\u001b[38;2;189;19;19mi\u001b[38;2;179;9;9mt\u001b[38;2;170;0;0me\u001b[0m"
 
 [[command]]
 keys = "Q"
-command = '-\'
+command = "-\\"
 param = "DOOR"
 desc = "Back to the doors"
 help = "Back to the doors menu"
-on = "|B1Back to the doors"
-off = "|B0Back to the doors"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mback to doors      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;227;227ma\u001b[38;2;255;198;198mc\u001b[38;2;255;170;170mk \u001b[38;2;255;113;113mt\u001b[38;2;255;85;85mo \u001b[38;2;227;57;57md\u001b[38;2;212;42;42mo\u001b[38;2;198;28;28mo\u001b[38;2;184;14;14mr\u001b[38;2;170;0;0ms      \u001b[0m"

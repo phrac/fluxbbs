@@ -1,0 +1,37 @@
+title = "Email Menu"
+prompt_name = "email"
+help_file = "EMAIL"
+prompt = "%%MENUPMT1"
+acs = "s25"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+upper_input = true
+
+[[command]]
+keys = "E"
+command = "EE"
+acs = "s50"
+desc = "Enter email"
+help = "Write electronic mail to another user"
+on = "|B1Enter email"
+off = "|B0Enter email"
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the email menu, return to previous"
+on = "|B1Quit menu"
+off = "|B0Quit menu"
+
+[[command]]
+keys = "R"
+command = "ER"
+acs = "s25"
+desc = "Read your email"
+help = "Read you waiting email (if you have any)"
+on = "|B1Read your email"
+off = "|B0Read your email"

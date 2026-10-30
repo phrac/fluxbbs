@@ -1,31 +1,15 @@
+# The board's email menu: a lightbar with hot keys over EMAIL.ANS. Made by
+# art/mainmenu-gen.py email (from the stock menu); change that, not this.
 title = "Email Menu"
 prompt_name = "email"
 help_file = "EMAIL"
-prompt = "%%MENUPMT1"
 acs = "s25"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
 upper_input = true
-
-[[command]]
-keys = "E"
-command = "EE"
-acs = "s50"
-desc = "Enter email"
-help = "Write electronic mail to another user"
-on = "|B1Enter email"
-off = "|B0Enter email"
-
-[[command]]
-keys = "Q"
-command = '-\'
-param = "MAIN"
-desc = "Quit menu"
-help = "Exit the email menu, return to previous"
-on = "|B1Quit menu"
-off = "|B0Quit menu"
+type = "lightbar"
 
 [[command]]
 keys = "R"
@@ -33,5 +17,23 @@ command = "ER"
 acs = "s25"
 desc = "Read your email"
 help = "Read you waiting email (if you have any)"
-on = "|B1Read your email"
-off = "|B0Read your email"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mr\u001b[0;30;41m) \u001b[0;1;37;41mread your email                \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mr\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;255;231;231me\u001b[38;2;255;206;206ma\u001b[38;2;255;182;182md \u001b[38;2;255;134;134my\u001b[38;2;255;109;109mo\u001b[38;2;255;85;85mu\u001b[38;2;243;73;73mr \u001b[38;2;219;49;49me\u001b[38;2;206;36;36mm\u001b[38;2;194;24;24ma\u001b[38;2;182;12;12mi\u001b[38;2;170;0;0ml                \u001b[0m"
+
+[[command]]
+keys = "E"
+command = "EE"
+acs = "s50"
+desc = "Enter email"
+help = "Write electronic mail to another user"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41me\u001b[0;30;41m) \u001b[0;1;37;41menter email                    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31me\u001b[0;1;30m) \u001b[38;2;255;255;255me\u001b[38;2;255;221;221mn\u001b[38;2;255;187;187mt\u001b[38;2;255;153;153me\u001b[38;2;255;119;119mr \u001b[38;2;238;68;68me\u001b[38;2;221;51;51mm\u001b[38;2;204;34;34ma\u001b[38;2;187;17;17mi\u001b[38;2;170;0;0ml                    \u001b[0m"
+
+[[command]]
+keys = "Q"
+command = "-\\"
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the email menu, return to previous"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mquit                           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;142mu\u001b[38;2;227;57;57mi\u001b[38;2;170;0;0mt                           \u001b[0m"

@@ -182,6 +182,11 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 
 ## Menus and screens
 
+- New stock screens and menus: disflux's, in place of Iniquity's, with
+  the board's own name in the logos (`art/make.py`), and a board's own
+  touches in its `art/local.py`; and disflux's AI chat, node chat and
+  bot check prompts. Iniquity's screens and menus are kept in
+  `classic/`. ([art](../art/README.md))
 - Menus can animate while they wait (`[[effect]]` in the menu): a glint
   across the art, a pulse along the box lines, sent as only the cells
   that change, and after a minute idle a screen saver of digital rain.
@@ -748,9 +753,9 @@ Where the original's behavior was a hazard or no longer fits.
 - One-line notes ("Added to my boards", "Nothing new", a door that
   wouldn't start) go on the help line of the list or menu the caller
   returns to, until their next key, not behind a "press any key".
-- The stock screens, themes and menus say flux/bbs where they said
-  Iniquity, but for the original's copyright line (PRELOGON.AN2) and
-  the credit on the wait-for-call screen.
+- The classic screens, themes and menus (`classic/`) say flux/bbs where
+  they said Iniquity, but for the original's copyright line
+  (PRELOGON.AN2) and the credit on the wait-for-call screen.
 
 ## From 2.0 and 2.20
 

@@ -1,0 +1,63 @@
+title = "Newuser access"
+prompt_name = "newuser"
+help_file = ""
+prompt = ""
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+upper_input = true
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-F"
+param = "newuser"
+desc = "display a file"
+on = "|B1display a file"
+off = "|B0display a file"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-P"
+desc = "pause .."
+on = "|B1pause .."
+off = "|B0pause .."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-C"
+desc = "clear the screen"
+on = "|B1clear the screen"
+off = "|B0clear the screen"
+
+# Stock auto-validated every caller outside area code 902 here (`-= B`)
+# and went back to STARTUP; new users now wait for the SysOp (`*U`) or a
+# vote, so they're told so and logged off.
+[[command]]
+keys = "FIRSTCMD"
+command = "-L"
+param = "|lf|08y|04ou|12r |08a|04ccoun|12t |08i|04s |08w|04aiting fo|12r |08v|04alidatio|12n|08. |08c|04all bac|12k |08s|04oo|12n|08.|lf"
+desc = "tell user.."
+on = "|B1tell user.."
+off = "|B0tell user.."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-P"
+desc = "get a key.."
+on = "|B1get a key.."
+off = "|B0get a key.."
+
+[[command]]
+keys = "FIRSTCMD"
+command = "-L"
+param = "|01thanks for calling, |09%un|08."
+desc = "say bye"
+on = "|B1say bye"
+off = "|B0say bye"
+
+[[command]]
+keys = "FIRSTCMD"
+command = "HI"
+desc = "hangup"
+on = "|B1hangup"
+off = "|B0hangup"

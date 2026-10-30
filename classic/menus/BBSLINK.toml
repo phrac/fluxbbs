@@ -1,0 +1,89 @@
+title = "BBSLink Games"
+prompt_name = "bbslink"
+help_file = "BBSLINK"
+prompt = "%%MENUPMT1"
+acs = "s50"
+fallback = "DOOR"
+generic_columns = 2
+pause_before = true
+global = true
+upper_input = true
+
+[[command]]
+keys = "M"
+command = "DB"
+param = "menu"
+acs = "s50"
+desc = "All BBSLink games"
+help = "BBSLink's own list of every game it has"
+on = "|B1All BBSLink games"
+off = "|B0All BBSLink games"
+
+[[command]]
+keys = "1"
+command = "DB"
+param = "lord"
+acs = "s50"
+desc = "LORD"
+help = "Legend of the Red Dragon, with players from other boards"
+on = "|B1LORD"
+off = "|B0LORD"
+
+[[command]]
+keys = "2"
+command = "DB"
+param = "lord2"
+acs = "s50"
+desc = "LORD II"
+help = "Legend of the Red Dragon II: New World"
+on = "|B1LORD II"
+off = "|B0LORD II"
+
+[[command]]
+keys = "3"
+command = "DB"
+param = "teos"
+acs = "s50"
+desc = "Planets: TEOS"
+help = "Planets: The Exploration of Space"
+on = "|B1Planets: TEOS"
+off = "|B0Planets: TEOS"
+
+[[command]]
+keys = "4"
+command = "DB"
+param = "ooii"
+acs = "s50"
+desc = "Operation Overkill II"
+help = "Operation: Overkill II"
+on = "|B1Operation Overkill II"
+off = "|B0Operation Overkill II"
+
+[[command]]
+keys = "5"
+command = "DB"
+param = "tw"
+acs = "s50"
+desc = "TradeWars 2002"
+help = "TradeWars 2002, against other boards' players"
+on = "|B1TradeWars 2002"
+off = "|B0TradeWars 2002"
+
+[[command]]
+keys = "6"
+command = "DB"
+param = "bre"
+acs = "s50"
+desc = "Barren Realms Elite"
+help = "Barren Realms Elite, against other boards' empires"
+on = "|B1Barren Realms Elite"
+off = "|B0Barren Realms Elite"
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "DOOR"
+desc = "Back to the doors"
+help = "Back to the doors menu"
+on = "|B1Back to the doors"
+off = "|B0Back to the doors"

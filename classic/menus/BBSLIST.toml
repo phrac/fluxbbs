@@ -1,0 +1,66 @@
+title = "BBS List Menu"
+prompt_name = "bbs list"
+help_file = "BBSLIST"
+prompt = "%%MENUPMT1"
+acs = "s25"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+upper_input = true
+
+[[command]]
+keys = "A"
+command = "BA"
+acs = "s50"
+desc = "Add BBS to list"
+help = "Add a new entry to the BBS list"
+on = "|B1Add BBS to list"
+off = "|B0Add BBS to list"
+
+[[command]]
+keys = "C"
+command = "BC"
+param = "Ask"
+acs = "s250"
+desc = "Clear list"
+help = "[sysop] Clear entire BBS list"
+on = "|B1Clear list"
+off = "|B0Clear list"
+
+[[command]]
+keys = "D"
+command = "BD"
+param = "Ask"
+acs = "s250"
+desc = "Delete BBS"
+help = "[sysop] Remove a BBS from the BBS listing"
+on = "|B1Delete BBS"
+off = "|B0Delete BBS"
+
+[[command]]
+keys = "L"
+command = "BL"
+acs = "s25"
+desc = "Display BBS list"
+help = "Show the system BBS listing"
+on = "|B1Display BBS list"
+off = "|B0Display BBS list"
+
+[[command]]
+keys = "Q"
+command = '-\'
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the BBS list menu, returning to the previous"
+on = "|B1Quit menu"
+off = "|B0Quit menu"
+
+[[command]]
+keys = "S"
+command = "BS"
+acs = "s25"
+desc = "Show a BBS"
+help = "Display information on a single BBS from the list"
+on = "|B1Show a BBS"
+off = "|B0Show a BBS"

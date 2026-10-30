@@ -1,36 +1,29 @@
+# The board's multinode: a lightbar with hot keys over MULTINOD.ANS. Made by
+# art/mainmenu-gen.py multinod (from the stock menu); change that, not this.
 title = "Multinode Interaction"
 prompt_name = "Multinode"
 help_file = "MULTINOD"
-prompt = "%%menupmt1"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
-
-[[command]]
-keys = "Q"
-command = '-\'
-param = "MAIN"
-desc = "Quit"
-help = "Quit current menu"
-on = "|B1Quit"
-off = "|B0Quit"
+type = "lightbar"
 
 [[command]]
 keys = "W"
 command = "XL"
 desc = "Who's online?"
 help = "Display a list of users currently online"
-on = "|B1Who's online?"
-off = "|B0Who's online?"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mw\u001b[0;30;41m) \u001b[0;1;37;41mwho's online                   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mw\u001b[0;1;30m) \u001b[38;2;255;255;255mw\u001b[38;2;255;224;224mh\u001b[38;2;255;193;193mo\u001b[38;2;255;162;162m'\u001b[38;2;255;131;131ms \u001b[38;2;247;77;77mo\u001b[38;2;232;62;62mn\u001b[38;2;216;46;46ml\u001b[38;2;201;31;31mi\u001b[38;2;185;15;15mn\u001b[38;2;170;0;0me                   \u001b[0m"
 
 [[command]]
 keys = "M"
 command = "XM"
 desc = "Send message"
 help = "Send a message to another user online on the BBS"
-on = "|B1Send message"
-off = "|B0Send message"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mm\u001b[0;30;41m) \u001b[0;1;37;41msend a message                 \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mm\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;229;229me\u001b[38;2;255;203;203mn\u001b[38;2;255;177;177md \u001b[38;2;255;124;124ma \u001b[38;2;248;78;78mm\u001b[38;2;235;65;65me\u001b[38;2;222;52;52ms\u001b[38;2;209;39;39ms\u001b[38;2;196;26;26ma\u001b[38;2;183;13;13mg\u001b[38;2;170;0;0me                 \u001b[0m"
 
 [[command]]
 keys = "C"
@@ -38,8 +31,17 @@ command = "XC"
 acs = "s50"
 desc = "Multinode chat"
 help = "Real-time online multi-user chat between BBS nodes"
-on = "|B1Multinode chat"
-off = "|B0Multinode chat"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mc\u001b[0;30;41m) \u001b[0;1;37;41mmultinode chat                 \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mc\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;229;229mu\u001b[38;2;255;203;203ml\u001b[38;2;255;177;177mt\u001b[38;2;255;150;150mi\u001b[38;2;255;124;124mn\u001b[38;2;255;98;98mo\u001b[38;2;248;78;78md\u001b[38;2;235;65;65me \u001b[38;2;209;39;39mc\u001b[38;2;196;26;26mh\u001b[38;2;183;13;13ma\u001b[38;2;170;0;0mt                 \u001b[0m"
+
+[[command]]
+keys = "Q"
+command = "-\\"
+param = "MAIN"
+desc = "Quit"
+help = "Quit current menu"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mquit                           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;142mu\u001b[38;2;227;57;57mi\u001b[38;2;170;0;0mt                           \u001b[0m"
 
 [[command]]
 keys = "B"
@@ -47,6 +49,7 @@ command = "XB"
 acs = "s250"
 desc = "Broadcast message"
 help = "[sysop] Broadcast a message to everyone currently online"
+hidden = true
 on = "|B1Broadcast message"
 off = "|B0Broadcast message"
 
@@ -56,5 +59,6 @@ command = "XI"
 acs = "s250"
 desc = "Invisible"
 help = "Hide from (or show to) the other callers"
+hidden = true
 on = "|B1Invisible"
 off = "|B0Invisible"

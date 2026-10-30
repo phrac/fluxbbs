@@ -1,12 +1,179 @@
+# The board's file menu: a lightbar with hot keys over FILE.ANS. Made by
+# art/mainmenu-gen.py file (from the stock menu); change that, not this.
 title = "File Menu"
 prompt_name = "file"
 help_file = "FILE"
-prompt = "%%MENUPMT3"
 acs = "s50"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
+type = "lightbar"
+
+[[effect]]
+kind = "decode"
+rows = [1, 8]
+cols = [2, 2]
+every = 10.0
+delay = 2.0
+amount = 1.8
+messages = ["UPLOADS", "ARCHIVE", "DIGGING", "HOARDED", "ZIPPING", "SCANNED", "LEECHED", "SIFTING", "CRACKED", "DIALING", "TEXTFIL", "PACKETS", "BINARIE", "CARRIED", "DOWNLOD", "EXTRACT", "FOLDERS", "GATHERS", "HASHING", "INDEXED", "JOURNAL", "KEEPING", "LISTING", "MIRRORS", "NEWFILE", "OPENING", "PARTIAL", "QUEUING", "RESUMED", "STORAGE", "TRANSIT", "UNPACKS", "VERSION", "WAITING", "XMODEMS", "YSPEEDS", "ZMODEMS", "ANSIART", "BBSLIST", "CATALOG", "DISKETT", "ENCODED", "FILEIDS", "GIGABYT", "HOTKEYS", "INFOFIL", "JUNKDIR", "KILOBYT", "LIBRARY", "MODEMED", "NOTHING", "OFFLINE", "PROTOCO", "QUARTER", "RATIOED", "SECTION", "TAGGING", "UNRATED", "VIEWING", "WAREZNO", "XFERRED", "YIELDED", "ZIPPEDS", "ACIDPAK", "BLOCKTR", "CODEPAG", "DEMOSCN", "ELITENO", "FREEDOM", "GROUPED", "HPAVCDS", "INTROS1", "JOINEDS", "KEYGENS", "LOADERS", "MISSING", "NEWSCAN", "ORPHANS", "PHREAKS", "QUICKDL", "RELEASE", "SAUCEDS", "TRAINER", "UPTODAT", "VALIDAT", "WAITLIS", "XTRACTS", "YOURDLS", "ZEROBYT", "ARCHIVD", "BATCHED", "CRCOKAY", "DESCRIB", "ENDLESS", "FLAGGED", "GALLERY", "HISTORY", "INBOUND", "JUMPERS"]
+
+[[effect]]
+kind = "decode"
+rows = [1, 8]
+cols = [79, 79]
+every = 10.0
+delay = 2.0
+amount = 1.8
+messages = ["JUMPERS", "INBOUND", "HISTORY", "GALLERY", "FLAGGED", "ENDLESS", "DESCRIB", "CRCOKAY", "BATCHED", "ARCHIVD", "ZEROBYT", "YOURDLS", "XTRACTS", "WAITLIS", "VALIDAT", "UPTODAT", "TRAINER", "SAUCEDS", "RELEASE", "QUICKDL", "PHREAKS", "ORPHANS", "NEWSCAN", "MISSING", "LOADERS", "KEYGENS", "JOINEDS", "INTROS1", "HPAVCDS", "GROUPED", "FREEDOM", "ELITENO", "DEMOSCN", "CODEPAG", "BLOCKTR", "ACIDPAK", "ZIPPEDS", "YIELDED", "XFERRED", "WAREZNO", "VIEWING", "UNRATED", "TAGGING", "SECTION", "RATIOED", "QUARTER", "PROTOCO", "OFFLINE", "NOTHING", "MODEMED", "LIBRARY", "KILOBYT", "JUNKDIR", "INFOFIL", "HOTKEYS", "GIGABYT", "FILEIDS", "ENCODED", "DISKETT", "CATALOG", "BBSLIST", "ANSIART", "ZMODEMS", "YSPEEDS", "XMODEMS", "WAITING", "VERSION", "UNPACKS", "TRANSIT", "STORAGE", "RESUMED", "QUEUING", "PARTIAL", "OPENING", "NEWFILE", "MIRRORS", "LISTING", "KEEPING", "JOURNAL", "INDEXED", "HASHING", "GATHERS", "FOLDERS", "EXTRACT", "DOWNLOD", "CARRIED", "BINARIE", "PACKETS", "TEXTFIL", "DIALING", "CRACKED", "SIFTING", "LEECHED", "SCANNED", "ZIPPING", "HOARDED", "DIGGING", "ARCHIVE", "UPLOADS"]
+
+[[effect]]
+kind = "random"
+rows = [1, 8]
+every = 10.0
+delay = 2.0
+
+[[effect]]
+kind = "ripple"
+rows = [9, 18]
+every = 10.0
+delay = 6.0
+
+[[command]]
+keys = "A"
+command = "FC"
+acs = "s25"
+desc = "Change file area"
+help = "Select a new file area from list"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42ma\u001b[0;30;42m) \u001b[0;1;37;42mchange area       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32ma\u001b[0;1;30m) \u001b[38;2;255;255;255mc\u001b[38;2;221;255;221mh\u001b[38;2;187;255;187ma\u001b[38;2;153;255;153mn\u001b[38;2;119;255;119mg\u001b[38;2;85;255;85me \u001b[38;2;51;221;51ma\u001b[38;2;34;204;34mr\u001b[38;2;17;187;17me\u001b[38;2;0;170;0ma       \u001b[0m"
+
+[[command]]
+keys = "J"
+command = "FJ"
+param = "List"
+acs = "s25"
+desc = "Join file conf"
+help = "Change to a new file conference"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mj\u001b[0;30;42m) \u001b[0;1;37;42mjoin conference   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mj\u001b[0;1;30m) \u001b[38;2;255;255;255mj\u001b[38;2;231;255;231mo\u001b[38;2;206;255;206mi\u001b[38;2;182;255;182mn \u001b[38;2;134;255;134mc\u001b[38;2;109;255;109mo\u001b[38;2;85;255;85mn\u001b[38;2;73;243;73mf\u001b[38;2;61;231;61me\u001b[38;2;49;219;49mr\u001b[38;2;36;206;36me\u001b[38;2;24;194;24mn\u001b[38;2;12;182;12mc\u001b[38;2;0;170;0me   \u001b[0m"
+
+[[command]]
+keys = "["
+command = "F["
+acs = "s25"
+desc = "Previous area"
+help = "Change to the previous file area (if possible)"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42m[\u001b[0;30;42m) \u001b[0;1;37;42mprevious area     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32m[\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;227;255;227mr\u001b[38;2;198;255;198me\u001b[38;2;170;255;170mv\u001b[38;2;142;255;142mi\u001b[38;2;113;255;113mo\u001b[38;2;85;255;85mu\u001b[38;2;71;241;71ms \u001b[38;2;42;212;42ma\u001b[38;2;28;198;28mr\u001b[38;2;14;184;14me\u001b[38;2;0;170;0ma     \u001b[0m"
+
+[[command]]
+keys = "]"
+command = "F]"
+acs = "s25"
+desc = "Next area"
+help = "Change to the next file area (if possible)"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42m]\u001b[0;30;42m) \u001b[0;1;37;42mnext area         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32m]\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;212;255;212me\u001b[38;2;170;255;170mx\u001b[38;2;128;255;128mt \u001b[38;2;64;234;64ma\u001b[38;2;42;212;42mr\u001b[38;2;21;191;21me\u001b[38;2;0;170;0ma         \u001b[0m"
+
+[[command]]
+keys = "#"
+command = "F#"
+desc = "Goto Area #"
+help = "None"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42m#\u001b[0;30;42m) \u001b[0;1;37;42mjump to area #    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32m#\u001b[0;1;30m) \u001b[38;2;255;255;255mj\u001b[38;2;229;255;229mu\u001b[38;2;203;255;203mm\u001b[38;2;177;255;177mp \u001b[38;2;124;255;124mt\u001b[38;2;98;255;98mo \u001b[38;2;65;235;65ma\u001b[38;2;52;222;52mr\u001b[38;2;39;209;39me\u001b[38;2;26;196;26ma \u001b[38;2;0;170;0m#    \u001b[0m"
+
+[[command]]
+keys = "S"
+command = "FS"
+acs = "s25"
+desc = "Set newscan date"
+help = "Update your newscan date pointer to a specific date"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42ms\u001b[0;30;42m) \u001b[0;1;37;42mset newscan date  \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32ms\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;232;255;232me\u001b[38;2;210;255;210mt \u001b[38;2;164;255;164mn\u001b[38;2;142;255;142me\u001b[38;2;119;255;119mw\u001b[38;2;96;255;96ms\u001b[38;2;79;249;79mc\u001b[38;2;68;238;68ma\u001b[38;2;57;227;57mn \u001b[38;2;34;204;34md\u001b[38;2;23;193;23ma\u001b[38;2;11;181;11mt\u001b[38;2;0;170;0me  \u001b[0m"
+
+[[command]]
+keys = "E"
+command = "FE"
+acs = "s25"
+desc = "Scan select"
+help = "Pick the file areas newscans look in"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42me\u001b[0;30;42m) \u001b[0;1;37;42mscan select       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32me\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;221;255;221mc\u001b[38;2;187;255;187ma\u001b[38;2;153;255;153mn \u001b[38;2;85;255;85ms\u001b[38;2;68;238;68me\u001b[38;2;51;221;51ml\u001b[38;2;34;204;34me\u001b[38;2;17;187;17mc\u001b[38;2;0;170;0mt       \u001b[0m"
+
+[[command]]
+keys = "L"
+command = "FW"
+acs = "s25"
+desc = "Browse files"
+help = "Browse the file areas: open archives, view text, art and pictures"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42ml\u001b[0;30;42m) \u001b[0;1;37;42mbrowse files      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32ml\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;224;255;224mr\u001b[38;2;193;255;193mo\u001b[38;2;162;255;162mw\u001b[38;2;131;255;131ms\u001b[38;2;100;255;100me \u001b[38;2;62;232;62mf\u001b[38;2;46;216;46mi\u001b[38;2;31;201;31ml\u001b[38;2;15;185;15me\u001b[38;2;0;170;0ms      \u001b[0m"
+
+[[command]]
+keys = "N"
+command = "FN"
+acs = "s50"
+desc = "Newscan areas"
+help = "Scan for new fiiles since your last call (or pointer date)"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mn\u001b[0;30;42m) \u001b[0;1;37;42mnewscan           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mn\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;198;255;198me\u001b[38;2;142;255;142mw\u001b[38;2;85;255;85ms\u001b[38;2;57;227;57mc\u001b[38;2;28;198;28ma\u001b[38;2;0;170;0mn           \u001b[0m"
+
+[[command]]
+keys = "F"
+command = "FF"
+acs = "s50"
+desc = "Filespec search"
+help = "Scan current/all areas for a specified filespec (and list)"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mf\u001b[0;30;42m) \u001b[0;1;37;42mfilespec search   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mf\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;231;255;231mi\u001b[38;2;206;255;206ml\u001b[38;2;182;255;182me\u001b[38;2;158;255;158ms\u001b[38;2;134;255;134mp\u001b[38;2;109;255;109me\u001b[38;2;85;255;85mc \u001b[38;2;61;231;61ms\u001b[38;2;49;219;49me\u001b[38;2;36;206;36ma\u001b[38;2;24;194;24mr\u001b[38;2;12;182;12mc\u001b[38;2;0;170;0mh   \u001b[0m"
+
+[[command]]
+keys = "T"
+command = "FT"
+acs = "s50"
+desc = "Text search"
+help = "Search current/all file areas for description text"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mt\u001b[0;30;42m) \u001b[0;1;37;42mtext search       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;221;255;221me\u001b[38;2;187;255;187mx\u001b[38;2;153;255;153mt \u001b[38;2;85;255;85ms\u001b[38;2;68;238;68me\u001b[38;2;51;221;51ma\u001b[38;2;34;204;34mr\u001b[38;2;17;187;17mc\u001b[38;2;0;170;0mh       \u001b[0m"
+
+[[command]]
+keys = "I"
+command = "FI"
+acs = "s50"
+desc = "File information"
+help = "Display information on a specific file"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mi\u001b[0;30;42m) \u001b[0;1;37;42mfile information  \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mi\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;232;255;232mi\u001b[38;2;210;255;210ml\u001b[38;2;187;255;187me \u001b[38;2;142;255;142mi\u001b[38;2;119;255;119mn\u001b[38;2;96;255;96mf\u001b[38;2;79;249;79mo\u001b[38;2;68;238;68mr\u001b[38;2;57;227;57mm\u001b[38;2;45;215;45ma\u001b[38;2;34;204;34mt\u001b[38;2;23;193;23mi\u001b[38;2;11;181;11mo\u001b[38;2;0;170;0mn  \u001b[0m"
+
+[[command]]
+keys = "V"
+command = "FV"
+acs = "s50"
+desc = "View archive"
+help = "Examine the contents of an archived file"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mv\u001b[0;30;42m) \u001b[0;1;37;42mview archive      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mv\u001b[0;1;30m) \u001b[38;2;255;255;255mv\u001b[38;2;224;255;224mi\u001b[38;2;193;255;193me\u001b[38;2;162;255;162mw \u001b[38;2;100;255;100ma\u001b[38;2;77;247;77mr\u001b[38;2;62;232;62mc\u001b[38;2;46;216;46mh\u001b[38;2;31;201;31mi\u001b[38;2;15;185;15mv\u001b[38;2;0;170;0me      \u001b[0m"
+
+[[command]]
+keys = "D"
+command = "FD"
+acs = "s50"
+desc = "Download"
+help = "Download a file (or file(s) in batch)"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42md\u001b[0;30;42m) \u001b[0;1;37;42mdownload          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32md\u001b[0;1;30m) \u001b[38;2;255;255;255md\u001b[38;2;206;255;206mo\u001b[38;2;158;255;158mw\u001b[38;2;109;255;109mn\u001b[38;2;73;243;73ml\u001b[38;2;49;219;49mo\u001b[38;2;24;194;24ma\u001b[38;2;0;170;0md          \u001b[0m"
+
+[[command]]
+keys = "U"
+command = "FU"
+acs = "s50"
+desc = "Upload"
+help = "Upload file(s) to current file area (if possible)"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mu\u001b[0;30;42m) \u001b[0;1;37;42mupload            \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mu\u001b[0;1;30m) \u001b[38;2;255;255;255mu\u001b[38;2;187;255;187mp\u001b[38;2;119;255;119ml\u001b[38;2;68;238;68mo\u001b[38;2;34;204;34ma\u001b[38;2;0;170;0md            \u001b[0m"
 
 [[command]]
 keys = "+"
@@ -14,8 +181,79 @@ command = "F+"
 acs = "s50"
 desc = "Flag file"
 help = "Add a file to your batch"
-on = "|B1Flag file"
-off = "|B0Flag file"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42m+\u001b[0;30;42m) \u001b[0;1;37;42mflag for batch    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32m+\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;229;255;229ml\u001b[38;2;203;255;203ma\u001b[38;2;177;255;177mg \u001b[38;2;124;255;124mf\u001b[38;2;98;255;98mo\u001b[38;2;78;248;78mr \u001b[38;2;52;222;52mb\u001b[38;2;39;209;39ma\u001b[38;2;26;196;26mt\u001b[38;2;13;183;13mc\u001b[38;2;0;170;0mh    \u001b[0m"
+
+[[command]]
+keys = "B"
+command = "FB"
+acs = "s25"
+desc = "Batch edit"
+help = "Add or remove files flagged for download"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mb\u001b[0;30;42m) \u001b[0;1;37;42mbatch edit        \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mb\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;217;255;217ma\u001b[38;2;179;255;179mt\u001b[38;2;142;255;142mc\u001b[38;2;104;255;104mh \u001b[38;2;57;227;57me\u001b[38;2;38;208;38md\u001b[38;2;19;189;19mi\u001b[38;2;0;170;0mt        \u001b[0m"
+
+[[command]]
+keys = "Q"
+command = "-^"
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit the file menu, return to main"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mq\u001b[0;30;42m) \u001b[0;1;37;42mquit              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;142;255;142mu\u001b[38;2;57;227;57mi\u001b[38;2;0;170;0mt              \u001b[0m"
+
+[[command]]
+keys = "!NEW"
+command = "FW"
+param = "newest"
+desc = "newest"
+help = "|10newest upload|02: |15{14%FN |07by |15{10%FU |07in |15{14%FW"
+on = "\u001b[0;30;42m                        @03 \u001b[0;1;37;42m{12%FN\u001b[0;30;42m » \u001b[0;1;37;42m{08%FG\u001b[0m"
+off = "\u001b[0m                        @03 \u001b[0;1;37m{12%FN \u001b[0;1;30m» \u001b[0;37m{08%FG\u001b[0m"
+
+[[command]]
+keys = "!HOT"
+command = "FW"
+param = "hot"
+desc = "hot"
+help = "|10most downloaded|02: |15{14%FM|07, |15%FX |07downloads"
+on = "\u001b[0;30;42m                        @28 \u001b[0;1;37;42m{12%FM\u001b[0;30;42m » \u001b[0;1;37;42m{05%FX dl\u001b[0m"
+off = "\u001b[0m                        @28 \u001b[0;1;37m{12%FM \u001b[0;1;30m» \u001b[0;37m{05%FX dl\u001b[0m"
+
+[[command]]
+keys = "!BIG"
+command = "FW"
+param = "heavy"
+desc = "heavy"
+help = "|10biggest file|02: |15{14%FB|07, |15%FL"
+on = "\u001b[0;30;42m                         @53 \u001b[0;1;37;42m{12%FB\u001b[0;30;42m » \u001b[0;1;37;42m{09%FL\u001b[0m"
+off = "\u001b[0m                         @53 \u001b[0;1;37m{12%FB \u001b[0;1;30m» \u001b[0;37m{09%FL\u001b[0m"
+
+[[command]]
+keys = "!DIG"
+command = "FW"
+param = "dig"
+desc = "dig"
+help = "|10dig this up|02: |07{44%FV"
+on = "\u001b[0;30;42m                        @03 \u001b[0;1;37;42m{12%FR\u001b[0;30;42m » \u001b[0;1;37;42m{08%FV\u001b[0m"
+off = "\u001b[0m                        @03 \u001b[0;1;37m{12%FR \u001b[0;1;30m» \u001b[0;37m{08%FV\u001b[0m"
+
+[[command]]
+keys = "!KING"
+command = "FW"
+param = "kingpin"
+desc = "kingpin"
+help = "|10top uploader|02: |15{12%FK|07, |15%FQ |07files. their latest:"
+on = "\u001b[0;30;42m                        @28 \u001b[0;1;37;42m{12%FK\u001b[0;30;42m » \u001b[0;1;37;42m{06%FQ\u001b[0m"
+off = "\u001b[0m                        @28 \u001b[0;1;37m{12%FK \u001b[0;1;30m» \u001b[0;37m{06%FQ\u001b[0m"
+
+[[command]]
+keys = "!VAULT"
+command = "FN"
+desc = "vault"
+help = "|10scan for the |15%FY |10new files since your last scan"
+on = "\u001b[0;30;42m                         @53 \u001b[0;1;37;42m{06%FT\u001b[0;30;42m » \u001b[0;1;37;42m{06%FZ\u001b[0;30;42m » \u001b[0;1;37;42m{04%FY\u001b[0;1;37;42m new\u001b[0m"
+off = "\u001b[0m                         @53 \u001b[0;1;37m{06%FT \u001b[0;1;30m» \u001b[0;37m{06%FZ \u001b[0;1;30m» \u001b[0;1;32m{04%FY\u001b[0;37m new\u001b[0m"
 
 [[command]]
 keys = "/E"
@@ -23,6 +261,7 @@ command = "*Y"
 acs = "s250"
 desc = "Edit files"
 help = "[sysop] Edit files in current file area"
+hidden = true
 on = "|B1Edit files"
 off = "|B0Edit files"
 
@@ -32,6 +271,7 @@ command = "*S"
 acs = "s250"
 desc = "Sort file areas"
 help = "[sysop] Sort current/all file areas (by default sort spec)"
+hidden = true
 on = "|B1Sort file areas"
 off = "|B0Sort file areas"
 
@@ -41,156 +281,6 @@ command = "*%"
 acs = "s250"
 desc = "Local file upload"
 help = "[sysop] Upload files locally in current file area"
+hidden = true
 on = "|B1Local file upload"
 off = "|B0Local file upload"
-
-[[command]]
-keys = "A"
-command = "FC"
-acs = "s25"
-desc = "Change file area"
-help = "Select a new file area from list"
-on = "|B1Change file area"
-off = "|B0Change file area"
-
-[[command]]
-keys = "B"
-command = "FB"
-acs = "s25"
-desc = "Batch edit"
-help = "Add or remove files flagged for download"
-on = "|B1Batch edit"
-off = "|B0Batch edit"
-
-[[command]]
-keys = "D"
-command = "FD"
-acs = "s50"
-desc = "Download"
-help = "Download a file (or file(s) in batch)"
-on = "|B1Download"
-off = "|B0Download"
-
-[[command]]
-keys = "F"
-command = "FF"
-acs = "s50"
-desc = "Filespec search"
-help = "Scan current/all areas for a specified filespec (and list)"
-on = "|B1Filespec search"
-off = "|B0Filespec search"
-
-[[command]]
-keys = "I"
-command = "FI"
-acs = "s50"
-desc = "File information"
-help = "Display information on a specific file"
-on = "|B1File information"
-off = "|B0File information"
-
-[[command]]
-keys = "J"
-command = "FJ"
-param = "List"
-acs = "s25"
-desc = "Join file conf"
-help = "Change to a new file conference"
-on = "|B1Join file conf"
-off = "|B0Join file conf"
-
-[[command]]
-keys = "L"
-command = "FW"
-acs = "s25"
-desc = "Browse files"
-help = "Browse the file areas: open archives, view text, art and pictures"
-on = "|B1Browse files"
-off = "|B0Browse files"
-
-[[command]]
-keys = "N"
-command = "FN"
-acs = "s50"
-desc = "Newscan areas"
-help = "Scan for new fiiles since your last call (or pointer date)"
-on = "|B1Newscan areas"
-off = "|B0Newscan areas"
-
-[[command]]
-keys = "Q"
-command = "-^"
-param = "MAIN"
-desc = "Quit menu"
-help = "Exit the file menu, return to main"
-on = "|B1Quit menu"
-off = "|B0Quit menu"
-
-[[command]]
-keys = "S"
-command = "FS"
-acs = "s25"
-desc = "Set newscan date"
-help = "Update your newscan date pointer to a specific date"
-on = "|B1Set newscan date"
-off = "|B0Set newscan date"
-
-[[command]]
-keys = "T"
-command = "FT"
-acs = "s50"
-desc = "Text search"
-help = "Search current/all file areas for description text"
-on = "|B1Text search"
-off = "|B0Text search"
-
-[[command]]
-keys = "U"
-command = "FU"
-acs = "s50"
-desc = "Upload"
-help = "Upload file(s) to current file area (if possible)"
-on = "|B1Upload"
-off = "|B0Upload"
-
-[[command]]
-keys = "V"
-command = "FV"
-acs = "s50"
-desc = "View archive"
-help = "Examine the contents of an archived file"
-on = "|B1View archive"
-off = "|B0View archive"
-
-[[command]]
-keys = "["
-command = "F["
-acs = "s25"
-desc = "Previous area"
-help = "Change to the previous file area (if possible)"
-on = "|B1Previous area"
-off = "|B0Previous area"
-
-[[command]]
-keys = "]"
-command = "F]"
-acs = "s25"
-desc = "Next area"
-help = "Change to the next file area (if possible)"
-on = "|B1Next area"
-off = "|B0Next area"
-
-[[command]]
-keys = "#"
-command = "F#"
-desc = "Goto Area #"
-help = "None"
-
-[[command]]
-keys = "E"
-command = "FE"
-acs = "s25"
-desc = "Scan select"
-help = "Pick the file areas newscans look in"
-on = "|B1Scan select"
-off = "|B0Scan select"

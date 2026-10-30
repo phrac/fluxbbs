@@ -1,0 +1,297 @@
+title = "SysOp Menu"
+prompt_name = "sysop"
+help_file = "SYSOP"
+prompt = "%%MENUPMT1"
+acs = "s250"
+fallback = "MAIN"
+generic_columns = 3
+center_title = false
+pause_before = true
+upper_input = true
+
+[[command]]
+keys = "!"
+command = "*!"
+acs = "s250"
+desc = "File conference edit"
+help = "[sysop] Create/modify file conferences"
+on = "|B1File conference edit"
+off = "|B0File conference edit"
+
+[[command]]
+keys = "#"
+command = "*#"
+acs = "s255"
+desc = "Menu editor"
+help = "[sysop] Modify/create BBS menu files"
+on = "|B1Menu editor"
+off = "|B0Menu editor"
+
+[[command]]
+keys = "%"
+command = "*%"
+acs = "s255"
+desc = "Local upload"
+help = "[sysop] Upload file(s) locally to current file areas"
+on = "|B1Local upload"
+off = "|B0Local upload"
+
+[[command]]
+keys = ">"
+command = "*>"
+acs = "s255"
+desc = "Download any file"
+help = "[sysop] Download any file on computer by entering full path"
+on = "|B1Download any file"
+off = "|B0Download any file"
+
+[[command]]
+keys = "@"
+command = "*@"
+acs = "s250"
+desc = "Msg conference edit"
+help = "[sysop] Create/modify message conferences"
+on = "|B1Msg conference edit"
+off = "|B0Msg conference edit"
+
+[[command]]
+keys = "A"
+command = "*A"
+acs = "s250"
+desc = "Msg area editor"
+help = "[sysop] Create/modify message areas"
+on = "|B1Msg area editor"
+off = "|B0Msg area editor"
+
+[[command]]
+keys = "B"
+command = "*B"
+acs = "s250"
+desc = "BBS list editor"
+help = "[sysop] Edit the BBS listing"
+on = "|B1BBS list editor"
+off = "|B0BBS list editor"
+
+[[command]]
+keys = "C"
+command = "*C"
+acs = "s255"
+desc = "System config"
+help = "[sysop] Edit BBS system configuration"
+on = "|B1System config"
+off = "|B0System config"
+
+[[command]]
+keys = "D"
+command = "*D"
+acs = "s255"
+desc = "flux/bbs MicroDOS"
+help = "[sysop] Load the internal DOS emulator"
+on = "|B1flux/bbs MicroDOS"
+off = "|B0flux/bbs MicroDOS"
+
+[[command]]
+keys = "E"
+command = "*E"
+acs = "s250"
+desc = "String editor"
+help = "[sysop] Load the configurable string/prompt editor"
+on = "|B1String editor"
+off = "|B0String editor"
+
+[[command]]
+keys = "F"
+command = "*F"
+acs = "s250"
+desc = "File area edit"
+help = "[sysop] Create/modify file areas"
+on = "|B1File area edit"
+off = "|B0File area edit"
+
+[[command]]
+keys = "H"
+command = "*H"
+acs = "s250"
+desc = "Stat editor"
+help = "[sysop] Edit the system statistics (total calls, posts, etc)"
+on = "|B1Stat editor"
+off = "|B0Stat editor"
+
+[[command]]
+keys = "I"
+command = "*I"
+acs = "s250"
+desc = "Infoform editor"
+help = "[sysop] Edit infoforms"
+on = "|B1Infoform editor"
+off = "|B0Infoform editor"
+
+[[command]]
+keys = "P"
+command = "*P"
+acs = "s250"
+desc = "New user questions"
+help = "[sysop] Edit the questions new users are asked when they apply"
+on = "|B1New user questions"
+off = "|B0New user questions"
+
+[[command]]
+keys = "L"
+command = "*L"
+acs = "s250"
+desc = "Access level edit"
+help = "[sysop] Modify access level limits, ratios, and names"
+on = "|B1Access level edit"
+off = "|B0Access level edit"
+
+[[command]]
+keys = "M"
+command = "*M"
+acs = "s255"
+desc = "Modem setup"
+help = "[sysop] Edit BBS modem/node configuration"
+on = "|B1Modem setup"
+off = "|B0Modem setup"
+
+[[command]]
+keys = "O"
+command = "*O"
+acs = "s250"
+desc = "Logon sequence"
+help = "[sysop] Order the logon steps and turn them on or off"
+on = "|B1Logon sequence"
+off = "|B0Logon sequence"
+
+[[command]]
+keys = "G"
+command = "*G"
+acs = "s250"
+desc = "Security log"
+help = "[sysop] Bans and failed logins; lift a ban"
+on = "|B1Security log"
+off = "|B0Security log"
+
+[[command]]
+keys = "K"
+command = "*K"
+acs = "s250"
+desc = "Pack file areas"
+help = "[sysop] Remove records of files missing from their directories"
+on = "|B1Pack file areas"
+off = "|B0Pack file areas"
+
+[[command]]
+keys = "Q"
+command = '-\'
+desc = "Quit sysop menu"
+help = "Exit the sysop menu, and return to previous"
+on = "|B1Quit sysop menu"
+off = "|B0Quit sysop menu"
+
+[[command]]
+keys = "R"
+command = "*R"
+acs = "s250"
+desc = "Read email"
+help = "[sysop] Read/edit/reply all/any email (+recently deleted)"
+on = "|B1Read email"
+off = "|B0Read email"
+
+[[command]]
+keys = "S"
+command = "*S"
+acs = "s250"
+desc = "File area sort"
+help = "[sysop] Sort some/all file areas using area's defualt sort method"
+on = "|B1File area sort"
+off = "|B0File area sort"
+
+[[command]]
+keys = "T"
+command = "*T"
+acs = "s250"
+desc = "Textfile libraries"
+help = "[sysop] Edit sysop configurable textfile libraries"
+on = "|B1Textfile libraries"
+off = "|B0Textfile libraries"
+
+[[command]]
+keys = "U"
+command = "*U"
+acs = "s255"
+desc = "User editor"
+help = "[sysop] The user editor; modify user information"
+on = "|B1User editor"
+off = "|B0User editor"
+
+[[command]]
+keys = "N"
+command = "*N"
+acs = "s255"
+desc = "Caller notes"
+help = "[sysop] Private notes on a caller (the AI chat suits itself to them)"
+on = "|B1Caller notes"
+off = "|B0Caller notes"
+
+[[command]]
+keys = "V"
+command = "*V"
+acs = "s250"
+desc = "Event editor"
+help = "[sysop] Modify/setup system events"
+on = "|B1Event editor"
+off = "|B0Event editor"
+
+[[command]]
+keys = "W"
+command = "*W"
+acs = "s250"
+desc = "Screen viewer"
+help = "[sysop] Show any screen, or one of its variants"
+on = "|B1Screen viewer"
+off = "|B0Screen viewer"
+
+[[command]]
+keys = "J"
+command = "*J"
+acs = "s250"
+desc = "Font viewer"
+help = "[sysop] The board's names set in every TheDraw font"
+on = "|B1Font viewer"
+off = "|B0Font viewer"
+
+[[command]]
+keys = "-"
+command = "*-"
+acs = "s250"
+desc = "Message trash"
+help = "[sysop] Deleted posts: restore them, or purge them now"
+on = "|B1Message trash"
+off = "|B0Message trash"
+
+[[command]]
+keys = "X"
+command = "*X"
+acs = "s250"
+desc = "Protocol editor"
+help = "[sysop] Edit transfer protocol configuration"
+on = "|B1Protocol editor"
+off = "|B0Protocol editor"
+
+[[command]]
+keys = "Y"
+command = "*Y"
+acs = "s250"
+desc = "File editor"
+help = "[sysop] Edit files (in current file area)"
+on = "|B1File editor"
+off = "|B0File editor"
+
+[[command]]
+keys = "Z"
+command = "*Z"
+acs = "s250"
+desc = "Archiver config"
+help = "[sysop] Modify configuration of external archivers"
+on = "|B1Archiver config"
+off = "|B0Archiver config"

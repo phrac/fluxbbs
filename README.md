@@ -9,8 +9,10 @@ editor, echomail over binkp, a built-in DOS machine for doors, and an
 AI that knows its way around the board.
 
 It is written in Rust and began as a port of the Iniquity BBS
-(1.00a26r5). Iniquity's screens, menus and prompts are all still here,
-and nothing new is allowed to look like a web page.
+(1.00a26r5), and nothing new is allowed to look like a web page. Its
+stock screens and menus are disflux's, with your board's name in the
+logos ([art/](art/README.md)); Iniquity's own are kept as a classic set
+to switch back to.
 
 ![disflux's main menu](docs/screenshots/main.png)
 
@@ -162,4 +164,5 @@ converters.
 
 Iniquity BBS © 1995–97 Mike Fricker and the Iniquity Development Team.
 flux/bbs began as a port of it and reimplements its behavior in Rust.
-The stock screens, menus and strings are Iniquity's.
+The stock prompts are Iniquity's, as are the classic screens and menus
+(`classic/`); the stock screens and menus are disflux's.

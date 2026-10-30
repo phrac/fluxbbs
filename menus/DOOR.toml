@@ -1,13 +1,45 @@
+# The board's online games: a lightbar with hot keys over DOOR.ANS. Made by
+# art/mainmenu-gen.py door (from the stock menu); change that, not this.
 title = "Online Games menu"
 prompt_name = "online games"
 help_file = "DOOR"
-prompt = "%%MENUPMT1"
 acs = "s50"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
 upper_input = true
+type = "lightbar"
+
+[[effect]]
+kind = "decode"
+rows = [1, 8]
+cols = [2, 2]
+every = 10.0
+delay = 2.0
+amount = 1.8
+messages = ["GAMEOVER", "CONTINUE", "HISCORES", "DUNGEONS", "TREASURE", "WARLORDS", "STARSHIP", "CONQUEST", "CHAMPION", "ALLIANCE", "NEWLEVEL", "EXTRATRN", "DRAGONS!", "GOLDCOIN", "POTIONS!", "SECTORS!", "FIGHTERS", "EMPIRES!", "ONEMORE?", "TOMORROW", "NIGHTOWL", "ANSIWARS", "PLAYERS!", "RESPAWNS", "TURNSDAY", "PRESSKEY", "INSERTCN", "YOUDIED!", "YOUWIN!!", "LEVELUP!"]
+
+[[effect]]
+kind = "decode"
+rows = [1, 8]
+cols = [79, 79]
+every = 10.0
+delay = 2.0
+amount = 1.8
+messages = ["LEVELUP!", "YOUWIN!!", "YOUDIED!", "INSERTCN", "PRESSKEY", "TURNSDAY", "RESPAWNS", "PLAYERS!", "ANSIWARS", "NIGHTOWL", "TOMORROW", "ONEMORE?", "EMPIRES!", "FIGHTERS", "SECTORS!", "POTIONS!", "GOLDCOIN", "DRAGONS!", "EXTRATRN", "NEWLEVEL", "ALLIANCE", "CHAMPION", "CONQUEST", "STARSHIP", "WARLORDS", "TREASURE", "DUNGEONS", "HISCORES", "CONTINUE", "GAMEOVER"]
+
+[[effect]]
+kind = "random"
+rows = [1, 8]
+every = 10.0
+delay = 2.0
+
+[[effect]]
+kind = "ripple"
+rows = [9, 18]
+every = 10.0
+delay = 6.0
 
 [[command]]
 keys = "1"
@@ -16,8 +48,8 @@ param = "LORD.BAT %ND"
 acs = "s50"
 desc = "LORD"
 help = "Legend of the Red Dragon"
-on = "|B1LORD"
-off = "|B0LORD"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m1\u001b[0;30;41m) \u001b[0;1;37;41mlord              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m1\u001b[0;1;30m) \u001b[38;2;255;255;255ml\u001b[38;2;255;142;142mo\u001b[38;2;227;57;57mr\u001b[38;2;170;0;0md              \u001b[0m"
 
 [[command]]
 keys = "2"
@@ -26,8 +58,8 @@ param = "BRE.BAT"
 acs = "s50"
 desc = "BRE"
 help = "Barren Realms Elite"
-on = "|B1BRE"
-off = "|B0BRE"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m2\u001b[0;30;41m) \u001b[0;1;37;41mbre               \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m2\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;85;85mr\u001b[38;2;170;0;0me               \u001b[0m"
 
 [[command]]
 keys = "3"
@@ -36,8 +68,8 @@ param = "USURPER.BAT"
 acs = "s50"
 desc = "Usurper"
 help = "Usurper"
-on = "|B1Usurper"
-off = "|B0Usurper"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m3\u001b[0;30;41m) \u001b[0;1;37;41musurper           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m3\u001b[0;1;30m) \u001b[38;2;255;255;255mu\u001b[38;2;255;198;198ms\u001b[38;2;255;142;142mu\u001b[38;2;255;85;85mr\u001b[38;2;227;57;57mp\u001b[38;2;198;28;28me\u001b[38;2;170;0;0mr           \u001b[0m"
 
 [[command]]
 keys = "4"
@@ -46,118 +78,8 @@ param = "TW2002.BAT"
 acs = "s50"
 desc = "TradeWars 2002"
 help = "TradeWars 2002"
-on = "|B1TradeWars 2002"
-off = "|B0TradeWars 2002"
-
-[[command]]
-keys = "5"
-command = "D1"
-param = "YANK.BAT"
-acs = "s50"
-desc = "Yankees & Rednecks"
-help = "Yankees and Rednecks"
-on = "|B1Yankees & Rednecks"
-off = "|B0Yankees & Rednecks"
-
-[[command]]
-keys = "6"
-command = "D1"
-param = "HACK.BAT"
-acs = "s50"
-desc = "BBS Hacker"
-help = "BBS Hacker"
-on = "|B1BBS Hacker"
-off = "|B0BBS Hacker"
-
-[[command]]
-keys = "7"
-command = "D1"
-param = "LORE.BAT"
-acs = "s50"
-desc = "LORE"
-help = "LORE"
-on = "|B1LORE"
-off = "|B0LORE"
-
-[[command]]
-keys = "8"
-command = "D1"
-param = "ICE.BAT"
-acs = "s50"
-desc = "Steel & Ice"
-help = "Steel & Ice"
-on = "|B1Steel & Ice"
-off = "|B0Steel & Ice"
-
-[[command]]
-keys = "9"
-command = "D1"
-param = "MECH.BAT"
-acs = "s50"
-desc = "MechWars"
-help = "MechWars"
-on = "|B1MechWars"
-off = "|B0MechWars"
-
-[[command]]
-keys = "A"
-command = "D1"
-param = "OUTPOST.BAT"
-acs = "s250"
-desc = "Outpost Trader"
-help = "Outpost Trader"
-on = "|B1Outpost Trader"
-off = "|B0Outpost Trader"
-
-[[command]]
-keys = "B"
-command = "D1"
-param = "ARROW.BAT"
-acs = "s50"
-desc = "ArrowBridge"
-help = "ArrowBridge"
-on = "|B1ArrowBridge"
-off = "|B0ArrowBridge"
-
-[[command]]
-keys = "C"
-command = "D1"
-param = "KOMBAT.BAT"
-acs = "s50"
-desc = "iMMortal Combat"
-help = "iMMortal Combat"
-on = "|B1iMMortal Combat"
-off = "|B0iMMortal Combat"
-
-[[command]]
-keys = "D"
-command = "D1"
-param = "GLOBAL.BAT"
-acs = "s50"
-desc = "Global Wars"
-help = "Global Wars"
-on = "|B1Global Wars"
-off = "|B0Global Wars"
-
-[[command]]
-keys = "E"
-command = "D1"
-param = "BORD.BAT"
-acs = "s50&a16"
-desc = "Bordelo"
-help = "Bordelo"
-on = "|B1Bordelo"
-off = "|B0Bordelo"
-
-[[command]]
-keys = "F"
-command = "D1"
-param = "TEOS.BAT"
-acs = "s50"
-desc = "Planets: TEOS"
-help = "Planets: TEOS"
-on = "|B1Planets: TEOS"
-off = "|B0Planets: TEOS"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m4\u001b[0;30;41m) \u001b[0;1;37;41mtradewars 2002    \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m4\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;229;229mr\u001b[38;2;255;203;203ma\u001b[38;2;255;177;177md\u001b[38;2;255;150;150me\u001b[38;2;255;124;124mw\u001b[38;2;255;98;98ma\u001b[38;2;248;78;78mr\u001b[38;2;235;65;65ms \u001b[38;2;209;39;39m2\u001b[38;2;196;26;26m0\u001b[38;2;183;13;13m0\u001b[38;2;170;0;0m2    \u001b[0m"
 
 [[command]]
 keys = "L"
@@ -166,8 +88,8 @@ param = "BBSLINK"
 acs = "s50"
 desc = "BBSLink games"
 help = "Door games on BBSLink's server, played with callers from other boards"
-on = "|B1BBSLink games"
-off = "|B0BBSLink games"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ml\u001b[0;30;41m) \u001b[0;1;37;41mbbslink games     \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ml\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;227;227mb\u001b[38;2;255;198;198ms\u001b[38;2;255;170;170ml\u001b[38;2;255;142;142mi\u001b[38;2;255;113;113mn\u001b[38;2;255;85;85mk \u001b[38;2;227;57;57mg\u001b[38;2;212;42;42ma\u001b[38;2;198;28;28mm\u001b[38;2;184;14;14me\u001b[38;2;170;0;0ms     \u001b[0m"
 
 [[command]]
 keys = "T"
@@ -176,17 +98,17 @@ param = "TAROT"
 acs = "s50"
 desc = "Tarot & fortunes"
 help = "Tarot & fortunes: the cards are drawn here, and the AI reads them"
-on = "|B1Tarot & fortunes"
-off = "|B0Tarot & fortunes"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mt\u001b[0;30;41m) \u001b[0;1;37;41mtarot & fortunes  \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;232;232ma\u001b[38;2;255;210;210mr\u001b[38;2;255;187;187mo\u001b[38;2;255;164;164mt \u001b[38;2;255;119;119m& \u001b[38;2;249;79;79mf\u001b[38;2;238;68;68mo\u001b[38;2;227;57;57mr\u001b[38;2;215;45;45mt\u001b[38;2;204;34;34mu\u001b[38;2;193;23;23mn\u001b[38;2;181;11;11me\u001b[38;2;170;0;0ms  \u001b[0m"
 
 [[command]]
-keys = "$"
+keys = "C"
 command = "AC"
 acs = "s50"
 desc = "Casino"
 help = "The casino: slots, blackjack, roulette, craps, the bar and the players club"
-on = "|B1Casino"
-off = "|B0Casino"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mc\u001b[0;30;41m) \u001b[0;1;37;41mcasino            \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mc\u001b[0;1;30m) \u001b[38;2;255;255;255mc\u001b[38;2;255;187;187ma\u001b[38;2;255;119;119ms\u001b[38;2;238;68;68mi\u001b[38;2;204;34;34mn\u001b[38;2;170;0;0mo            \u001b[0m"
 
 [[command]]
 keys = "V"
@@ -194,23 +116,73 @@ command = "AP"
 acs = "s50"
 desc = "Carrier Lost"
 help = "Carrier Lost: tune for a carrier, catch the handshake, cash out before the trace"
-on = "|B1Carrier Lost"
-off = "|B0Carrier Lost"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mv\u001b[0;30;41m) \u001b[0;1;37;41mcarrier lost      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mv\u001b[0;1;30m) \u001b[38;2;255;255;255mc\u001b[38;2;255;224;224ma\u001b[38;2;255;193;193mr\u001b[38;2;255;162;162mr\u001b[38;2;255;131;131mi\u001b[38;2;255;100;100me\u001b[38;2;247;77;77mr \u001b[38;2;216;46;46ml\u001b[38;2;201;31;31mo\u001b[38;2;185;15;15ms\u001b[38;2;170;0;0mt      \u001b[0m"
 
 [[command]]
-keys = "W"
-command = "WX"
+keys = "5"
+command = "D1"
+param = "YANK.BAT"
 acs = "s50"
-desc = "Weather"
-help = "The weather where you are: the sky now, the next day and the week"
-on = "|B1Weather"
-off = "|B0Weather"
+desc = "Yankees & Rednecks"
+help = "Yankees and Rednecks"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m5\u001b[0;30;41m) \u001b[0;1;37;41myankees & rednecks\u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m5\u001b[0;1;30m) \u001b[38;2;255;255;255my\u001b[38;2;255;235;235ma\u001b[38;2;255;215;215mn\u001b[38;2;255;195;195mk\u001b[38;2;255;175;175me\u001b[38;2;255;155;155me\u001b[38;2;255;135;135ms \u001b[38;2;255;95;95m& \u001b[38;2;240;70;70mr\u001b[38;2;230;60;60me\u001b[38;2;220;50;50md\u001b[38;2;210;40;40mn\u001b[38;2;200;30;30me\u001b[38;2;190;20;20mc\u001b[38;2;180;10;10mk\u001b[38;2;170;0;0ms\u001b[0m"
+
+[[command]]
+keys = "6"
+command = "D1"
+param = "HACK.BAT"
+acs = "s50"
+desc = "BBS Hacker"
+help = "BBS Hacker"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m6\u001b[0;30;41m) \u001b[0;1;37;41mbbs hacker        \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m6\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;217;217mb\u001b[38;2;255;179;179ms \u001b[38;2;255;104;104mh\u001b[38;2;246;76;76ma\u001b[38;2;227;57;57mc\u001b[38;2;208;38;38mk\u001b[38;2;189;19;19me\u001b[38;2;170;0;0mr        \u001b[0m"
+
+[[command]]
+keys = "7"
+command = "D1"
+param = "LORE.BAT"
+acs = "s50"
+desc = "LORE"
+help = "LORE"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m7\u001b[0;30;41m) \u001b[0;1;37;41mlore              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m7\u001b[0;1;30m) \u001b[38;2;255;255;255ml\u001b[38;2;255;142;142mo\u001b[38;2;227;57;57mr\u001b[38;2;170;0;0me              \u001b[0m"
+
+[[command]]
+keys = "8"
+command = "D1"
+param = "ICE.BAT"
+acs = "s50"
+desc = "Steel & Ice"
+help = "Steel & Ice"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m8\u001b[0;30;41m) \u001b[0;1;37;41msteel & ice       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m8\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;221;221mt\u001b[38;2;255;187;187me\u001b[38;2;255;153;153me\u001b[38;2;255;119;119ml \u001b[38;2;238;68;68m& \u001b[38;2;204;34;34mi\u001b[38;2;187;17;17mc\u001b[38;2;170;0;0me       \u001b[0m"
+
+[[command]]
+keys = "9"
+command = "D1"
+param = "MECH.BAT"
+acs = "s50"
+desc = "MechWars"
+help = "MechWars"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41m9\u001b[0;30;41m) \u001b[0;1;37;41mmechwars          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31m9\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;206;206me\u001b[38;2;255;158;158mc\u001b[38;2;255;109;109mh\u001b[38;2;243;73;73mw\u001b[38;2;219;49;49ma\u001b[38;2;194;24;24mr\u001b[38;2;170;0;0ms          \u001b[0m"
+
+[[command]]
+keys = "S"
+command = "-F"
+param = "DOORSTAT"
+desc = "Scoreboard"
+help = "Who played what, when and for how long"
+hidden = true
 
 [[command]]
 keys = "Q"
-command = '-\'
+command = "-\\"
 param = "main"
 desc = "Quit menu"
 help = "Exit the doors menu, return to previous"
+hidden = true
 on = "|B1Quit menu"
 off = "|B0Quit menu"

@@ -1,0 +1,246 @@
+title = "Main Menu"
+prompt_name = "Main"
+help_file = "MAIN"
+prompt = "%%menupmt1"
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+
+[[command]]
+keys = "A"
+command = "-/"
+param = "AUTOMSG"
+acs = "s25"
+desc = "AutoMsg menu"
+help = "Goto the automessage menu"
+on = "|B1AutoMsg menu"
+off = "|B0AutoMsg menu"
+
+[[command]]
+keys = "B"
+command = "-/"
+param = "BBSLIST"
+acs = "s25"
+desc = "BBS list menu"
+help = "Goto the BBS listing menu"
+on = "|B1BBS list menu"
+off = "|B0BBS list menu"
+
+[[command]]
+keys = "C"
+command = "UC"
+acs = "s25"
+desc = "User config"
+help = "Edit your user options/toggles"
+on = "|B1User config"
+off = "|B0User config"
+
+[[command]]
+keys = "D"
+command = "-/"
+param = "DOOR"
+acs = "s50"
+desc = "Doors menu"
+help = "Goto the online games menu"
+on = "|B1Doors menu"
+off = "|B0Doors menu"
+
+[[command]]
+keys = "E"
+command = "-/"
+param = "EMAIL"
+acs = "s25"
+desc = "Email menu"
+help = "Goto the electronic mail menu"
+on = "|B1Email menu"
+off = "|B0Email menu"
+
+[[command]]
+keys = "F"
+command = "-^"
+param = "SCANFILE"
+acs = "s50"
+desc = "File menu"
+help = "Goto the file menu"
+on = "|B1File menu"
+off = "|B0File menu"
+
+[[command]]
+keys = "I"
+command = "IN"
+acs = "s25"
+desc = "Infoforms"
+help = "View/fill out your infoforms"
+on = "|B1Infoforms"
+off = "|B0Infoforms"
+
+[[command]]
+keys = "L"
+command = "LC"
+param = "All"
+acs = "s25"
+desc = "Today's callers"
+help = "Display list of today's callers"
+on = "|B1Today's callers"
+off = "|B0Today's callers"
+
+[[command]]
+keys = "M"
+command = "-^"
+param = "SCANMSG"
+acs = "s25"
+desc = "Message menu"
+help = "Goto the message menu"
+on = "|B1Message menu"
+off = "|B0Message menu"
+
+[[command]]
+keys = "N"
+command = "EE"
+param = "1;feedback"
+acs = "s25"
+desc = "Note to sysop"
+help = "Leave feedback to the sysop"
+on = "|B1Note to sysop"
+off = "|B0Note to sysop"
+
+[[command]]
+keys = "O"
+command = "-^"
+param = "oneliner"
+acs = "s25"
+desc = "Oneliners"
+help = "Goto oneliners menu"
+on = "|B1Oneliners"
+off = "|B0Oneliners"
+
+[[command]]
+keys = "P"
+command = "CP"
+acs = "s25"
+desc = "Page sysop"
+help = "Page sysop for chat request"
+on = "|B1Page sysop"
+off = "|B0Page sysop"
+
+[[command]]
+keys = "Q"
+command = "-/"
+param = "QWKMAIL"
+acs = "s50"
+desc = "QWKmail menu"
+help = "Goto the offline mail menu"
+on = "|B1QWKmail menu"
+off = "|B0QWKmail menu"
+
+[[command]]
+keys = "S"
+command = "-/"
+param = "AUTOSIG"
+acs = "s25"
+desc = "Autosig menu"
+help = "Goto the autosignature menu"
+on = "|B1Autosig menu"
+off = "|B0Autosig menu"
+
+[[command]]
+keys = "U"
+command = "UL"
+acs = "s50"
+desc = "User listing"
+help = "Display list of all users on BBS"
+on = "|B1User listing"
+off = "|B0User listing"
+
+[[command]]
+keys = "W"
+command = "XL"
+acs = "s50"
+desc = "Who's online?"
+help = "Display a list of users currently online"
+on = "|B1Who's online?"
+off = "|B0Who's online?"
+
+[[command]]
+keys = "X"
+command = "-/"
+param = "multinod"
+acs = "s50"
+desc = "Multinode menu"
+help = "Goto the multinode interaction menu"
+on = "|B1Multinode menu"
+off = "|B0Multinode menu"
+
+[[command]]
+keys = "Y"
+command = "-F"
+param = "USERSTAT"
+acs = "s25"
+desc = "Your stats"
+help = "Display user statistics screen"
+on = "|B1Your stats"
+off = "|B0Your stats"
+
+[[command]]
+keys = "Z"
+command = "LH"
+acs = "s50"
+desc = "History log"
+help = "Display BBS history log; daily totals"
+on = "|B1History log"
+off = "|B0History log"
+
+[[command]]
+keys = "%"
+command = "NV"
+param = "Show"
+acs = "s50"
+desc = "New user voting"
+help = "Vote on new users you have not yet voted on (if enabled)"
+on = "|B1New user voting"
+off = "|B0New user voting"
+
+[[command]]
+keys = "+"
+command = "UP"
+acs = "s25"
+desc = "Change password"
+help = "Change your current password to something else [verifcation required]"
+on = "|B1Change password"
+off = "|B0Change password"
+
+[[command]]
+keys = "T"
+command = "-/"
+param = "timebank"
+acs = "s50"
+desc = "Time Bank"
+help = "None"
+
+[[command]]
+keys = "R"
+command = "AG"
+acs = "s25"
+desc = "Art gallery"
+help = "Browse the art gallery"
+on = "|B1Art gallery"
+off = "|B0Art gallery"
+
+[[command]]
+keys = "J"
+command = "AI"
+desc = "AI chat"
+help = "Chat with the board's AI (for callers the SysOp has let in)"
+on = "|B1AI chat"
+off = "|B0AI chat"
+
+[[command]]
+keys = "V"
+command = "-/"
+param = "VOTING"
+acs = "s50"
+desc = "Voting booth"
+help = "Vote on questions, see results, add your own"
+on = "|B1Voting booth"
+off = "|B0Voting booth"

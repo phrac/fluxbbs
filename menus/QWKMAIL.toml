@@ -1,12 +1,14 @@
+# The board's offline mail menu: a lightbar with hot keys over QWKMAIL.ANS. Made by
+# art/mainmenu-gen.py qwkmail (from the stock menu); change that, not this.
 title = "Offline Mail Menu"
 prompt_name = "offline mail"
 help_file = "QWKMAIL"
-prompt = "%%MENUPMT1"
 fallback = "MAIN"
 generic_columns = 3
 pause_before = true
 global = true
 upper_input = true
+type = "lightbar"
 
 [[command]]
 keys = "D"
@@ -14,8 +16,26 @@ command = "QD"
 acs = "s25"
 desc = "Download QWK packet"
 help = "Generate/download an offline mail [qwk] packet"
-on = "|B1Download QWK packet"
-off = "|B0Download QWK packet"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41md\u001b[0;30;41m) \u001b[0;1;37;41mdownload qwk packet            \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31md\u001b[0;1;30m) \u001b[38;2;255;255;255md\u001b[38;2;255;236;236mo\u001b[38;2;255;217;217mw\u001b[38;2;255;198;198mn\u001b[38;2;255;179;179ml\u001b[38;2;255;161;161mo\u001b[38;2;255;142;142ma\u001b[38;2;255;123;123md \u001b[38;2;255;85;85mq\u001b[38;2;246;76;76mw\u001b[38;2;236;66;66mk \u001b[38;2;217;47;47mp\u001b[38;2;208;38;38ma\u001b[38;2;198;28;28mc\u001b[38;2;189;19;19mk\u001b[38;2;179;9;9me\u001b[38;2;170;0;0mt            \u001b[0m"
+
+[[command]]
+keys = "U"
+command = "QU"
+acs = "s25"
+desc = "Upload REP packet"
+help = "Upload mail reply [rep] packet"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mu\u001b[0;30;41m) \u001b[0;1;37;41mupload rep packet              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mu\u001b[0;1;30m) \u001b[38;2;255;255;255mu\u001b[38;2;255;234;234mp\u001b[38;2;255;212;212ml\u001b[38;2;255;191;191mo\u001b[38;2;255;170;170ma\u001b[38;2;255;149;149md \u001b[38;2;255;106;106mr\u001b[38;2;255;85;85me\u001b[38;2;244;74;74mp \u001b[38;2;223;53;53mp\u001b[38;2;212;42;42ma\u001b[38;2;202;32;32mc\u001b[38;2;191;21;21mk\u001b[38;2;181;11;11me\u001b[38;2;170;0;0mt              \u001b[0m"
+
+[[command]]
+keys = "Q"
+command = "-\\"
+param = "MAIN"
+desc = "Quit menu"
+help = "Exit off line mail, return to previous menu"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mquit                           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;142mu\u001b[38;2;227;57;57mi\u001b[38;2;170;0;0mt                           \u001b[0m"
 
 [[command]]
 keys = "J"
@@ -24,17 +44,8 @@ param = "List"
 acs = "s25"
 desc = "Join msg conf"
 help = "Change to a new message conference"
-on = "|B1Join msg conf"
-off = "|B0Join msg conf"
-
-[[command]]
-keys = "Q"
-command = '-\'
-param = "MAIN"
-desc = "Quit menu"
-help = "Exit off line mail, return to previous menu"
-on = "|B1Quit menu"
-off = "|B0Quit menu"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mj\u001b[0;30;41m) \u001b[0;1;37;41mjoin msg conference            \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mj\u001b[0;1;30m) \u001b[38;2;255;255;255mj\u001b[38;2;255;236;236mo\u001b[38;2;255;217;217mi\u001b[38;2;255;198;198mn \u001b[38;2;255;161;161mm\u001b[38;2;255;142;142ms\u001b[38;2;255;123;123mg \u001b[38;2;255;85;85mc\u001b[38;2;246;76;76mo\u001b[38;2;236;66;66mn\u001b[38;2;227;57;57mf\u001b[38;2;217;47;47me\u001b[38;2;208;38;38mr\u001b[38;2;198;28;28me\u001b[38;2;189;19;19mn\u001b[38;2;179;9;9mc\u001b[38;2;170;0;0me            \u001b[0m"
 
 [[command]]
 keys = "S"
@@ -42,14 +53,5 @@ command = "MS"
 acs = "s25"
 desc = "Set newscan date"
 help = "Update message newscan pointer(s) to a specific date"
-on = "|B1Set newscan date"
-off = "|B0Set newscan date"
-
-[[command]]
-keys = "U"
-command = "QU"
-acs = "s25"
-desc = "Upload REP packet"
-help = "Upload mail reply [rep] packet"
-on = "|B1Upload REP packet"
-off = "|B0Upload REP packet"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ms\u001b[0;30;41m) \u001b[0;1;37;41mset newscan date               \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ms\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;255;232;232me\u001b[38;2;255;210;210mt \u001b[38;2;255;164;164mn\u001b[38;2;255;142;142me\u001b[38;2;255;119;119mw\u001b[38;2;255;96;96ms\u001b[38;2;249;79;79mc\u001b[38;2;238;68;68ma\u001b[38;2;227;57;57mn \u001b[38;2;204;34;34md\u001b[38;2;193;23;23ma\u001b[38;2;181;11;11mt\u001b[38;2;170;0;0me               \u001b[0m"

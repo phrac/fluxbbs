@@ -1,0 +1,44 @@
+title = "Global Menu"
+prompt_name = "Global"
+help_file = "GLOBAL"
+prompt = ""
+fallback = "MAIN"
+generic_columns = 3
+pause_before = true
+global = true
+
+[[command]]
+keys = "G"
+command = "-/"
+param = "GOODBYE"
+desc = "Goodbye"
+help = "Logoff system (goto goodbye menu)"
+on = "|B1Goodbye"
+off = "|B0Goodbye"
+
+[[command]]
+keys = "/G"
+command = "HI"
+param = "|lf|u2Thanks for calling|u3, |u1%UN|u3."
+desc = "Fast logoff"
+help = "Immediate logoff"
+on = "|B1Fast logoff"
+off = "|B0Fast logoff"
+
+[[command]]
+keys = "/?"
+command = "-?"
+desc = "Command help"
+help = "Displays help information on menu commands"
+on = "|B1Command help"
+off = "|B0Command help"
+
+[[command]]
+keys = "*"
+command = "-/"
+param = "SYSOP"
+acs = "s250"
+desc = "SysOp menu"
+help = "[sysop] Goto the sysop operations menu"
+on = "|B1SysOp menu"
+off = "|B0SysOp menu"

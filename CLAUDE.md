@@ -93,13 +93,19 @@ git: copy `data/` and `files/` across if the board should move with you.
   `data/`, `files/` and `text/` (their screens; `art/` holds the
   originals), using the repo's `text/` as `stock_text` and its menus as
   `stock_menus` (the board's own `menus/` has MATRIX.toml and the
-  lightbar menus `art/mainmenu-gen.py` writes beside each menu screen). Many of
-  its screens are generated from their art by `art/*-gen.py` (menus,
-  lists including last callers, USERSTAT, USERCFG, BOTCHECK, PRELOGON, MATRIX,
-  WELCOME, AICHAT, NODECHAT, FSEDITOR and FSHELP (the message editor, in
-  the main menu's pink);
-  each says how to run it):
-  change the script and rerun it rather than editing the `.ANS`.
+  lightbar menus beside each menu screen). disflux's look is the stock
+  set now: the generators moved into the repo's `art/` (menus, lists
+  including last callers, USERSTAT, USERCFG, BOTCHECK, PRELOGON, MATRIX,
+  WELCOME, AICHAT, NODECHAT, FSEDITOR and FSHELP...; `art/README.md`),
+  the repo's `text/` and `menus/` are them made for FLUX/BBS over
+  Iniquity's own (now `classic/`), and `python3 art/make.py
+  ~/code/disflux_bbs` makes disflux's, with what's only disflux's
+  (its doors, prelogon lines, about text, hand-drawn logos) in the
+  board's `art/local.py`. Change a script and rerun `make.py` (for the
+  stock set too) rather than editing the `.ANS`; check disflux comes
+  out as before. The board's own `art/*-gen.py` are the old copies,
+  kept for its unused alternatives (the other prelogons, the AgoraNet
+  ad).
   Board settings go there, not in the repo's `fluxbbs.toml`: handles
   kept as typed (`alias_format = 1`), new users asked only for handle and
   password. Run it with `fluxbbs ~/code/disflux_bbs/iniquity.toml` (disflux
