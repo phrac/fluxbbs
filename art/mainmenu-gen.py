@@ -128,6 +128,10 @@ GRIDS = {
 for _d, _n in ((MENUS, 'MENUS'), (LOGOS, 'LOGOS'), (PARAMS, 'PARAMS'), (COMMANDS, 'COMMANDS'), (CHANGED, 'CHANGED'),
                (ADDED, 'ADDED'), (HIDDEN_ADDED, 'HIDDEN_ADDED'), (STOCK_FROM, 'STOCK_FROM'), (GRIDS, 'GRIDS')):
     _d.update(boardname.local(_n, {}))
+# Its new names for single entries (LABELS): {(menu, key): label}.
+for (_m, _k), _label in boardname.local('LABELS', {}).items():
+    _title, _boxes = MENUS[_m]
+    MENUS[_m] = (_title, [(_bt, [(i[0], _label, *i[2:]) if i[0] == _k else i for i in _items]) for _bt, _items in _boxes])
 DROP_REST |= boardname.local('DROP_REST', set())
 KEEP_HIDDEN |= boardname.local('KEEP_HIDDEN', set())
 
