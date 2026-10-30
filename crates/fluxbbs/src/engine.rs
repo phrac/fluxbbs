@@ -775,7 +775,7 @@ impl Session {
             allowed = true;
             self.menu.cmd_desc = crate::editor::strip_codes(&c.desc);
             // The number typed is the `#` command's parameter.
-            self.run_command(&c.command, if by_number { keys } else { &c.param }).await?;
+            Box::pin(self.run_command(&c.command, if by_number { keys } else { &c.param })).await?;
             if self.menu.done || self.hangup {
                 break;
             }

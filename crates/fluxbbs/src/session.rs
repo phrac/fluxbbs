@@ -265,7 +265,10 @@ pub async fn run(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Caller) 
         tracing::info!("{who}: disconnected ({e})");
         return;
     }
-    let result = s.call().await;
+    // Boxed, as are each command, the thread list and the reader: a
+    // session's futures nest each other's state, and unboxed the whole
+    // call came to 186 KB, which overflowed a debug build's worker stack.
+    let result = Box::pin(s.call()).await;
     s.logoff();
     match result {
         Ok(()) => tracing::info!("{who}: {} logged off", s.user.handle),
@@ -299,11 +302,11 @@ pub async fn run_local(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Ca
     let mut s = Session::new(state, io, caller, node);
     let result = match what {
         LocalJob::Logon => {
-            let r = s.call().await;
+            let r = Box::pin(s.call()).await;
             s.logoff();
             r
         }
-        what => s.local_sysop(what).await,
+        what => Box::pin(s.local_sysop(what)).await,
     };
     match result {
         Ok(()) => {}

@@ -716,7 +716,7 @@ impl Session {
     /// True if the caller quit the boards altogether (`q`).
     async fn thread_list(&mut self, a: &AreaRef) -> io::Result<bool> {
         let was = self.reading(a.key());
-        let r = self.thread_list_in(a).await;
+        let r = Box::pin(self.thread_list_in(a)).await;
         self.reading(&was);
         r
     }
@@ -1387,7 +1387,7 @@ impl Session {
             self.seen.read.insert(crate::editor::strip_colours(&a.area.name));
         }
         let was = self.reading(a.key());
-        let r = self.read_seq_in(a, seq, at).await;
+        let r = Box::pin(self.read_seq_in(a, seq, at)).await;
         self.reading(&was);
         r
     }

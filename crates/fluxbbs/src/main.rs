@@ -620,8 +620,15 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     Ok(state)
 }
 
-#[tokio::main]
-async fn main() -> anyhow::Result<()> {
+// Each caller's session runs on a worker thread, and its futures nest
+// deep (menu, command, message center, reader, editor): a debug build's
+// frames for them outgrew tokio's 2 MB stack. The room is reserved, not
+// used, until it's needed.
+fn main() -> anyhow::Result<()> {
+    tokio::runtime::Builder::new_multi_thread().enable_all().thread_stack_size(16 << 20).build()?.block_on(run())
+}
+
+async fn run() -> anyhow::Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
     let filter = || tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,russh=warn".into());
     // The WFC screen has the terminal, so the log goes to its window and
