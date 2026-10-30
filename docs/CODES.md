@@ -318,7 +318,7 @@ In a prompt string, `%>` works only at the start (see below).
 
 ## TheDraw fonts in screens: `%[...]text%]`
 
-New: in a screen, `%[FONT.TDF,face,width]text%]` sets the text in a
+New: in a screen, `%[FONT.TDF,face,width,spacing]text%]` sets the text in a
 TheDraw font from `[paths] fonts`, at the cursor, rows going down; the
 cursor ends under it, back at the column it started. Codes in the text
 are filled in first, so `%[SCD-L2X.TDF,SCD-Lines Re,30]%UN%]` sets the
@@ -326,6 +326,8 @@ caller's handle.
 
 - `face` is a face's number in the file (1 is the first) or its name.
 - `width` is the most columns it may take; left out, to the right edge.
+- `spacing`, if given, is the columns between letters in place of the
+  face's own (0 sets them touching, for a wide face in a narrow space).
 - A text too wide for that, or a font that isn't there, is written as
   plain text in the current color, cut to the width.
 - Block and outline faces take the current color; color faces their own.

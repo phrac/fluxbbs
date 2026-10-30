@@ -816,11 +816,12 @@ impl Session {
         Ok(())
     }
 
-    /// New: `%[FONT.TDF,face,width]text%]`, the text (its codes filled in)
+    /// New: `%[FONT.TDF,face,width,spacing]text%]`, the text (its codes filled in)
     /// set in a TheDraw font from `[paths] fonts` at the cursor, rows going
     /// down; the cursor ends under it, where it started. `face` is a face's
-    /// number in the file (1 is the first) or its name, and `width` the
-    /// most columns it may take (to the right edge if left out). A text
+    /// number in the file (1 is the first) or its name, `width` the most
+    /// columns it may take (to the right edge if left out), and `spacing`,
+    /// if given, the columns between letters in place of the face's own. A text
     /// too wide for that, or a font that isn't there, is written plainly.
     /// Block and outline faces take the current color; color faces their own.
     fn draw_font(&mut self, spec: &[u8], text: &[u8], waves: Option<&Waves>) {
@@ -830,6 +831,7 @@ impl Session {
         let face = parts.next().unwrap_or("1");
         let (x0, y0, pen) = self.here();
         let width = parts.next().and_then(|w| w.parse::<u16>().ok()).unwrap_or(80u16.saturating_sub(x0) + 1);
+        let spacing = parts.next().and_then(|s| s.parse::<u8>().ok());
         let mut word = String::new();
         for t in tokenize(text, Source::String) {
             let v = match t {
@@ -846,15 +848,21 @@ impl Session {
             }
         }
         let cfg = self.state.config();
-        let fonts = if file.is_empty() || file.contains("..") || file.contains('/') {
+        let mut fonts = if file.is_empty() || file.contains("..") || file.contains('/') {
             Vec::new()
         } else {
             crate::tdf::read(&cfg.resolve(&cfg.paths.fonts).join(file))
         };
         let font = match face.parse::<usize>() {
-            Ok(n) => fonts.get(n.saturating_sub(1)),
-            Err(_) => fonts.iter().find(|f| f.name.eq_ignore_ascii_case(face)),
+            Ok(n) => fonts.get_mut(n.saturating_sub(1)),
+            Err(_) => fonts.iter_mut().find(|f| f.name.eq_ignore_ascii_case(face)),
         };
+        let font = font.map(|f| {
+            if let Some(s) = spacing {
+                f.spacing = s;
+            }
+            &*f
+        });
         let set = font.map(|f| (f.kind, f.set(&word))).filter(|(_, (_, w, _))| *w > 0 && *w <= width);
         let Some((kind, (cells, _, h))) = set else {
             self.write(&squish(&word, width as usize));
