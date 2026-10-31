@@ -51,7 +51,12 @@ slash can't go there.
 
 ## Quick start
 
-You need `cargo`. Showing PDFs also needs Poppler (`poppler-utils`), and
+The easy way: a [release](https://github.com/phrac/fluxbbs/releases) for
+Linux (x86_64 or ARM64, e.g. a Raspberry Pi; static, nothing to install):
+unpack it and run `./fluxbbs` in its folder. Or `docker pull
+ghcr.io/phrac/fluxbbs`.
+
+From source, you need `cargo`. Showing PDFs also needs Poppler (`poppler-utils`), and
 Python scripts `python3`.
 
     tools/setup_host.sh                      # first time: build

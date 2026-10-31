@@ -92,6 +92,22 @@ them after.
 - `crates/fluxbbs-dos/tools/replay_trace.py` replays a recorded trace on
   QEMU's CPU and reports any disagreement.
 
+## Releases
+
+Bump `version` in `crates/fluxbbs/Cargo.toml` (and commit), then tag and
+push the tag; its message becomes the release notes:
+
+    git tag -a v0.2.0 -m "What's new: ..."
+    git push origin v0.2.0
+
+`.github/workflows/release.yml` then runs the tests and clippy, builds
+static (musl) binaries for x86_64 and ARM64 with every component, packs
+each with the stock files (`fluxbbs-v0.2.0-linux-x86_64.tar.gz`), makes
+the GitHub release, and pushes `ghcr.io/phrac/fluxbbs:0.2.0` and
+`:latest` for both machines. A tag whose version doesn't match the
+crate's stops at the first step. To build an existing tag again, run the
+workflow by hand (Actions, release, Run workflow) with the tag.
+
 ## Conventions
 
 - Port from the Turbo Pascal source in `original/source/` (not in git;

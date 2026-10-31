@@ -659,6 +659,10 @@ fn main() -> anyhow::Result<()> {
 
 async fn run() -> anyhow::Result<()> {
     let mut args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| a == "--version" || a == "version") {
+        println!("flux/bbs {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
     let filter = || tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "info,russh=warn".into());
     // The WFC screen has the terminal, so the log goes to its window and
     // to data/fluxbbs.log.
