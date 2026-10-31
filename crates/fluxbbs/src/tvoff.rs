@@ -54,9 +54,10 @@ fn paint(rows: &[Vec<Shown>]) -> Vec<u8> {
 const BLACK: Shown = Shown { ch: b' ', fg: [0; 3], bg: [0; 3] };
 
 impl Session {
-    /// The screen switching off, before a logoff hangs up. Skipped for
-    /// plain-text callers and those who turned animation off.
-    pub(crate) async fn tv_off(&mut self) -> io::Result<()> {
+    /// The screen switching off, before a logoff hangs up, flickering
+    /// first if `flicker`. Skipped for plain-text callers and those who
+    /// turned animation off.
+    pub(crate) async fn tv_off(&mut self, flicker: bool) -> io::Result<()> {
         if self.plain() || self.user.animate == "off" {
             return Ok(());
         }
@@ -68,7 +69,7 @@ impl Session {
         // The flicker: the picture surging and dipping, a bright bar
         // rolling down it, for as long as the board says
         // (`logoff_flicker_ms`, 3.5 s to start).
-        let flicker = Duration::from_millis(self.state.config().terminal.logoff_flicker_ms);
+        let flicker = if flicker { Duration::from_millis(self.state.config().terminal.logoff_flicker_ms) } else { Duration::ZERO };
         let start = std::time::Instant::now();
         let mut i = 0usize;
         while start.elapsed() < flicker {

@@ -14,7 +14,7 @@ disflux, the flagship board, runs with all of them.
 | Feature | What it adds | Needs |
 |---|---|---|
 | `doors` | DOS doors in the built-in DOS machine (`D0`-`D4`, `D7`, `DZ`), external doors, and BBSLink (`DB`) | the `fluxbbs-dos` crate; HTTPS for BBSLink |
-| `effects` | Menus and screens that animate while they wait (`[[effect]]`, `NAME.FX`), and the picture switching off at logoff (`HI`) | |
+| `effects` | Menus and screens that animate while they wait (`[[effect]]`, `NAME.FX`), and the picture switching off at logoff (`HI`, `HQ`) | |
 | `screensavers` | The screen savers: digital rain, starfield and fire, and their font picker in `*C` | `effects` |
 | `casino` | The casino (`AC`) and the slot machine (`AL`, and the free pull at logon) | |
 | `carrierlost` | Carrier Lost (`AP`) | |

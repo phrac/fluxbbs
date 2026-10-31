@@ -18,7 +18,7 @@ off = "|B0Goodbye"
 
 [[command]]
 keys = "/G"
-command = "HI"
+command = "HQ"
 param = "|lf|u2Thanks for calling|u3, |u1%UN|u3."
 desc = "Fast logoff"
 help = "Immediate logoff"

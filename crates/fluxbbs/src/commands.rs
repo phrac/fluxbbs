@@ -133,7 +133,17 @@ impl Session {
                 }
                 // New: the picture switching off, with the effects built in.
                 #[cfg(feature = "effects")]
-                self.tv_off().await?;
+                self.tv_off(true).await?;
+                self.hangup = true;
+            }
+            // New: `HI` in a hurry, the picture switching off without the
+            // flicker first (`/G`).
+            "HQ" => {
+                if !param.is_empty() {
+                    self.show_line(param).await?;
+                }
+                #[cfg(feature = "effects")]
+                self.tv_off(false).await?;
                 self.hangup = true;
             }
             "HM" => {

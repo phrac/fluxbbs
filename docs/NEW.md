@@ -199,8 +199,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   as an old TV did: what's showing flickers (`logoff_flicker_ms`, 3.5 s
   to start; `*C`, SSH, Telnet and Terminal), squashes to a bright
   line, shrinks to a dot that fades, a last word shows on the dark
-  (`TvOffLater`, `*E`), then the line drops. Not for plain-text callers
-  or those who turned animation off.
+  (`TvOffLater`, `*E`), then the line drops. `/G` is quick (`HQ`): no
+  flicker, straight to the line. Not for plain-text callers or those who
+  turned animation off.
   ([ARTWORK](ARTWORK.md#animation-new))
 - Lightbar menus also take their commands' keys: hot keys, `/X`, and
   digits for `#` typed on the help line. ([ARTWORK](ARTWORK.md#lightbar-menus))
