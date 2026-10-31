@@ -115,12 +115,14 @@ original.
   `.nfo` in a ZIP, else a piece of art's SAUCE.
 - With the AI on (`[ai]`), a file uploaded with no description, or only
   its own name (or a meaningless hash some tool left as its SAUCE
-  title, or just a picture's size), is described by the AI in the
-  background: a few words from its name, size and area, its SAUCE, the
-  start of its text, a PDF's words or a ZIP's contents, and, for a
-  model that sees, a look at it: a picture as it is, a piece of ANSI
-  art drawn as one (`.ans`, `.ice`, `.asc`, `.diz`, `.nfo`), a PDF's
-  first page. The board's own lines (`[ text, 59 lines ]`, a picture's
+  title, just a picture's size, or the board's own list of what a ZIP
+  holds), is described by the AI in the background: a few words from
+  its name, size and area, its SAUCE, the start of its text, a PDF's
+  words, or a ZIP's contents and the start of the text in it that says
+  most (a FILE_ID.DIZ, a read-me, an `.nfo`, then a `.doc` or `.txt`),
+  and, for a model that sees, a look at it: a picture as it is, a piece
+  of ANSI art drawn as one (`.ans`, `.ice`, `.asc`, `.diz`, `.nfo`), a
+  PDF's first page, the first piece of art or picture in a ZIP. The board's own lines (`[ text, 59 lines ]`, a picture's
   size) stay under it.
 - `K` in the file editor asks the AI for this file's description; `L`
   for every file in the area that has none worth the name (any key

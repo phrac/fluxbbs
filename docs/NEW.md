@@ -249,7 +249,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   turn on "file popups" in user configuration (off to start).
 - Files uploaded with no description, or only their name, are described by
   the board's AI in the background (`aidesc.rs`), which looks at pictures,
-  ANSI art (drawn by `ansishot.rs`) and a PDF's first page; `fluxbbs describe`
+  ANSI art (drawn by `ansishot.rs`), a PDF's first page, and inside ZIPs
+  (the read-me's words, the art); `fluxbbs describe`
   (`--dry-run`, `--try`, `--limit N`) does the ones already there, and the
   file editor has K (this file) and L (every such file in the area). Its
   `-` reads a `.nfo` in a ZIP or a piece of art's SAUCE when there's no

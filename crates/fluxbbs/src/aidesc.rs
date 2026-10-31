@@ -2,9 +2,10 @@
 //! description is empty, or only its own name (a piece of art whose SAUCE
 //! title is its file name, say), is shown to the board's AI with what the
 //! board can tell about it: its name, size and area, its SAUCE, the start
-//! of its text, what a zip holds, and a picture, for a model that sees:
-//! an image as it is, a piece of ANSI art drawn (`ansishot`), a PDF's
-//! first page. The few words it answers become the
+//! of its text, what a zip holds (and the start of its read-me or other
+//! text), and a picture, for a model that sees: an image as it is, a
+//! piece of ANSI art drawn (`ansishot`), a PDF's first page, the art or
+//! a picture in a zip. The few words it answers become the
 //! description. Uploads are done in the background as they come in, one at
 //! a time; `fluxbbs describe` does the files already there.
 
@@ -106,6 +107,12 @@ pub fn evidence(path: &Path, f: &FileRec, area: &str) -> String {
         if !names.is_empty() {
             out.push(format!("Zip contents: {}", names.join(" ")));
         }
+        // New: and the start of the file in it that best says what it holds.
+        if let Some((name, data)) = zip_entry(path, text_rank, 16 * 1024)
+            && let Some(words) = words_of(&data)
+        {
+            out.push(format!("The start of {name}, inside it: {words}"));
+        }
     } else if is_pdf(&f.name) {
         // Its words, as the PDF viewer reads them (Poppler); the raw file is
         // compressed streams.
@@ -116,23 +123,71 @@ pub fn evidence(path: &Path, f: &FileRec, area: &str) -> String {
         }
     } else if crate::picture::is_image(&f.name) {
         out.push("It is a picture: see it attached.".into());
-    } else {
-        // The words in it: escapes and drawing characters dropped, so a
-        // piece of ANSI art gives up only the text written in it.
-        let text = fluxbbs_term::cp437::decode(crate::upscan::text_part(&data[..data.len().min(16 * 1024)]));
-        let text = strip_escapes(&text);
-        let words: String = text
-            .chars()
-            .map(|c| if c.is_ascii_graphic() || c == ' ' { c } else { ' ' })
-            .collect::<String>()
-            .split_whitespace()
-            .collect::<Vec<_>>()
-            .join(" ");
-        if words.chars().filter(char::is_ascii_alphabetic).count() >= 12 {
-            out.push(format!("The start of its text: {}", words.chars().take(1500).collect::<String>()));
-        }
+    } else if let Some(words) = words_of(&data[..data.len().min(16 * 1024)]) {
+        out.push(format!("The start of its text: {words}"));
     }
     out.join("\n")
+}
+
+/// The words in some text, up to 1,500 characters: escapes and drawing
+/// characters dropped, so a piece of ANSI art gives up only the text
+/// written in it. None if there are hardly any.
+fn words_of(data: &[u8]) -> Option<String> {
+    let text = fluxbbs_term::cp437::decode(crate::upscan::text_part(data));
+    let text = strip_escapes(&text);
+    let words: String = text
+        .chars()
+        .map(|c| if c.is_ascii_graphic() || c == ' ' { c } else { ' ' })
+        .collect::<String>()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ");
+    (words.chars().filter(char::is_ascii_alphabetic).count() >= 12).then(|| words.chars().take(1500).collect())
+}
+
+/// The file in a zip that `rank` likes best (lowest first; None passes
+/// one over), and up to `cap` bytes of it.
+fn zip_entry(path: &Path, rank: fn(&str) -> Option<u8>, cap: u64) -> Option<(String, Vec<u8>)> {
+    use std::io::Read;
+    let mut z = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
+    let (_, i, name) = (0..z.len())
+        .filter_map(|i| {
+            let name = z.name_for_index(i)?.ok()?.to_string();
+            let base = name.rsplit(['/', '\\']).next().unwrap_or(&name).to_string();
+            Some((rank(&base)?, i, base))
+        })
+        .min_by_key(|(r, i, _)| (*r, *i))?;
+    let mut data = Vec::new();
+    z.by_index(i).ok()?.take(cap).read_to_end(&mut data).ok()?;
+    Some((name, data))
+}
+
+/// Which file in a zip to read for what it holds: its description, a
+/// read-me, then documents and other text.
+fn text_rank(name: &str) -> Option<u8> {
+    let n = name.to_ascii_lowercase();
+    let ext = n.rsplit_once('.').map_or("", |(_, e)| e);
+    Some(match () {
+        _ if n == "file_id.diz" || n == "desc.sdi" => 0,
+        _ if n.starts_with("readme") || n.starts_with("read.me") || n.starts_with("read_me") || ext == "1st" => 1,
+        _ if matches!(ext, "nfo" | "diz") => 2,
+        _ if matches!(ext, "doc" | "txt" | "me" | "man" | "hlp" | "asc") => 3,
+        _ => return None,
+    })
+}
+
+/// Which file in a zip to show the AI: a piece of art, else a picture,
+/// else an NFO (often drawn).
+#[cfg(feature = "ai")]
+fn picture_rank(name: &str) -> Option<u8> {
+    let n = name.to_ascii_lowercase();
+    let ext = n.rsplit_once('.').map_or("", |(_, e)| e);
+    Some(match ext {
+        "ans" | "ice" => 0,
+        _ if crate::picture::is_image(&n) => 1,
+        "nfo" => 2,
+        _ => return None,
+    })
 }
 
 #[cfg_attr(not(feature = "ai"), allow(dead_code))]
@@ -201,6 +256,14 @@ fn picture(path: &Path, f: &FileRec, temp: &Path) -> Option<Vec<u8>> {
     } else if matches!(ext, "ans" | "ice" | "asc" | "diz" | "nfo") {
         let png = crate::ansishot::png(&std::fs::read(path).ok()?)?;
         image::load_from_memory(&png).ok()?
+    } else if ext == "zip" {
+        // New: a piece of art or a picture from inside it.
+        let (name, data) = zip_entry(path, picture_rank, 4 * 1024 * 1024)?;
+        if crate::picture::is_image(&name) {
+            image::load_from_memory(&data).ok()?
+        } else {
+            image::load_from_memory(&crate::ansishot::png(&data)?).ok()?
+        }
     } else if ext == "pdf" {
         #[cfg(feature = "pdf")]
         {
@@ -359,6 +422,37 @@ mod tests {
         assert!(!is_bare(&rec("a.ans", &["skull by pi", "2026-10-30", "[ text, 59 lines ]"])));
         let f = rec("fluxgirl2.ans", &["fluxgirl2", "2026-10-30", "[ text, 59 lines ]"]);
         assert_eq!(with_summary(&f, "Penny".into()), vec!["Penny".to_string(), "[ text, 59 lines ]".to_string()]);
+    }
+
+    #[test]
+    fn the_text_in_a_zip_that_says_most() {
+        assert!(text_rank("FILE_ID.DIZ") < text_rank("README.TXT"));
+        assert!(text_rank("READ.ME") < text_rank("HYPERP.DOC"));
+        assert_eq!(text_rank("HYPERP.EXE"), None);
+        let dir = std::env::temp_dir().join(format!("aidesc-zip-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("hyperp.zip");
+        let mut w = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        for (name, body) in [("HYPERP.EXE", "MZ binary"), ("HYPERP.DOC", "HyperPad is a hypertext notepad for DOS by someone")] {
+            w.start_file(name, zip::write::SimpleFileOptions::default()).unwrap();
+            std::io::Write::write_all(&mut w, body.as_bytes()).unwrap();
+        }
+        w.finish().unwrap();
+        let facts = evidence(&path, &rec("hyperp.zip", &[]), "Utilities");
+        assert!(facts.contains("The start of HYPERP.DOC, inside it: HyperPad is a hypertext notepad"), "{facts}");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// What the AI would be told about files:
+    /// `AIDESC_IN=a.zip:b.txt cargo test --features full -- --ignored aidesc::tests::facts --nocapture`
+    #[test]
+    #[ignore]
+    fn facts() {
+        for p in std::env::var("AIDESC_IN").unwrap().split(':') {
+            let path = Path::new(p);
+            let name = path.file_name().unwrap().to_string_lossy();
+            println!("=== {p}\n{}", evidence(path, &rec(&name, &[]), "test"));
+        }
     }
 
     #[test]
