@@ -24,9 +24,10 @@ RUN cargo build --release -p fluxbbs ${FEATURES:+--features "$FEATURES"} \
 FROM debian:bookworm-slim
 # CA certificates for HTTPS (the AI chat, BBSLink and the textfiles
 # importer); Poppler's tools to show PDFs (pdftotext, pdftoppm,
-# pdfinfo), with the `pdf` component.
+# pdfinfo), with the `pdf` component; Python 3 for scripts (`-X`, the
+# `python` component).
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends ca-certificates poppler-utils \
+    && apt-get install -y --no-install-recommends ca-certificates poppler-utils python3 \
     && rm -rf /var/lib/apt/lists/* \
     && useradd -m -u 1000 bbs
 COPY --from=build /src/target/release/fluxbbs /usr/local/bin/fluxbbs

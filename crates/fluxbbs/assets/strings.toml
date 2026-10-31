@@ -1030,3 +1030,6 @@ FaLinkMany = "|U1Your links|U5: |U1each lasts |U3%S1|U1 minutes and works |U3%S2
 FaLinkName = "|U5  %S1"
 FaLinkAfter = "|U5It counts as a download once it's fetched|U5."
 BankUnlimited = "|U4Your time has no limit|U5, |U4so there's none to bank|U5."
+TelnetPlain = "|12!! |14You're connected over telnet|12 !! |07Telnet is plain text: your password and all you type cross the net unencrypted. Call back over |15SSH|07 instead."
+TelnetAsk = "|07Go on over telnet? |08(|15Y|08/|15N|08) "
+TelnetBye = "|07Call back over |15SSH|07. Bye for now."

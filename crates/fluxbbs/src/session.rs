@@ -195,7 +195,7 @@ pub struct Session {
     /// follow a lightbar menu (MATRIX) rather than scrolling it away.
     pub login_line: Option<u16>,
     /// Scripts running inside scripts (`%!` in a string a script shows).
-    #[cfg(feature = "lua")]
+    #[cfg(feature = "python")]
     pub(crate) script_depth: u8,
     /// Email tags for this call: what new email is tagged with (`E/`),
     /// and, when `use_tag` is on (`E+`), the only tag read (`E\`).
@@ -462,7 +462,7 @@ impl Session {
             nonstop: false,
             test_screen: false,
             login_line: None,
-            #[cfg(feature = "lua")]
+            #[cfg(feature = "python")]
             script_depth: 0,
             email_tag: 0,
             opened_areas: Default::default(),
@@ -677,11 +677,11 @@ impl Session {
             return Ok(());
         }
         // `%!name args`: run a script instead (`iplExecute`); without
-        // scripts built in (`lua`), nothing.
+        // scripts built in (`python`), nothing.
         if let Some(cmd) = s.strip_prefix("%!") {
-            #[cfg(feature = "lua")]
+            #[cfg(feature = "python")]
             return Box::pin(self.script_command(cmd)).await;
-            #[cfg(not(feature = "lua"))]
+            #[cfg(not(feature = "python"))]
             {
                 let _ = cmd;
                 return Ok(());
@@ -1112,7 +1112,7 @@ impl Session {
         r
     }
 
-    async fn read_text_file(&mut self, name: &str) -> io::Result<Option<Vec<u8>>> {
+    pub(crate) async fn read_text_file(&mut self, name: &str) -> io::Result<Option<Vec<u8>>> {
         // Resolve first: the session can't be borrowed across the await.
         match self.find_text_file(name) {
             // Screens made with modern tools (UTF-8, LF) work too.

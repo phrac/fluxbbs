@@ -1,31 +1,39 @@
-//! Lua scripts, in place of IPL (`IPLX.PAS`, the Iniquity Programming
-//! Language). `-X name args` runs `scripts/name.lua`, as `%!name args` in
+//! Python scripts, in place of IPL (`IPLX.PAS`, the Iniquity Programming
+//! Language). `-X name args` runs `scripts/name.py`, as `%!name args` in
 //! any prompt string does; see docs/SCRIPTING.md.
 //!
-//! The script runs on a thread of its own, with plain (blocking) Lua: each
-//! `bbs.*` call sends a request to the caller's session and waits for the
-//! answer, so the session keeps sole charge of the connection. A script
-//! that computes for [`WATCHDOG`] without calling `bbs` is stopped, as is
-//! one whose caller hangs up.
+//! New: the script is a process of its own (`python3`), and the
+//! `fluxbbs` module it imports (assets/fluxbbs.py, which comes with the
+//! board) talks to the caller's session over a private socket, a JSON
+//! request and its answer a line each: the session keeps sole charge of
+//! the connection, and a script that crashes or hangs takes only itself
+//! down. One that computes for [`WATCHDOG`] without calling the board is
+//! stopped, as is one whose caller hangs up.
 
 use std::io;
+use std::os::fd::AsRawFd;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
-use mlua::{HookTriggers, Lua, LuaOptions, StdLib, Table, Value, VmState};
-use tokio::sync::{mpsc, oneshot};
+use serde_json::{Value, json};
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
 use crate::input::{Case, Key, ReadOpts};
 use crate::session::{Session, find_ci};
 use crate::user::{User, fmt_date, parse_date};
 
-/// How long a script may run without calling `bbs`.
-const WATCHDOG: Duration = Duration::from_secs(10);
+/// How long a script may run without calling the board.
+const WATCHDOG: Duration = Duration::from_secs(60);
 /// Scripts may run scripts (`%!` in a string they show), this deep.
 const MAX_DEPTH: u8 = 4;
-const MEMORY_LIMIT: usize = 64 << 20;
+/// The longest request line a script may send.
+const LINE_MAX: u64 = 1 << 20;
+/// The `fluxbbs` module, as scripts import it.
+const MODULE: &str = include_str!("../assets/fluxbbs.py");
+/// How a script is started: the module first (so `print` and `input` are
+/// the caller's even without importing it), the script's folder on the
+/// path, then the script as `__main__`.
+const LAUNCH: &str = "import sys, os, runpy, fluxbbs\nsys.argv = sys.argv[1:]\nsys.path.insert(0, os.path.dirname(os.path.abspath(sys.argv[0])))\nrunpy.run_path(sys.argv[0], run_name='__main__')\n";
 
 /// A value in a user record, as scripts see it.
 #[derive(Debug, Clone, PartialEq)]
@@ -78,6 +86,9 @@ enum Req {
     Log(String),
     Get(String),
     Set(String, Option<String>),
+    /// Done here, no screen: the board's codes out; cut or padded.
+    NoColor(String),
+    Pad(String, usize),
 }
 
 #[derive(Debug)]
@@ -88,38 +99,8 @@ enum Resp {
     MaybeStr(Option<String>),
     Pos(u16, u16),
     User(Vec<(&'static str, Field)>),
-    /// The request was wrong (a bad field, say): a Lua error.
+    /// The request was wrong (a bad field, say): an error in the script.
     Fail(String),
-}
-
-struct Call {
-    req: Req,
-    reply: oneshot::Sender<Resp>,
-}
-
-/// The script thread's line to the session.
-#[derive(Clone)]
-struct Bridge {
-    tx: mpsc::Sender<Call>,
-    abort: Arc<AtomicBool>,
-}
-
-fn stopped() -> mlua::Error {
-    mlua::Error::RuntimeError("script stopped (the caller left, or it ran too long)".into())
-}
-
-impl Bridge {
-    fn call(&self, req: Req) -> mlua::Result<Resp> {
-        if self.abort.load(Ordering::Relaxed) {
-            return Err(stopped());
-        }
-        let (reply, rx) = oneshot::channel();
-        self.tx.blocking_send(Call { req, reply }).map_err(|_| stopped())?;
-        match rx.blocking_recv().map_err(|_| stopped())? {
-            Resp::Fail(why) => Err(mlua::Error::RuntimeError(why)),
-            r => Ok(r),
-        }
-    }
 }
 
 // ---- user records ---------------------------------------------------------
@@ -298,216 +279,131 @@ fn key_name(k: Key) -> String {
     }
 }
 
-// ---- the Lua side ---------------------------------------------------------
 
-/// Anything, as Lua's `tostring` would show it.
-fn text(v: &Value) -> mlua::Result<String> {
+// ---- the wire ----------------------------------------------------------------
+
+fn arg_str(a: &[Value], i: usize) -> String {
+    match a.get(i) {
+        Some(Value::String(s)) => s.clone(),
+        Some(Value::Null) | None => String::new(),
+        Some(v) => v.to_string(),
+    }
+}
+
+fn arg_num(a: &[Value], i: usize, default: u64) -> u64 {
+    a.get(i).and_then(Value::as_u64).unwrap_or(default)
+}
+
+fn to_field(v: &Value) -> Result<Field, String> {
     Ok(match v {
-        Value::Nil => String::new(),
-        Value::String(s) => s.to_string_lossy(),
-        other => other.to_string()?,
+        Value::Bool(b) => Field::Bool(*b),
+        Value::Number(n) => Field::Num(n.as_f64().unwrap_or(0.0)),
+        Value::String(s) => Field::Str(s.clone()),
+        Value::Array(l) => Field::List(l.iter().map(|v| v.as_str().map_or_else(|| v.to_string(), String::from)).collect()),
+        Value::Null => Field::Str(String::new()),
+        Value::Object(_) => return Err("can't store a dict in a user record".into()),
     })
 }
 
-fn to_field(v: Value) -> mlua::Result<Field> {
-    Ok(match v {
-        Value::Boolean(b) => Field::Bool(b),
-        Value::Integer(i) => Field::Num(i as f64),
-        Value::Number(n) => Field::Num(n),
-        Value::String(s) => Field::Str(s.to_string_lossy()),
-        Value::Table(t) => Field::List(t.sequence_values::<Value>().map(|v| v.and_then(|v| text(&v))).collect::<mlua::Result<_>>()?),
-        other => return Err(mlua::Error::RuntimeError(format!("can't store a {} in a user record", other.type_name()))),
-    })
+fn from_field(f: Field) -> Value {
+    match f {
+        Field::Str(s) => Value::String(s),
+        Field::Num(n) if n.fract() == 0.0 && n.abs() < 9e15 => json!(n as i64),
+        Field::Num(n) => json!(n),
+        Field::Bool(b) => Value::Bool(b),
+        Field::List(l) => json!(l),
+    }
 }
 
-fn from_field(lua: &Lua, f: Field) -> mlua::Result<Value> {
-    Ok(match f {
-        Field::Str(s) => Value::String(lua.create_string(&s)?),
-        Field::Num(n) if n.fract() == 0.0 && n.abs() < 9e15 => Value::Integer(n as i64),
-        Field::Num(n) => Value::Number(n),
-        Field::Bool(b) => Value::Boolean(b),
-        Field::List(l) => Value::Table(lua.create_sequence_from(l)?),
-    })
-}
-
-fn input_opts(v: Option<Table>) -> mlua::Result<InputOpts> {
+fn input_opts(v: Option<&Value>) -> InputOpts {
     let mut o = InputOpts { max: 40, ..InputOpts::default() };
-    let Some(t) = v else { return Ok(o) };
-    if let Some(m) = t.get::<Option<usize>>("max")? {
-        o.max = m.clamp(1, 255);
+    let Some(t) = v.and_then(Value::as_object) else { return o };
+    let flag = |k: &str| t.get(k).and_then(Value::as_bool).unwrap_or(false);
+    if let Some(m) = t.get("max").and_then(Value::as_u64) {
+        o.max = (m as usize).clamp(1, 255);
     }
-    if let Some(d) = t.get::<Option<Value>>("default")? {
-        o.default = text(&d)?;
-    }
-    o.password = t.get::<Option<bool>>("password")?.unwrap_or(false);
-    o.required = t.get::<Option<bool>>("required")?.unwrap_or(false);
-    o.complete = t.get::<Option<bool>>("complete")?.unwrap_or(false);
-    if t.get::<Option<bool>>("upper")?.unwrap_or(false) {
+    o.default = t.get("default").and_then(Value::as_str).unwrap_or("").to_string();
+    o.password = flag("password");
+    o.required = flag("required");
+    o.complete = flag("complete");
+    if flag("upper") {
         o.case = Case::Upper;
     }
-    if t.get::<Option<bool>>("mixed")?.unwrap_or(false) {
+    if flag("mixed") {
         o.case = Case::Mixed;
     }
-    if let Some(a) = t.get::<Option<String>>("allowed")? {
-        o.allowed = a;
-    }
-    Ok(o)
+    o.allowed = t.get("allowed").and_then(Value::as_str).unwrap_or("").to_string();
+    o
 }
 
-/// Lua's standard library with what would disturb the BBS taken out:
-/// `os.exit` would end it, and the console's stdin and stdout aren't the
-/// caller's. `print` and `io.write` write to the caller instead.
-const PRELUDE: &str = r##"
-os.exit = nil
-io.read, io.input, io.output, io.stdin, io.stdout, io.stderr, io.popen = nil, nil, nil, nil, nil, nil, nil
-local lines = io.lines
-io.lines = function(file, ...)
-  if file == nil then error("io.lines needs a file name", 2) end
-  return lines(file, ...)
-end
-io.write = function(...)
-  for i = 1, select("#", ...) do bbs.write(tostring((select(i, ...)))) end
-end
-print = function(...)
-  local t = {}
-  for i = 1, select("#", ...) do t[#t + 1] = tostring((select(i, ...))) end
-  bbs.writeln(table.concat(t, "\t"))
-end
-"##;
-
-/// Build the `bbs` table.
-fn install(lua: &Lua, b: &Bridge, name: &str, node: usize) -> mlua::Result<()> {
-    let bbs = lua.create_table()?;
-    macro_rules! f {
-        ($name:literal, |$lua:ident, $b:ident, $args:tt : $ty:ty| $body:expr) => {{
-            let $b = b.clone();
-            bbs.set($name, lua.create_function(move |$lua, $args: $ty| {
-                let _ = &$lua;
-                $body
-            })?)?;
-        }};
-    }
-    f!("write", |_l, b, v: Value| b.call(Req::Write(text(&v)?)).map(|_| ()));
-    f!("writeln", |_l, b, v: Option<Value>| b.call(Req::Write(format!("{}\r\n", text(&v.unwrap_or(Value::Nil))?))).map(|_| ()));
-    f!("show", |_l, b, v: Value| b.call(Req::Show(text(&v)?)).map(|_| ()));
-    f!("showln", |_l, b, v: Option<Value>| {
-        b.call(Req::Show(text(&v.unwrap_or(Value::Nil))?))?;
-        b.call(Req::Newline(1)).map(|_| ())
-    });
-    f!("say", |_l, b, v: String| b.call(Req::Say(v)).map(|_| ()));
-    f!("sayln", |_l, b, v: String| {
-        b.call(Req::Say(v))?;
-        b.call(Req::Newline(1)).map(|_| ())
-    });
-    f!("newline", |_l, b, v: Option<u16>| b.call(Req::Newline(v.unwrap_or(1))).map(|_| ()));
-    f!("cls", |_l, b, _a: ()| b.call(Req::Cls).map(|_| ()));
-    f!("clreol", |_l, b, _a: ()| b.call(Req::ClrEol).map(|_| ()));
-    f!("beep", |_l, b, _a: ()| b.call(Req::Beep).map(|_| ()));
-    f!("gotoxy", |_l, b, (x, y): (u16, u16)| b.call(Req::Goto(x, y)).map(|_| ()));
-    f!("up", |_l, b, v: Option<u16>| b.call(Req::Move('U', v.unwrap_or(1))).map(|_| ()));
-    f!("down", |_l, b, v: Option<u16>| b.call(Req::Move('D', v.unwrap_or(1))).map(|_| ()));
-    f!("left", |_l, b, v: Option<u16>| b.call(Req::Move('L', v.unwrap_or(1))).map(|_| ()));
-    f!("right", |_l, b, v: Option<u16>| b.call(Req::Move('R', v.unwrap_or(1))).map(|_| ()));
-    f!("color", |_l, b, (fg, bg): (u8, Option<u8>)| b.call(Req::Color(fg & 15, bg.unwrap_or(0) & 7)).map(|_| ()));
-    f!("where", |_l, b, _a: ()| match b.call(Req::Where)? {
-        Resp::Pos(x, y) => Ok((x, y)),
-        _ => Ok((1, 1)),
-    });
-    f!("showfile", |_l, b, v: String| match b.call(Req::ShowFile(v))? {
-        Resp::Bool(ok) => Ok(ok),
-        _ => Ok(false),
-    });
-    f!("pause", |_l, b, _a: ()| b.call(Req::Pause).map(|_| ()));
-    f!("getkey", |_l, b, _a: ()| match b.call(Req::GetKey)? {
-        Resp::Str(k) => Ok(k),
-        _ => Ok(String::new()),
-    });
-    f!("input", |_l, b, v: Option<Table>| match b.call(Req::Input(input_opts(v)?))? {
-        Resp::Str(s) => Ok(s),
-        _ => Ok(String::new()),
-    });
-    f!("yesno", |_l, b, v: Option<bool>| match b.call(Req::YesNo(v.unwrap_or(true)))? {
-        Resp::Bool(y) => Ok(y),
-        _ => Ok(false),
-    });
-    f!("menucmd", |_l, b, (code, param): (String, Option<Value>)| {
-        let param = text(&param.unwrap_or(Value::Nil))?;
-        b.call(Req::MenuCmd(code, param)).map(|_| ())
-    });
-    f!("mci", |_l, b, v: String| match b.call(Req::Mci(v))? {
-        Resp::MaybeStr(s) => Ok(s),
-        _ => Ok(None),
-    });
-    f!("expand", |_l, b, v: Value| match b.call(Req::Expand(text(&v)?))? {
-        Resp::Str(s) => Ok(s),
-        _ => Ok(String::new()),
-    });
-    f!("acs", |_l, b, v: String| match b.call(Req::Acs(v))? {
-        Resp::Bool(ok) => Ok(ok),
-        _ => Ok(false),
-    });
-    // 2.0's IPL `isincurmenu`: does the current menu have this key?
-    f!("inmenu", |_l, b, v: String| match b.call(Req::InMenu(v))? {
-        Resp::Bool(ok) => Ok(ok),
-        _ => Ok(false),
-    });
-    f!("user", |lua, b, _a: ()| match b.call(Req::User)? {
-        Resp::User(fields) => {
-            let t = lua.create_table()?;
-            for (k, v) in fields {
-                t.set(k, from_field(lua, v)?)?;
-            }
-            Ok(t)
+/// A request line from a script, as what it asks.
+fn parse_req(line: &str) -> Result<Req, String> {
+    let v: Value = serde_json::from_str(line).map_err(|e| format!("not a request: {e}"))?;
+    let op = v.get("op").and_then(Value::as_str).ok_or("a request needs an op")?;
+    let empty = Vec::new();
+    let a = v.get("a").and_then(Value::as_array).unwrap_or(&empty);
+    let n16 = |i, d| arg_num(a, i, d).min(u16::MAX as u64) as u16;
+    Ok(match op {
+        "write" => Req::Write(arg_str(a, 0)),
+        "show" => Req::Show(arg_str(a, 0)),
+        "say" => Req::Say(arg_str(a, 0)),
+        "newline" => Req::Newline(n16(0, 1)),
+        "cls" => Req::Cls,
+        "clreol" => Req::ClrEol,
+        "beep" => Req::Beep,
+        "gotoxy" => Req::Goto(n16(0, 1), n16(1, 1)),
+        "move" => Req::Move(arg_str(a, 0).chars().next().unwrap_or('R'), n16(1, 1)),
+        "color" => Req::Color((arg_num(a, 0, 7) & 15) as u8, (arg_num(a, 1, 0) & 7) as u8),
+        "where" => Req::Where,
+        "showfile" => Req::ShowFile(arg_str(a, 0)),
+        "pause" => Req::Pause,
+        "getkey" => Req::GetKey,
+        "input" => Req::Input(input_opts(a.first())),
+        "yesno" => Req::YesNo(a.first().and_then(Value::as_bool).unwrap_or(true)),
+        "menucmd" => Req::MenuCmd(arg_str(a, 0), arg_str(a, 1)),
+        "mci" => Req::Mci(arg_str(a, 0)),
+        "expand" => Req::Expand(arg_str(a, 0)),
+        "acs" => Req::Acs(arg_str(a, 0)),
+        "inmenu" => Req::InMenu(arg_str(a, 0)),
+        "user" => Req::User,
+        "saveuser" => {
+            let t = a.first().and_then(Value::as_object).ok_or("saveuser takes a dict")?;
+            Req::SaveUser(t.iter().map(|(k, v)| to_field(v).map(|f| (k.clone(), f))).collect::<Result<_, _>>()?)
         }
-        _ => lua.create_table(),
-    });
-    f!("saveuser", |_l, b, t: Table| {
-        let mut fields = Vec::new();
-        for pair in t.pairs::<String, Value>() {
-            let (k, v) = pair?;
-            fields.push((k, to_field(v)?));
-        }
-        b.call(Req::SaveUser(fields)).map(|_| ())
-    });
-    f!("log", |_l, b, v: Value| b.call(Req::Log(text(&v)?)).map(|_| ()));
-    f!("get", |_l, b, k: String| match b.call(Req::Get(k))? {
-        Resp::MaybeStr(s) => Ok(s),
-        _ => Ok(None),
-    });
-    f!("set", |_l, b, (k, v): (String, Option<Value>)| {
-        let v = match v {
-            None | Some(Value::Nil) => None,
-            Some(v) => Some(text(&v)?),
-        };
-        b.call(Req::Set(k, v)).map(|_| ())
-    });
-    // Local helpers: no trip to the session.
-    bbs.set("nocolor", lua.create_function(|_, v: Value| Ok(crate::editor::strip_codes(&text(&v)?)))?)?;
-    bbs.set("pad", lua.create_function(|_, (v, n): (Value, usize)| Ok(fluxbbs_term::codes::resize(&text(&v)?, n)))?)?;
-    bbs.set("node", node)?;
-    bbs.set("script", name)?;
-    bbs.set("version", env!("CARGO_PKG_VERSION"))?;
-    lua.globals().set("bbs", bbs)?;
-    Ok(())
+        "log" => Req::Log(arg_str(a, 0)),
+        "get" => Req::Get(arg_str(a, 0)),
+        "set" => Req::Set(arg_str(a, 0), a.get(1).filter(|v| !v.is_null()).map(|_| arg_str(a, 1))),
+        "nocolor" => Req::NoColor(arg_str(a, 0)),
+        "pad" => Req::Pad(arg_str(a, 0), arg_num(a, 1, 0) as usize),
+        other => return Err(format!("there's no fluxbbs.{other}")),
+    })
 }
 
-/// Run a script to the end, on the calling (blocking) thread.
-fn run_lua(source: Vec<u8>, path: &Path, name: &str, args: Vec<String>, dir: &Path, b: Bridge, node: usize) -> mlua::Result<()> {
-    let lua = Lua::new_with(StdLib::ALL_SAFE, LuaOptions::default())?;
-    lua.set_memory_limit(MEMORY_LIMIT)?;
-    let abort = b.abort.clone();
-    lua.set_global_hook(HookTriggers::new().every_nth_instruction(10_000), move |_, _| {
-        if abort.load(Ordering::Relaxed) { Err(stopped()) } else { Ok(VmState::Continue) }
-    })?;
-    install(&lua, &b, name, node)?;
-    lua.load(PRELUDE).set_name("=prelude").exec()?;
-    let package: Table = lua.globals().get("package")?;
-    let d = dir.to_string_lossy();
-    package.set("path", format!("{d}/?.lua;{d}/?/init.lua"))?;
-    package.set("cpath", "")?;
-    lua.globals().set("arg", lua.create_sequence_from(args.clone())?)?;
-    let chunk = lua.load(source).set_name(format!("@{}", path.file_name().map_or(name.into(), |f| f.to_string_lossy())));
-    chunk.call::<()>(mlua::MultiValue::from_iter(args.into_iter().map(|a| lua.create_string(&a).map(Value::String)).collect::<mlua::Result<Vec<_>>>()?))
+/// An answer, as the script reads it.
+fn reply_line(r: Resp) -> String {
+    let v = match r {
+        Resp::Unit => json!({ "r": null }),
+        Resp::Bool(b) => json!({ "r": b }),
+        Resp::Str(s) => json!({ "r": s }),
+        Resp::MaybeStr(s) => json!({ "r": s }),
+        Resp::Pos(x, y) => json!({ "r": [x, y] }),
+        Resp::User(fields) => json!({ "r": fields.into_iter().map(|(k, f)| (k.to_string(), from_field(f))).collect::<serde_json::Map<_, _>>() }),
+        Resp::Fail(why) => json!({ "e": why }),
+    };
+    format!("{v}\n")
+}
+
+/// A line from the script, `LINE_MAX` at most; None at its end.
+async fn read_line(rd: &mut (impl tokio::io::AsyncBufRead + Unpin)) -> io::Result<Option<String>> {
+    let mut buf = Vec::new();
+    let n = (&mut *rd).take(LINE_MAX).read_until(b'\n', &mut buf).await?;
+    if n == 0 {
+        return Ok(None);
+    }
+    if !buf.ends_with(b"\n") && n as u64 >= LINE_MAX {
+        return Err(io::Error::other("a request far too long"));
+    }
+    Ok(Some(String::from_utf8_lossy(&buf).trim_end().to_string()))
 }
 
 // ---- the session side -----------------------------------------------------
@@ -517,14 +413,46 @@ fn valid_name(name: &str) -> bool {
     !name.is_empty() && name.chars().all(|c| c.is_ascii_alphanumeric() || "_-.".contains(c)) && !name.contains("..")
 }
 
-/// The script file for a name: `name.lua` in the scripts directory, in
+/// The script file for a name: `name.py` in the scripts directory, in
 /// any case.
 pub fn find_script(dir: &Path, name: &str) -> Option<PathBuf> {
     if !valid_name(name) {
         return None;
     }
-    let file = if name.to_ascii_lowercase().ends_with(".lua") { name.to_string() } else { format!("{name}.lua") };
+    let file = if name.to_ascii_lowercase().ends_with(".py") { name.to_string() } else { format!("{name}.py") };
     find_ci(dir, &file).filter(|p| p.is_file())
+}
+
+/// Where the `fluxbbs` module goes for scripts to import: written there
+/// when it's missing or not this board's.
+fn module_dir(cfg: &crate::config::Config) -> io::Result<PathBuf> {
+    let dir = cfg.resolve(&cfg.paths.data).join("cache").join("python");
+    let file = dir.join("fluxbbs.py");
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(MODULE) {
+        std::fs::create_dir_all(&dir)?;
+        let tmp = dir.join("fluxbbs.py.new");
+        std::fs::write(&tmp, MODULE)?;
+        std::fs::rename(&tmp, &file)?;
+    }
+    // Whole: the script runs in its own folder.
+    dir.canonicalize()
+}
+
+/// What a script's process said on stderr, kept to its last part.
+async fn collect(mut from: impl tokio::io::AsyncRead + Unpin, keep: usize) -> String {
+    let mut all = Vec::new();
+    let mut buf = [0u8; 4096];
+    while let Ok(n) = from.read(&mut buf).await {
+        if n == 0 {
+            break;
+        }
+        all.extend_from_slice(&buf[..n]);
+        if all.len() > keep * 2 {
+            all.drain(..all.len() - keep);
+        }
+    }
+    let s = String::from_utf8_lossy(&all).to_string();
+    s.chars().rev().take(keep).collect::<Vec<_>>().into_iter().rev().collect()
 }
 
 impl Session {
@@ -534,7 +462,7 @@ impl Session {
         self.run_script(name, args).await
     }
 
-    /// Run `scripts/name.lua` with whitespace-separated `args`.
+    /// Run `scripts/name.py` with whitespace-separated `args`.
     pub async fn run_script(&mut self, name: &str, args: &str) -> io::Result<()> {
         let cfg = self.state.config();
         let dir = cfg.resolve(&cfg.paths.scripts);
@@ -545,66 +473,141 @@ impl Session {
         if self.script_depth >= MAX_DEPTH {
             return self.script_failed(name, "scripts nested too deep").await;
         }
-        let source = std::fs::read(&path)?;
         let key = path.file_stem().map_or(name.to_string(), |s| s.to_string_lossy().to_ascii_lowercase());
         tracing::info!("{}: running script {key} {args}", self.user.handle);
-        let (tx, mut rx) = mpsc::channel::<Call>(1);
-        let abort = Arc::new(AtomicBool::new(false));
-        let bridge = Bridge { tx, abort: abort.clone() };
-        let args: Vec<String> = args.split_whitespace().map(String::from).collect();
-        let (thread_key, node) = (key.clone(), self.node.number());
-        let mut handle = tokio::task::spawn_blocking(move || {
-            run_lua(source, &path, &thread_key, args, &dir, bridge, node).map_err(|e| e.to_string())
-        });
-        self.script_depth += 1;
-        let mut failure: Option<io::Error> = None;
-        let outcome = loop {
-            tokio::select! {
-                call = rx.recv(), if failure.is_none() => match call {
-                    Some(c) => match self.script_call(&key, c.req).await {
-                        Ok(r) => {
-                            let _ = c.reply.send(r);
-                        }
-                        Err(e) => {
-                            // The caller's gone: stop the script, then report.
-                            abort.store(true, Ordering::Relaxed);
-                            rx.close();
-                            failure = Some(e);
-                        }
-                    },
-                    // The script's done with us; its thread is finishing.
-                    None => break tokio::time::timeout(WATCHDOG, &mut handle).await.ok(),
-                },
-                r = &mut handle => break Some(r),
-                _ = tokio::time::sleep(WATCHDOG) => {
-                    if abort.swap(true, Ordering::Relaxed) || failure.is_some() {
-                        // Stopped, but stuck somewhere a hook can't reach.
-                        break None;
+        // Whole paths: the script runs in its own folder.
+        let (path, dir) = (path.canonicalize()?, dir.canonicalize()?);
+        let modules = module_dir(&cfg)?;
+        let (ours, theirs) = std::os::unix::net::UnixStream::pair()?;
+        ours.set_nonblocking(true)?;
+        let fd = theirs.as_raw_fd();
+        let python = if cfg.paths.python.trim().is_empty() { "python3".to_string() } else { cfg.paths.python.trim().to_string() };
+        let mut cmd = tokio::process::Command::new(&python);
+        cmd.arg("-u")
+            .arg("-c")
+            .arg(LAUNCH)
+            .arg(&path)
+            .args(args.split_whitespace())
+            .current_dir(&dir)
+            .env("PYTHONPATH", &modules)
+            .env("PYTHONIOENCODING", "utf-8")
+            .env("PYTHONDONTWRITEBYTECODE", "1")
+            .env("FLUXBBS_FD", "3")
+            .env("FLUXBBS_NODE", self.node.number().to_string())
+            .env("FLUXBBS_SCRIPT", &key)
+            .env("FLUXBBS_VERSION", env!("CARGO_PKG_VERSION"))
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
+            .process_group(0)
+            .kill_on_drop(true);
+        // The script's end of the socket, as its fd 3.
+        unsafe {
+            cmd.pre_exec(move || {
+                if fd == 3 {
+                    if libc::fcntl(3, libc::F_SETFD, 0) < 0 {
+                        return Err(io::Error::last_os_error());
                     }
-                    tracing::warn!("script {key} ran {WATCHDOG:?} without calling bbs; stopping it");
+                } else if libc::dup2(fd, 3) < 0 {
+                    return Err(io::Error::last_os_error());
                 }
+                Ok(())
+            });
+        }
+        let mut child = match cmd.spawn() {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::error!("script {key}: can't start {python}: {e}");
+                return self.script_failed(&key, &format!("can't start {python}: {e}")).await;
             }
         };
+        drop(theirs);
+        // What it prints past the module (a program it runs) goes to the log;
+        // what it says on stderr is kept, for when it fails.
+        let out = child.stdout.take().map(|o| {
+            let key = key.clone();
+            tokio::spawn(async move {
+                let mut lines = BufReader::new(o).lines();
+                while let Ok(Some(l)) = lines.next_line().await {
+                    tracing::info!("script {key}: {l}");
+                }
+            })
+        });
+        let err = child.stderr.take().map(|e| tokio::spawn(collect(e, 2000)));
+        let sock = tokio::net::UnixStream::from_std(ours)?;
+        let (rd, mut wr) = sock.into_split();
+        let mut rd = BufReader::new(rd);
+        self.script_depth += 1;
+        let mut failure: Option<io::Error> = None;
+        let mut why: Option<String> = None;
+        loop {
+            let line = match tokio::time::timeout(WATCHDOG, read_line(&mut rd)).await {
+                Ok(Ok(Some(l))) => l,
+                // The script's done (or gone): its exit says how.
+                Ok(Ok(None)) => break,
+                Ok(Err(e)) => {
+                    why = Some(e.to_string());
+                    break;
+                }
+                Err(_) => {
+                    tracing::warn!("script {key} ran {WATCHDOG:?} without calling the board; stopping it");
+                    why = Some(format!("ran {}s without calling the board", WATCHDOG.as_secs()));
+                    break;
+                }
+            };
+            let reply = match parse_req(&line) {
+                Ok(req) => match self.script_call(&key, req).await {
+                    Ok(r) => r,
+                    Err(e) => {
+                        // The caller's gone: stop the script, then report.
+                        failure = Some(e);
+                        break;
+                    }
+                },
+                Err(e) => Resp::Fail(e),
+            };
+            if wr.write_all(reply_line(reply).as_bytes()).await.is_err() {
+                break;
+            }
+        }
+        drop(wr);
+        drop(rd);
         self.script_depth -= 1;
+        // Done with it: it has a moment to finish, then it's ended.
+        if failure.is_some() || why.is_some() {
+            let _ = child.start_kill();
+        }
+        let status = match tokio::time::timeout(Duration::from_secs(5), child.wait()).await {
+            Ok(Ok(st)) => Some(st),
+            _ => {
+                let _ = child.start_kill();
+                let _ = child.wait().await;
+                None
+            }
+        };
+        if let Some(o) = out {
+            let _ = o.await;
+        }
+        let stderr = match err {
+            Some(e) => e.await.unwrap_or_default(),
+            None => String::new(),
+        };
         self.flush().await?;
         if let Some(e) = failure {
             return Err(e);
         }
-        match outcome {
-            Some(Ok(Ok(()))) => Ok(()),
-            Some(Ok(Err(why))) => {
-                tracing::warn!("script {key}: {why}");
-                self.script_failed(&key, &why).await
-            }
-            Some(Err(e)) => {
-                tracing::error!("script {key} panicked: {e}");
-                self.script_failed(&key, "crashed").await
-            }
-            None => {
-                tracing::error!("script {key} didn't stop; leaving its thread");
-                self.script_failed(&key, "didn't stop").await
-            }
+        if why.is_none() && status.is_some_and(|s| s.success()) {
+            return Ok(());
         }
+        // The traceback's last line says what went wrong.
+        let last = stderr.lines().rev().find(|l| !l.trim().is_empty()).unwrap_or("").trim().to_string();
+        let why = why.unwrap_or_else(|| if last.is_empty() { format!("exited with {}", status.map_or("no status".into(), |s| s.to_string())) } else { last });
+        if !stderr.trim().is_empty() {
+            tracing::warn!("script {key} failed:\n{}", stderr.trim_end());
+        } else {
+            tracing::warn!("script {key}: {why}");
+        }
+        self.script_failed(&key, &why).await
     }
 
     /// Tell the caller a script went wrong; the SysOp sees why.
@@ -732,9 +735,12 @@ impl Session {
                 Ok(()) => Resp::Unit,
                 Err(e) => Resp::Fail(e.to_string()),
             },
+            Req::NoColor(s) => Resp::Str(crate::editor::strip_codes(&s)),
+            Req::Pad(s, n) => Resp::Str(fluxbbs_term::codes::resize(&s, n.min(255))),
         })
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -742,97 +748,94 @@ mod tests {
 
     #[test]
     fn user_fields_round_trip() {
-        let mut u = User { handle: "phrac".into(), sl: 50, ..User::default() };
-        // Every field written back unchanged is accepted.
+        let mut u = User { handle: "phrac".into(), sl: 50, flags: ['A', 'X'].into_iter().collect(), ..Default::default() };
         for (k, v) in user_fields(&u.clone()) {
-            set_user_field(&mut u, k, v).unwrap_or_else(|e| panic!("{k}: {e}"));
+            set_user_field(&mut u, k, v).unwrap();
         }
         set_user_field(&mut u, "sl", Field::Num(100.0)).unwrap();
-        set_user_field(&mut u, "level", Field::Str("c".into())).unwrap();
-        set_user_field(&mut u, "flags", Field::Str("ab".into())).unwrap();
-        set_user_field(&mut u, "birth_date", Field::Str("02/29/96".into())).unwrap();
-        set_user_field(&mut u, "autosig", Field::List(vec!["-- phrac".into()])).unwrap();
-        assert_eq!((u.sl, u.level, u.flags.iter().collect::<String>()), (100, 'C', "AB".into()));
-        assert_eq!(u.autosig, ["-- phrac"]);
-        assert!(set_user_field(&mut u, "handle", Field::Str("x".into())).unwrap_err().contains("can't be changed"));
+        assert_eq!(u.sl, 100);
+        assert!(set_user_field(&mut u, "handle", Field::Str("x".into())).is_err());
+        assert!(set_user_field(&mut u, "nonsense", Field::Num(1.0)).is_err());
         assert!(set_user_field(&mut u, "sl", Field::Num(300.0)).is_err());
-        assert!(set_user_field(&mut u, "pause", Field::Str("yes".into())).is_err());
-        assert!(set_user_field(&mut u, "nope", Field::Bool(true)).unwrap_err().contains("no user.nope"));
     }
 
     #[test]
     fn script_names() {
-        assert!(valid_name("oneliner") && valid_name("my-mod_2") && valid_name("x.lua"));
-        assert!(!valid_name("../etc/passwd") && !valid_name("a/b") && !valid_name("") && !valid_name("a b"));
+        let dir = std::env::temp_dir().join(format!("inq-scripts-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("Hello.py"), "").unwrap();
+        assert!(find_script(&dir, "hello").is_some() && find_script(&dir, "hello.py").is_some());
+        assert!(find_script(&dir, "../hello").is_none() && find_script(&dir, "").is_none() && find_script(&dir, "nope").is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// Run a script against a fake session that records what it's asked.
-    fn run(src: &str, answer: impl Fn(&Req) -> Resp + Send + 'static) -> (Result<(), String>, Vec<String>) {
-        let (tx, mut rx) = mpsc::channel::<Call>(1);
-        let abort = Arc::new(AtomicBool::new(false));
-        let b = Bridge { tx, abort };
-        let src = src.as_bytes().to_vec();
-        let t = std::thread::spawn(move || {
-            run_lua(src, Path::new("t.lua"), "t", vec!["one".into(), "two".into()], Path::new("."), b, 3).map_err(|e| e.to_string())
-        });
-        let mut log = Vec::new();
-        while let Some(c) = rx.blocking_recv() {
-            log.push(format!("{:?}", c.req));
-            let _ = c.reply.send(answer(&c.req));
+    #[test]
+    fn requests_and_answers() {
+        assert!(matches!(parse_req(r#"{"op":"write","a":["hi"]}"#), Ok(Req::Write(s)) if s == "hi"));
+        assert!(matches!(parse_req(r#"{"op":"gotoxy","a":[3,4]}"#), Ok(Req::Goto(3, 4))));
+        assert!(matches!(parse_req(r#"{"op":"input","a":[{"max":500,"password":true}]}"#), Ok(Req::Input(o)) if o.max == 255 && o.password));
+        assert!(matches!(parse_req(r#"{"op":"set","a":["k",null]}"#), Ok(Req::Set(k, None)) if k == "k"));
+        assert!(matches!(parse_req(r#"{"op":"saveuser","a":[{"sl":60,"autosig":["a","b"]}]}"#), Ok(Req::SaveUser(f)) if f.len() == 2));
+        assert!(parse_req(r#"{"op":"rm_rf","a":[]}"#).is_err() && parse_req("not json").is_err());
+        assert_eq!(reply_line(Resp::Pos(2, 3)), "{\"r\":[2,3]}\n");
+        assert_eq!(reply_line(Resp::MaybeStr(None)), "{\"r\":null}\n");
+        assert_eq!(reply_line(Resp::Fail("no".into())), "{\"e\":\"no\"}\n");
+        let u = User { handle: "phrac".into(), sl: 50, ..Default::default() };
+        let v: Value = serde_json::from_str(&reply_line(Resp::User(user_fields(&u)))).unwrap();
+        assert_eq!((v["r"]["handle"].as_str(), v["r"]["sl"].as_i64()), (Some("phrac"), Some(50)));
+    }
+
+    /// A script run for real (if this host has python3): what it asks of
+    /// the board, answered here as a session would.
+    #[tokio::test]
+    async fn a_python_script_talks_to_the_board() {
+        if std::process::Command::new("python3").arg("-c", ).arg("pass").status().map(|s| !s.success()).unwrap_or(true) {
+            return;
         }
-        (t.join().unwrap(), log)
-    }
-
-    #[test]
-    fn scripts_talk_to_the_session() {
-        let (r, log) = run(
-            r#"
-            local a, b = ...
-            bbs.write(a .. "+" .. arg[2])
-            print("x", 1, true)
-            io.write("y")
-            bbs.showln("|15hi %UN")
-            local name = bbs.input{max = 10, upper = true}
-            if bbs.yesno(false) then bbs.set("last", name) end
-            local u = bbs.user()
-            u.sl = u.sl + 1
-            bbs.saveuser(u)
-            assert(bbs.node == 3 and bbs.script == "t")
-            assert(bbs.pad("ab", 4) == "ab  " and bbs.nocolor("|04x") == "x")
-            assert(os.exit == nil and io.read == nil)
-            "#,
-            |req| match req {
-                Req::Input(_) => Resp::Str("FIEND".into()),
+        let dir = std::env::temp_dir().join(format!("inq-py-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("fluxbbs.py"), MODULE).unwrap();
+        let script = dir.join("t.py");
+        std::fs::write(&script, "import fluxbbs as bbs\nprint('hi', bbs.user()['handle'])\nif bbs.yesno(False):\n    bbs.set('last', bbs.input(max=10))\ntry:\n    bbs.saveuser({'handle': 'x'})\nexcept bbs.Error as e:\n    bbs.log(str(e))\n").unwrap();
+        let (ours, theirs) = std::os::unix::net::UnixStream::pair().unwrap();
+        let fd = theirs.as_raw_fd();
+        let mut cmd = tokio::process::Command::new("python3");
+        cmd.arg("-c").arg(LAUNCH).arg(&script).env("PYTHONPATH", &dir).env("FLUXBBS_FD", "3");
+        unsafe {
+            cmd.pre_exec(move || {
+                if fd == 3 { libc::fcntl(3, libc::F_SETFD, 0); } else { libc::dup2(fd, 3); }
+                Ok(())
+            });
+        }
+        let mut child = cmd.spawn().unwrap();
+        drop(theirs);
+        ours.set_nonblocking(true).unwrap();
+        let (rd, mut wr) = tokio::net::UnixStream::from_std(ours).unwrap().into_split();
+        let mut rd = BufReader::new(rd);
+        let mut seen = Vec::new();
+        while let Some(line) = read_line(&mut rd).await.unwrap() {
+            let req = parse_req(&line).unwrap();
+            seen.push(format!("{req:?}"));
+            let r = match req {
+                Req::User => Resp::User(user_fields(&User { handle: "phrac".into(), ..Default::default() })),
                 Req::YesNo(_) => Resp::Bool(true),
-                Req::User => Resp::User(user_fields(&User { sl: 10, ..User::default() })),
+                Req::Input(_) => Resp::Str("typed".into()),
+                Req::SaveUser(f) => {
+                    let mut u = User::default();
+                    match f.into_iter().try_for_each(|(k, v)| set_user_field(&mut u, &k, v)) {
+                        Ok(()) => Resp::Unit,
+                        Err(e) => Resp::Fail(e),
+                    }
+                }
                 _ => Resp::Unit,
-            },
-        );
-        r.unwrap();
-        assert_eq!(log[0], r#"Write("one+two")"#);
-        assert_eq!(log[1], "Write(\"x\\t1\\ttrue\\r\\n\")");
-        assert_eq!(log[2], r#"Write("y")"#);
-        assert_eq!(&log[3..5], [r#"Show("|15hi %UN")"#, "Newline(1)"]);
-        assert!(log[5].starts_with("Input(InputOpts { max: 10"), "{}", log[5]);
-        assert_eq!(log[7], r#"Set("last", Some("FIEND"))"#);
-        assert!(log[9].contains(r#"("sl", Num(11.0))"#), "{}", log[9]);
-    }
-
-    #[test]
-    fn errors_and_runaways_stop() {
-        let (r, _) = run("bbs.write(nil .. 1)", |_| Resp::Unit);
-        assert!(r.unwrap_err().contains("attempt to concatenate"));
-        let (r, _) = run("bbs.saveuser({handle = 'x'})", |_| Resp::Fail("user.handle can't be changed by a script".into()));
-        assert!(r.unwrap_err().contains("can't be changed"));
-        // A loop that never calls bbs is stopped once the session says so.
-        let (tx, _rx) = mpsc::channel::<Call>(1);
-        let abort = Arc::new(AtomicBool::new(false));
-        let b = Bridge { tx, abort: abort.clone() };
-        let t = std::thread::spawn(move || {
-            run_lua(b"while true do end".to_vec(), Path::new("t.lua"), "t", vec![], Path::new("."), b, 1).map_err(|e| e.to_string())
-        });
-        std::thread::sleep(Duration::from_millis(100));
-        abort.store(true, Ordering::Relaxed);
-        assert!(t.join().unwrap().unwrap_err().contains("script stopped"));
+            };
+            wr.write_all(reply_line(r).as_bytes()).await.unwrap();
+        }
+        assert!(child.wait().await.unwrap().success());
+        let all = seen.join("|");
+        assert!(all.contains("Write(\"hi phrac\\r\\n\")") || all.contains("Write(\"hi\")"), "{all}");
+        assert!(all.contains("Set(\"last\", Some(\"typed\"))"), "{all}");
+        assert!(all.contains("Log(\"user.handle can't be changed by a script\")"), "{all}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

@@ -25,6 +25,10 @@ differently on purpose. Each line links to the doc with the details.
 - SSH (with the older algorithms SyncTERM needs) and telnet in place of
   modems. ([FEATURES](FEATURES.md#in-detail))
 - Telnet: binary, NAWS, terminal type, and Zmodem over it.
+- Telnet callers are warned: after PRELOGON, the TELNET screen says
+  telnet is unencrypted and how to call back over SSH, and they go on
+  only by pressing Y (N hangs up). Plain-text callers get it as text.
+  ([SYSOP](SYSOP.md#telnet-callers))
 - SSH key login and stored logins: a key kept on the account (up to
   eight), or the account's password as the SSH password (SyncTERM's
   stored login). ([SYSOP](SYSOP.md#ssh-keys-and-stored-logins))
@@ -147,7 +151,7 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   six-digit code over SMTP and takes it back; a confirmed address can
   raise the caller's level. ([SYSOP](SYSOP.md#email-addresses))
 - Optional components: doors, the games, effects, screen savers, AI,
-  echomail, MeshCore, PDFs, Lua and the textfiles importer are Cargo
+  echomail, MeshCore, MRC, PDFs, Python scripts and the textfiles importer are Cargo
   features; a plain build is the core board, `--features full` all of
   it. A part left out answers as one switched off and drops out of the
   menus; its settings still load. ([BUILDING](BUILDING.md))
@@ -564,7 +568,9 @@ All in [DOORS](DOORS.md).
   ([FEATURES](FEATURES.md#ai-chat))
 - The AI sees the board's own menus, areas and files, as the caller may
   see them.
-- Lua scripting in place of IPL, with a `bbs` API.
+- Python scripting in place of IPL: scripts `import fluxbbs`, run as
+  processes of their own talking to the board over a socket (Lua at
+  first; replaced 31 Oct 2026).
   ([SCRIPTING](SCRIPTING.md))
 - Screen themes picked by callers (`UT`), with menus of their own if they
   need them (`themes/NAME/menus/`).

@@ -13,7 +13,6 @@ flate2 = "1.1.10"
 iniquity-legacy = { version = "0.1.0", path = "../iniquity-legacy" }
 fluxbbs-term = { version = "0.1.0", path = "../fluxbbs-term" }
 libc = "0.2.191"
-mlua = { version = "0.12.2", features = ["lua54", "vendored"], optional = true }
 rand = "0.10.3"
 rusqlite = { version = "0.40.2", features = ["bundled", "chrono"] }
 russh = "0.64.1"
@@ -43,7 +42,7 @@ lettre = { version = "0.11.23", default-features = false, features = ["builder",
 # in *C Features, and its settings still load.
 [features]
 default = []
-full = ["doors", "effects", "screensavers", "games", "ai", "ftn", "meshcore", "mrc", "pdf", "lua", "textfiles", "email", "weather"]
+full = ["doors", "effects", "screensavers", "games", "ai", "ftn", "meshcore", "mrc", "pdf", "python", "textfiles", "email", "weather"]
 # DOS doors in the built-in DOS machine, external doors, and BBSLink.
 doors = ["dep:fluxbbs-dos", "dep:reqwest", "dep:md-5"]
 # Menus and screens that animate while they wait (.FX effects, glints),
@@ -67,8 +66,8 @@ meshcore = []
 mrc = ["dep:rustls", "dep:tokio-rustls", "dep:webpki-roots"]
 # Showing PDFs (needs Poppler on the host).
 pdf = []
-# Lua scripts on menus and in screens.
-lua = ["dep:mlua"]
+# Python scripts on menus (-X) and in strings (%!): the fluxbbs module.
+python = []
 # Importing the textfiles.com archive (`fluxbbs textfiles`).
 textfiles = ["dep:reqwest"]
 # Callers' email addresses, confirmed by a code sent over SMTP.

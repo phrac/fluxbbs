@@ -47,6 +47,7 @@ these. disflux's is an example of all of them.
 | `AICHAT` | the AI chat screen's title, tagline, accent and logo colors, and with `face` part of a picture in its top left corner; see `aichat-gen.py` |
 | `LOGOS` | a menu's logo: a piece of art in the board's `art/` (`{'main': ('MYLOGO.ans', '35')}`) or a TheDraw font (`('tdf', file, face, word, column, options)`) |
 | `PRELOGON_LINES` | the lines under the prelogon's logo |
+| `TELNET_SSH` | `host:port` the TELNET screen tells telnet callers to call back on |
 | `ABOUT` | the about screen (h on the main menu) |
 | `WELCOME_ART` | a piece of art in the board's `art/` to show first among the welcome screen's logos |
 | `WELCOME_WHATS`, `WELCOME_ARCHIVE` | the welcome's line of what's here, and what the file archive is |

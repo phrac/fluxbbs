@@ -54,7 +54,7 @@ pub fn built(name: &str) -> bool {
         ("ai", cfg!(feature = "ai")),
         ("bbslink", cfg!(feature = "doors")),
         ("doors", cfg!(feature = "doors")),
-        ("scripts", cfg!(feature = "lua")),
+        ("scripts", cfg!(feature = "python")),
     ];
     BUILT.iter().find(|(n, _)| *n == name).is_none_or(|(_, on)| *on)
 }
@@ -98,7 +98,7 @@ mod tests {
         assert_eq!(command_on(&cfg, "AC"), cfg!(feature = "casino"));
         assert_eq!(command_on(&cfg, "AP"), cfg!(feature = "carrierlost"));
         assert_eq!(command_on(&cfg, "D1"), cfg!(feature = "doors"));
-        assert_eq!(command_on(&cfg, "-X"), cfg!(feature = "lua"));
+        assert_eq!(command_on(&cfg, "-X"), cfg!(feature = "python"));
         assert!(built("message_center") && built("anything else"), "the core is always built");
         assert!(!command_on(&cfg, "AD"), "the retired temple never is");
     }

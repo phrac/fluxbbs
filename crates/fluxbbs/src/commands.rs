@@ -293,7 +293,7 @@ impl Session {
             // New: the weather, where the caller is or where the menu says.
             #[cfg(feature = "weather")]
             "WX" => self.weather(param).await?,
-            #[cfg(feature = "lua")]
+            #[cfg(feature = "python")]
             "-X" => Box::pin(self.script_command(param)).await?,
             "!D" => self.bank_transaction(crate::timebank::Unit::Minutes, true).await?,
             "!W" => self.bank_transaction(crate::timebank::Unit::Minutes, false).await?,

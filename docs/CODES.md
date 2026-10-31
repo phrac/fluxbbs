@@ -340,7 +340,7 @@ A prompt string (not a screen) can start with one of these:
 | Prefix | Does |
 |---|---|
 | `%%NAME` | show the screen `text/NAME` instead of the text |
-| `%!script args` | run a Lua script (see [SCRIPTING.md](SCRIPTING.md)) |
+| `%!script args` | run a Python script (see [SCRIPTING.md](SCRIPTING.md)) |
 | `%\|` | center the line |
 | `%>` | right-align the line |
 

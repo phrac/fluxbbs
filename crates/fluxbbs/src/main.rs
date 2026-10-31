@@ -140,7 +140,7 @@ mod password;
 mod questions;
 mod qwk;
 mod scansel;
-#[cfg(feature = "lua")]
+#[cfg(feature = "python")]
 mod scripts;
 mod session;
 mod ssh;

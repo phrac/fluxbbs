@@ -119,7 +119,7 @@ Logs go to `docker logs fluxbbs`.
 | `menus/*.toml` | menus | `*#` |
 | `text/` | screens (ANSI/ASCII) | your art tools; see [ARTWORK.md](ARTWORK.md). `*W` shows any of them |
 | `fonts/` | TheDraw fonts (`.TDF`) for the font viewer (`*J`); left out of backups | copy them in (`[paths] fonts`) |
-| `scripts/` | Lua scripts (`-X`, `%!`) | any editor; see [SCRIPTING.md](SCRIPTING.md) |
+| `scripts/` | Python scripts (`-X`, `%!`) | any editor; see [SCRIPTING.md](SCRIPTING.md) |
 | `events.toml` | scheduled events | `*V` |
 | `logon.toml` | the logon sequence | `*O` |
 
@@ -369,6 +369,18 @@ six-digit code it mails them. It's off to start: `*C`, `@` (`[email]`).
   `K` and `W`), never in user lists or finger.
 - **When mail can't go:** the caller is told it'll try again next call,
   and the reason is logged.
+
+### Telnet callers
+
+A caller who comes in over telnet sees the TELNET screen after
+PRELOGON: telnet is plain text (their password included), and how to
+call back over SSH. They go on only by pressing `Y`; `N` (or Esc) hangs
+up with `TelnetBye`. Callers in plain text get `TelnetPlain` and
+`TelnetAsk` instead. `art/telnet-gen.py` makes the screen (`art/make.py`
+runs it), with the SSH address from the board's `art/local.py`
+`TELNET_SSH`, else `[mrc] info_ssh`, else `[web] download_url`'s host
+and `[ssh] listen`'s port. A board without a TELNET screen skips all of
+it.
 
 ### SSH keys and stored logins
 

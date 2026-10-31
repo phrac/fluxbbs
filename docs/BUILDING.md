@@ -25,7 +25,7 @@ disflux, the flagship board, runs with all of them.
 | `meshcore` | The MeshCore radio bridge | a MeshCore companion radio |
 | `mrc` | MRC (Multi Relay Chat), live chat with callers on other BBSes (`XR`); off until `[mrc] enabled` | an outbound connection to an MRC server (TLS, port 5001) |
 | `pdf` | Showing PDFs in the file browser and art gallery | Poppler (`poppler-utils`) on the host |
-| `lua` | Lua scripts on menus (`-X`) and in screens (`%!`) | builds Lua itself (no system Lua needed) |
+| `python` | Python scripts on menus (`-X`) and in strings (`%!`), with the `fluxbbs` module | Python 3 on the host (`python3`; the Docker image has it) |
 | `textfiles` | The textfiles.com importer (`fluxbbs textfiles`) | HTTPS |
 | `weather` | The weather (`WX`, or `WX <place>` for a fixed one): the sky in animated pixels, the week, the next 24 hours; the AI reads it as a forecaster when `ai` is built and on. `[weather]`: `units`, `place`, `ai_forecast`, `ai_effort` (the forecaster's `reasoning_effort`, `none` unless set) | HTTPS to open-meteo.com (free, no key) |
 | `email` | Callers' email addresses, confirmed by a mailed code (`UV`, the `email` logon step, `*C` `@`); off until `[email] enabled` | an SMTP server |
@@ -51,7 +51,7 @@ comma-separated. `screensavers` brings `effects` with it, and `tarot`
 - **Where it touches the core, the core goes on without it.** Without
   `effects` nothing animates; without `screensavers` Backspace on a
   menu does nothing; without `pdf` a PDF is a file to download;
-  without `meshcore` posts simply aren't bridged; without `lua` a `%!`
+  without `meshcore` posts simply aren't bridged; without `python` a `%!`
   line in a screen shows nothing; without `email` the `email` logon
   step drops out.
 
@@ -97,6 +97,6 @@ Where core code calls into it, give the core a stand-in (as the
 effects' `Ambient` and the MeshCore outbox have) rather than scattering
 `cfg`s through the callers. To check every component on its own:
 
-    for f in doors effects screensavers casino carrierlost tarot ai ftn meshcore mrc pdf lua textfiles; do
+    for f in doors effects screensavers casino carrierlost tarot ai ftn meshcore mrc pdf python textfiles; do
         cargo clippy -p fluxbbs --all-targets --no-default-features --features $f
     done

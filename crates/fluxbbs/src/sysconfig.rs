@@ -569,7 +569,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('J', "Infoforms", 3, "Infoforms (IN IM); new user voting has its own switch.", Bool(|c| &mut c.features.infoforms)),
             set('K', "QWK mail", 3, "Offline mail packets (QD QU).", Bool(|c| &mut c.features.qwk)),
             set('L', "Automessage", 3, "The automessage (AS AW AR).", Bool(|c| &mut c.features.automessage)),
-            set('M', "Scripts", 3, "Lua scripts from menus (-X).", Bool(|c| &mut c.features.scripts)),
+            set('M', "Scripts", 3, "Python scripts from menus (-X).", Bool(|c| &mut c.features.scripts)),
         ]),
     ]
 }
@@ -614,7 +614,8 @@ fn more_sections() -> Vec<(char, &'static str, bool, Vec<Setting>)> {
             set('R', "Logon sequence", 40, "The logon sequence (*O). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.logon)),
             set('S', "Upload scratch", 40, "Scratch space for uploads being received and tested. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.temp)),
             set('T', "Door drop files", 40, "Door drop files, a folder per node. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.doors)),
-            set('U', "Lua scripts", 40, "Lua scripts for menus (-X) and screens. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.scripts)),
+            set('U', "Python scripts", 40, "Python scripts for menus (-X) and screens (%!). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.scripts)),
+            set('X', "Python", 40, "The Python that runs scripts: python3, or a path to one.", Text(|c| &mut c.paths.python, TEXT.max(200))),
             set('V', "Attachments", 40, "Files attached to messages. Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.attach)),
             set('W', "TheDraw fonts", 40, "TheDraw fonts (.TDF) for the font viewer (*J). Relative to the config's folder.", Path(|c| &mut c.paths.fonts)),
         ]),

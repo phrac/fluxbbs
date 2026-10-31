@@ -1,6 +1,6 @@
 //! System-wide records (SQLite): totals and daily history (STATS.DAT,
 //! HISTORY.DAT), the callers log (CALLERS.DAT), the automessage, the
-//! BBS list (BBSLIST.DAT), and what Lua scripts keep (`bbs.get`/`bbs.set`).
+//! BBS list (BBSLIST.DAT), and what scripts keep (`fluxbbs.get`/`fluxbbs.set`).
 
 use std::path::Path;
 use std::sync::Mutex;

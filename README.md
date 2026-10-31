@@ -63,7 +63,7 @@ You need `cargo` and `unzip`. Showing PDFs also needs Poppler
 - Boards from before the rename keep `iniquity.toml` and
   `data/iniquity.db`, and still work.
 - Doors, the games, animated menus, screen savers, AI chat, echomail,
-  MeshCore, PDFs and Lua are optional components: a plain `cargo
+  MeshCore, MRC, PDFs and Python scripts are optional components: a plain `cargo
   build` is the core board, `--features full` everything.
   [BUILDING.md](docs/BUILDING.md) lists them and how to pick.
 
@@ -110,7 +110,7 @@ on port 2222 and telnet on 23. Logs are in `docker logs fluxbbs`.
 - Oneliners, automessage, last callers, BBS list, statistics
 - [Infoforms and new user voting](docs/FEATURES.md#infoforms-and-new-user-voting)
 - The time bank and screen themes
-- [Lua scripting](docs/SCRIPTING.md)
+- [Python scripting](docs/SCRIPTING.md)
 - [Doors](docs/DOORS.md), native and DOS (a built-in DOS machine)
 - [AI chat](docs/FEATURES.md#ai-chat) that can search the web and knows its way around the board,
   and a [tarot and fortune door](docs/FEATURES.md#tarot-and-fortunes) it reads for
@@ -143,7 +143,7 @@ Everything in detail: [docs/FEATURES.md](docs/FEATURES.md).
 | [SYSOP.md](docs/SYSOP.md) | Configuration, importing, security, the website feed, themes |
 | [FILES.md](docs/FILES.md) | Sub-areas, transfers, upload screening, the art gallery |
 | [DOORS.md](docs/DOORS.md) | Native doors and the built-in DOS machine |
-| [SCRIPTING.md](docs/SCRIPTING.md) | Lua scripts |
+| [SCRIPTING.md](docs/SCRIPTING.md) | Python scripts |
 | [CODES.md](docs/CODES.md) | Display codes |
 | [ARTWORK.md](docs/ARTWORK.md) | Screens to replace with your own art |
 | [AGENTS.md](docs/AGENTS.md) | the guide for an AI agent calling in as the SysOp's assistant (setting one up is in SYSOP.md) |

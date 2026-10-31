@@ -147,9 +147,9 @@ original's text libraries). Callers pick theirs with `UT`.
 
 #### Scripting
 
-Lua takes the place of IPL. `-X name` and `%!name` run
-`scripts/name.lua`, which has a `bbs` API for output, input, the user
-record, menu commands and stored values. See
+Python takes the place of IPL. `-X name` and `%!name` run
+`scripts/name.py`, which imports `fluxbbs`, the API for output, input,
+the user record, menu commands and stored values. See
 [SCRIPTING.md](SCRIPTING.md).
 
 ### Messages
@@ -2244,7 +2244,7 @@ SysOps still see everyone.
   `fltxt` and `flhtml`), with only the areas a new caller could open.
 - A cap on imported description lines (`*C`, Files: DIZ lines).
 - `bbs.inmenu(keys)` for scripts (IPL's `isincurmenu`). The rest of
-  2.0's new IPL functions have Lua equivalents (see
+  2.0's new IPL functions have Python equivalents (see
   [SCRIPTING.md](SCRIPTING.md)).
 - `D7` runs a door with DOOR.SYS, read back afterwards (see
   [Doors](#doors)).

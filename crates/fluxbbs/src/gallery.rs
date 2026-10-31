@@ -1128,8 +1128,8 @@ impl Session {
         };
         self.screen.goto(name_x.saturating_sub(1).max(1), y);
         self.screen.set_color(if hi { l.cl[3] } else { l.cl[0] });
-        // New: a name cut short says so, as DOS's short names did.
-        let name = if name.chars().count() > name_w && name_w > 1 { format!("{}~", name.chars().take(name_w - 1).collect::<String>()) } else { name };
+        // A long name is cut to the column, unmarked; the status line
+        // under the list shows more of it.
         self.write(&format!(" {} ", resize(&name, name_w)));
         if let Some(x) = size_x {
             self.screen.goto(x, y);

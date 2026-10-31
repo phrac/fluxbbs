@@ -51,6 +51,10 @@ impl Session {
                 return self.flush().await;
             }
             self.logon_init().await?;
+            if !self.telnet_ok().await? {
+                self.hangup = true;
+                return self.flush().await;
+            }
             if self.state.config().logon.matrix {
                 self.menu.current = "MATRIX".into();
                 self.menu_install().await?;
@@ -183,6 +187,45 @@ impl Session {
         self.clear_screen();
         self.show_file("PRELOGON").await?;
         Ok(())
+    }
+
+    /// New: a caller on telnet is told it's unencrypted and how to call
+    /// back over SSH (the TELNET screen, or TelnetPlain in plain text),
+    /// and goes on only once they've said so: Y goes on, N hangs up.
+    /// Boards without a TELNET screen skip it.
+    async fn telnet_ok(&mut self) -> io::Result<bool> {
+        if self.caller.transport != "telnet" {
+            return Ok(true);
+        }
+        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+        self.clear_screen();
+        if self.plain() {
+            if self.read_text_file("TELNET").await?.is_none() {
+                return Ok(true);
+            }
+            self.say_line("TelnetPlain").await?;
+            self.say("TelnetAsk").await?;
+        } else if !self.show_file("TELNET").await? {
+            return Ok(true);
+        }
+        // Whatever was typed at PRELOGON doesn't answer it.
+        let _ = self.take_pending_input();
+        loop {
+            match self.read_key().await? {
+                Key::Char(b'y' | b'Y') => {
+                    tracing::info!("{}: went on over telnet", self.caller.remote.map_or("?".into(), |a| a.to_string()));
+                    self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                    self.clear_screen();
+                    return Ok(true);
+                }
+                Key::Char(b'n' | b'N') | Key::Esc => {
+                    self.newline();
+                    self.say_line("TelnetBye").await?;
+                    return Ok(false);
+                }
+                _ => {}
+            }
+        }
     }
 
     /// `logonSystem` (`>L`): log in, or apply as a new user, then show the

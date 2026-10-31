@@ -121,7 +121,7 @@ git: copy `data/` and `files/` across if the board should move with you.
 - `cargo clippy --all-targets` must be clean, both for the core board and
   with `--features full`. **Don't run `cargo fmt`**: the
   code has never been rustfmt'd, and a format pass would rewrite every file.
-- Doors, the games, effects, screen savers, AI, FTN, MeshCore, PDFs, Lua
+- Doors, the games, effects, screen savers, AI, FTN, MeshCore, MRC, PDFs, Python scripts
   and the textfiles importer are optional components (Cargo features;
   docs/BUILDING.md). A plain build is the core; disflux, the flagship,
   runs `full` (the compose file and `tools/setup_host.sh` build it).

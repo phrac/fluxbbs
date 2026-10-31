@@ -378,8 +378,10 @@ pub struct Paths {
     pub temp: PathBuf,
     /// Door drop files, a directory per node (`pathDoor`).
     pub doors: PathBuf,
-    /// Lua scripts (`-X`, `%!`), which replace IPL modules (`pathIPLX`).
+    /// Python scripts (`-X`, `%!`), which replace IPL modules (`pathIPLX`).
     pub scripts: PathBuf,
+    /// New: the Python that runs them (`python3`, or a path to one).
+    pub python: String,
     /// Scheduled events (`*V`).
     pub events: PathBuf,
     /// The logon sequence (`*O`).
@@ -1677,6 +1679,7 @@ impl Default for Paths {
             temp: "data/temp".into(),
             doors: "data/doors".into(),
             scripts: "scripts".into(),
+            python: "python3".into(),
             events: "events.toml".into(),
             logon: "logon.toml".into(),
             attach: "data/attach".into(),
