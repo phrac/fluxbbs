@@ -55,10 +55,12 @@ def fade(n,rev):
     return ''.join(c+'─' for c in cs)
 out.append(at(rr,2)+fade(4,False)+fade(73,True))
 out.append(at(rr,7)+DG+'[ '+BR+'~FA'+' '+DG+']')
-# column heads, then the list and the stock lister's markers
-out.append(at(rr+1,3)+fade_text(heads[0])+at(rr+1,28)+fade_text(heads[1])+at(rr+1,37)+fade_text(heads[2]))
+# column heads, then the list and the stock lister's markers: names get
+# 16 columns (most fit; one cut short ends in ~) so descriptions get 50
+NAME,SIZE,DESC=3,20,29
+out.append(at(rr+1,NAME)+fade_text(heads[0])+at(rr+1,SIZE)+fade_text(heads[1])+at(rr+1,DESC)+fade_text(heads[2]))
 top=rr+2
-out.append(at(top,1)+'~TL'+at(20,1)+'~BL'+GR+at(top,3)+'~FN'+at(top,28)+'~FS'+at(top,37)+'~FD')
+out.append(at(top,1)+'~TL'+at(20,1)+'~BL'+GR+at(top,NAME)+'~FN'+at(top,SIZE)+'~FS'+at(top,DESC)+'~FD')
 out.append(at(21,2)+DG+'~S─'+at(21,79)+BR+'~E═')
 # The menu, the info line and, on the caller's last row, the prompt bar
 # the menus have (255 is past any bottom, and terminals stop there), with
