@@ -27,6 +27,58 @@ const COLS: usize = 80;
 const BAR: Color = Color::new(15, 1);
 const BAR_DIM: Color = Color::new(11, 1);
 
+/// The commands, for the list that drops up as `/` is typed, the hint
+/// once one's chosen, and `/help`: name, what follows it, what it does.
+/// The MRC server's own are here too; any other goes to it as typed.
+const COMMANDS: &[(&str, &str, &str)] = &[
+    ("join", "#room", "go to another room (made if no one's there)"),
+    ("part", "", "back to #lobby"),
+    ("msg", "name text", "a private message, to anyone on MRC"),
+    ("r", "text", "answer whoever last messaged you"),
+    ("me", "action", "an action: * you waves"),
+    ("topic", "text", "set the room's topic"),
+    ("names", "", "who's in the room"),
+    ("list", "", "the rooms on MRC"),
+    ("whoon", "", "everyone on MRC, every room"),
+    ("chatters", "", "who's chatting"),
+    ("info", "", "the boards on MRC"),
+    ("motd", "", "the server's message of the day"),
+    ("register", "password [email]", "claim your name on MRC"),
+    ("identify", "password", "prove it's you, once registered"),
+    ("server", "command", "a command to the MRC server: /server help"),
+    ("clear", "", "empty your window"),
+    ("help", "", "these commands"),
+    ("quit", "", "leave chat (Esc does too)"),
+];
+/// Other names the commands answer to.
+const ALIASES: &[(&str, &str)] = &[("j", "join"), ("m", "msg"), ("t", "msg"), ("query", "msg"), ("reply", "r"), ("who", "names"), ("users", "names"), ("rooms", "list"), ("cls", "clear"), ("?", "help"), ("q", "quit"), ("exit", "quit"), ("bye", "quit")];
+/// Commands listed at once.
+const SUGGEST_MAX: usize = 8;
+
+/// The command a word names (an alias too).
+fn command(word: &str) -> Option<&'static (&'static str, &'static str, &'static str)> {
+    let w = word.to_ascii_lowercase();
+    let name = ALIASES.iter().find(|(a, _)| *a == w).map_or(w.as_str(), |(_, n)| n);
+    COMMANDS.iter().find(|c| c.0 == name)
+}
+
+/// While a command's name is being typed (`/jo`): those it could be.
+fn suggestions(input: &str) -> Vec<&'static (&'static str, &'static str, &'static str)> {
+    match input.strip_prefix('/') {
+        Some(w) if !w.contains(' ') => {
+            let w = w.to_ascii_lowercase();
+            COMMANDS.iter().filter(|c| c.0.starts_with(&w)).take(SUGGEST_MAX).collect()
+        }
+        _ => Vec::new(),
+    }
+}
+
+/// Once it's named (`/msg `): what it takes and does.
+fn hint(input: &str) -> Option<&'static (&'static str, &'static str, &'static str)> {
+    let (w, _) = input.strip_prefix('/')?.split_once(' ')?;
+    command(w)
+}
+
 /// A line on screen: characters and their colours.
 type Row = Vec<(char, Color)>;
 
@@ -119,6 +171,8 @@ struct Chat {
     dirty: bool,
     /// When the room's list was last asked for.
     asked: Option<Instant>,
+    /// Which of the commands dropping up is picked.
+    pick: usize,
 }
 
 impl Chat {
@@ -205,8 +259,10 @@ impl Session {
             recall: None,
             dirty: true,
             asked: None,
+            pick: 0,
         };
         let mut events = self.state.mrc.subscribe();
+        chat.notice("|07Type and Enter to talk to the room. |15/|07 shows the commands, |15/help|07 lists them, |15Esc|07 leaves.");
         self.mrc_enter(&chat);
         tracing::info!("{}: MRC chat as {}", self.user.handle, chat.nick);
         // Node messages come into the window, not over it.
@@ -312,6 +368,43 @@ impl Session {
     /// A key typed; false to leave.
     fn mrc_key(&mut self, chat: &mut Chat, key: Key) -> io::Result<bool> {
         let page = self.screen.rows().saturating_sub(4) as usize;
+        // A command being named: the list takes the arrows, Tab and Enter.
+        let sugg = suggestions(&chat.input);
+        if !sugg.is_empty() {
+            let pick = chat.pick.min(sugg.len() - 1);
+            let fill = |c: &(&str, &str, &str)| if c.1.is_empty() { format!("/{}", c.0) } else { format!("/{} ", c.0) };
+            match key {
+                Key::Up => {
+                    chat.pick = pick.checked_sub(1).unwrap_or(sugg.len() - 1);
+                    chat.dirty = true;
+                    return Ok(true);
+                }
+                Key::Down => {
+                    chat.pick = (pick + 1) % sugg.len();
+                    chat.dirty = true;
+                    return Ok(true);
+                }
+                Key::Tab => {
+                    chat.input = fill(sugg[pick]);
+                    chat.pick = 0;
+                    chat.dirty = true;
+                    return Ok(true);
+                }
+                // Enter on a command that's whole and needs nothing more runs
+                // it; otherwise it's filled in, to go on typing.
+                Key::Enter => {
+                    let typed = chat.input[1..].to_ascii_lowercase();
+                    let whole = command(&typed).is_some_and(|c| c.1.is_empty() && (c.0 == typed || ALIASES.iter().any(|(a, _)| *a == typed)));
+                    if !whole {
+                        chat.input = fill(sugg[pick]);
+                        chat.pick = 0;
+                        chat.dirty = true;
+                        return Ok(true);
+                    }
+                }
+                _ => {}
+            }
+        }
         match key {
             Key::Esc => return Ok(false),
             Key::Enter => {
@@ -332,6 +425,7 @@ impl Session {
             }
             Key::Backspace => {
                 chat.input.pop();
+                chat.pick = 0;
             }
             // ^U: clear the line.
             Key::Char(0x15) => chat.input.clear(),
@@ -364,7 +458,10 @@ impl Session {
                     chat.input = format!("{}{u}{sep}", &chat.input[..start]);
                 }
             }
-            Key::Char(c) if (0x20..0x7F).contains(&c) && chat.input.chars().count() < INPUT_MAX && c != b'~' => chat.input.push(c as char),
+            Key::Char(c) if (0x20..0x7F).contains(&c) && chat.input.chars().count() < INPUT_MAX && c != b'~' => {
+                chat.input.push(c as char);
+                chat.pick = 0;
+            }
             Key::Char(c @ 0x80..=0xFE) if chat.input.chars().count() < INPUT_MAX => chat.input.push(fluxbbs_term::cp437::TO_UNICODE[c as usize]),
             _ => {}
         }
@@ -436,14 +533,12 @@ impl Session {
                 chat.back = 0;
             }
             "help" | "?" => {
-                for l in [
-                    "|15/join |07#room   |15/msg |07name text   |15/r |07text (answer a message)",
-                    "|15/me |07action   |15/topic |07text   |15/names   /list |07(rooms)   |15/clear   /quit",
-                    "|07PgUp/PgDn scroll, Up/Down your last lines, Tab a name, Esc leaves.",
-                    "|07Anything else after |15/|07 goes to the MRC server: |15/help |07there is |15/server help|07.",
-                ] {
-                    chat.notice(l);
+                chat.notice("|15Commands|07 (type |15/|07 to pick one as you go):");
+                for (name, args, what) in COMMANDS {
+                    let left = if args.is_empty() { format!("/{name}") } else { format!("/{name} {args}") };
+                    chat.notice(&format!("  |15{left:<24}|07{what}"));
                 }
+                chat.notice("|07To answer someone in the room, just type; |15Tab|07 finishes a name. |15PgUp/PgDn|07 scroll, |15Up/Down|07 your last lines.");
             }
             "server" if !args.is_empty() => {
                 let (c, a) = args.split_once(' ').unwrap_or((args, ""));
@@ -630,6 +725,31 @@ impl Session {
                 self.screen.write_str(&" ".repeat(COLS - used));
             }
         }
+        // The commands dropping up as one's named, or the hint for it.
+        let sugg = suggestions(&chat.input);
+        let rows_list: Vec<(String, String, String, bool)> = if !sugg.is_empty() {
+            let pick = chat.pick.min(sugg.len() - 1);
+            sugg.iter().enumerate().map(|(i, c)| (format!("/{}", c.0), c.1.to_string(), c.2.to_string(), i == pick)).collect()
+        } else if let Some(c) = hint(&chat.input) {
+            vec![(format!("/{}", c.0), c.1.to_string(), c.2.to_string(), false)]
+        } else {
+            Vec::new()
+        };
+        for (i, (name, args, what, on)) in rows_list.iter().enumerate() {
+            let y = (rows - 1 - rows_list.len() + i) as u16;
+            let bg = if *on { 1 } else { 0 };
+            self.screen.goto(1, y);
+            self.screen.set_color(Color::new(8, bg));
+            self.screen.write_str(if *on { " \u{25ba} " } else { "   " });
+            self.screen.set_color(Color::new(15, bg));
+            self.screen.write_text(&format!("{name:<11}"));
+            self.screen.set_color(Color::new(11, bg));
+            self.screen.write_text(&format!("{args:<18}"));
+            self.screen.set_color(Color::new(if *on { 15 } else { 7 }, bg));
+            let room = COLS - 3 - 11 - 18;
+            let what: String = what.chars().take(room).collect();
+            self.screen.write_text(&format!("{what:<room$}"));
+        }
         // Status bar.
         let st = self.state.mrc.status();
         let now = crate::clock::now().format("%H:%M").to_string();
@@ -696,6 +816,14 @@ mod tests {
         let c = chunks(&"abc ".repeat(80));
         assert!(c.len() == 3 && c.iter().all(|p| p.chars().count() <= mrc::BODY_MAX && !p.ends_with(' ')));
         assert_eq!(chunks("  hello  "), ["hello"]);
+        // Commands drop up as they're named, then hint at what they take.
+        assert_eq!(suggestions("/").len(), SUGGEST_MAX);
+        assert_eq!(suggestions("/jo").iter().map(|c| c.0).collect::<Vec<_>>(), ["join"]);
+        assert_eq!(suggestions("/m").iter().map(|c| c.0).collect::<Vec<_>>(), ["msg", "me", "motd"]);
+        assert!(suggestions("/msg Zed").is_empty() && suggestions("hello").is_empty());
+        assert_eq!(hint("/msg Zed hi").map(|c| c.1), Some("name text"));
+        assert_eq!(hint("/j #hacking").map(|c| c.0), Some("join"));
+        assert!(hint("/nonsense x").is_none() && hint("just talking").is_none());
         // The server's notices bring the list again; its replies never do.
         assert!(someone_came_or_went("|07- |11Bob |03is Joining |15#lobby"));
         assert!(!someone_came_or_went("USERLIST:LinkedLarry,Timeout_Tim,phrac"));

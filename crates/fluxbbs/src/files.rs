@@ -601,7 +601,37 @@ impl Session {
         }
         self.write("Continue");
         self.newline();
-        self.select_protocol(batch).await
+        // A file area's files may go by web link too.
+        self.select_protocol_for(batch, true).await
+    }
+
+    /// New: links to fetch these files over HTTPS instead (`web.rs`):
+    /// shown, each good for `[web] link_minutes` and `link_uses` fetches,
+    /// counted as a download when first fetched whole.
+    async fn give_links(&mut self, files: &[(FAreaRef, FileRec)]) -> io::Result<()> {
+        let (base, minutes, uses) = {
+            let web = &self.state.config().web;
+            (web.download_url.trim().to_string(), web.link_minutes.max(1), web.link_uses.max(1))
+        };
+        self.newline();
+        let s = self.strings().fmt(if files.len() == 1 { "FaLinkOne" } else { "FaLinkMany" }, &[&minutes.to_string(), &uses.to_string()]);
+        self.show_line(&s).await?;
+        for (a, f) in files {
+            let path = self.farea_dir(&a.area).join(&f.name);
+            let token = self.state.links.mint(&self.state, self.user.id, &self.user.handle, &a.area.file, &f.name, path);
+            let url = crate::web::link_url(&base, &token, &f.name);
+            if files.len() > 1 {
+                let s = self.strings().fmt("FaLinkName", &[&f.name]);
+                self.show_line(&s).await?;
+            }
+            // The address as it is, so it can be copied whole.
+            self.screen.set_color(fluxbbs_term::Color::new(15, 0));
+            self.screen.write_text(&url);
+            self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+            self.newline();
+            tracing::info!("{}: download link for {} ({})", self.user.handle, f.name, a.area.name);
+        }
+        self.say_line("FaLinkAfter").await
     }
 
     /// Credit a completed download.
@@ -691,6 +721,9 @@ impl Session {
             return Ok(());
         }
         let Some(proto) = self.confirm_and_pick(false).await? else { return Ok(()) };
+        if matches!(proto, Proto::Link) {
+            return self.give_links(&[(a.clone(), f)]).await;
+        }
         let logoff = self.ask_auto_logoff().await?;
         let path = self.farea_dir(&a.area).join(&f.name);
         let ok = self.send_files(&proto, std::slice::from_ref(&path)).await?;
@@ -734,6 +767,11 @@ impl Session {
         self.show_line(&s).await?;
         self.newline();
         let Some(proto) = self.confirm_and_pick(picked.len() > 1).await? else { return Ok(()) };
+        if matches!(proto, Proto::Link) {
+            self.give_links(&picked).await?;
+            self.batch.clear();
+            return Ok(());
+        }
         let logoff = self.ask_auto_logoff().await?;
         let paths: Vec<PathBuf> = picked.iter().map(|(a, f)| self.farea_dir(&a.area).join(&f.name)).collect();
         let ok = self.send_files(&proto, &paths).await?;

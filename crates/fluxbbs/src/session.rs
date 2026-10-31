@@ -123,6 +123,9 @@ pub struct Session {
     /// The caller's record as this session last loaded or saved it, to
     /// tell its own changes from others' (`save_own_user`).
     pub(crate) user_base: std::cell::RefCell<Option<User>>,
+    /// Set while asking whether the caller's time is unlimited: the ACS
+    /// that decides it sees their own minutes, not a whole day.
+    checking_time: std::cell::Cell<bool>,
     pub(crate) io: Box<dyn Stream>,
     pub(crate) screen: Screen,
     pub(crate) input: VecDeque<u8>,
@@ -423,6 +426,7 @@ impl Session {
             hold_account_changes: false,
             user,
             user_base: Default::default(),
+            checking_time: Default::default(),
             io,
             screen,
             input: VecDeque::new(),
@@ -500,8 +504,26 @@ impl Session {
         (self.time_on.elapsed().as_secs() / 60) as u32
     }
 
-    /// `mTimeLeft`.
+    /// Minutes in a day: what a caller with no time limit always has left.
+    pub const UNLIMITED_MINUTES: u32 = 1440;
+
+    /// New: has this caller no time limit (`[bbs] unlimited_time_acs`)?
+    pub fn time_unlimited(&self) -> bool {
+        let acs = self.state.config().bbs.unlimited_time_acs.clone();
+        if acs.trim().is_empty() || !self.logged_in || self.checking_time.get() {
+            return false;
+        }
+        self.checking_time.set(true);
+        let yes = self.acs(&acs);
+        self.checking_time.set(false);
+        yes
+    }
+
+    /// `mTimeLeft`; a whole day for a caller with no limit.
     pub fn minutes_left(&self) -> u32 {
+        if self.time_unlimited() {
+            return Self::UNLIMITED_MINUTES;
+        }
         self.user.time_today.saturating_sub(self.minutes_used())
     }
 
@@ -566,7 +588,11 @@ impl Session {
         }
         // An edit that hasn't reached us yet (no key since) still counts.
         let _ = self.absorb_account_changes();
-        self.user.time_today = self.minutes_left();
+        // A caller with no limit keeps their level's time as it was: the
+        // day's minutes aren't theirs to carry.
+        if !self.time_unlimited() {
+            self.user.time_today = self.minutes_left();
+        }
         if let Err(e) = self.save_own_user() {
             tracing::error!("saving user {}: {e}", self.user.handle);
         }

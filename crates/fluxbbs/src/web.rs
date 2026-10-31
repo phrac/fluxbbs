@@ -5,7 +5,14 @@
 //! every few seconds however often it's asked for. `/files.txt` and
 //! `/files.html` are the file list (Iniquity 2.0 made these with its
 //! `fltxt` and `flhtml`): the areas a new caller could open.
+//!
+//! New: `/dl/TOKEN/NAME` is a download link a caller asked for in the
+//! terminal (the "web link" protocol): one file, for a while
+//! (`[web] link_minutes`) and a few fetches (`link_uses`), counted as
+//! that caller's download when it's first fetched whole.
 
+use std::collections::HashMap;
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -18,6 +25,165 @@ use crate::acs::{self, AcsEnv};
 use crate::user::User;
 
 const FRESH: Duration = Duration::from_secs(10);
+/// Download links kept at once, at most.
+const MAX_LINKS: usize = 10_000;
+
+/// A file a caller may fetch by link.
+#[derive(Debug, Clone)]
+pub struct Link {
+    pub user_id: u32,
+    pub handle: String,
+    /// The file area's storage key, and the file's name in it.
+    pub area: String,
+    pub name: String,
+    pub path: PathBuf,
+    expires: Instant,
+    uses_left: u32,
+    counted: bool,
+}
+
+/// The download links given out, by token. In memory: they're short
+/// lived, and a restart only ends them early.
+#[derive(Default)]
+pub struct Links {
+    map: Mutex<HashMap<String, Link>>,
+}
+
+impl Links {
+    /// A new link to `path` (`area`'s `name`) for this caller: its token.
+    pub fn mint(&self, state: &BbsState, user_id: u32, handle: &str, area: &str, name: &str, path: PathBuf) -> String {
+        let web = &state.config().web;
+        let token: String = (0..16).map(|_| format!("{:02x}", rand::random::<u8>())).collect();
+        let link = Link {
+            user_id,
+            handle: handle.to_string(),
+            area: area.to_string(),
+            name: name.to_string(),
+            path,
+            expires: Instant::now() + Duration::from_secs(web.link_minutes.max(1) as u64 * 60),
+            uses_left: web.link_uses.max(1),
+            counted: false,
+        };
+        let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let now = Instant::now();
+        map.retain(|_, l| l.expires > now && l.uses_left > 0);
+        if map.len() >= MAX_LINKS
+            && let Some(oldest) = map.iter().min_by_key(|(_, l)| l.expires).map(|(k, _)| k.clone())
+        {
+            map.remove(&oldest);
+        }
+        map.insert(token.clone(), link);
+        token
+    }
+
+    /// The link for a token, if it's still good; a fetch used up if
+    /// `fetch`.
+    fn take(&self, token: &str, fetch: bool) -> Option<Link> {
+        let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let l = map.get_mut(token)?;
+        if l.expires <= Instant::now() || l.uses_left == 0 {
+            map.remove(token);
+            return None;
+        }
+        if fetch {
+            l.uses_left -= 1;
+        }
+        Some(l.clone())
+    }
+
+    /// Mark a link's file counted; false if it already was.
+    fn count_once(&self, token: &str) -> bool {
+        let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        match map.get_mut(token) {
+            Some(l) if !l.counted => {
+                l.counted = true;
+                true
+            }
+            // Gone (its last fetch): counted when that fetch began, if not before.
+            Some(_) => false,
+            None => true,
+        }
+    }
+}
+
+/// The URL of a link: the board's address, the token, the file's name.
+pub fn link_url(base: &str, token: &str, name: &str) -> String {
+    let enc: String = name
+        .bytes()
+        .map(|b| if b.is_ascii_alphanumeric() || b"._-~".contains(&b) { (b as char).to_string() } else { format!("%{b:02X}") })
+        .collect();
+    format!("{}/dl/{token}/{enc}", base.trim_end_matches('/'))
+}
+
+/// A file fetched whole by link: the caller's download, as a transfer's
+/// would be (the file's count, the caller's totals, today's, points).
+fn count_link(state: &BbsState, l: &Link) -> anyhow::Result<()> {
+    let Some(mut f) = state.files.find(&l.area, &l.name)? else { return Ok(()) };
+    let kb = (f.size / 1024) as u32;
+    f.downloads += 1;
+    state.files.update(&f)?;
+    if let Some(u) = state.users.get(l.user_id)? {
+        let mut paid = u.clone();
+        paid.downloads += 1;
+        paid.download_kb += kb as u64;
+        paid.today_dl += 1;
+        paid.today_dl_kb += kb;
+        if state.config().files.use_file_points {
+            paid.file_points = paid.file_points.saturating_sub(f.points);
+        }
+        // Onto their record as it is now: a session they have open adds
+        // what it changed when it saves.
+        state.users.merge_with(&u, &paid, false)?;
+    }
+    state.sys.bump(crate::clock::now().date_naive(), crate::sysdata::Stat::Download { kb: kb as u64 })?;
+    tracing::info!("{}: downloaded {} ({}) by link", l.handle, l.name, l.area);
+    Ok(())
+}
+
+/// `/dl/TOKEN/NAME`: the file, if the link's still good.
+async fn serve_link(state: &Arc<BbsState>, sock: &mut tokio::net::TcpStream, method: &str, path: &str) {
+    let token = path.trim_start_matches("/dl/").split('/').next().unwrap_or("");
+    let head = method == "HEAD";
+    let found = if (method == "GET" || head) && token.len() == 32 && token.bytes().all(|b| b.is_ascii_hexdigit()) {
+        state.links.take(token, !head)
+    } else {
+        None
+    };
+    let Some(link) = found else {
+        let body = "This link has expired or doesn't exist. Ask the board for a new one.\n";
+        let reply = format!("HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+        let _ = sock.write_all(reply.as_bytes()).await;
+        let _ = sock.shutdown().await;
+        return;
+    };
+    let Ok(mut file) = tokio::fs::File::open(&link.path).await else {
+        let _ = sock.write_all(b"HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+        return;
+    };
+    let size = file.metadata().await.map(|m| m.len()).unwrap_or(0);
+    // The name as the browser saves it: plain for old ones, exact for the rest.
+    let plain: String = link.name.chars().map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' { c } else { '_' }).collect();
+    let exact = link_url("", "", &link.name).trim_start_matches("/dl//").to_string();
+    let head_lines = format!(
+        "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"{plain}\"; filename*=UTF-8''{exact}\r\nContent-Length: {size}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
+    );
+    if sock.write_all(head_lines.as_bytes()).await.is_err() || head {
+        let _ = sock.shutdown().await;
+        return;
+    }
+    let sent = tokio::io::copy(&mut file, sock).await.unwrap_or(0);
+    let _ = sock.shutdown().await;
+    if sent == size && state.links.count_once(token) {
+        let st = state.clone();
+        let l = link.clone();
+        let _ = tokio::task::spawn_blocking(move || {
+            if let Err(e) = count_link(&st, &l) {
+                tracing::warn!("download link: counting {}: {e:#}", l.name);
+            }
+        })
+        .await;
+    }
+}
 
 #[derive(Serialize)]
 struct Status {
@@ -372,6 +538,10 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
             let mut words = head.split_whitespace();
             let (method, path) = (words.next().unwrap_or(""), words.next().unwrap_or(""));
             let path = path.split('?').next().unwrap_or("");
+            if path.starts_with("/dl/") {
+                let (method, path) = (method.to_string(), path.to_string());
+                return serve_link(&state, &mut sock, &method, &path).await;
+            }
             let mut kind = "application/json";
             let (status, body) = if method != "GET" {
                 ("405 Method Not Allowed", String::new())
@@ -427,6 +597,30 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn link_urls() {
+        assert_eq!(link_url("https://disfluxbbs.com/", "ab12", "agoranet.z03"), "https://disfluxbbs.com/dl/ab12/agoranet.z03");
+        assert_eq!(link_url("https://x", "t", "My Nodes+v2.zip"), "https://x/dl/t/My%20Nodes%2Bv2.zip");
+    }
+
+    #[test]
+    fn links_expire_and_run_out() {
+        let state = crate::tests::state();
+        let mut cfg = (*state.config()).clone();
+        cfg.web.link_uses = 2;
+        *state.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(cfg);
+        let t = state.links.mint(&state, 1, "phrac", "AGNNODE", "agoranet.z03", "/nonexistent".into());
+        assert_eq!(t.len(), 32);
+        // A HEAD doesn't use one up; two fetches do.
+        assert!(state.links.take(&t, false).is_some());
+        assert!(state.links.take(&t, true).is_some() && state.links.take(&t, true).is_some());
+        assert!(state.links.take(&t, true).is_none());
+        assert!(state.links.take("0".repeat(32).as_str(), true).is_none());
+        // Counted once, however often it's fetched.
+        let t = state.links.mint(&state, 1, "phrac", "AGNNODE", "agoranet.z03", "/nonexistent".into());
+        assert!(state.links.count_once(&t) && !state.links.count_once(&t));
+    }
 
     #[test]
     fn activities_stay_vague() {

@@ -228,6 +228,8 @@ pub struct BbsState {
     pub ai_usage: std::sync::Mutex<std::collections::HashMap<(u32, chrono::NaiveDate), u32>>,
     /// Posts on their way to the MeshCore bridge.
     pub mesh: MeshOutbox,
+    /// New: download links given out (`web.rs`).
+    pub links: web::Links,
     /// New: the board's MRC connection (`mrc.rs`).
     #[cfg(feature = "mrc")]
     pub mrc: mrc::Hub,
@@ -609,6 +611,7 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         guard: guard::Guard::new(),
         ai_usage: Default::default(),
         mesh: Default::default(),
+        links: Default::default(),
         #[cfg(feature = "mrc")]
         mrc: Default::default(),
         doors_in_use: Default::default(),
@@ -835,6 +838,7 @@ pub mod tests {
             guard: guard::Guard::new(),
             ai_usage: Default::default(),
             mesh: Default::default(),
+            links: Default::default(),
             #[cfg(feature = "mrc")]
             mrc: Default::default(),
             doors_in_use: Default::default(),

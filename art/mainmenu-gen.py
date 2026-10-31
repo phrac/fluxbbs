@@ -28,12 +28,12 @@ MENUDIR = boardname.CLASSIC_MENUS
 
 # name: (title, [(box title, [(key, label)])])
 MENUS = {
- 'main': ('main menu', [('talk', [('m', 'message boards'), ('e', 'email'), ('o', 'oneliners'), ('a', 'automsg'), ('j', 'ai chat'), ('w', "who's on"), ('x', 'nodes'), ('p', 'page sysop'), ('n', 'feedback')]),
+ 'main': ('main menu', [('talk', [('m', 'message boards'), ('e', 'email'), ('o', 'oneliners'), ('a', 'mrc chat'), ('j', 'ai chat'), ('w', "who's on"), ('x', 'nodes'), ('p', 'page sysop'), ('n', 'feedback')]),
        ('files & fun', [('f', 'files'), ('r', 'art gallery'), ('d', 'doors'), ('k', 'points & lottery'), ('b', 'bbs list'), ('@', 'weather'), ('v', 'voting booth'), ('i', 'infoforms'), ('h', 'about flux/bbs')]),
        ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('>', 'more...'), ('g', 'goodbye')])]),
  # The main menu's overflow: what's used least. Their keys still work
  # from the main menu too (hidden there).
- 'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('<', 'back')])]),
+ 'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('<', 'back')])]),
  'file': ('file menu', [('areas', [('a', 'change area'), ('j', 'join conference'), ('[', 'previous area'), (']', 'next area'), ('#', 'jump to area #')]),
        ('find', [('l', 'browse files'), ('f', 'search files'), ('n', 'newscan'), ('s', 'set newscan date'), ('e', 'scan select')]),
        ('transfer', [('d', 'download'), ('u', 'upload'), ('+', 'flag for batch'), ('b', 'batch edit'), ('q', 'quit')])]),
@@ -84,6 +84,8 @@ CHANGED = {
     # f searches names, descriptions and areas at once, in the browser.
     ('file', 'f'): {'command': 'FW', 'param': 'search', 'desc': 'Search files', 'help': 'Look for words in file names, descriptions and areas'},
     ('door', 'c'): {'command': 'AC', 'param': '', 'desc': 'Casino', 'help': 'The casino: slots, blackjack, roulette, craps, the bar and the players club'},
+    # a is MRC, live chat with other boards' callers; automsg moves to more (!).
+    ('main', 'a'): {'command': 'XR', 'param': '', 'acs': '', 'desc': 'MRC chat', 'help': 'Chat live with callers on other BBSes (Multi Relay Chat)'},
 }
 ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', 'desc': 'How it works', 'help': 'The keys for reading, posting, votes and comments'},
          # The about screen (art/about-gen.py).
@@ -93,6 +95,7 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
          # The overflow menu, and the way back from it.
          ('main', '>'): {'keys': '>', 'command': '-/', 'param': 'MORE', 'desc': 'More', 'help': 'Offline mail (qwk), new user voting, and what else is used least'},
          ('more', '<'): {'keys': '<', 'command': '-\\', 'param': 'MAIN', 'desc': 'Back', 'help': 'Back to the main menu'},
+         ('more', '!'): {'keys': '!', 'command': '-/', 'param': 'AUTOMSG', 'acs': 's25', 'desc': 'AutoMsg menu', 'help': 'The automessage: show it, write one, reply to its author'},
          # The weather, from the doors menu.
          ('main', '@'): {'keys': '@', 'command': 'WX', 'param': '', 'desc': 'Weather', 'help': 'The weather where you are: the sky now, the next day and the week'},
          # MRC: chat with callers on other boards (XR), beside the node chat.

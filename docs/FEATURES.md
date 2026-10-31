@@ -2166,7 +2166,8 @@ screen should (its markers are in [ARTWORK](ARTWORK.md#chat)).
 
 ### MRC chat
 
-`XR` (`R` on the multinode menu): MRC, Multi Relay Chat, live chat with
+`XR` (`A` on the main menu, `R` on the multinode menu; automsg is `!`
+on the more menu): MRC, Multi Relay Chat, live chat with
 callers on other BBSes (Mystic, Synchronet, Enigma and the rest) through
 one connection from the board to an MRC server. It's laid out as irssi
 lays out IRC:
@@ -2192,6 +2193,13 @@ lays out IRC:
 | `/list` (`/rooms`) | the rooms |
 | `/clear`, `/help`, `/quit` (or Esc) | |
 | any other `/command` | goes to the MRC server (`/register`, `/identify`, `/info`, `/server help`...) |
+
+Typing `/` drops up the commands above the status bar, narrowing as
+you type (`/m`: `/msg`, `/me`, `/motd`), each with what it takes and
+does; Up and Down pick one, Tab or Enter fills it in (Enter runs one
+that needs nothing more), and once it's named a line says what it
+takes. `/help` lists them all. To answer someone in the room, just type
+(Tab finishes their name).
 
 PgUp and PgDn scroll back (1,000 lines), Up and Down bring back what
 you typed, Tab finishes a name in the room. Your name on MRC is your

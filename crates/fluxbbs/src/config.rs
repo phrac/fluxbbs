@@ -92,6 +92,10 @@ pub struct Bbs {
     /// idle (e.g. `FX` for users with flag X, or `s255` for SysOps).
     /// Blank: the idle timeout applies to everyone.
     pub idle_exempt_acs: String,
+    /// New: callers matching this ACS have no time limit (e.g. `s50`):
+    /// a whole day's minutes left whatever they've used. Blank: everyone
+    /// has their level's time.
+    pub unlimited_time_acs: String,
     /// New: the zone the board keeps time in (an IANA name such as
     /// `America/Chicago`); blank for the host's clock.
     pub time_zone: String,
@@ -294,6 +298,13 @@ pub struct Web {
     pub new_files: u8,
     /// The latest public posts (new).
     pub new_posts: u8,
+    /// New: where callers fetch files by link (`https://disfluxbbs.com`):
+    /// the web server passes `/dl/` to the feed's address. Blank: no
+    /// links.
+    pub download_url: String,
+    /// How long a link lasts, and how many times it can be fetched.
+    pub link_minutes: u32,
+    pub link_uses: u32,
 }
 
 impl Default for Web {
@@ -307,6 +318,9 @@ impl Default for Web {
             last_callers: 10,
             new_files: 10,
             new_posts: 5,
+            download_url: String::new(),
+            link_minutes: 30,
+            link_uses: 3,
         }
     }
 }
@@ -1629,6 +1643,7 @@ impl Default for Bbs {
             max_nodes: 16,
             inactivity_seconds: 300,
             idle_exempt_acs: String::new(),
+            unlimited_time_acs: String::new(),
             time_zone: String::new(),
         }
     }

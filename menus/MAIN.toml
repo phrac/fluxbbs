@@ -70,13 +70,11 @@ off = " \u001b[0;1;30m(\u001b[0;1;35mo\u001b[0;1;30m) \u001b[38;2;255;255;255mo\
 
 [[command]]
 keys = "A"
-command = "-/"
-param = "AUTOMSG"
-acs = "s25"
-desc = "AutoMsg menu"
-help = "Goto the automessage menu"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45ma\u001b[0;30;45m) \u001b[0;1;37;45mautomsg           \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35ma\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;198;255mu\u001b[38;2;255;142;255mt\u001b[38;2;255;85;255mo\u001b[38;2;227;57;227mm\u001b[38;2;198;28;198ms\u001b[38;2;170;0;170mg           \u001b[0m"
+command = "XR"
+desc = "MRC chat"
+help = "Chat live with callers on other BBSes (Multi Relay Chat)"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45ma\u001b[0;30;45m) \u001b[0;1;37;45mmrc chat          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35ma\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;206;255mr\u001b[38;2;255;158;255mc \u001b[38;2;243;73;243mc\u001b[38;2;219;49;219mh\u001b[38;2;194;24;194ma\u001b[38;2;170;0;170mt          \u001b[0m"
 
 [[command]]
 keys = "J"

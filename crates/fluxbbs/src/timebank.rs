@@ -128,6 +128,10 @@ impl Session {
             Ok(n) if n > 0 => n,
             _ => return Ok(()),
         };
+        // Time a caller has without limit isn't theirs to bank.
+        if put_in && unit == Unit::Minutes && self.time_unlimited() {
+            return self.say_line("BankUnlimited").await;
+        }
         let level = self.bank_level();
         let available = match unit {
             Unit::Minutes => self.minutes_left() as u64,
@@ -184,6 +188,24 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[tokio::test]
+    async fn validated_callers_have_no_time_limit() {
+        let state = crate::tests::state();
+        let mut cfg = (*state.config()).clone();
+        cfg.bbs.unlimited_time_acs = "s50".into();
+        *state.config.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(cfg);
+        let mut u = crate::user::User { handle: "phrac".into(), sl: 50, time_today: 3, ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        let mut s = Session::for_test(state.clone(), u);
+        s.logged_in = true;
+        assert!(s.time_unlimited());
+        assert_eq!(s.minutes_left(), Session::UNLIMITED_MINUTES);
+        // Below the line, the level's time as ever.
+        s.user.sl = 49;
+        assert!(!s.time_unlimited());
+        assert_eq!(s.minutes_left(), 3);
+    }
 
     fn level() -> Level {
         Level { bank_time_max: 60, bank_time_deposit: 30, bank_time_withdraw: 20, bank_kb_max: 1000, bank_kb_deposit: 500, bank_kb_withdraw: 400, ..Level::default() }

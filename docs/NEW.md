@@ -158,6 +158,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - An ACS for callers who never time out for being idle
   (`[bbs] idle_exempt_acs`, e.g. a user flag).
   ([SYSOP](SYSOP.md#callers-who-never-time-out))
+- An ACS for callers with no time limit at all
+  (`[bbs] unlimited_time_acs`, e.g. `s50`).
+  ([SYSOP](SYSOP.md#callers-with-no-time-limit))
 - The last callers list draws the caller's own call (the newest of
   theirs) highlighted (`LASTCHIL`), and, animating, types it in and
   runs a glint across it: that last call is this one.
@@ -478,6 +481,9 @@ All in [FEATURES](FEATURES.md#qwk-offline-mail).
   (rescans) still thread, and wait for them 30 days from arriving.
 - Netmail to the board goes to callers' email.
 - AreaFix requests from the shell (`fluxbbs ftn areafix`).
+- Download links: `W` (Web link) at a file area download gives an HTTPS
+  link instead, for one file and caller, short-lived, counted when it's
+  fetched. ([FILES](FILES.md#web-links))
 - Callers write netmail as email to `name@zone:net/node`, and answer
   netmail as netmail (REPLY threaded); the address is checked against
   the network's nodelist first.

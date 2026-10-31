@@ -224,6 +224,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('E', "SysOp name", 36, "The SysOp's real name.", Text(|c| &mut c.bbs.sysop_name, TEXT)),
             set('F', "Max nodes", 3, "Callers online at once (takes effect on restart).", Num(|c| c.bbs.max_nodes as u64, |c, v| c.bbs.max_nodes = v as u16, 1, 250)),
             set('G', "Idle timeout", 6, "Disconnect after this many idle seconds (0 = never).", Num(|c| c.bbs.inactivity_seconds, |c, v| c.bbs.inactivity_seconds = v, 0, 86_400)),
+            set('L', "Unlimited time ACS", 20, "Callers matching this ACS have no time limit (s50: validated callers and up). Blank: everyone has their level's daily time.", Text(|c| &mut c.bbs.unlimited_time_acs, ACS)),
             set('J', "No-idle ACS", 20, "Callers matching this ACS never time out when idle (FX: users with flag X; s255: SysOps). Blank: no one.", Text(|c| &mut c.bbs.idle_exempt_acs, ACS)),
             set('H', "Time zone", 32, "Zone the board keeps time in (America/Chicago, EST, UTC-6); blank for the host's clock.", Text(|c| &mut c.bbs.time_zone, TEXT)),
         ]),
@@ -329,6 +330,9 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('F', "Last callers", 2, "How many recent callers to list.", Num(|c| c.web.last_callers as u64, |c, v| c.web.last_callers = v as u8, 0, 50)),
             set('G', "New files", 2, "How many new files to list.", Num(|c| c.web.new_files as u64, |c, v| c.web.new_files = v as u8, 0, 50)),
             set('H', "New posts", 2, "How many of the latest public posts to list.", Num(|c| c.web.new_posts as u64, |c, v| c.web.new_posts = v as u8, 0, 50)),
+            set('I', "Download links", 40, "Callers may fetch files by HTTPS link from here (https://disfluxbbs.com; the web server passes /dl/ to the feed). Blank: no links.", Text(|c| &mut c.web.download_url, TEXT.max(100))),
+            set('J', "Link minutes", 4, "How long a download link lasts.", Num(|c| c.web.link_minutes as u64, |c, v| c.web.link_minutes = v as u32, 1, 1440)),
+            set('K', "Link uses", 3, "How many times a download link can be fetched.", Num(|c| c.web.link_uses as u64, |c, v| c.web.link_uses = v as u32, 1, 99)),
         ]),
         ("Passwords and Sign-ups", false, vec![
             set('A', "Min. password length", 3, "Shortest password allowed.", Num(|c| c.passwords.min_length as u64, |c, v| c.passwords.min_length = v as u8, 1, 64)),

@@ -161,6 +161,16 @@ users who should stay on a flag and use that flag's ACS (`FX` for flag
 `X`), or `s255` for SysOps. Blank, the idle timeout (`G`) applies to
 everyone.
 
+### Callers with no time limit
+
+`*C`, Main BBS Configuration, `L` (`[bbs] unlimited_time_acs`) is an
+ACS; callers who match it have no daily time limit (`s50`: validated
+callers and up). They always have a whole day's minutes left (1440,
+what `%TL` shows and doors are told, 999 at most in a drop file), so
+nothing runs out of time for them. Their level's own time is left as
+it was, for if they ever drop below the line, and the time bank won't
+take minutes they don't need. Blank, every level's time applies.
+
 ### Turning parts of the board off
 
 `*C`, Features (`[features]` in the TOML) switches whole parts on and
@@ -468,6 +478,26 @@ listener serves the web file lists `/files.txt` and `/files.html`
 | `show_handles` | show handles (otherwise "a caller") | on |
 | `show_sysop` | list the SysOp among who's online | on |
 | `last_callers`, `new_files`, `new_posts` | how many of each | 10, 10, 5 |
+| `download_url` | the board's address on the web, for download links; blank: none | empty |
+| `link_minutes`, `link_uses` | how long a link lasts, how often it works | 30, 3 |
+
+Download links ([FILES](FILES.md#web-links)) come from the same
+listener at `/dl/`: set `download_url` to the board's address on the
+web (`https://disfluxbbs.com`) and have the web server pass `/dl/*`
+through too. `link_minutes` (30) and `link_uses` (3) say how long one
+lasts and how often it works. With Caddy:
+
+```caddy
+disfluxbbs.com {
+	handle /api/status.json {
+		reverse_proxy 127.0.0.1:8099
+	}
+	handle /dl/* {
+		reverse_proxy 127.0.0.1:8099
+	}
+	...
+}
+```
 
 Have the web server pass the path through, e.g. Caddy's
 `reverse_proxy`. A page shows the feed with a few lines of script

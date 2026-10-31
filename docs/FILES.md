@@ -319,6 +319,26 @@ docker compose -f deploy/docker-compose.yml up -d
 
 ## File transfers
 
+### Web links
+
+On a board that gives them out (`[web] download_url`), downloading a
+file from a file area offers `W` (Web link) among the protocols. The
+board shows a link instead of sending anything:
+
+    https://disfluxbbs.com/dl/cff5ae35ec1e7d880fa058c1d9fd18c3/agoranet.z03
+
+Copied into a browser, it fetches that file over HTTPS. Each link:
+
+- is for one file, and the caller who asked (a batch gets one each);
+- lasts `link_minutes` (30) and works `link_uses` times (3), then says
+  it has expired; a made-up or old token gets the same;
+- counts as that caller's download, the file's count, points, today's
+  totals, once, when it's first fetched whole; asking for it is held
+  to the same access, points and limits as any download.
+
+Links are kept in memory, so a restart ends them early. Only files of
+file areas get them: pieces out of archives and QWK packets don't.
+
 ### Protocols
 
 Zmodem is built in, so SyncTERM and other BBS terminals can upload and

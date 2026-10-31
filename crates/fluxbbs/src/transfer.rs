@@ -27,6 +27,9 @@ const POLL: Duration = Duration::from_secs(5);
 pub enum Proto {
     Zmodem,
     External(Protocol),
+    /// New: a link to fetch the file over HTTPS (`web.rs`), for files of
+    /// file areas.
+    Link,
 }
 
 impl Proto {
@@ -34,6 +37,7 @@ impl Proto {
         match self {
             Proto::Zmodem => "Zmodem",
             Proto::External(p) => &p.desc,
+            Proto::Link => "Web link",
         }
     }
 }
@@ -83,9 +87,24 @@ impl Session {
         out
     }
 
+    /// May this download be a web link: the board gives them out, and
+    /// it's of a file area's files?
+    pub(crate) fn links_offered(&self) -> bool {
+        let web = &self.state.config().web;
+        web.enabled && !web.download_url.trim().is_empty()
+    }
+
     /// Ask which protocol to use (`xferSend`'s menu). None if aborted.
     pub async fn select_protocol(&mut self, batch: bool) -> io::Result<Option<Proto>> {
-        let protos = self.protocols(batch);
+        self.select_protocol_for(batch, false).await
+    }
+
+    /// [`Self::select_protocol`], with the web link among them if `link`.
+    pub async fn select_protocol_for(&mut self, batch: bool, link: bool) -> io::Result<Option<Proto>> {
+        let mut protos = self.protocols(batch);
+        if link && self.links_offered() && !protos.iter().any(|(k, _)| *k == 'W') {
+            protos.push(('W', Proto::Link));
+        }
         let mut rep = self.repeat_begin("PROTL", false).await?;
         if rep.is_none() {
             self.newline();
@@ -97,6 +116,7 @@ impl Session {
                 Proto::Zmodem => "Batch",
                 Proto::External(e) if e.batch => "Batch",
                 Proto::External(_) => "Single",
+                Proto::Link => "Link",
             };
             match rep.as_mut() {
                 Some(r) => {
@@ -180,6 +200,8 @@ impl Session {
                 let ok = self.run_external(&p.send.replace("%F", &list), Path::new(".")).await?;
                 Ok(vec![ok; files.len()])
             }
+            // Links are given out before a transfer (`files.rs`); nothing's sent here.
+            Proto::Link => Ok(vec![false; files.len()]),
         };
         self.after_transfer().await?;
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
@@ -214,6 +236,8 @@ impl Session {
                 }
                 Ok(got)
             }
+            // Nothing comes in by link.
+            Proto::Link => Ok(Vec::new()),
         };
         self.after_transfer().await?;
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
