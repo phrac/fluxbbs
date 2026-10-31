@@ -766,6 +766,9 @@ pub struct Ftn {
     /// the file echoes the hub sends (blank: FileFix's).
     pub filefix_password: String,
     pub tic_password: String,
+    /// The file area the network's nodelist comes to (its nodelist file
+    /// echo's), whose newest file netmail addresses are checked against.
+    pub nodelist: String,
     /// The origin line's text; blank for the board's name.
     pub origin: String,
     /// Minutes between polls of the hub (0: only by hand, `fluxbbs ftn
@@ -816,6 +819,8 @@ pub struct FtnNetwork {
     pub areafix_password: String,
     pub filefix_password: String,
     pub tic_password: String,
+    /// The file area its nodelist comes to (see `Ftn::nodelist`).
+    pub nodelist: String,
     /// The origin line's text; blank for `[ftn] origin`.
     pub origin: String,
 }
@@ -904,6 +909,7 @@ impl Ftn {
             areafix_password: self.areafix_password.clone(),
             filefix_password: self.filefix_password.clone(),
             tic_password: self.tic_password.clone(),
+            nodelist: self.nodelist.clone(),
             origin: self.origin.clone(),
         };
         let mut out: Vec<(FtnNetwork, Option<String>)> = Vec::new();
@@ -971,6 +977,7 @@ impl Default for Ftn {
             areafix_password: String::new(),
             filefix_password: String::new(),
             tic_password: String::new(),
+            nodelist: String::new(),
             origin: String::new(),
             poll_minutes: 60,
             listen: String::new(),
@@ -1288,12 +1295,16 @@ pub struct Messages {
     /// New: days a deleted post stays in the trash, restorable, before
     /// it's gone for good (0: kept).
     pub keep_deleted_days: u32,
+    /// New: may write netmail (email to `name@zone:net/node`) out over a
+    /// network the board is a node of; never a bot.
+    pub acs_netmail: String,
 }
 
 impl Default for Messages {
     fn default() -> Self {
         Self {
             acs_post_email: "s25".into(),
+            acs_netmail: "s50".into(),
             acs_anonymous: "s50".into(),
             acs_anon_automsg: "s50".into(),
             acs_autosig: "s25".into(),

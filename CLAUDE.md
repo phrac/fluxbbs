@@ -311,5 +311,8 @@ Doors in `[points] doors` (disflux: ghostwire) get `POINTS.SYS` and may
 spend and pay points (docs/DOORS.md). The `describe` event (04:30 on
 disflux) has the AI describe the last week's uploads still bare.
 
-Left: callers writing netmail to FTN addresses (the README's one "not
-done yet"), and the DoorParty/BBSLink door networks.
+Callers write netmail (email to `name@zone:net/node`, `netmail.rs`),
+checked against the network's nodelist (`nodelist.rs`, the newest file
+in the network's `nodelist` file area; disflux: AGNNODE).
+
+Left: the DoorParty/BBSLink door networks.

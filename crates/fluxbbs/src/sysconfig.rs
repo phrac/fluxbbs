@@ -131,6 +131,7 @@ impl Entries {
                 col('H', "Origin line", 50, "Text of the origin line on messages sent to it; blank for the FTN section's.", Text(|c, i| &mut c.ftn.networks[i].origin, TEXT.max(60))),
                 col('I', "FileFix password", 20, "FileFix's password; blank to use AreaFix's.", Text(|c, i| &mut c.ftn.networks[i].filefix_password, TEXT.max(40))),
                 col('J', "TIC password", 20, "The password in the TICs of files the hub sends; blank to use FileFix's.", Text(|c, i| &mut c.ftn.networks[i].tic_password, TEXT.max(40))),
+                col('K', "Nodelist area", 8, "Storage key of the file area its nodelist comes to; netmail addresses are checked against its newest file.", Text(|c, i| &mut c.ftn.networks[i].nodelist, Field::UPPER.max(8))),
             ],
             Entries::FtnEchoes => vec![
                 col('A', "Echo tag", 30, "The echo's tag on the network (AGN_GEN).", Text(|c, i| &mut c.ftn.areas[i].tag, Field::UPPER.max(40))),
@@ -374,6 +375,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('P', "ANSI quote text", 40, "Shown instead of quoted lines that contain ANSI.", Text(|c| &mut c.messages.ansi_quote, TEXT.max(100))),
             set('Q', "New user area", 8, "Storage key of the message area new callers start in (blank = the first).", Text(|c| &mut c.messages.new_user_area, TEXT.max(8))),
             set('R', "Keep deleted days", 4, "Days a deleted post stays in the trash, restorable, before it's gone for good (0 = forever).", Num(|c| c.messages.keep_deleted_days as u64, |c, v| c.messages.keep_deleted_days = v as u32, 0, 9999)),
+            set('S', "Netmail ACS", 20, "ACS to send netmail (email to name@zone:net/node) out over an FTN network. Never bots.", Text(|c| &mut c.messages.acs_netmail, ACS)),
         ]),
         ("Attachments and Uploaded Messages", false, vec![
             set('A', "Public attach ACS", 20, "ACS to attach a file to a public message.", Text(|c| &mut c.messages.acs_attach_public, ACS)),
@@ -484,6 +486,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('N', "File echoes", 14, "The file echoes carried (TIC): each one's tag, the file area its files go to, and its network.", Table(Entries::FtnFileEchoes)),
             set('O', "FileFix password", 20, "FileFix's password; blank to use AreaFix's.", Text(|c| &mut c.ftn.filefix_password, TEXT.max(40))),
             set('P', "TIC password", 20, "The password in the TICs of files the hub sends; blank to use FileFix's.", Text(|c| &mut c.ftn.tic_password, TEXT.max(40))),
+            set('Q', "Nodelist area", 8, "Storage key of the file area the first network's nodelist comes to; netmail addresses are checked against its newest file.", Text(|c| &mut c.ftn.nodelist, Field::UPPER.max(8))),
         ]),
         ("File System", false, vec![
             set('A', "Use file points", 3, "Charge file points for downloads?", Bool(|c| &mut c.files.use_file_points)),

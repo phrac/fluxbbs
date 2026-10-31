@@ -478,6 +478,9 @@ All in [FEATURES](FEATURES.md#qwk-offline-mail).
   (rescans) still thread, and wait for them 30 days from arriving.
 - Netmail to the board goes to callers' email.
 - AreaFix requests from the shell (`fluxbbs ftn areafix`).
+- Callers write netmail as email to `name@zone:net/node`, and answer
+  netmail as netmail (REPLY threaded); the address is checked against
+  the network's nodelist first.
 - File echoes (TIC) tossed into file areas, with `Replaces` and FileFix
   requests (`fluxbbs ftn filefix`).
 - Several networks at once, each with its own hub.

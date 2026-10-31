@@ -1929,6 +1929,24 @@ Netmail for the node goes to the named caller's email (else the
 SysOp's), from `name@address`. `fluxbbs ftn areafix` talks to the
 hub's AreaFix (see the commands above).
 
+Callers write netmail as email (`netmail.rs`): at "Who to?", a name
+with an address, `Nick Boel@46:1/100` (`@domain` after it is fine).
+Answering a netmail goes back as netmail, with REPLY pointing at its
+MSGID so the other side's reader threads it.
+
+- The address's zone picks the network (Fidonet's zones 1-6 are one);
+  it goes out from the board's address there, by way of that hub, with
+  the next poll.
+- It's looked up in that network's nodelist first: the newest file in
+  the file area set as the network's `nodelist` (AgoraNet's AGNNODE,
+  where its nodelist echo comes; zipped or not). The board shows who's
+  there ("The Pharcyde HUB, Pewaukee WI") and refuses an address that
+  isn't in it or is down, or a network with no nodelist here.
+- `[messages] acs_netmail` (s50 stock; `*C`, Message System) says who
+  may send it; bots never may.
+- A copy stays in the email base, with its MSGID, and the text goes as
+  echomail does: no colour codes, the signature, a tear line.
+
 ### The hub calling in
 
 The hub can call the board too, to deliver mail as it arrives ("crash"
@@ -2077,7 +2095,8 @@ echo is mapped to, as part of every toss:
 
 ### Not yet
 
-Callers writing netmail to an FTN address.
+Routing netmail on for others (the board is a leaf node), and hatching
+files.
 
 ## From 2.0 and 2.20
 

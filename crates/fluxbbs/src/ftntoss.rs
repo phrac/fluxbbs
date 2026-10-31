@@ -739,8 +739,23 @@ fn scan_net(state: &BbsState, net: &FtnNetwork, me: Addr, hub: Addr) -> anyhow::
     Ok(n)
 }
 
-/// Send a netmail (to AreaFix, say) on network `net` with its next poll.
-pub fn netmail(state: &BbsState, net: &FtnNetwork, from: &str, to: &str, to_addr: Addr, subject: &str, body: &[String]) -> anyhow::Result<()> {
+/// A netmail to send: who from, to whom and where, about what, what it
+/// says, and the MSGID of the netmail it answers.
+#[derive(Clone, Copy)]
+pub struct Outgoing<'a> {
+    pub from: &'a str,
+    pub to: &'a str,
+    pub to_addr: Addr,
+    pub subject: &'a str,
+    pub body: &'a [String],
+    pub reply: Option<&'a str>,
+}
+
+/// Send a netmail (to AreaFix, a caller's) on network `net` with its next
+/// poll, answering the netmail whose MSGID is `reply` if any. Its own
+/// MSGID back.
+pub fn netmail(state: &BbsState, net: &FtnNetwork, out: &Outgoing) -> anyhow::Result<String> {
+    let Outgoing { from, to, to_addr, subject, body, reply } = *out;
     let (me, hub) = addresses(net)?;
     let _lock = lock(state, "toss", true)?;
     let msgid = format!("{me} {:08x}", next_serial(state)?);
@@ -751,11 +766,19 @@ pub fn netmail(state: &BbsState, net: &FtnNetwork, from: &str, to: &str, to_addr
     if to_addr.point != 0 {
         kludges.push(("TOPT".into(), to_addr.point.to_string()));
     }
-    kludges.push(("MSGID".into(), msgid));
+    kludges.push(("MSGID".into(), msgid.clone()));
+    if let Some(r) = reply.filter(|r| !r.is_empty() && !r.starts_with('~')) {
+        kludges.push(("REPLY".into(), r.to_string()));
+    }
     kludges.push(("PID".into(), format!("fluxbbs {}", env!("CARGO_PKG_VERSION"))));
     kludges.push(("TZUTC".into(), tzutc(crate::clock::now().naive_local())));
-    let mut lines = body.to_vec();
-    lines.push(String::new());
+    kludges.push(("CHRS".into(), "CP437 2".into()));
+    // As echomail goes: no colour codes, nothing that passes for a
+    // control line.
+    let mut lines: Vec<String> = body.iter().map(|l| defused(&crate::editor::strip_colours(l))).collect();
+    if lines.last().is_some_and(|l| !l.trim().is_empty()) {
+        lines.push(String::new());
+    }
     lines.push(tear_line());
     let parts = Parts { area: None, kludges, body: lines, seen_by: Vec::new(), path: Vec::new() };
     let now = crate::clock::now().naive_local();
@@ -767,15 +790,15 @@ pub fn netmail(state: &BbsState, net: &FtnNetwork, from: &str, to: &str, to_addr
         attr: ftn::ATTR_PRIVATE,
         cost: 0,
         datetime: ftn::fts_date(now),
-        to: to.to_string(),
-        from: from.to_string(),
-        subject: subject.to_string(),
+        to: crate::editor::strip_colours(to),
+        from: crate::editor::strip_colours(from),
+        subject: crate::editor::strip_colours(subject),
         text: ftn::join_text(&parts),
     };
     // Netmail goes by way of the hub.
     write_packet(state, &net.name, &Packet { orig: me, dest: hub, password: net.packet_password.clone(), created: now, msgs: vec![m] })?;
     tracing::info!("ftn: netmail to {to} at {to_addr} queued");
-    Ok(())
+    Ok(msgid)
 }
 
 /// Write a packet to a network's outbound directory, under a fresh name.
@@ -1093,7 +1116,7 @@ mod tests {
         assert_eq!((t.echomail, t.dupes), (1, 1));
         assert!(inbound.join("FSXNET.Z93").exists());
 
-        netmail(&state, &network(&state, "fsxnet").unwrap(), "SysOp", "AreaFix", Addr::parse("21:1/100").unwrap(), "secret", &["+FSX_BOT".into()]).unwrap();
+        netmail(&state, &network(&state, "fsxnet").unwrap(), &Outgoing { from: "SysOp", to: "AreaFix", to_addr: Addr::parse("21:1/100").unwrap(), subject: "secret", body: &["+FSX_BOT".into()], reply: None }).unwrap();
         let files = outbound_files(&outbound);
         assert_eq!(files.len(), 2);
         let nm = Packet::parse(&std::fs::read(&files[1]).unwrap()).unwrap();

@@ -900,12 +900,17 @@ impl Session {
             return Ok(None);
         }
         let mut private = a.is_email();
+        // New: email to `name@zone:net/node` goes out as netmail (`netmail.rs`).
+        #[cfg_attr(not(feature = "ftn"), allow(unused_mut))]
+        let mut netmail = false;
         let (to_party, default_subject) = match reply {
-            // Mail from elsewhere (FTN netmail) has nobody here to answer;
-            // writing netmail isn't done yet.
+            // Mail from elsewhere: netmail is answered as netmail; from
+            // anywhere else there's nobody to answer.
             Some(r) if a.is_email() && r.from.user_id == 0 => {
-                self.say_line("EmailUserUnknown").await?;
-                return Ok(None);
+                let Some(p) = self.netmail_to(&r.from.name).await? else { return Ok(None) };
+                netmail = true;
+                let subj = if r.subject.to_ascii_uppercase().starts_with("RE:") { r.subject.clone() } else { format!("Re: {}", r.subject) };
+                (p, subj)
             }
             Some(r) => {
                 let subj = if r.subject.to_ascii_uppercase().starts_with("RE:") { r.subject.clone() } else { format!("Re: {}", r.subject) };
@@ -946,8 +951,9 @@ impl Session {
                         Party { user_id: u.id, alias: u.handle.clone(), real_name: u.real_name.clone(), name: u.handle.clone(), note: u.note.clone() }
                     }
                     None if a.is_email() => {
-                        self.say_line("EmailUserUnknown").await?;
-                        return Ok(None);
+                        let Some(p) = self.netmail_to(&name).await? else { return Ok(None) };
+                        netmail = true;
+                        p
                     }
                     None => Party { user_id: 0, alias: "None".into(), real_name: "None".into(), name, note: "None".into() },
                 };
@@ -1103,7 +1109,12 @@ impl Session {
         if let Err(e) = self.save_own_user() {
             tracing::error!("saving {}: {e}", self.user.handle);
         }
-        if a.is_email() {
+        if netmail {
+            #[cfg(feature = "ftn")]
+            self.send_netmail(&m, reply).await?;
+            let s = self.strings().fmt("NetmailSent", &[&m.to.name]);
+            self.show_line(&s).await?;
+        } else if a.is_email() {
             tracing::info!("{}: email to {}: {:?}", self.user.handle, m.to.name, m.subject);
             let s = self.strings().fmt("EmailSent", &[&m.to.name]);
             self.show_line(&s).await?;
@@ -1318,6 +1329,20 @@ impl Session {
     }
 
     // ---- email ----------------------------------------------------------
+
+    /// Email to someone who isn't a caller: netmail if `to` is
+    /// `name@zone:net/node` and it can go (said why if not); else "no such
+    /// user". New.
+    async fn netmail_to(&mut self, to: &str) -> io::Result<Option<Party>> {
+        #[cfg(feature = "ftn")]
+        if crate::netmail::parse(to).is_some() {
+            return self.netmail_party(to).await;
+        }
+        #[cfg(not(feature = "ftn"))]
+        let _ = to;
+        self.say_line("EmailUserUnknown").await?;
+        Ok(None)
+    }
 
     /// `emailEnterEmail` (`EE`): `to;subject`.
     pub async fn enter_email(&mut self, to: &str, subject: &str) -> io::Result<()> {

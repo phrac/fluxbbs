@@ -152,10 +152,6 @@ Everything in detail: [docs/FEATURES.md](docs/FEATURES.md).
 
 ## Status
 
-**Not done yet: netmail from callers.** Echomail, and netmail to the
-board, work over binkp ([FTN](docs/FEATURES.md#ftn-echomail)). Callers
-can't yet write netmail to an FTN address.
-
 **Not planned:** Tetris (its source isn't in this release), modem
 setup, MicroDOS, the local status bar, and the Oblivion/Renegade
 converters.

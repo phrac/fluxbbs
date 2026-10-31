@@ -103,6 +103,10 @@ mod ftn;
 #[cfg(feature = "ftn")]
 mod ftntic;
 #[cfg(feature = "ftn")]
+mod netmail;
+#[cfg(feature = "ftn")]
+mod nodelist;
+#[cfg(feature = "ftn")]
 mod ftntoss;
 mod filebase;
 mod filesync;
@@ -526,7 +530,7 @@ async fn ftn_command(args: &[String]) -> anyhow::Result<()> {
             let (_, hub) = ftntoss::addresses(&net)?;
             let sysop = state.config().bbs.sysop_alias.clone();
             let (to, pw) = if files { ("FileFix", net.filefix_pw()) } else { ("AreaFix", net.areafix_pw()) };
-            ftntoss::netmail(&state, &net, &sysop, to, hub, pw, lines)?;
+            ftntoss::netmail(&state, &net, &ftntoss::Outgoing { from: &sysop, to, to_addr: hub, subject: pw, body: lines, reply: None })?;
             println!("queued for {to} at {hub} ({}); it goes with the next poll (fluxbbs ftn poll {})", net.name, net.name);
             Ok(())
         }
