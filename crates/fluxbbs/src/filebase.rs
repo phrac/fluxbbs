@@ -280,6 +280,18 @@ impl FileBase {
     /// The words narrow the query; the matching is done here, so a
     /// filespec and a phrase work as they do everywhere else.
     pub fn find_words(&self, areas: &[String], find: &Find, limit: usize) -> anyhow::Result<(Vec<FileRec>, usize)> {
+        self.find_words_in(areas, find, limit, None)
+    }
+
+    /// New: [`Self::find_words`] for typeahead, looking at `scan` matches
+    /// at most (those with the first word in the name first), so a short,
+    /// common word doesn't load the whole file base on each key. The total
+    /// is of those looked at.
+    pub fn find_words_quick(&self, areas: &[String], find: &Find, limit: usize, scan: usize) -> anyhow::Result<(Vec<FileRec>, usize)> {
+        self.find_words_in(areas, find, limit, Some(scan))
+    }
+
+    fn find_words_in(&self, areas: &[String], find: &Find, limit: usize, scan: Option<usize>) -> anyhow::Result<(Vec<FileRec>, usize)> {
         if areas.is_empty() || find.is_empty() {
             return Ok((Vec::new(), 0));
         }
@@ -296,7 +308,13 @@ impl FileBase {
                 conds.push("(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
             }
         }
-        let sql = format!("SELECT * FROM files WHERE valid AND area IN ({}) AND {}", vec!["?"; areas.len()].join(","), conds.join(" AND "));
+        let mut sql = format!("SELECT * FROM files WHERE valid AND area IN ({}) AND {}", vec!["?"; areas.len()].join(","), conds.join(" AND "));
+        if let Some(n) = scan {
+            let first = &find.want[0];
+            let like = if Find::is_spec(first) { wildcard_like(first) } else { format!("%{}%", escape_like(first)) };
+            params.push(like);
+            sql.push_str(&format!(" ORDER BY name LIKE ? ESCAPE '\\' DESC LIMIT {n}"));
+        }
         let mut rows: Vec<FileRec> = {
             let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
             db.prepare(&sql)?.query_map(rusqlite::params_from_iter(params.iter()), from_row)?.collect::<Result<_, _>>()?
@@ -618,6 +636,24 @@ mod tests {
 
     fn names(fb: &FileBase, area: &str) -> Vec<String> {
         fb.list(area).unwrap().into_iter().map(|f| format!("{}:{}", f.num, f.name)).collect()
+    }
+
+    #[test]
+    fn typeahead_looks_at_name_matches_first() {
+        let fb = FileBase::open_memory().unwrap();
+        // Many whose descriptions have the word, then one with it in its name.
+        for i in 0..50 {
+            let mut f = rec("TEXT", &format!("T{i:03}.TXT"));
+            f.description = vec!["about the lord of the rings".into()];
+            fb.add(&mut f).unwrap();
+        }
+        fb.add(&mut rec("TEXT", "LORD.ZIP")).unwrap();
+        let areas = vec!["TEXT".to_string()];
+        let (got, looked) = fb.find_words_quick(&areas, &Find::parse("lord"), 3, 10).unwrap();
+        assert_eq!(looked, 10);
+        assert_eq!(got[0].name, "LORD.ZIP");
+        // The full search still counts them all.
+        assert_eq!(fb.find_words(&areas, &Find::parse("lord"), 3).unwrap().1, 51);
     }
 
     #[test]

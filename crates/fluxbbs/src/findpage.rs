@@ -32,6 +32,8 @@ const BOX_W: u16 = 60;
 const MAX_SUGGEST: usize = 6;
 /// The longest search.
 const MAX_LEN: usize = 70;
+/// Matches a suggestion looks through at most.
+const SCAN: usize = 300;
 
 /// One line of the drop-down.
 struct Suggestion {
@@ -90,6 +92,7 @@ impl Session {
                 self.flush().await?;
             }
             let key = self.read_key().await?;
+            let before = focus;
             match key {
                 Key::Esc => {
                     self.find_page_leave();
@@ -155,6 +158,13 @@ impl Session {
                 }
                 _ => {}
             }
+            // On a button, the drop-down closes so the buttons show; back
+            // in the box, it opens again.
+            if matches!(focus, Focus::Search | Focus::Lucky) {
+                shown.clear();
+            } else if matches!(before, Focus::Search | Focus::Lucky) {
+                stale = true;
+            }
         }
     }
 
@@ -193,7 +203,7 @@ impl Session {
             .map(|(n, name, _)| Suggestion { label: name.clone(), place: fa.parent_of(*n).map(area_name).map_or_else(|| "area".into(), |p| format!("area in {p}")), to: Choice::Area(*n) })
             .collect();
         let want = MAX_SUGGEST - out.len();
-        if let Ok((files, _)) = self.state.files.find_words(&areas.keys, &find, want) {
+        if let Ok((files, _)) = self.state.files.find_words_quick(&areas.keys, &find, want, SCAN) {
             for f in files {
                 let Some(&n) = areas.num_of.get(&f.area.to_lowercase()) else { continue };
                 out.push(Suggestion { label: f.name.clone(), place: area_name(n), to: Choice::File(n, f.name) });

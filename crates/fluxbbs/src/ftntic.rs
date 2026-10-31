@@ -120,19 +120,41 @@ fn received_form(name: &str) -> String {
     name.chars().filter(|c| c.is_ascii_alphanumeric() || "._-".contains(*c)).collect::<String>().to_ascii_lowercase()
 }
 
-/// A `Replaces` mask (`*`, `?`), case-insensitive, as HTick's `patimat`.
+/// The longest `Replaces` mask taken (FSC-0087's lines are 256 at most).
+const MAX_MASK: usize = 255;
+
+/// A `Replaces` mask (`*`, `?`), case-insensitive, as HTick's `patimat`:
+/// matched in one pass, going back only to the last `*`, so no mask
+/// takes long.
 fn mask_matches(mask: &str, name: &str) -> bool {
-    fn m(p: &[char], n: &[char]) -> bool {
-        match (p.first(), n.first()) {
-            (None, None) => true,
-            (Some('*'), _) => m(&p[1..], n) || (!n.is_empty() && m(p, &n[1..])),
-            (Some('?'), Some(_)) => m(&p[1..], &n[1..]),
-            (Some(a), Some(b)) => a.eq_ignore_ascii_case(b) && m(&p[1..], &n[1..]),
-            _ => false,
+    let (p, n): (Vec<char>, Vec<char>) = (mask.chars().collect(), name.chars().collect());
+    let (mut i, mut j) = (0, 0);
+    // Where the last `*` was, and where in the name it was trying from.
+    let mut star: Option<(usize, usize)> = None;
+    while j < n.len() {
+        if i < p.len() && (p[i] == '?' || (p[i] != '*' && p[i].eq_ignore_ascii_case(&n[j]))) {
+            i += 1;
+            j += 1;
+        } else if i < p.len() && p[i] == '*' {
+            star = Some((i, j));
+            i += 1;
+        } else if let Some((si, sj)) = star {
+            // The star takes one more character.
+            i = si + 1;
+            j = sj + 1;
+            star = Some((si, sj + 1));
+        } else {
+            return false;
         }
     }
-    let (p, n): (Vec<char>, Vec<char>) = (mask.chars().collect(), name.chars().collect());
-    m(&p, &n)
+    p[i..].iter().all(|&c| c == '*')
+}
+
+/// May this mask take files out? It must begin with a letter or digit, so
+/// no mask (`*`, `?*`, `??*.*`) matches every file in an area; HTick
+/// ignores only those beginning with `*`.
+fn mask_usable(mask: &str) -> bool {
+    mask.len() <= MAX_MASK && mask.chars().next().is_some_and(|c| c != '*' && c != '?')
 }
 
 fn lower_name(p: &Path) -> String {
@@ -173,6 +195,29 @@ fn by_name(dir: &Path, name: &str) -> Vec<PathBuf> {
     v
 }
 
+/// A file's CRC, read once for each size and time it has (the tossers
+/// look at the same inbound files again and again).
+fn file_crc(p: &Path) -> std::io::Result<u32> {
+    use std::collections::HashMap;
+    use std::sync::Mutex;
+    /// A file as it was: where, how long, when changed.
+    type Seen = (PathBuf, u64, std::time::SystemTime);
+    static CACHE: Mutex<Option<HashMap<Seen, u32>>> = Mutex::new(None);
+    let meta = std::fs::metadata(p)?;
+    let key = (p.to_path_buf(), meta.len(), meta.modified()?);
+    if let Some(c) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(&key)) {
+        return Ok(*c);
+    }
+    let crc = crc32(&std::fs::read(p)?);
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let m = cache.get_or_insert_with(HashMap::new);
+    if m.len() > 4096 {
+        m.clear();
+    }
+    m.insert(key, crc);
+    Ok(crc)
+}
+
 /// The TIC's file in `dir`: one of its name with its size and CRC, else
 /// (FSC-0087: forwarders find files a mailer renamed) any file there with
 /// them. None without a CRC to go by.
@@ -188,7 +233,8 @@ fn find_file(dir: &Path, tic: &Tic) -> std::io::Result<Option<PathBuf>> {
         if tic.size.is_some_and(|s| s != meta.len()) {
             continue;
         }
-        if crc32(&std::fs::read(&p)?) == crc {
+        // One gone meanwhile (another toss took it) isn't this one.
+        if file_crc(&p).is_ok_and(|c| c == crc) {
             return Ok(Some(p));
         }
     }
@@ -236,7 +282,15 @@ pub fn toss_dir(state: &BbsState, dir: &Path, nets: &[(FtnNetwork, Addr, Addr)],
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let outcome = match std::fs::read(&path) {
             Ok(d) => match parse(&d) {
-                Ok(tic) => toss_one(state, dir, &tic, nets)?,
+                // The board's side failing (a disk, the database) leaves
+                // the TIC for the next toss; it holds up nothing else.
+                Ok(tic) => match toss_one(state, dir, &tic, nets) {
+                    Ok(o) => o,
+                    Err(e) => {
+                        tracing::warn!("ftn: {name}: {e:#}; left for the next toss");
+                        continue;
+                    }
+                },
                 Err(why) => Outcome::Bad(why),
             },
             Err(e) => {
@@ -246,14 +300,20 @@ pub fn toss_dir(state: &BbsState, dir: &Path, nets: &[(FtnNetwork, Addr, Addr)],
         };
         match outcome {
             Outcome::Done => {
-                std::fs::remove_file(&path)?;
+                if let Err(e) = std::fs::remove_file(&path) {
+                    tracing::warn!("ftn: {name}: tossed, but not removed: {e}");
+                }
                 t.files += 1;
             }
             Outcome::Wait(why) => {
-                let age = std::fs::metadata(&path).and_then(|m| m.modified()).ok().and_then(|m| m.elapsed().ok()).unwrap_or_default();
-                if age.as_secs() > STALE_DAYS * 86_400 {
+                // Since it came: its change time, as the mailer set its
+                // modified time to the sender's.
+                let age = std::fs::metadata(&path).map(|m| crate::clock::now().timestamp() - std::os::unix::fs::MetadataExt::ctime(&m)).unwrap_or(0);
+                if age > (STALE_DAYS * 86_400) as i64 {
                     tracing::warn!("ftn: {name}: {why}, for {STALE_DAYS} days; kept in bad");
-                    to_bad(dir, &path, &bad)?;
+                    if let Err(e) = to_bad(dir, &path, &bad) {
+                        tracing::warn!("ftn: {name}: not moved to bad: {e:#}");
+                    }
                     t.bad += 1;
                 } else {
                     tracing::info!("ftn: {name}: {why}; left for the next toss");
@@ -261,7 +321,9 @@ pub fn toss_dir(state: &BbsState, dir: &Path, nets: &[(FtnNetwork, Addr, Addr)],
             }
             Outcome::Bad(why) => {
                 tracing::warn!("ftn: {name}: {why}; kept in bad");
-                to_bad(dir, &path, &bad)?;
+                if let Err(e) = to_bad(dir, &path, &bad) {
+                    tracing::warn!("ftn: {name}: not moved to bad: {e:#}");
+                }
                 t.bad += 1;
             }
         }
@@ -329,39 +391,71 @@ fn toss_one(state: &BbsState, dir: &Path, tic: &Tic, nets: &[(FtnNetwork, Addr, 
     let cfg = state.config();
     let area_dir = cfg.resolve(&area.path);
     std::fs::create_dir_all(&area_dir)?;
-    // `Replaces` (a mask starting with `*` is ignored, as HTick does), and
-    // a file of the same name.
-    let masks: Vec<&str> = tic.replaces.iter().map(|r| r.trim()).filter(|r| !r.starts_with('*')).collect();
-    let gone: Vec<String> = state
-        .files
-        .list(&area.file)?
-        .into_iter()
-        .map(|r| r.name)
-        .filter(|n| n.eq_ignore_ascii_case(&dest_name) || masks.iter().any(|m| mask_matches(m, n)))
-        .collect();
-    for g in &gone {
-        if let Some(rec) = state.files.find(&area.file, g)? {
-            state.files.remove(&area.file, rec.num)?;
-        }
-        let _ = std::fs::remove_file(area_dir.join(g));
+    // A caller's upload of that name stays theirs.
+    if state.files.find(&area.file, &dest_name)?.is_some_and(|r| tic_addr(&r.uploader).is_none()) {
+        return Ok(Outcome::Bad(format!("{dest_name} in {} is a caller's upload, not a file echo's", area.file)));
     }
-    let dest = area_dir.join(&dest_name);
-    if std::fs::rename(&src, &dest).is_err() {
+    // The new file goes in first, beside the old under a name of its own,
+    // so nothing is lost if that fails.
+    let temp = area_dir.join(format!(".tic-{dest_name}"));
+    if std::fs::rename(&src, &temp).is_err() {
         // Another file system.
-        std::fs::copy(&src, &dest)?;
+        if let Err(e) = std::fs::copy(&src, &temp) {
+            let _ = std::fs::remove_file(&temp);
+            return Err(e.into());
+        }
         std::fs::remove_file(&src)?;
     }
-    let sender = tic.origin.unwrap_or(from);
-    let mut rec: FileRec = crate::filesync::new_record(&cfg, &area.file, &dest)?;
-    rec.uploader = sender.to_string();
-    let desc = description(tic);
-    if !desc.is_empty() {
-        rec.description = desc;
-    }
-    state.files.add(&mut rec)?;
-    if !area.sort.is_none() {
-        state.files.sort_area(&area.file, area.sort, area.sort_descending)?;
-    }
+    let installed = (|| -> anyhow::Result<(Vec<String>, String)> {
+        // Then `Replaces` (a mask that could match every file is ignored)
+        // and a file of the same name go: only files that came from file
+        // echoes (their uploader an FTN address), never a caller's upload.
+        let masks: Vec<&str> = tic.replaces.iter().map(|r| r.trim()).filter(|r| mask_usable(r)).collect();
+        let gone: Vec<String> = state
+            .files
+            .list(&area.file)?
+            .into_iter()
+            .filter(|r| tic_addr(&r.uploader).is_some())
+            .map(|r| r.name)
+            .filter(|n| n.eq_ignore_ascii_case(&dest_name) || masks.iter().any(|m| mask_matches(m, n)))
+            .collect();
+        let dest = area_dir.join(&dest_name);
+        let sender = tic.origin.unwrap_or(from);
+        let mut rec: FileRec = crate::filesync::new_record(&cfg, &area.file, &temp)?;
+        rec.name = dest_name.clone();
+        rec.uploader = sender.to_string();
+        let desc = description(tic);
+        if !desc.is_empty() {
+            rec.description = desc;
+        }
+        for g in &gone {
+            if let Some(old) = state.files.find(&area.file, g)? {
+                state.files.remove(&area.file, old.num)?;
+            }
+            if !g.eq_ignore_ascii_case(&dest_name) {
+                let _ = std::fs::remove_file(area_dir.join(g));
+            }
+        }
+        std::fs::rename(&temp, &dest)?;
+        state.files.add(&mut rec)?;
+        if !area.sort.is_none() {
+            state.files.sort_area(&area.file, area.sort, area.sort_descending)?;
+        }
+        Ok((gone, sender.to_string()))
+    })();
+    let (gone, sender) = match installed {
+        Ok(r) => r,
+        Err(e) => {
+            // Back where it came from, for the next toss.
+            if temp.exists() {
+                let back = crate::ftntoss::free_name(dir, &src.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default());
+                if std::fs::rename(&temp, &back).is_err() && std::fs::copy(&temp, &back).is_ok() {
+                    let _ = std::fs::remove_file(&temp);
+                }
+            }
+            return Err(e);
+        }
+    };
     let replaced = gone.iter().filter(|g| !g.eq_ignore_ascii_case(&dest_name)).cloned().collect::<Vec<_>>();
     tracing::info!(
         "ftn: {} from {sender} ({}) in {}{}",
@@ -429,6 +523,16 @@ mod tests {
         assert!(mask_matches("NODE?.ZIP", "node1.zip"));
         // No extension is no extension: not the board's DOS-style match.
         assert!(!mask_matches("README", "README.TXT"));
+        assert!(mask_matches("a*b*c", "aXXbYYc") && !mask_matches("a*b*c", "aXXbYY"));
+        assert!(mask_matches("*", "") && mask_matches("A**", "a") && !mask_matches("?", ""));
+        // A mask built to backtrack forever is over at once.
+        let name = "a".repeat(200);
+        let started = std::time::Instant::now();
+        assert!(!mask_matches(&format!("{}b", "a*".repeat(100)), &name));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
+        // None that could match every file.
+        assert!(mask_usable("AGORANET.Z*") && mask_usable("n?de.zip"));
+        assert!(!mask_usable("*") && !mask_usable("?*") && !mask_usable("??*.*") && !mask_usable(&format!("a{}", "*".repeat(300))));
         let t = Tic { desc: vec!["short".into()], ldesc: vec!["a long one".into(), "x ".repeat(60)], ..Default::default() };
         let d = description(&t);
         assert_eq!(d[0], "a long one");
@@ -539,6 +643,46 @@ mod tests {
         std::fs::write(inbound.join("AGORANET-1.Z06"), b"list six").unwrap();
         assert_eq!(crate::ftntoss::toss(&state).unwrap().files, 1);
         assert!(area.join("AGORANET.Z06").exists());
+        // Nothing half-done is left in the area.
+        assert!(std::fs::read_dir(&area).unwrap().flatten().all(|e| !e.file_name().to_string_lossy().starts_with('.')));
+
+        // A caller's upload of the same name, and a mask that could match
+        // everything, take nothing of a caller's.
+        let mut mine = crate::filebase::FileRec { area: "AGNNODE".into(), num: 0, name: "MINE.ZIP".into(), size: 4, date: None, uploader: "phrac".into(), uploaded: None, downloads: 0, points: 0, valid: true, description: vec![] };
+        std::fs::write(area.join("MINE.ZIP"), b"mine").unwrap();
+        state.files.add(&mut mine).unwrap();
+        send(&inbound, "c1.tic", "AGN_NODE", "MINE.ZIP", b"theirs", "", "TICPW");
+        send(&inbound, "c2.tic", "AGN_NODE", "AGORANET.Z07", b"list seven", "Replaces ?*\r\nReplaces AGORANET.Z*\r\n", "TICPW");
+        let t = crate::ftntoss::toss(&state).unwrap();
+        assert_eq!((t.files, t.bad), (1, 1));
+        assert_eq!(std::fs::read(area.join("MINE.ZIP")).unwrap(), b"mine");
+        let names: Vec<String> = state.files.list("AGNNODE").unwrap().into_iter().map(|r| r.name).collect();
+        assert!(names.contains(&"MINE.ZIP".to_string()) && names.contains(&"My Nodes.zip".to_string()) && names.contains(&"AGORANET.Z07".to_string()));
+        assert!(!names.contains(&"AGORANET.Z06".to_string()));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_broken_area_holds_nothing_up() {
+        let (state, dir) = board();
+        // The area's directory can't be made (a file is in the way).
+        std::fs::create_dir_all(dir.join("files")).unwrap();
+        std::fs::write(dir.join("files/agnnode"), b"not a directory").unwrap();
+        let inbound = crate::ftntoss::inbound_dir(&state, "agoranet");
+        send(&inbound, "a1.tic", "AGN_NODE", "AGORANET.Z04", b"list four", "", "TICPW");
+        // Mail beside it is still tossed: a netmail for the SysOp.
+        let mut sysop = crate::user::User { handle: "SysOp".into(), ..Default::default() };
+        state.users.insert(&mut sysop).unwrap();
+        let me = Addr::parse("46:1/115").unwrap();
+        let hub = Addr::parse("46:1/100").unwrap();
+        let text = crate::ftn::join_text(&crate::ftn::Parts { kludges: vec![("INTL".into(), "46:1/115 46:1/100".into())], body: vec!["hello".into()], ..Default::default() });
+        let m = crate::ftn::PackedMsg { orig_node: hub.node, dest_node: me.node, orig_net: hub.net, dest_net: me.net, datetime: "31 Oct 26  12:00:00".into(), to: "SysOp".into(), from: "Nick".into(), subject: "hi".into(), text, ..Default::default() };
+        let pkt = crate::ftn::Packet { orig: hub, dest: me, password: String::new(), created: crate::clock::now().naive_local(), msgs: vec![m] };
+        std::fs::write(inbound.join("0001.pkt"), pkt.to_bytes()).unwrap();
+        let t = crate::ftntoss::toss(&state).unwrap();
+        assert_eq!((t.netmail, t.files), (1, 0));
+        // The TIC and its file wait for the next toss.
+        assert!(inbound.join("a1.tic").exists() && inbound.join("AGORANET.Z04").exists());
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

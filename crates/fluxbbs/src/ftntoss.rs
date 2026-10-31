@@ -159,17 +159,17 @@ pub fn toss(state: &BbsState) -> anyhow::Result<Tossed> {
                 .filter(|(n, _, _)| n.name == net.name || (!net.session_password.is_empty() && n.session_password == net.session_password))
                 .cloned()
                 .collect();
-            crate::ftntic::toss_dir(state, &inbound_dir(state, &net.name), &allowed, &mut t)?;
+            tic_toss(state, &inbound_dir(state, &net.name), &allowed, &mut t);
             toss_dir(state, &inbound_dir(state, &net.name), &allowed, &mut t)?;
         }
         // A network renamed (or left out) leaves its inbound behind: that
         // and `inbound` itself go by the packets' addresses, as by hand.
         for d in stray_dirs(state, &inbound) {
             tracing::warn!("ftn: {} belongs to no network set up; tossing it by its packets' addresses", d.display());
-            crate::ftntic::toss_dir(state, &d, &nets, &mut t)?;
+            tic_toss(state, &d, &nets, &mut t);
             toss_dir(state, &d, &nets, &mut t)?;
         }
-        crate::ftntic::toss_dir(state, &inbound, &nets, &mut t)?;
+        tic_toss(state, &inbound, &nets, &mut t);
         toss_dir(state, &inbound, &nets, &mut t)?;
         retoss_unknown(state, &nets, &mut t)
     })();
@@ -177,6 +177,14 @@ pub fn toss(state: &BbsState) -> anyhow::Result<Tossed> {
         tracing::info!("ftn: tossed {t:?}");
     }
     result.map(|()| t)
+}
+
+/// File echoes' TICs in `dir` (`ftntic.rs`): what goes wrong there is
+/// logged, and never holds the mail up.
+fn tic_toss(state: &BbsState, dir: &Path, nets: &[(FtnNetwork, Addr, Addr)], t: &mut Tossed) {
+    if let Err(e) = crate::ftntic::toss_dir(state, dir, nets, t) {
+        tracing::warn!("ftn: file echoes in {}: {e:#}", dir.display());
+    }
 }
 
 /// Directories under `dir` that aren't a network's (a network renamed,

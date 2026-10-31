@@ -963,23 +963,30 @@ impl Session {
                                 self.cfg_set(&mut f, key, &a.file);
                             } else {
                                 self.state.files.rename_area(&a.file, &v).map_err(io_err)?;
-                                // File echoes going to it follow it.
-                                let old = (*self.state.config()).clone();
-                                if old.ftn.file_areas.iter().any(|m| m.area.eq_ignore_ascii_case(&a.file)) {
-                                    let mut cfg = old.clone();
-                                    for m in cfg.ftn.file_areas.iter_mut().filter(|m| m.area.eq_ignore_ascii_case(&a.file)) {
-                                        m.area = v.clone();
-                                    }
-                                    crate::sysconfig::save_changes(&self.config_path(), &old, &cfg).map_err(io_err)?;
-                                    self.state.set_config(cfg);
-                                }
                                 for o in areas.areas.iter_mut().filter(|o| o.parent.eq_ignore_ascii_case(&a.file)) {
                                     o.parent = v.clone();
                                 }
-                                a.file = v;
+                                let was = std::mem::replace(&mut a.file, v.clone());
                                 // Save now: the records already moved.
                                 areas.areas[idx] = a.clone();
                                 self.save_fareas(areas.clone())?;
+                                // File echoes going to it follow it: after
+                                // the areas are saved, so a config that
+                                // can't be written leaves only this behind.
+                                let old = (*self.state.config()).clone();
+                                if old.ftn.file_areas.iter().any(|m| m.area.eq_ignore_ascii_case(&was)) {
+                                    let mut cfg = old.clone();
+                                    for m in cfg.ftn.file_areas.iter_mut().filter(|m| m.area.eq_ignore_ascii_case(&was)) {
+                                        m.area = v.clone();
+                                    }
+                                    match crate::sysconfig::save_changes(&self.config_path(), &old, &cfg) {
+                                        Ok(()) => self.state.set_config(cfg),
+                                        Err(e) => {
+                                            tracing::error!("file echoes to {was} not moved to {v}: {e:#}");
+                                            self.cfg_info(&mut f, "Saved, but the file echoes into it couldn't be moved: see the log.");
+                                        }
+                                    }
+                                }
                             }
                         }
                     }

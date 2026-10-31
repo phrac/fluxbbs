@@ -2057,8 +2057,16 @@ echo is mapped to, as part of every toss:
   asks, for a file the mailer renamed) by size and CRC alone, so a name
   binkd escaped (`My\x20File.zip`) still finds its TIC. A TIC that fails
   goes to `data/ftn/bad` with its file, and the log says why.
-- `Replaces` is a mask (`*`, `?`, any case), as HTick reads it; one
-  starting with `*` is ignored.
+- `Replaces` is a mask (`*`, `?`, any case), as HTick reads it. One
+  that doesn't begin with a letter or digit (`*`, `?*`), and so could
+  match every file, is ignored. Only files that came from file echoes
+  (their uploader an FTN address) are ever replaced: a TIC naming a
+  caller's upload goes to bad and the upload stays.
+- The new file is put in before what it replaces is taken out; if that
+  fails, the file goes back to the inbound for the next toss.
+- Anything going wrong with one TIC (a disk, the database) is logged and
+  leaves it for the next toss: it never holds up the others or the
+  mail. The three days count from when it arrived.
 - A TIC for an echo with no area here waits in the inbound with its
   file (the mail tosser leaves the file alone) until the echo is
   mapped; so does one whose file hasn't come. After three days it goes
