@@ -105,7 +105,9 @@ are.
    and `search_face`; `search_logo` for another word), a box, and two
    buttons. What the words find drops down under the box as they're
    typed, two matching areas and then the best files; Up and Down pick
-   one and Enter opens it, with the bar on the file. Enter in the box
+   one and Enter opens it, with the bar on the file. A file found by its
+   description has a second line saying why: a piece of the description
+   round the words, the words lit. Enter in the box
    searches; Tab goes to the buttons, and I'm Feeling Lucky opens the
    best file straight away. Esc goes back. A search that finds nothing
    stays on the page: "no results for ..., did you mean" over searches

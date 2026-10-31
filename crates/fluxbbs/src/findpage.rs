@@ -34,6 +34,9 @@ const BOX_W: u16 = 60;
 const MAX_SUGGEST: usize = 6;
 /// The longest search.
 const MAX_LEN: usize = 70;
+/// A description's piece under a file in the drop-down: the box's inside
+/// less the indent and a space.
+const SNIPPET_W: usize = (BOX_W as usize - 2) - 4;
 /// Matches a suggestion looks through at most.
 const SCAN: usize = 300;
 
@@ -43,6 +46,16 @@ struct Suggestion {
     /// Where it is (an area's parent, a file's area), dim at the right.
     place: String,
     to: Choice,
+    /// For a file found by its description: a piece of it round the words,
+    /// as (text, is it one of the words); empty when its name says why.
+    snippet: Vec<(String, bool)>,
+}
+
+impl Suggestion {
+    /// Lines it takes in the drop-down.
+    fn lines(&self) -> usize {
+        1 + usize::from(!self.snippet.is_empty())
+    }
 }
 
 /// Where focus is: the box (with a suggestion picked or not), or a button.
@@ -225,13 +238,27 @@ impl Session {
             .iter()
             .filter(|(_, _, t)| find.matches_text(t))
             .take(2)
-            .map(|(n, name, _)| Suggestion { label: name.clone(), place: fa.parent_of(*n).map(area_name).map_or_else(|| "area".into(), |p| format!("area in {p}")), to: Choice::Area(*n) })
+            .map(|(n, name, _)| Suggestion {
+                label: name.clone(),
+                place: fa.parent_of(*n).map(area_name).map_or_else(|| "area".into(), |p| format!("area in {p}")),
+                to: Choice::Area(*n),
+                snippet: Vec::new(),
+            })
             .collect();
         let want = MAX_SUGGEST - out.len();
+        // A file with a piece of its description takes two lines; as many
+        // as fit in the drop-down's.
+        let mut lines = out.len();
         if let Ok((files, _)) = self.state.files.find_words_quick(&areas.keys, &find, want, SCAN) {
             for f in files {
                 let Some(&n) = areas.num_of.get(&f.area.to_lowercase()) else { continue };
-                out.push(Suggestion { label: f.name.clone(), place: area_name(n), to: Choice::File(n, f.name) });
+                let snip = snippet(&f.description.join(" "), &f.name, &find.want, SNIPPET_W);
+                let s = Suggestion { label: f.name.clone(), place: area_name(n), to: Choice::File(n, f.name), snippet: snip };
+                if lines + s.lines() > MAX_SUGGEST {
+                    break;
+                }
+                lines += s.lines();
+                out.push(s);
             }
         }
         out
@@ -302,7 +329,7 @@ impl Session {
             let n = self.results(areas, &f);
             if n > 0 {
                 let place = plain(&self.strings().fmt("FaFindPageFound", &[&crate::files::commas(n as u64)]));
-                out.push(Suggestion { label: q.clone(), place, to: Choice::Words(q) });
+                out.push(Suggestion { label: q.clone(), place, to: Choice::Words(q), snippet: Vec::new() });
             }
             if out.len() == MAX_SUGGEST {
                 break;
@@ -391,7 +418,7 @@ impl Session {
     }
 
     /// The box, the drop-down or the buttons under it, and the cursor.
-    /// `drawn`: how many suggestion lines were up before; returns how many
+    /// `drawn`: how many drop-down lines were up before; returns how many
     /// are now.
     fn find_page_draw(&mut self, top: u16, text: &str, shown: &[Suggestion], focus: Focus, drawn: usize, notice: Option<&str>) -> usize {
         let edge = Color::new(if matches!(focus, Focus::Box(_)) { 7 } else { 8 }, 0);
@@ -465,6 +492,25 @@ impl Session {
                 self.screen.set_color(edge);
                 self.screen.write_str("\u{2502}");
                 y += 1;
+                // Why it was found: its words lit in a piece of its description.
+                if !s.snippet.is_empty() {
+                    self.screen.goto(BOX_X, y);
+                    self.screen.set_color(edge);
+                    self.screen.write_str("\u{2502}");
+                    self.screen.set_color(Color::new(8, bg));
+                    self.screen.write_str("   ");
+                    let mut used = 0;
+                    for (part, hit) in &s.snippet {
+                        self.screen.set_color(Color::new(if *hit { 15 } else if on { 7 } else { 8 }, bg));
+                        self.screen.write_text(part);
+                        used += part.chars().count();
+                    }
+                    self.screen.set_color(Color::new(8, bg));
+                    self.screen.write_str(&" ".repeat(inner - 3 - used));
+                    self.screen.set_color(edge);
+                    self.screen.write_str("\u{2502}");
+                    y += 1;
+                }
             }
         }
         self.screen.goto(BOX_X, y);
@@ -507,7 +553,7 @@ impl Session {
             self.screen.goto(BOX_X + 4 + tail.chars().count() as u16, y_text);
             self.screen.write_bytes(b"\x1b[?25h");
         }
-        shown.len()
+        shown.iter().map(Suggestion::lines).sum()
     }
 
     fn find_page_leave(&mut self) {
@@ -522,6 +568,52 @@ impl Session {
 /// screen, so counting them left lines short).
 fn plain(s: &str) -> String {
     fluxbbs_term::codes::unlit(&crate::editor::strip_colours(s))
+}
+
+/// A piece of `desc`, `width` long at most, round the first of `words`
+/// it has that `name` doesn't (the reason a file was found), with every
+/// one of the words in it marked; empty if the name has them all.
+fn snippet(desc: &str, name: &str, words: &[String], width: usize) -> Vec<(String, bool)> {
+    let text: Vec<char> = desc.split_whitespace().collect::<Vec<_>>().join(" ").chars().collect();
+    // Lower case a character at a time, so places in it are places in text.
+    let lower: Vec<char> = text.iter().map(|c| c.to_ascii_lowercase()).collect();
+    let name = name.to_lowercase();
+    let words: Vec<Vec<char>> = words.iter().filter(|w| !w.contains(['*', '?']) && !w.is_empty()).map(|w| w.chars().map(|c| c.to_ascii_lowercase()).collect()).collect();
+    let find = |w: &[char], from: usize| (from..lower.len().saturating_sub(w.len() - 1)).find(|&i| lower[i..i + w.len()] == *w);
+    let Some(first) = words.iter().filter(|w| !name.contains(&w.iter().collect::<String>())).filter_map(|w| find(w, 0)).min() else { return Vec::new() };
+    // All of it if it fits; else from a little before the word, at a
+    // word's start, and no later than leaves the line full.
+    let mut start = if text.len() <= width { 0 } else { first.saturating_sub(width / 4).min(text.len() - (width - 2)) };
+    if start > 0 {
+        start = (start..first).find(|&i| text[i - 1] == ' ').unwrap_or(first);
+    }
+    let lead = if start > 0 { 2 } else { 0 };
+    let room = width.saturating_sub(lead);
+    let end = (start + room).min(text.len());
+    let cut = end < text.len();
+    let end = if cut { end - 2 } else { end };
+    let mut lit = vec![false; text.len()];
+    for w in &words {
+        let mut at = 0;
+        while let Some(i) = find(w, at) {
+            lit[i..i + w.len()].iter_mut().for_each(|l| *l = true);
+            at = i + 1;
+        }
+    }
+    let mut out: Vec<(String, bool)> = Vec::new();
+    if lead > 0 {
+        out.push(("..".into(), false));
+    }
+    for i in start..end {
+        match out.last_mut() {
+            Some((s, l)) if *l == lit[i] => s.push(text[i]),
+            _ => out.push((text[i].to_string(), lit[i])),
+        }
+    }
+    if cut {
+        out.push(("..".into(), false));
+    }
+    out
 }
 
 /// A search as words again: a phrase in quotes, left-out words with `-`.
@@ -583,5 +675,24 @@ mod tests {
         assert_eq!(edits(&"kitten".chars().collect::<Vec<_>>(), "sitting", 3), Some(3));
         assert_eq!(edits(&"kitten".chars().collect::<Vec<_>>(), "sitting", 2), None);
         assert_eq!(query_text(&Find::parse(r#"atm "two words" -demo"#)), r#"atm "two words" -demo"#);
+    }
+
+    #[test]
+    fn a_piece_of_the_description_says_why() {
+        let words = vec!["atm".to_string(), "error".to_string()];
+        let s = snippet("ATM diagnostic error codes explained", "nia-08.phk.txt", &words, 54);
+        let shown: String = s.iter().map(|(t, _)| t.as_str()).collect();
+        assert_eq!(shown, "ATM diagnostic error codes explained");
+        let s = snippet("Article explaining ATM error codes", "nia-08.phk", &words, 54);
+        assert_eq!(s.iter().map(|(t, _)| t.as_str()).collect::<String>(), "Article explaining ATM error codes");
+        let lit: Vec<&str> = s.iter().filter(|(_, l)| *l).map(|(t, _)| t.as_str()).collect();
+        assert_eq!(lit, ["ATM", "error"]);
+        // The name says why: nothing.
+        assert!(snippet("A file of errors", "atm-error.txt", &words, 54).is_empty());
+        // Far into a long one: cut round it, marked as cut.
+        let long = format!("{} the ATM network {}", "word ".repeat(40), "more ".repeat(40));
+        let s = snippet(&long, "x.txt", &["atm".to_string()], 30);
+        let shown: String = s.iter().map(|(t, _)| t.as_str()).collect();
+        assert!(shown.starts_with("..") && shown.ends_with("..") && shown.contains("ATM") && shown.chars().count() <= 30, "{shown:?}");
     }
 }
