@@ -347,7 +347,9 @@ programs (RAR, 7Z and LHA through bsdtar or 7-Zip).
 #### Browsing files
 
 `FW` (L on the file menu) works like the art gallery, over the file
-areas. `FV` opens an archive the same way.
+areas. `FV` opens an archive the same way. `FW search` (F on the file
+menu, or `f` in the browser) looks for words in every area's file names
+and descriptions and lists what it finds there, best first.
 
 - Areas are folders, with their file counts and newest upload.
 - Archives (ZIP, tar, tar.gz) open as folders in place.
@@ -650,7 +652,9 @@ it. `?` describes it. The descriptions are kept in `[flags]` in
 - `*%` adds files copied into an area's directory.
 - `fluxbbs add-files` does the same for every area from the shell (for
   a mirror, say). A ZIP without a FILE_ID.DIZ is described by what's in
-  it.
+  it. With the AI on, files added with no description worth the name
+  are described then and there (`--no-describe` skips it); the
+  `pack-files` event has them described in the background.
 - `*K` packs file areas: it forgets files missing from their
   directories. `fluxbbs pack-files` does it from the shell, as
   FILEPACK.EXE did, and adds files that have no record too.

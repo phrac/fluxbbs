@@ -416,13 +416,14 @@ pub fn describe_owned(state: Arc<BbsState>, f: FileRec) -> std::pin::Pin<Box<dyn
 #[cfg(feature = "ai")]
 static ONE_AT_A_TIME: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
-/// After an upload: if the file's description is bare, have the AI write
-/// one, in the background.
-pub fn spawn(state: Arc<BbsState>, area: String, num: u32) {
+/// After an upload, or a file put in an area by hand being added: if the
+/// file's description is bare, have the AI write one, in the background.
+/// By name, not number: a pack may renumber the area while it waits.
+pub fn spawn(state: Arc<BbsState>, area: String, name: String) {
     #[cfg(feature = "ai")]
     tokio::spawn(async move {
         let _turn = ONE_AT_A_TIME.acquire().await;
-        let Ok(Some(mut f)) = state.files.get(&area, num) else { return };
+        let Ok(Some(mut f)) = state.files.find(&area, &name) else { return };
         if !is_bare(&f) {
             return;
         }
@@ -438,7 +439,7 @@ pub fn spawn(state: Arc<BbsState>, area: String, num: u32) {
         }
     });
     #[cfg(not(feature = "ai"))]
-    let _ = (state, area, num);
+    let _ = (state, area, name);
 }
 
 /// `fluxbbs describe [--dry-run | --try] [--limit N] [--area AREA] [config]`: describe
@@ -476,8 +477,29 @@ pub async fn from_args(args: &[String]) -> anyhow::Result<()> {
         bare.extend(state.files.list(&area.file)?.into_iter().filter(is_bare));
     }
     println!("{} files with bare descriptions", bare.len());
-    let total = bare.len().min(limit);
-    for (i, f) in bare.into_iter().take(limit).enumerate() {
+    describe_these(&state, bare.into_iter().take(limit).collect(), dry, try_only).await
+}
+
+/// New: after `add-files` or `pack-files` from the shell, the files just
+/// added whose descriptions are bare (`area`, name), described there and
+/// then, as an upload's would be in the board.
+#[cfg(feature = "ai")]
+pub async fn describe_added(config: &Path, added: &[(String, String)]) -> anyhow::Result<()> {
+    let state = crate::load_state(config)?;
+    let mut bare = Vec::new();
+    for (area, name) in added {
+        bare.extend(state.files.find(area, name)?.filter(is_bare));
+    }
+    if !bare.is_empty() {
+        println!("describing {} new file(s) with bare descriptions (^C stops; `fluxbbs describe` finishes later)", bare.len());
+        describe_these(&state, bare, false, false).await?;
+    }
+    Ok(())
+}
+
+async fn describe_these(state: &BbsState, bare: Vec<FileRec>, dry: bool, try_only: bool) -> anyhow::Result<()> {
+    let total = bare.len();
+    for (i, f) in bare.into_iter().enumerate() {
         // New: how far along a long run is.
         let at = progress(i, total);
         if dry {
@@ -485,7 +507,7 @@ pub async fn from_args(args: &[String]) -> anyhow::Result<()> {
             continue;
         }
         #[cfg(feature = "ai")]
-        match describe(&state, &f).await {
+        match describe(state, &f).await {
             Ok(d) if try_only => println!("{at}{}/{}: {d}", f.area, f.name),
             Ok(d) => {
                 println!("{at}{}/{}: {d}", f.area, f.name);
@@ -497,7 +519,7 @@ pub async fn from_args(args: &[String]) -> anyhow::Result<()> {
         }
         #[cfg(not(feature = "ai"))]
         {
-            let _ = try_only;
+            let _ = (state, try_only);
             anyhow::bail!("the AI isn't built into this board (build with --features ai; docs/BUILDING.md)");
         }
     }

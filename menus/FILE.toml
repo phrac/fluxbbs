@@ -36,7 +36,7 @@ delay = 2.0
 
 [[effect]]
 kind = "ripple"
-rows = [9, 18]
+rows = [9, 16]
 every = 10.0
 delay = 6.0
 
@@ -86,6 +86,34 @@ on = "\u001b[0;30;42m (\u001b[0;1;37;42m#\u001b[0;30;42m) \u001b[0;1;37;42mjump 
 off = " \u001b[0;1;30m(\u001b[0;1;32m#\u001b[0;1;30m) \u001b[38;2;255;255;255mj\u001b[38;2;229;255;229mu\u001b[38;2;203;255;203mm\u001b[38;2;177;255;177mp \u001b[38;2;124;255;124mt\u001b[38;2;98;255;98mo \u001b[38;2;65;235;65ma\u001b[38;2;52;222;52mr\u001b[38;2;39;209;39me\u001b[38;2;26;196;26ma \u001b[38;2;0;170;0m#    \u001b[0m"
 
 [[command]]
+keys = "L"
+command = "FW"
+acs = "s25"
+desc = "Browse files"
+help = "Browse the file areas: open archives, view text, art and pictures"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42ml\u001b[0;30;42m) \u001b[0;1;37;42mbrowse files      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32ml\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;224;255;224mr\u001b[38;2;193;255;193mo\u001b[38;2;162;255;162mw\u001b[38;2;131;255;131ms\u001b[38;2;100;255;100me \u001b[38;2;62;232;62mf\u001b[38;2;46;216;46mi\u001b[38;2;31;201;31ml\u001b[38;2;15;185;15me\u001b[38;2;0;170;0ms      \u001b[0m"
+
+[[command]]
+keys = "F"
+command = "FW"
+param = "search"
+acs = "s50"
+desc = "Search files"
+help = "Look for words in file names, descriptions and areas"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mf\u001b[0;30;42m) \u001b[0;1;37;42msearch files      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mf\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;224;255;224me\u001b[38;2;193;255;193ma\u001b[38;2;162;255;162mr\u001b[38;2;131;255;131mc\u001b[38;2;100;255;100mh \u001b[38;2;62;232;62mf\u001b[38;2;46;216;46mi\u001b[38;2;31;201;31ml\u001b[38;2;15;185;15me\u001b[38;2;0;170;0ms      \u001b[0m"
+
+[[command]]
+keys = "N"
+command = "FN"
+acs = "s50"
+desc = "Newscan areas"
+help = "Scan for new fiiles since your last call (or pointer date)"
+on = "\u001b[0;30;42m (\u001b[0;1;37;42mn\u001b[0;30;42m) \u001b[0;1;37;42mnewscan           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;32mn\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;198;255;198me\u001b[38;2;142;255;142mw\u001b[38;2;85;255;85ms\u001b[38;2;57;227;57mc\u001b[38;2;28;198;28ma\u001b[38;2;0;170;0mn           \u001b[0m"
+
+[[command]]
 keys = "S"
 command = "FS"
 acs = "s25"
@@ -102,60 +130,6 @@ desc = "Scan select"
 help = "Pick the file areas newscans look in"
 on = "\u001b[0;30;42m (\u001b[0;1;37;42me\u001b[0;30;42m) \u001b[0;1;37;42mscan select       \u001b[0m"
 off = " \u001b[0;1;30m(\u001b[0;1;32me\u001b[0;1;30m) \u001b[38;2;255;255;255ms\u001b[38;2;221;255;221mc\u001b[38;2;187;255;187ma\u001b[38;2;153;255;153mn \u001b[38;2;85;255;85ms\u001b[38;2;68;238;68me\u001b[38;2;51;221;51ml\u001b[38;2;34;204;34me\u001b[38;2;17;187;17mc\u001b[38;2;0;170;0mt       \u001b[0m"
-
-[[command]]
-keys = "L"
-command = "FW"
-acs = "s25"
-desc = "Browse files"
-help = "Browse the file areas: open archives, view text, art and pictures"
-on = "\u001b[0;30;42m (\u001b[0;1;37;42ml\u001b[0;30;42m) \u001b[0;1;37;42mbrowse files      \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;32ml\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;224;255;224mr\u001b[38;2;193;255;193mo\u001b[38;2;162;255;162mw\u001b[38;2;131;255;131ms\u001b[38;2;100;255;100me \u001b[38;2;62;232;62mf\u001b[38;2;46;216;46mi\u001b[38;2;31;201;31ml\u001b[38;2;15;185;15me\u001b[38;2;0;170;0ms      \u001b[0m"
-
-[[command]]
-keys = "N"
-command = "FN"
-acs = "s50"
-desc = "Newscan areas"
-help = "Scan for new fiiles since your last call (or pointer date)"
-on = "\u001b[0;30;42m (\u001b[0;1;37;42mn\u001b[0;30;42m) \u001b[0;1;37;42mnewscan           \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;32mn\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;198;255;198me\u001b[38;2;142;255;142mw\u001b[38;2;85;255;85ms\u001b[38;2;57;227;57mc\u001b[38;2;28;198;28ma\u001b[38;2;0;170;0mn           \u001b[0m"
-
-[[command]]
-keys = "F"
-command = "FF"
-acs = "s50"
-desc = "Filespec search"
-help = "Scan current/all areas for a specified filespec (and list)"
-on = "\u001b[0;30;42m (\u001b[0;1;37;42mf\u001b[0;30;42m) \u001b[0;1;37;42mfilespec search   \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;32mf\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;231;255;231mi\u001b[38;2;206;255;206ml\u001b[38;2;182;255;182me\u001b[38;2;158;255;158ms\u001b[38;2;134;255;134mp\u001b[38;2;109;255;109me\u001b[38;2;85;255;85mc \u001b[38;2;61;231;61ms\u001b[38;2;49;219;49me\u001b[38;2;36;206;36ma\u001b[38;2;24;194;24mr\u001b[38;2;12;182;12mc\u001b[38;2;0;170;0mh   \u001b[0m"
-
-[[command]]
-keys = "T"
-command = "FT"
-acs = "s50"
-desc = "Text search"
-help = "Search current/all file areas for description text"
-on = "\u001b[0;30;42m (\u001b[0;1;37;42mt\u001b[0;30;42m) \u001b[0;1;37;42mtext search       \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;32mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;221;255;221me\u001b[38;2;187;255;187mx\u001b[38;2;153;255;153mt \u001b[38;2;85;255;85ms\u001b[38;2;68;238;68me\u001b[38;2;51;221;51ma\u001b[38;2;34;204;34mr\u001b[38;2;17;187;17mc\u001b[38;2;0;170;0mh       \u001b[0m"
-
-[[command]]
-keys = "I"
-command = "FI"
-acs = "s50"
-desc = "File information"
-help = "Display information on a specific file"
-on = "\u001b[0;30;42m (\u001b[0;1;37;42mi\u001b[0;30;42m) \u001b[0;1;37;42mfile information  \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;32mi\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;232;255;232mi\u001b[38;2;210;255;210ml\u001b[38;2;187;255;187me \u001b[38;2;142;255;142mi\u001b[38;2;119;255;119mn\u001b[38;2;96;255;96mf\u001b[38;2;79;249;79mo\u001b[38;2;68;238;68mr\u001b[38;2;57;227;57mm\u001b[38;2;45;215;45ma\u001b[38;2;34;204;34mt\u001b[38;2;23;193;23mi\u001b[38;2;11;181;11mo\u001b[38;2;0;170;0mn  \u001b[0m"
-
-[[command]]
-keys = "V"
-command = "FV"
-acs = "s50"
-desc = "View archive"
-help = "Examine the contents of an archived file"
-on = "\u001b[0;30;42m (\u001b[0;1;37;42mv\u001b[0;30;42m) \u001b[0;1;37;42mview archive      \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;32mv\u001b[0;1;30m) \u001b[38;2;255;255;255mv\u001b[38;2;224;255;224mi\u001b[38;2;193;255;193me\u001b[38;2;162;255;162mw \u001b[38;2;100;255;100ma\u001b[38;2;77;247;77mr\u001b[38;2;62;232;62mc\u001b[38;2;46;216;46mh\u001b[38;2;31;201;31mi\u001b[38;2;15;185;15mv\u001b[38;2;0;170;0me      \u001b[0m"
 
 [[command]]
 keys = "D"
@@ -284,3 +258,33 @@ help = "[sysop] Upload files locally in current file area"
 hidden = true
 on = "|B1Local file upload"
 off = "|B0Local file upload"
+
+[[command]]
+keys = "I"
+command = "FI"
+acs = "s50"
+desc = "File information"
+help = "Display information on a specific file"
+hidden = true
+on = "|B1File information"
+off = "|B0File information"
+
+[[command]]
+keys = "T"
+command = "FT"
+acs = "s50"
+desc = "Text search"
+help = "Search current/all file areas for description text"
+hidden = true
+on = "|B1Text search"
+off = "|B0Text search"
+
+[[command]]
+keys = "V"
+command = "FV"
+acs = "s50"
+desc = "View archive"
+help = "Examine the contents of an archived file"
+hidden = true
+on = "|B1View archive"
+off = "|B0View archive"

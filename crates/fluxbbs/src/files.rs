@@ -1974,7 +1974,7 @@ impl Session {
             };
             self.state.files.add(&mut rec).map_err(io_err)?;
             // New: a file that came without a description gets one from the AI.
-            crate::aidesc::spawn(self.state.clone(), rec.area.clone(), rec.num);
+            crate::aidesc::spawn(self.state.clone(), rec.area.clone(), rec.name.clone());
             self.bump(crate::sysdata::Stat::Upload { kb: rec.size / 1024 });
             if rec.valid {
                 self.user.uploads += 1;
@@ -2043,7 +2043,7 @@ impl Session {
         // other nodes aren't kept waiting a file at a time.
         self.state.files.add_all(&mut recs).map_err(io_err)?;
         for rec in &recs {
-            crate::aidesc::spawn(self.state.clone(), rec.area.clone(), rec.num);
+            crate::aidesc::spawn(self.state.clone(), rec.area.clone(), rec.name.clone());
             let s = self.strings().fmt("FaULfileAdded", &[&rec.name, &rec.description.len().to_string()]);
             self.show_line(&s).await?;
         }

@@ -5,6 +5,7 @@
 //! (animated ANSIs come alive this way), and D downloads the piece or
 //! the whole pack.
 
+use std::collections::HashMap;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
@@ -26,6 +27,8 @@ use crate::upscan::Kind;
 const ART: [&str; 11] = ["ans", "ice", "asc", "txt", "nfo", "diz", "cia", "art", "pic", "pix", "vt"];
 /// The largest piece read into memory.
 const MAX_PIECE: u64 = 8 << 20;
+/// The most files a search lists (new): its best.
+const MAX_FOUND: usize = 500;
 /// Play speeds to cycle through (bits per second; 0 = all at once).
 const SPEEDS: [u32; 8] = [0, 2400, 9600, 14400, 28800, 38400, 57600, 115200];
 
@@ -110,6 +113,9 @@ enum Place {
     Zip { zip: PathBuf, prefix: String },
     /// A tar, tar.gz or .gz, read in place like a ZIP.
     Tar { tar: PathBuf, kind: Kind, prefix: String },
+    /// New: what a search of the file areas found (`FW search`, or F in
+    /// the browser): the words.
+    Found(String),
 }
 
 /// Where a piece is.
@@ -302,7 +308,7 @@ fn list(place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
             }
         }
         // Listed by the session, which knows what the caller may see.
-        Place::Area(_) | Place::Areas => {}
+        Place::Area(_) | Place::Areas | Place::Found(_) => {}
         Place::Zip { zip, prefix } => {
             let mut z = zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(io::Error::other)?;
             let mut seen = Vec::new();
@@ -444,6 +450,16 @@ impl Session {
         let mode = Mode { all: true, cap: if cap == 0 { u64::MAX } else { cap } };
         let speed = self.state.config().gallery.speed;
         let stats = self.file_stats(true);
+        // New: `search` asks what to look for and lists what has it.
+        if param.trim().eq_ignore_ascii_case("search") {
+            self.newline();
+            let Some(words) = self.ask_find().await? else { return Ok(()) };
+            if self.plain() {
+                return self.find_files_plain(&words).await;
+            }
+            self.node.update(|n| n.activity = "Searching files".into());
+            return self.gallery_browse(Place::Found(words.clone()), &format!("search: {words}"), mode, speed).await;
+        }
         let target = match param.trim().to_ascii_lowercase().as_str() {
             "newest" => stats.newest.as_ref(),
             "hot" => stats.popular.as_ref(),
@@ -464,24 +480,79 @@ impl Session {
             Some((n, name)) if self.farea_visible(n) => (n, Some(name)),
             _ => (self.user.cur_file_area, None),
         };
-        let start = self.farea(cur).map(|a| (a.area.name.clone(), Place::Area(cur)));
+        // The areas above it too, so back goes up one at a time.
+        let mut start = Vec::new();
+        let mut at = Some(cur);
+        while let Some(n) = at.filter(|_| start.len() < 32) {
+            let Some(a) = fa.get(n) else { break };
+            start.insert(0, (a.name.clone(), Place::Area(n)));
+            at = fa.parent_of(n);
+        }
         self.node.update(|n| n.activity = "Browsing files".into());
         self.gallery_browse_from(Place::Areas, "file areas", mode, speed, start, focus).await
     }
 
-    async fn gallery_browse(&mut self, root: Place, title: &str, mode: Mode, speed: u32) -> io::Result<()> {
-        self.gallery_browse_from(root, title, mode, speed, None, None).await
+    /// New: what to search the file areas for, or None for nothing.
+    async fn ask_find(&mut self) -> io::Result<Option<String>> {
+        self.say_line("FaFindHelp").await?;
+        self.say("FaFindAsk").await?;
+        let words = self.read_string(crate::input::ReadOpts::new(70)).await?;
+        self.newline();
+        Ok(Some(words.trim().to_string()).filter(|w| !crate::filebase::Find::parse(w).is_empty()))
     }
 
-    /// Browse from `root`, starting one level down at `start` if given,
+    /// The same search for a caller without ANSI: the file lister, area by area.
+    async fn find_files_plain(&mut self, words: &str) -> io::Result<()> {
+        let (items, _) = self.found_items(words, Mode { all: true, cap: u64::MAX })?;
+        let mut by_area: Vec<(u32, Vec<FileRec>)> = Vec::new();
+        for (n, f) in items.iter().filter_map(record) {
+            match by_area.iter_mut().find(|(m, _)| m == n) {
+                Some((_, fs)) => fs.push(f.clone()),
+                None => by_area.push((*n, vec![f.clone()])),
+            }
+        }
+        if by_area.is_empty() {
+            return self.say_line("FaSearchNone").await;
+        }
+        for (n, files) in by_area {
+            let Some(a) = self.farea(n) else { continue };
+            let s = self.strings().fmt("FaSearchArea", &[&a.area.name]);
+            self.show(&s).await?;
+            self.newline();
+            if !self.file_lister(&a, &files, true).await? {
+                break;
+            }
+        }
+        Ok(())
+    }
+
+    /// The info line; for a search's files, the area each is in too.
+    fn gallery_info_in(&self, item: Option<&Item>, speed: u32, found: bool) -> String {
+        let line = gallery_info(item, speed);
+        match item.and_then(record) {
+            Some((n, _)) if found => match self.state.fareas().get(*n) {
+                Some(a) => format!("{line} |U5in |U3{}", crate::editor::strip_colours(&a.name)),
+                None => line,
+            },
+            _ => line,
+        }
+    }
+
+    async fn gallery_browse(&mut self, root: Place, title: &str, mode: Mode, speed: u32) -> io::Result<()> {
+        self.gallery_browse_from(root, title, mode, speed, Vec::new(), None).await
+    }
+
+    /// Browse from `root`, starting down the levels in `start`,
     /// with the bar on the item called `focus`.
-    async fn gallery_browse_from(&mut self, root: Place, title: &str, mode: Mode, mut speed: u32, start: Option<(String, Place)>, mut focus: Option<String>) -> io::Result<()> {
+    async fn gallery_browse_from(&mut self, root: Place, title: &str, mode: Mode, mut speed: u32, start: Vec<(String, Place)>, mut focus: Option<String>) -> io::Result<()> {
         self.full_screen_done();
         // Where we are, and the cursor in each level above.
+        // New: the file areas can be searched from anywhere in them.
+        let search = matches!(root, Place::Areas | Place::Found(_));
         let mut path: Vec<(String, Place, usize)> = vec![(String::new(), root, 0)];
-        if let Some((name, place)) = start {
-            path.push((name, place, 0));
-        }
+        path.extend(start.into_iter().map(|(name, place)| (name, place, 0)));
+        let mut note: Option<String> = None;
+        let mut unlocked: Vec<u32> = Vec::new();
         loop {
             let (_, place, _) = path.last().cloned().expect("root");
             // New: the file area being browsed (or the one an open archive is
@@ -494,8 +565,50 @@ impl Session {
             {
                 self.user.cur_file_area = n;
             }
-            let mut items = self.gallery_list(&place, mode).await?;
-            sort_items(&mut items, self.gallery_order);
+            // An area with a password asks for it, as changing to it does,
+            // once a browse (new: the browser opened them without asking).
+            if let Place::Area(n) = place
+                && n != self.user.cur_file_area
+                && !unlocked.contains(&n)
+                && let Some(a) = self.farea(n)
+                && !a.area.password.is_empty()
+            {
+                self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                self.clear_screen();
+                self.say("FaAskPassword").await?;
+                let pw = self.read_string(crate::input::ReadOpts::new(20).password()).await?;
+                if !pw.eq_ignore_ascii_case(&a.area.password) {
+                    focus = path.pop().map(|(name, _, _)| name);
+                    if path.is_empty() {
+                        return Ok(());
+                    }
+                    continue;
+                }
+                unlocked.push(n);
+            }
+            // A search lists best first, unless another order is asked for.
+            let (mut items, found) = match &place {
+                Place::Found(words) => {
+                    let (items, total) = self.found_items(words, mode)?;
+                    (items, Some(total))
+                }
+                _ => (self.gallery_list(&place, mode).await?, None),
+            };
+            if found.is_none() || self.gallery_order != Order::Name {
+                sort_items(&mut items, self.gallery_order);
+            }
+            if found.is_some() && items.is_empty() {
+                path.pop();
+                if path.is_empty() {
+                    return self.say_line("FaSearchNone").await;
+                }
+                note = Some(self.strings().get("FaFindNone").to_string());
+                continue;
+            }
+            let shown = items.len();
+            let pick_note = note.take().or_else(|| {
+                found.map(|total| if total > shown { self.strings().fmt("FaFindSome", &[&shown.to_string(), &total.to_string()]) } else { self.strings().fmt("FaFindAll", &[&total.to_string()]) })
+            });
             if let Some(name) = focus.take()
                 && let Some(i) = items.iter().position(|it| match it {
                     Item::Folder { name: n, .. } | Item::Art { name: n, .. } => n.eq_ignore_ascii_case(&name),
@@ -508,9 +621,11 @@ impl Session {
             let place = if crumbs.is_empty() { title.to_string() } else { format!("{title}/{}", crumbs.join("/")) };
             // The file browser and archives look like the file lister.
             let screen = if mode.all { "LISTFILE" } else { "GALLERY" };
-            match self.gallery_pick(screen, &place, &items, at, &mut speed).await? {
+            let opts = PickOpts { note: pick_note, found: found.is_some(), search };
+            match self.gallery_pick(screen, &place, &items, at, &mut speed, opts).await? {
+                // Back on the one just left.
                 Pick::Back if path.len() > 1 => {
-                    path.pop();
+                    focus = path.pop().map(|(name, _, _)| name);
                 }
                 Pick::Back | Pick::Quit => {
                     // Leave a clean screen for what comes next.
@@ -593,6 +708,13 @@ impl Session {
                         }
                     }
                 }
+                Pick::Find => {
+                    self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                    self.clear_screen();
+                    if let Some(words) = self.ask_find().await? {
+                        path.push((format!("search: {words}"), Place::Found(words), 0));
+                    }
+                }
                 // The next order, keeping the bar on the same piece.
                 Pick::Resort(i) => {
                     self.gallery_order = self.gallery_order.next();
@@ -632,30 +754,44 @@ impl Session {
         let (mut packs, mut art) = (Vec::new(), Vec::new());
         for f in files {
             let path = dir.join(&f.name);
-            if !path.is_file() {
-                continue;
-            }
-            let when = rec_date(&f, &path);
-            let tar = match crate::upscan::kind_of(&f.name) {
-                k @ (Kind::Tar | Kind::TarGz | Kind::Gzip) if mode.all => Some(k),
-                _ => None,
-            };
-            if is_zip(&f.name) {
-                let place = Place::Zip { zip: path, prefix: String::new() };
-                packs.push(Item::Folder { name: f.name.clone(), place, pack: true, rec: Some((*n, f)), when });
-            } else if let Some(kind) = tar {
-                let place = Place::Tar { tar: path, kind, prefix: String::new() };
-                packs.push(Item::Folder { name: f.name.clone(), place, pack: true, rec: Some((*n, f)), when });
-            } else if mode.all && !is_art(&f.name) {
-                art.push(Item::Art { name: f.name.clone(), size: f.size, sauce: None, src: Src::Disk(path), rec: Some((*n, f)), when });
-            } else if is_art(&f.name) || is_image(&f.name) {
-                let sauce = if is_image(&f.name) { None } else { disk_sauce(&path) };
-                art.push(Item::Art { name: f.name.clone(), size: f.size, sauce, src: Src::Disk(path), rec: Some((*n, f)), when });
+            match file_item(*n, f, path, mode) {
+                Some(it @ Item::Folder { .. }) => packs.push(it),
+                Some(it) => art.push(it),
+                None => {}
             }
         }
         out.extend(packs);
         out.extend(art);
         Ok(out)
+    }
+
+    /// New: what a search finds, for the browser: the areas whose name or
+    /// line about them has the words, then the files, best first (at most
+    /// `MAX_FOUND`), with how many files there were in all. Only areas
+    /// the caller could open without a password are searched.
+    fn found_items(&mut self, words: &str, mode: Mode) -> io::Result<(Vec<Item>, usize)> {
+        let find = crate::filebase::Find::parse(words);
+        let fa = self.state.fareas();
+        let areas: Vec<u32> = self.visible_fareas().into_iter().map(|(n, _)| n).filter(|&n| fa.get(n).is_some_and(|a| a.password.is_empty())).collect();
+        let abouts = self.state.files.area_abouts().map_err(io::Error::other)?;
+        let mut out = Vec::new();
+        for &n in &areas {
+            let Some(a) = fa.get(n) else { continue };
+            let about = abouts.get(&a.file.to_lowercase()).map_or("", |s| s.as_str());
+            if find.matches_text(&format!("{}\n{about}", crate::editor::strip_colours(&a.name))) {
+                out.push(Item::Folder { name: a.name.clone(), place: Place::Area(n), pack: false, rec: None, when: None });
+            }
+        }
+        let keys: Vec<String> = areas.iter().filter_map(|&n| fa.get(n)).map(|a| a.file.clone()).collect();
+        let num_of: HashMap<String, u32> = areas.iter().filter_map(|&n| fa.get(n).map(|a| (a.file.to_lowercase(), n))).collect();
+        let (files, total) = self.state.files.find_words(&keys, &find, MAX_FOUND).map_err(io::Error::other)?;
+        for f in files {
+            let Some(&n) = num_of.get(&f.area.to_lowercase()) else { continue };
+            let Some(a) = fa.get(n) else { continue };
+            let path = self.farea_dir(a).join(&f.name);
+            out.extend(file_item(n, f, path, Mode { all: true, ..mode }));
+        }
+        Ok((out, total))
     }
 
     /// The listing, dressed like the file lister: `screen` (GALLERY.ANS or
@@ -664,12 +800,12 @@ impl Session {
     /// ~C1-~C6 the colours, ~FA where we are), else a plain screen. Up and
     /// down move the bar, left and right the menu; Enter runs the menu's
     /// choice, or a key its first letter.
-    async fn gallery_pick(&mut self, screen: &str, place: &str, items: &[Item], start: usize, speed: &mut u32) -> io::Result<Pick> {
+    async fn gallery_pick(&mut self, screen: &str, place: &str, items: &[Item], start: usize, speed: &mut u32, opts: PickOpts) -> io::Result<Pick> {
         // New: info and edit, as the file lister has them; edit for a co-SysOp and up.
         let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
         let mut menu = MenuBar {
-            items: &["open", "play", "speed", "reorder", "get", "info", "edit", "back"],
-            off: vec![false, false, false, false, false, false, !cosysop, false],
+            items: &["open", "play", "speed", "reorder", "get", "info", "edit", "find", "back"],
+            off: vec![false, false, false, false, false, false, !cosysop, !opts.search, false],
             pos: 0,
             xs: Vec::new(),
         };
@@ -679,8 +815,8 @@ impl Session {
         let mut redraw = true;
         // A word in place of the info line, after a key that can't act - or, on
         // a fresh listing in an order other than by name, which order it is.
-        let mut note: Option<String> = (self.gallery_order != Order::Name)
-            .then(|| format!("in order of {} - R to reorder", self.gallery_order.word()));
+        let mut note: Option<String> = opts.note.or_else(|| (self.gallery_order != Order::Name)
+            .then(|| format!("in order of {} - R to reorder", self.gallery_order.word())));
         // New: the screen's effects (GALLERY.FX) run while it waits.
         let mut amb: Option<crate::ambient::Ambient> = None;
         loop {
@@ -750,7 +886,7 @@ impl Session {
             }
             let info = match note.take() {
                 Some(n) => n,
-                None => gallery_info(items.get(cur), *speed),
+                None => self.gallery_info_in(items.get(cur), *speed, opts.found),
             };
             self.lister_info(&l, &info).await?;
             self.lister_park(&l);
@@ -820,6 +956,7 @@ impl Session {
                     Some('G' | 'D') => Some("get"),
                     Some('I') => Some("info"),
                     Some('E') if cosysop => Some("edit"),
+                    Some('F' | '/') if opts.search => Some("find"),
                     Some('B') => Some("back"),
                     // Q leaves altogether; back goes up a level.
                     Some('Q') => return Ok(Pick::Quit),
@@ -849,6 +986,8 @@ impl Session {
                     "info" if items.get(cur).is_some_and(|i| record(i).is_some()) => return Ok(Pick::Info(cur)),
                     "edit" if items.get(cur).is_some_and(|i| record(i).is_some()) => return Ok(Pick::Edit(cur)),
                     "info" | "edit" => note = Some(self.strings().get("GalleryNotRecord").to_string()),
+                    "find" if opts.search => return Ok(Pick::Find),
+                    "find" => note = Some(self.strings().get("FaFindNotHere").to_string()),
                     "back" => return Ok(Pick::Back),
                     _ => {}
                 }
@@ -1394,6 +1533,16 @@ enum Pick {
     /// New: the file's record (`faFileInfo`), and the file editor, as in the file lister.
     Info(usize),
     Edit(usize),
+    /// New: search the file areas.
+    Find,
+}
+
+/// What else `gallery_pick` needs: a word for the info line at first, if
+/// the listing is a search's, and whether F searches.
+struct PickOpts {
+    note: Option<String>,
+    found: bool,
+    search: bool,
 }
 
 /// The file base's record for an item, when it is a file in an area (not a
@@ -1402,6 +1551,35 @@ enum Pick {
 /// the most rows the box takes.
 const POPUP_AFTER: std::time::Duration = std::time::Duration::from_millis(2500);
 const POPUP_ROWS: usize = 12;
+
+/// A file area's file as the browser lists it: a ZIP or tar as a pack to
+/// open, else a piece (in the gallery, only art and pictures); None if
+/// it isn't on disk.
+fn file_item(n: u32, f: FileRec, path: PathBuf, mode: Mode) -> Option<Item> {
+    if !path.is_file() {
+        return None;
+    }
+    let when = rec_date(&f, &path);
+    let tar = match crate::upscan::kind_of(&f.name) {
+        k @ (Kind::Tar | Kind::TarGz | Kind::Gzip) if mode.all => Some(k),
+        _ => None,
+    };
+    let name = f.name.clone();
+    if is_zip(&name) {
+        let place = Place::Zip { zip: path, prefix: String::new() };
+        Some(Item::Folder { name, place, pack: true, rec: Some((n, f)), when })
+    } else if let Some(kind) = tar {
+        let place = Place::Tar { tar: path, kind, prefix: String::new() };
+        Some(Item::Folder { name, place, pack: true, rec: Some((n, f)), when })
+    } else if mode.all && !is_art(&name) {
+        Some(Item::Art { name, size: f.size, sauce: None, src: Src::Disk(path), rec: Some((n, f)), when })
+    } else if is_art(&name) || is_image(&name) {
+        let sauce = if is_image(&name) { None } else { disk_sauce(&path) };
+        Some(Item::Art { name, size: f.size, sauce, src: Src::Disk(path), rec: Some((n, f)), when })
+    } else {
+        None
+    }
+}
 
 fn record(item: &Item) -> Option<&(u32, crate::filebase::FileRec)> {
     match item {

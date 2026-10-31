@@ -163,6 +163,10 @@ async fn run_command(state: &Arc<BbsState>, cmd: &str) -> anyhow::Result<()> {
                 tracing::info!("event: {line}");
             }
             tracing::info!("event: packed file areas: {}", report.summary(false));
+            // New: what was added gets a description from the AI, as an upload does.
+            for (area, name) in report.added {
+                crate::aidesc::spawn(state.clone(), area, name);
+            }
             Ok(())
         }
         #[cfg(feature = "doors")]

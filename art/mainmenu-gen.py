@@ -34,8 +34,8 @@ MENUS = {
  # The main menu's overflow: what's used least. Their keys still work
  # from the main menu too (hidden there).
  'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('<', 'back')])]),
- 'file': ('file menu', [('areas', [('a', 'change area'), ('j', 'join conference'), ('[', 'previous area'), (']', 'next area'), ('#', 'jump to area #'), ('s', 'set newscan date'), ('e', 'scan select')]),
-       ('find', [('l', 'browse files'), ('n', 'newscan'), ('f', 'filespec search'), ('t', 'text search'), ('i', 'file information'), ('v', 'view archive')]),
+ 'file': ('file menu', [('areas', [('a', 'change area'), ('j', 'join conference'), ('[', 'previous area'), (']', 'next area'), ('#', 'jump to area #')]),
+       ('find', [('l', 'browse files'), ('f', 'search files'), ('n', 'newscan'), ('s', 'set newscan date'), ('e', 'scan select')]),
        ('transfer', [('d', 'download'), ('u', 'upload'), ('+', 'flag for batch'), ('b', 'batch edit'), ('q', 'quit')])]),
  'message': ('message menu', [('read & post', [('r', 'read messages'), ('n', 'new messages'), ('p', 'post message'), ('b', 'text search'), ('h', 'how it works')]),
        ('areas', [('a', 'change area'), ('l', 'list areas'), ('j', 'join conference'), ('#', 'jump to area #')]),
@@ -81,6 +81,8 @@ CHANGED = {
     # m goes straight to the boards (MH), not through SCANMSG.
     ('main', 'm'): {'command': 'MH', 'param': '', 'desc': 'Message boards', 'help': 'The message boards: read, post, vote and comment'},
     # c is the casino, not the classic menu's KOMBAT.BAT.
+    # f searches names, descriptions and areas at once, in the browser.
+    ('file', 'f'): {'command': 'FW', 'param': 'search', 'desc': 'Search files', 'help': 'Look for words in file names, descriptions and areas'},
     ('door', 'c'): {'command': 'AC', 'param': '', 'desc': 'Casino', 'help': 'The casino: slots, blackjack, roulette, craps, the bar and the players club'},
 }
 ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', 'desc': 'How it works', 'help': 'The keys for reading, posting, votes and comments'},

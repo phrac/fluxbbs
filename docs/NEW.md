@@ -251,7 +251,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   the board's AI in the background (`aidesc.rs`), which looks at pictures,
   ANSI art (drawn by `ansishot.rs`), a PDF's first page, and inside ZIPs
   (the read-me's words, the art); `fluxbbs describe`
-  (`--dry-run`, `--try`, `--limit N`) does the ones already there, and the
+  (`--dry-run`, `--try`, `--limit N`) does the ones already there; files
+  added by `add-files`, `pack-files` and the pack event get the same; the
   file editor has K (this file) and L (every such file in the area). Its
   `-` reads a `.nfo` in a ZIP or a piece of art's SAUCE when there's no
   FILE_ID.DIZ.
@@ -297,6 +298,13 @@ For a board with hundreds of areas and tens of thousands of files:
 - The area list reads counts, not records.
 - `FF`/`FT` search is one query and names only the areas with a match
   (the original named each as it read it).
+- `FW search` (F on the file menu): words in names and descriptions, all
+  of them, `"a phrase"`, `*.zip`, `-word`; areas whose name or line
+  about them match too. Results open in the file browser best first,
+  with the area on the info line; `f` searches from inside the browser.
+- The file browser opens in the current area with the areas above it
+  behind it, so back goes up one level, not to the top; and an area
+  with a password asks for it there too (it didn't).
 - `FN` over all areas passes silently over areas with nothing new.
 - The viewer (`V` in the lister, `FV`) shows any file that reads as
   text, whatever it's called; `b` goes back from it, as from the lists.
@@ -597,7 +605,7 @@ All in [DOORS](DOORS.md).
 | `!P` (+ `lottery` `tip`) | your points, the lottery, tips |
 | `AP` | Carrier Lost (the dial-up game) |
 | `DB` (+ door code) | BBSLink doors |
-| `FW` (+ `newest` `hot` `heavy` `dig` `kingpin`) | file browser |
+| `FW` (+ `newest` `hot` `heavy` `dig` `kingpin` `search`) | file browser |
 | `MH` | message center |
 | `MW` (+ `Read`) | new posts at logon |
 | `MX` (+ `newest` `hot` `dig` `mouth` `loud` `unread`) | jump to a message from the stats |

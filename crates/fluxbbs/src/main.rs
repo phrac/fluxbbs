@@ -438,7 +438,9 @@ fn unban(who: Option<&str>, path: PathBuf) -> anyhow::Result<()> {
 /// by hand (a mirror, say) that the file base doesn't know yet are added,
 /// with their descriptions, as uploaded by the SysOp; moved ones keep
 /// their records, and nothing is forgotten.
-fn sync_files(args: &[String], prune: bool) -> anyhow::Result<()> {
+/// New: files added whose descriptions are bare get one from the AI then
+/// and there, unless `--no-describe`.
+async fn sync_files(args: &[String], prune: bool) -> anyhow::Result<()> {
     let dry_run = args.iter().any(|a| a == "--dry-run");
     let path = args.iter().find(|a| !a.starts_with("--")).map_or_else(config::default_path, PathBuf::from);
     let config = Config::load(&path)?;
@@ -452,6 +454,11 @@ fn sync_files(args: &[String], prune: bool) -> anyhow::Result<()> {
         println!("{line}");
     }
     println!("{} ({} file areas)", report.summary(dry_run), areas.len());
+    #[cfg(feature = "ai")]
+    if !dry_run && !report.added.is_empty() && !args.iter().any(|a| a == "--no-describe") {
+        drop(files);
+        aidesc::describe_added(&path, &report.added).await?;
+    }
     Ok(())
 }
 
@@ -634,10 +641,10 @@ async fn run() -> anyhow::Result<()> {
         return unban(args.get(1).map(String::as_str), args.get(2).map_or(config::default_path(), PathBuf::from));
     }
     if args.first().is_some_and(|a| a == "pack-files") {
-        return sync_files(&args[1..], true);
+        return sync_files(&args[1..], true).await;
     }
     if args.first().is_some_and(|a| a == "add-files") {
-        return sync_files(&args[1..], false);
+        return sync_files(&args[1..], false).await;
     }
     if args.first().is_some_and(|a| a == "ftn") {
         #[cfg(feature = "ftn")]

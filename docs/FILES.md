@@ -90,8 +90,15 @@ Every list like this has it, the message areas' too.
 A SysOp finds files the way callers do, and works on them where they
 are.
 
-1. Find the file: list an area (`L`), or search every area by name
-   (`F`) or by description (`T`).
+1. Find the file: browse (`L`), or search every area (`F`): words in
+   its name or description, all of them, in any case; `"two words"`
+   together, `*.zip` a filespec, `-word` leaves out. What's found opens
+   in the browser, best first (a word in the name counts most), with
+   the areas whose name or line about them has the words above the
+   files; the info line says which area a file is in, and `f` searches
+   again from anywhere in the browser. Areas with a password aren't
+   searched. (`FF` and `FT`, the original's searches by filespec and by
+   one piece of text, are still there for menus that use them.)
 2. Put the bar on it and pick `edit`. The file editor (`*Y`) opens on
    that file.
 3. Edit the record, rename (`A`), validate (`H`), move (`=`), or
@@ -123,7 +130,11 @@ original.
   and, for a model that sees, a look at it: a picture as it is, a piece
   of ANSI art drawn as one (`.ans`, `.ice`, `.asc`, `.diz`, `.nfo`), a
   PDF's first page, the first piece of art or picture in a ZIP. The board's own lines (`[ text, 59 lines ]`, a picture's
-  size) stay under it.
+  size) stay under it. Files put in an area by hand get the same when
+  they're added: by the `pack-files` event in the background, and by
+  `fluxbbs add-files`/`pack-files` there and then, with progress
+  (`--no-describe` skips it; `^C` stops it, and `fluxbbs describe`
+  finishes later).
 - `K` in the file editor asks the AI for this file's description; `L`
   for every file in the area that has none worth the name (any key
   stops it).
@@ -274,8 +285,8 @@ docker compose -f deploy/docker-compose.yml up -d
 ### Built for its size
 
 - The area lists read counts rather than records.
-- Searching every area (`FF`, `FT`) is one query, and names only the
-  areas with a match.
+- Searching every area (`F`, `FF`, `FT`) is one query. `FF` and `FT`
+  name only the areas with a match; `F` lists the best 500.
 - A newscan of all areas (`FN`) passes over areas with nothing new
   without a word.
 - The viewer shows any file that reads as text, whatever its extension

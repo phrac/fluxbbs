@@ -110,6 +110,90 @@ fn wildcard_like(spec: &str) -> String {
     out
 }
 
+/// New: what a caller looks for, in words: every one must be in a file's
+/// name or description (case doesn't matter), `"two words"` together, a
+/// word with `*` or `?` a filespec for the name, and `-word` leaves out
+/// what has it.
+#[derive(Debug, Default, PartialEq)]
+pub struct Find {
+    pub want: Vec<String>,
+    pub not: Vec<String>,
+}
+
+impl Find {
+    pub fn parse(text: &str) -> Find {
+        let mut find = Find::default();
+        let mut chars = text.chars().peekable();
+        loop {
+            while chars.next_if(|c| c.is_whitespace()).is_some() {}
+            let Some(&c) = chars.peek() else { break };
+            let not = c == '-';
+            if not {
+                chars.next();
+            }
+            let mut word = String::new();
+            if chars.next_if_eq(&'"').is_some() {
+                word.extend(chars.by_ref().take_while(|&c| c != '"'));
+            } else {
+                while let Some(c) = chars.next_if(|c| !c.is_whitespace()) {
+                    word.push(c);
+                }
+            }
+            let word = word.split_whitespace().collect::<Vec<_>>().join(" ").to_lowercase();
+            if !word.is_empty() {
+                if not { &mut find.not } else { &mut find.want }.push(word);
+            }
+        }
+        find
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.want.is_empty()
+    }
+
+    fn is_spec(word: &str) -> bool {
+        word.contains(['*', '?'])
+    }
+
+    fn hit(word: &str, name: &str, text: &str) -> bool {
+        if Find::is_spec(word) { wildcard(word, name) } else { name.to_lowercase().contains(word) || text.contains(word) }
+    }
+
+    /// Whether some text (an area's name and the line about it) has every
+    /// word and none of the left-out ones. A filespec matches no area.
+    pub fn matches_text(&self, text: &str) -> bool {
+        let text = text.to_lowercase();
+        !self.want.is_empty() && self.want.iter().all(|w| !Find::is_spec(w) && text.contains(w.as_str())) && !self.not.iter().any(|w| text.contains(w.as_str()))
+    }
+
+    fn matches(&self, f: &FileRec) -> bool {
+        let text = f.description.join("\n").to_lowercase();
+        self.want.iter().all(|w| Find::hit(w, &f.name, &text)) && !self.not.iter().any(|w| Find::hit(w, &f.name, &text))
+    }
+
+    /// Best first: a word in the name counts most, more at its start; in
+    /// the description, more for each time it's there (up to three).
+    fn score(&self, f: &FileRec) -> u32 {
+        let name = f.name.to_lowercase();
+        let text = f.description.join("\n").to_lowercase();
+        self.want
+            .iter()
+            .map(|w| {
+                if Find::is_spec(w) {
+                    return 4;
+                }
+                let mut s = 0;
+                if name.starts_with(w.as_str()) {
+                    s += 6;
+                } else if name.contains(w.as_str()) {
+                    s += 4;
+                }
+                s + text.matches(w.as_str()).count().min(3) as u32
+            })
+            .sum()
+    }
+}
+
 pub struct FileBase {
     db: Mutex<Connection>,
 }
@@ -189,6 +273,47 @@ impl FileBase {
             rows.retain(|f| wildcard(s, &f.name));
         }
         Ok(rows)
+    }
+
+    /// New: the validated files in `areas` that `find` finds, best first
+    /// (then newest), at most `limit`, and how many there were in all.
+    /// The words narrow the query; the matching is done here, so a
+    /// filespec and a phrase work as they do everywhere else.
+    pub fn find_words(&self, areas: &[String], find: &Find, limit: usize) -> anyhow::Result<(Vec<FileRec>, usize)> {
+        if areas.is_empty() || find.is_empty() {
+            return Ok((Vec::new(), 0));
+        }
+        let mut params: Vec<String> = areas.to_vec();
+        let mut conds = Vec::new();
+        for w in &find.want {
+            if Find::is_spec(w) {
+                params.push(wildcard_like(w));
+                conds.push("name LIKE ? ESCAPE '\\'");
+            } else {
+                let like = format!("%{}%", escape_like(w));
+                params.push(like.clone());
+                params.push(like);
+                conds.push("(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')");
+            }
+        }
+        let sql = format!("SELECT * FROM files WHERE valid AND area IN ({}) AND {}", vec!["?"; areas.len()].join(","), conds.join(" AND "));
+        let mut rows: Vec<FileRec> = {
+            let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+            db.prepare(&sql)?.query_map(rusqlite::params_from_iter(params.iter()), from_row)?.collect::<Result<_, _>>()?
+        };
+        rows.retain(|f| find.matches(f));
+        let total = rows.len();
+        rows.sort_by_cached_key(|f| (std::cmp::Reverse(find.score(f)), std::cmp::Reverse(f.uploaded), f.name.to_lowercase()));
+        rows.truncate(limit);
+        Ok((rows, total))
+    }
+
+    /// New: every area's line about it, by storage key in lower case.
+    pub fn area_abouts(&self) -> anyhow::Result<HashMap<String, String>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT area, about FROM area_info")?;
+        let rows = stmt.query_map([], |r| Ok((r.get::<_, String>(0)?.to_lowercase(), r.get(1)?)))?;
+        Ok(rows.collect::<Result<_, _>>()?)
     }
 
     /// Every file in an area, in order.
@@ -493,6 +618,33 @@ mod tests {
 
     fn names(fb: &FileBase, area: &str) -> Vec<String> {
         fb.list(area).unwrap().into_iter().map(|f| format!("{}:{}", f.num, f.name)).collect()
+    }
+
+    #[test]
+    fn finds_by_words_best_first() {
+        assert_eq!(Find::parse(r#" Tetris  -"demo  disk" *.ZIP "#), Find { want: vec!["tetris".into(), "*.zip".into()], not: vec!["demo disk".into()] });
+        let fb = FileBase::open_memory().unwrap();
+        let add = |area: &str, name: &str, desc: &str| {
+            let mut f = rec(area, name);
+            f.description = vec![desc.into()];
+            fb.add(&mut f).unwrap();
+        };
+        add("GAMES", "BLOCKS.ZIP", "A Tetris clone for EGA");
+        add("GAMES", "TETRIS.ZIP", "Falling blocks");
+        add("GAMES", "TETDEMO.ZIP", "Tetris demo disk");
+        add("TEXT", "TETRIS.TXT", "How to play Tetris");
+        add("HIDDEN", "TETRIS2.ZIP", "Tetris again");
+        let areas = vec!["GAMES".to_string(), "TEXT".to_string()];
+        let names = |q: &str| fb.find_words(&areas, &Find::parse(q), 10).unwrap().0.into_iter().map(|f| f.name).collect::<Vec<_>>();
+        assert_eq!(names("tetris"), ["TETRIS.TXT", "TETRIS.ZIP", "BLOCKS.ZIP", "TETDEMO.ZIP"]);
+        assert_eq!(names("tetris *.zip -\"demo disk\""), ["TETRIS.ZIP", "BLOCKS.ZIP"]);
+        assert_eq!(names("ega clone"), ["BLOCKS.ZIP"]);
+        assert_eq!(names("tetris -games"), names("tetris"));
+        assert!(names("nothing").is_empty());
+        assert_eq!(fb.find_words(&areas, &Find::parse("tetris"), 1).unwrap().1, 4);
+        assert!(Find::parse("dos utils").matches_text("UTILS: DOS utilities"));
+        assert!(!Find::parse("dos -utilities").matches_text("UTILS: DOS utilities"));
+        assert!(!Find::parse("*.zip").matches_text("zip files"));
     }
 
     #[test]
