@@ -58,6 +58,14 @@ pub fn safe_name(raw: &[u8]) -> Option<String> {
     (!clean.is_empty()).then_some(clean)
 }
 
+/// How fast a Zmodem transfer went, for the log.
+fn log_speed(who: &str, what: &str, bytes: u64, took: Duration) {
+    if bytes > 0 {
+        let secs = took.as_secs_f64().max(0.001);
+        tracing::info!("{who}: {what} of {bytes} bytes in {secs:.1}s ({:.1} KB/s)", bytes as f64 / 1024.0 / secs);
+    }
+}
+
 async fn write_wire<W: AsyncWrite + Unpin>(w: &mut W, bytes: &[u8]) -> io::Result<()> {
     w.write_all(bytes).await?;
     w.flush().await
@@ -158,7 +166,15 @@ impl Session {
         self.flush().await?;
         self.node.update(|n| n.activity = "Downloading".into());
         let result = match proto {
-            Proto::Zmodem => self.zmodem_send(files).await,
+            Proto::Zmodem => {
+                let start = std::time::Instant::now();
+                let r = self.zmodem_send(files).await;
+                if let Ok(done) = &r {
+                    let bytes: u64 = files.iter().zip(done).filter(|(_, ok)| **ok).filter_map(|(f, _)| std::fs::metadata(f).ok()).map(|m| m.len()).sum();
+                    log_speed(&self.user.handle, "download", bytes, start.elapsed());
+                }
+                r
+            }
             Proto::External(p) => {
                 let list = files.iter().map(|f| shell_quote(&f.to_string_lossy())).collect::<Vec<_>>().join(" ");
                 let ok = self.run_external(&p.send.replace("%F", &list), Path::new(".")).await?;
@@ -178,7 +194,15 @@ impl Session {
         self.node.update(|n| n.activity = "Uploading".into());
         std::fs::create_dir_all(dir)?;
         let result = match proto {
-            Proto::Zmodem => self.zmodem_receive(dir).await,
+            Proto::Zmodem => {
+                let start = std::time::Instant::now();
+                let r = self.zmodem_receive(dir).await;
+                if let Ok(got) = &r {
+                    let bytes: u64 = got.iter().filter_map(|f| std::fs::metadata(f).ok()).map(|m| m.len()).sum();
+                    log_speed(&self.user.handle, "upload", bytes, start.elapsed());
+                }
+                r
+            }
             Proto::External(p) => {
                 self.run_external(&p.receive, dir).await?;
                 let mut got = Vec::new();
@@ -317,7 +341,10 @@ impl Session {
 
     async fn zmodem_receive(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>> {
         let max = self.state.config().files.max_upload_bytes;
-        let mut rx = zmodem2::Receiver::new().map_err(zerr)?;
+        // Nonstop I/O: on SSH and telnet the sender may stream the whole
+        // file. The library's default buffer (1 KB, then wait for an ack)
+        // costs a round trip a kilobyte, which made uploads crawl.
+        let mut rx = zmodem2::Receiver::with_flow_control(0, true).map_err(zerr)?;
         let mut got = Vec::new();
         let mut file: Option<(tokio::fs::File, PathBuf, u64)> = None;
         let mut ended = false;
