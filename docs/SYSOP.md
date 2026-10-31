@@ -35,8 +35,8 @@ rename keep `iniquity.toml` and `data/iniquity.db`, and still work.
 | `fluxbbs --wfc [CONFIG]` | the same, with the waiting-for-caller screen on the console |
 | `fluxbbs import OLD [DEST] [--force]` | imports an Iniquity install ([below](#importing-an-existing-iniquity-install)) |
 | `fluxbbs unban ADDRESS\|all [CONFIG]` | lifts a ban, for a SysOp locked out of their own board; takes effect when the server (re)starts, or at once if it isn't running |
-| `fluxbbs add-files [CONFIG]` | adds files put into area directories by hand (a mirror, say), with their descriptions, as uploaded by the SysOp |
-| `fluxbbs pack-files [CONFIG]` | forgets files that are gone from their area's directory |
+| `fluxbbs add-files [--dry-run] [CONFIG]` | adds files put into area directories by hand (a mirror, say), with their descriptions, as uploaded by the SysOp; files moved by hand keep their records |
+| `fluxbbs pack-files [--dry-run] [CONFIG]` | forgets files that are gone from their area's directory, and adds ones with no record; files moved or renamed by hand keep their records ([FEATURES](FEATURES.md#adding-and-packing-files)) |
 | `fluxbbs textfiles fetch DIR`, `import CONFIG` | the textfiles.com archive as file areas ([FILES.md](FILES.md#the-textfilescom-archive)) |
 | `fluxbbs ftn poll [NET]\|toss\|scan\|areafix ...` | FTN mail jobs by hand ([FEATURES.md](FEATURES.md#ftn-echomail)) |
 | `fluxbbs backup [DAYS] [DIR] [CONFIG]` | a [backup](#backups) now, with the board running or not |

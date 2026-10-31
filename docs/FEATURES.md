@@ -653,7 +653,17 @@ it. `?` describes it. The descriptions are kept in `[flags]` in
   it.
 - `*K` packs file areas: it forgets files missing from their
   directories. `fluxbbs pack-files` does it from the shell, as
-  FILEPACK.EXE did.
+  FILEPACK.EXE did, and adds files that have no record too.
+- Files moved or renamed by hand keep their records (description,
+  downloads, uploader, dates): before forgetting a missing file, packing
+  and adding look for it elsewhere in the file areas. A record and a
+  file pair up when they're the same size and their names agree: the
+  same, or one the other with a prefix taken off or put on
+  (`Constitution_Strategy.txt` moved into `constitution/` as
+  `Strategy.txt`). A record that could be more than one file, or a file
+  more than one record, is left alone and named. New areas go in `*F`
+  (or `fileareas.toml`) first: files in a directory no area uses aren't
+  looked at. `--dry-run` shows what `pack-files` or `add-files` would do.
 - `fluxbbs textfiles` puts the textfiles.com archive on the board as a
   tree of areas ([FILES](FILES.md#the-textfilescom-archive)).
 

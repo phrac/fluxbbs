@@ -572,22 +572,29 @@ impl Session {
             self.newline();
             if all { (0..areas.areas.len()).collect() } else { vec![(self.user.cur_file_area as usize).wrapping_sub(1)] }
         };
-        let mut total = 0;
-        for i in which {
-            let Some(a) = areas.areas.get(i).cloned() else { continue };
+        // New: a file moved or renamed by hand, into any area, keeps its
+        // record (`filesync`); what's left alone is said.
+        let chosen: Vec<_> = which.into_iter().filter_map(|i| areas.areas.get(i).cloned()).collect();
+        let only: std::collections::HashSet<String> = chosen.iter().map(|a| a.file.clone()).collect();
+        let all = crate::filesync::areas(&self.state.config(), &areas.areas);
+        let opts = crate::filesync::Opts { prune: true, only: Some(&only), ..Default::default() };
+        let report = crate::filesync::sync(&self.state.files, &all, &opts, |_, _| anyhow::bail!("not adding")).map_err(io_err)?;
+        for line in report.lines(&all, false) {
+            tracing::info!("{}: {line}", self.user.handle);
+        }
+        for a in &chosen {
             let count = self.state.files.count(&a.file).map_err(io_err)?;
             let s = self.strings().fmt("FaPackStart", &[&a.name, &count.to_string()]);
             self.show(&s).await?;
-            self.flush().await?;
-            let gone = self.state.files.prune_missing(&a.file, &self.farea_dir(&a)).map_err(io_err)?;
-            for name in &gone {
-                tracing::info!("{}: file area {}: {name} is gone, record removed", self.user.handle, a.name);
-            }
-            total += gone.len();
-            let s = self.strings().fmt("FaPackEnd", &[&gone.len().to_string()]);
+            let gone = report.removed.iter().filter(|(f, _)| *f == a.file).count();
+            let s = self.strings().fmt("FaPackEnd", &[&gone.to_string()]);
             self.show_line(&s).await?;
         }
-        tracing::info!("{}: packed file areas, {total} records removed", self.user.handle);
+        if !report.moved.is_empty() || !report.unsure.is_empty() {
+            let s = self.strings().fmt("FaPackMoved", &[&report.moved.len().to_string(), &report.unsure.len().to_string()]);
+            self.show_line(&s).await?;
+        }
+        tracing::info!("{}: packed file areas: {}", self.user.handle, report.summary(false));
         Ok(())
     }
 

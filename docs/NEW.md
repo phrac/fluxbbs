@@ -274,6 +274,11 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - RAR, 7Z and LHA through bsdtar or 7-Zip; ZIP read natively.
 - `fluxbbs add-files` adds files copied into every area from the shell;
   a ZIP without a FILE_ID.DIZ is described by what's in it.
+- Files moved or renamed by hand keep their records: packing (`*K`,
+  `pack-files`, the event) and `add-files` pair a missing file's record
+  with the file where it went, by size and name, instead of forgetting
+  the one and adding the other blank; `--dry-run` shows what they'd do.
+  ([FEATURES](FEATURES.md#adding-and-packing-files))
 - Log off after a download, with a countdown.
 - The textfiles.com archive as file areas: `fluxbbs textfiles fetch`
   catalogs the mirror and brings the files down.

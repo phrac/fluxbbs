@@ -152,17 +152,17 @@ async fn run_command(state: &Arc<BbsState>, cmd: &str) -> anyhow::Result<()> {
             crate::boards::remove_empty_boards(state)?;
             Ok(())
         }
+        // New: files moved by hand keep their records, and files with
+        // none get one (`filesync`).
         "pack-files" => {
             let cfg = state.config();
-            let mut total = 0;
-            for a in &state.fareas().areas {
-                let gone = state.files.prune_missing(&a.file, &cfg.resolve(&a.path))?;
-                for name in &gone {
-                    tracing::info!("event: file area {}: {name} is gone, record removed", a.name);
-                }
-                total += gone.len();
+            let areas = crate::filesync::areas(&cfg, &state.fareas().areas);
+            let opts = crate::filesync::Opts { prune: true, add: true, ..Default::default() };
+            let report = crate::filesync::sync(&state.files, &areas, &opts, |a, p| crate::filesync::new_record(&cfg, a, p))?;
+            for line in report.lines(&areas, false) {
+                tracing::info!("event: {line}");
             }
-            tracing::info!("event: packed file areas, {total} records removed");
+            tracing::info!("event: packed file areas: {}", report.summary(false));
             Ok(())
         }
         #[cfg(feature = "doors")]

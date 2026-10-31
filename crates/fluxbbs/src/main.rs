@@ -102,6 +102,7 @@ mod ftn;
 #[cfg(feature = "ftn")]
 mod ftntoss;
 mod filebase;
+mod filesync;
 mod files;
 mod transfer;
 mod trash;
@@ -428,61 +429,29 @@ fn unban(who: Option<&str>, path: PathBuf) -> anyhow::Result<()> {
     Ok(())
 }
 
-/// `fluxbbs pack-files [config]`: what FILEPACK.EXE was, run outside
-/// the BBS: forget files that are gone from every file area's directory.
-fn pack_files(path: PathBuf) -> anyhow::Result<()> {
+/// `fluxbbs pack-files [--dry-run] [config]`: what FILEPACK.EXE was, run
+/// outside the BBS: forget files that are gone from every file area's
+/// directory. New: files moved or renamed by hand keep their records
+/// (`filesync`), and files with none get one, as `add-files` does.
+/// `fluxbbs add-files [--dry-run] [config]`: `*%` (`faLocalUpload`) for
+/// every area at once, from the shell: files put into an area's directory
+/// by hand (a mirror, say) that the file base doesn't know yet are added,
+/// with their descriptions, as uploaded by the SysOp; moved ones keep
+/// their records, and nothing is forgotten.
+fn sync_files(args: &[String], prune: bool) -> anyhow::Result<()> {
+    let dry_run = args.iter().any(|a| a == "--dry-run");
+    let path = args.iter().find(|a| !a.starts_with("--")).map_or_else(config::default_path, PathBuf::from);
     let config = Config::load(&path)?;
     let db = config.db_path();
     let files = FileBase::open(&db).with_context(|| format!("file database {}", db.display()))?;
     let fareas = FileAreas::load(&config.resolve(&config.paths.fileareas))?;
-    let mut total = 0;
-    for a in &fareas.areas {
-        let gone = files.prune_missing(&a.file, &config.resolve(&a.path))?;
-        for name in &gone {
-            println!("{}: {name} is missing; record removed", a.name);
-        }
-        total += gone.len();
+    let areas = filesync::areas(&config, &fareas.areas);
+    let opts = filesync::Opts { dry_run, prune, add: true, only: None };
+    let report = filesync::sync(&files, &areas, &opts, |a, p| filesync::new_record(&config, a, p))?;
+    for line in report.lines(&areas, dry_run) {
+        println!("{line}");
     }
-    println!("{total} record(s) removed from {} file area(s)", fareas.areas.len());
-    Ok(())
-}
-
-/// `fluxbbs add-files`: `*%` (`faLocalUpload`) for every area at once,
-/// from the shell: files put into an area's directory by hand (a mirror,
-/// say) that the file base doesn't know yet are added, with their
-/// descriptions, as uploaded by the SysOp.
-fn add_files(path: PathBuf) -> anyhow::Result<()> {
-    let config = Config::load(&path)?;
-    let db = config.db_path();
-    let files = FileBase::open(&db).with_context(|| format!("file database {}", db.display()))?;
-    let fareas = FileAreas::load(&config.resolve(&config.paths.fileareas))?;
-    let kb_pt = config.files.kb_per_point.max(1) as u64;
-    let mut total = 0;
-    for a in &fareas.areas {
-        let dir = config.resolve(&a.path);
-        let known: std::collections::HashSet<String> = files.list(&a.file)?.into_iter().map(|f| f.name.to_lowercase()).collect();
-        let mut entries: Vec<PathBuf> = match std::fs::read_dir(&dir) {
-            Ok(d) => d.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_file()).collect(),
-            Err(_) => continue,
-        };
-        entries.sort();
-        let mut recs = Vec::new();
-        for p in entries {
-            let name = p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-            if name.starts_with('.') || known.contains(&name.to_lowercase()) {
-                continue;
-            }
-            recs.push(files::local_record(&a.file, &p, &config.bbs.sysop_alias, &config.files.description_files, kb_pt, config.files.image_limits())?);
-        }
-        // Descriptions are read first; the area's records then go in at once.
-        files.add_all(&mut recs)?;
-        let n = recs.len();
-        if n > 0 {
-            println!("{}: {n} file(s) added", a.name);
-        }
-        total += n;
-    }
-    println!("{total} file(s) added to {} file area(s)", fareas.areas.len());
+    println!("{} ({} file areas)", report.summary(dry_run), areas.len());
     Ok(())
 }
 
@@ -665,10 +634,10 @@ async fn run() -> anyhow::Result<()> {
         return unban(args.get(1).map(String::as_str), args.get(2).map_or(config::default_path(), PathBuf::from));
     }
     if args.first().is_some_and(|a| a == "pack-files") {
-        return pack_files(args.get(1).map_or(config::default_path(), PathBuf::from));
+        return sync_files(&args[1..], true);
     }
     if args.first().is_some_and(|a| a == "add-files") {
-        return add_files(args.get(1).map_or(config::default_path(), PathBuf::from));
+        return sync_files(&args[1..], false);
     }
     if args.first().is_some_and(|a| a == "ftn") {
         #[cfg(feature = "ftn")]

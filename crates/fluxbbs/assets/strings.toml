@@ -994,3 +994,4 @@ NuMemory3 = "|U1suit you next time|U2. |U1It's kept with your account|U2; |U1nev
 NuMemory4 = "|U1personal details|U2. |U1See it or turn it off in your profile|U2, |U1in user config|U2."
 NuMemoryAsk = "|U1Let the board remember your interests? "
 ViewerHelpWide = "|U5 [|U6arrows|U5] |U4scroll  |U5[|U6pgup|U5/|U6pgdn|U5/|U6space|U5] |U4page  |U5[|U6home|U5/|U6end|U5]  [|U6b|U5/|U6q|U5] |U4back"
+FaPackMoved = " |U1Files moved by hand kept their records|U2: |U3%S1|U2; |U1left alone |U2(|U1see the log|U2): |U3%S2"
