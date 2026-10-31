@@ -73,7 +73,7 @@ You need `cargo` and `unzip`. Showing PDFs also needs Poppler
 
 The image holds the server, built with every optional component
 (`FEATURES`; [BUILDING.md](docs/BUILDING.md)), and the stock files. Your board directory
-(`BOARD`, default `~/code/disflux_bbs`) is mounted beside them. SSH is
+(`BOARD`, default `disflux` beside the checkout) is mounted beside them. SSH is
 on port 2222 and telnet on 23. Logs are in `docker logs fluxbbs`.
 [SYSOP.md](docs/SYSOP.md#running-in-a-container) has the details.
 

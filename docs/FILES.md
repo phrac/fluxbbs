@@ -142,7 +142,7 @@ original.
   does the files already on the board: `--dry-run` lists them, `--try`
   shows what the AI would say without saving, `--area` does one area.
   In the container, run it with
-  `docker exec fluxbbs fluxbbs describe ... /srv/board/iniquity.toml`.
+  `docker exec fluxbbs fluxbbs describe ... /srv/board/fluxbbs.toml`.
 - Each file area can have a line about what's in it (`L`, About, in
   `*F`), shown beside it in the file browser in place of its newest
   file's date. `fluxbbs describe --areas` has the AI write one for each

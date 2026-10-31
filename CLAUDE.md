@@ -3,8 +3,8 @@
 flux/bbs (`fluxbbs` where a slash can't go: the program, crates, files,
 container), a Rust BBS that began as a port of the Iniquity BBS (Turbo
 Pascal, 1.00a26r5); credit Iniquity, but it's no longer called that.
-The checkout folder is still `inq/iniquity`, and the image keeps the
-stock files at `/srv/inq/iniquity`, which boards' configs point at.
+The image keeps the stock files at `/srv/inq/iniquity` (the old name,
+kept because boards' configs point there).
 `README.md` is
 the source of truth for what's done and what isn't (its "Status"
 section); keep it current when features land.
@@ -71,8 +71,11 @@ git: copy `data/` and `files/` across if the board should move with you.
   container: the image holds the server and the stock `text/`, `themes/`,
   `menus/`, `scripts/` at `/srv/inq/iniquity`, and the board directory is
   mounted at `/srv/board`. The live board is `disfluxbbs.com` on `rzn`
-  (SSH 2222, telnet 23), from `~/code/disflux_bbs` there with the repo at
-  `~/code/inq/iniquity`; the test board is the same layout on `ryzen`.
+  (SSH 2222, telnet 23): the board is `/opt/fluxbbs/disflux` and the repo
+  `/opt/fluxbbs/src`, where development happens too (`deploy/.env`,
+  git-ignored, sets `BOARD` and the compose project name `fluxbbs`). The
+  test board on `ryzen` still has the old layout (`~/code/disflux_bbs`,
+  `~/code/inq/iniquity`).
 
 ## How the user likes to work
 
@@ -89,7 +92,7 @@ git: copy `data/` and `files/` across if the board should move with you.
   `docs/ARTWORK.md`). Adding a menu's command list or lightbar markers
   (`~01^01`...) under their art is fine.
 - Keep the repo stock: their board (disflux) lives in
-  `~/code/disflux_bbs`, outside the repo, with its own `iniquity.toml`,
+  `/opt/fluxbbs/disflux`, outside the repo, with its own `fluxbbs.toml`,
   `data/`, `files/` and `text/` (their screens; `art/` holds the
   originals), using the repo's `text/` as `stock_text` and its menus as
   `stock_menus` (the board's own `menus/` has MATRIX.toml and the
@@ -99,7 +102,7 @@ git: copy `data/` and `files/` across if the board should move with you.
   WELCOME, AICHAT, NODECHAT, FSEDITOR and FSHELP...; `art/README.md`),
   the repo's `text/` and `menus/` are them made for FLUX/BBS over
   Iniquity's own (now `classic/`), and `python3 art/make.py
-  ~/code/disflux_bbs` makes disflux's, with what's only disflux's
+  /opt/fluxbbs/disflux` makes disflux's, with what's only disflux's
   (its doors, prelogon lines, about text, hand-drawn logos) in the
   board's `art/local.py`. Change a script and rerun `make.py` (for the
   stock set too) rather than editing the `.ANS`; check disflux comes
@@ -108,9 +111,10 @@ git: copy `data/` and `files/` across if the board should move with you.
   ad).
   Board settings go there, not in the repo's `fluxbbs.toml`: handles
   kept as typed (`alias_format = 1`), new users asked only for handle and
-  password. Run it with `fluxbbs ~/code/disflux_bbs/iniquity.toml` (disflux
-  predates the rename and keeps `iniquity.toml` and `data/iniquity.db`). The
-  repo's own `data/` is just a dev copy.
+  password. Its config is `fluxbbs.toml` and its database
+  `data/fluxbbs.db` (renamed from `iniquity.*` on 31 Oct 2026; older
+  backups in `data/` keep the old name). The repo's own `data/` is just
+  a dev copy.
 
 ## Conventions
 
@@ -190,7 +194,7 @@ Things that trip tests up:
   prompt. Lightbar menus treat `4`/`6` as arrow keys.
 - Many screens end in a "press any key" pause; add `opt:any key=>\r` steps.
 - **Back up and restore the board's data around live tests**:
-  `data/fluxbbs.db` (disflux: `iniquity.db`) and the `*.toml` files (git restores tracked ones;
+  `data/fluxbbs.db` and the `*.toml` files (git restores tracked ones;
   editors create `levels.toml`, `strings.toml`, `themes.toml` etc., which
   should be removed again if a test made them).
 - In zsh, an unmatched glob aborts the whole command; and `pkill -f` with a
@@ -198,8 +202,9 @@ Things that trip tests up:
 
 ## Status, 18 Oct 2026: the board is live, dev moves to rzn
 
-`disfluxbbs.com` runs on `rzn` in Docker (`~/code/inq/iniquity` is the
-checkout, `~/code/disflux_bbs` the board, SSH 2222, telnet 23; update with
+`disfluxbbs.com` runs on `rzn` in Docker (`/opt/fluxbbs/src` is the
+checkout, `/opt/fluxbbs/disflux` the board, SSH 2222, telnet 23; update
+from the checkout with
 `git pull && docker compose -f deploy/docker-compose.yml up -d --build`,
 logs with `docker logs -f fluxbbs`). A deploy restarts the board and
 drops callers: check `curl -s 127.0.0.1:8099/status.json` first and wait
@@ -219,9 +224,12 @@ vega and reflux resolve from the container through Tailscale's search
 domain, so `[ai]` is fine as it is); `[dos] emulator = ""` on the live
 board; the `[ NOW ]` feed (`[web] listen = "0.0.0.0:8099"` in the board,
 published as `127.0.0.1:8099` by the compose file, where rzn's host Caddy
-already proxies `/api/status.json`). rzn has no `unzip`: unpack
-`original/inqa26r5.zip` and the `newinst.exe` inside it with Python's
-`zipfile` before running `tools/setup_host.sh`.
+already proxies `/api/status.json`).
+
+Moved 31 Oct 2026 from `~/code/inq/iniquity` and `~/code/disflux_bbs` to
+`/opt/fluxbbs` (a fresh clone, set up with `tools/setup_host.sh`, and a
+full copy of the board, checksummed), keeping the compose network's
+172.22.0.1 gateway that Hermes is allowed from.
 
 Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
 - GIFs: output piled up ahead of the terminal (~450 KB queued on rzn).
@@ -237,7 +245,7 @@ Freezes (keys seem ignored), from SyncTERM over SSH on a phone link:
   -d` shows the packets. Ask the SyncTERM version; try telnet.
 
 Backups (24 Oct 2026): a nightly event (`backup 7`, 03:30) writes
-`~/code/disflux_bbs/backups/fluxbbs-*.tar.gz` (database snapshot,
+`/opt/fluxbbs/disflux/backups/fluxbbs-*.tar.gz` (database snapshot,
 settings, screens, door data, host keys; not `files/`), keeping 7 days.
 `fluxbbs backup` makes one by hand; restoring is in docs/SYSOP.md.
 Nothing copies them off rzn yet.

@@ -90,7 +90,7 @@ works the same inside the container as beside a checkout.
 
 | Setting | What | Default |
 |---|---|---|
-| `BOARD` | the board directory | `~/code/disflux_bbs`, for a checkout at `~/code/inq/iniquity` |
+| `BOARD` | the board directory | `disflux` beside the checkout (e.g. `/opt/fluxbbs/disflux` for `/opt/fluxbbs/src`); set it in `deploy/.env` |
 | `BBS_UID`, `BBS_GID` | who the server runs as; must own the board directory | 1000 |
 
 | Host port | What |

@@ -31,7 +31,7 @@ RUN apt-get update \
     && useradd -m -u 1000 bbs
 COPY --from=build /src/target/release/fluxbbs /usr/local/bin/fluxbbs
 # The stock board files, where a board's config expects them (the
-# checkout's folder is still inq/iniquity).
+# path keeps the old name, which existing configs use).
 COPY text /srv/inq/iniquity/text
 COPY themes /srv/inq/iniquity/themes
 COPY menus /srv/inq/iniquity/menus

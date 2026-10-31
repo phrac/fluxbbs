@@ -3,9 +3,11 @@
 #     docker compose -f deploy/docker-compose.yml up -d --build
 #
 # BOARD is the board directory (config, data, files, own screens); the
-# default is ~/code/disflux_bbs for a checkout at ~/code/inq/iniquity,
-# so the board's `../inq/iniquity/...` paths resolve inside the container
-# as they do outside. It is mounted writable and the server runs as
+# default is `disflux` beside the checkout (/opt/fluxbbs/disflux for
+# /opt/fluxbbs/src). Set it, and COMPOSE_PROJECT_NAME, in deploy/.env
+# (git-ignored). The image's stock files are at /srv/inq/iniquity, so a
+# board's `../inq/iniquity/...` paths resolve inside the container. It
+# is mounted writable and the server runs as
 # BBS_UID:BBS_GID (default 1000:1000), so match the directory's owner.
 # SSH is on 2222 and telnet on 23 of the host, and binkp (FTN mail, if
 # [ftn] listen is set) on 24554. The status feed ([web],
@@ -25,7 +27,7 @@ services:
     user: "${BBS_UID:-1000}:${BBS_GID:-1000}"
     working_dir: /srv/board
     volumes:
-      - ${BOARD:-../../../disflux_bbs}:/srv/board
+      - ${BOARD:-../../disflux}:/srv/board
     ports:
       - "2222:2222"
       - "23:2323"
