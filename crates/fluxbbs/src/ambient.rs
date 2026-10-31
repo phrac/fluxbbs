@@ -35,6 +35,9 @@ pub struct Effect {
     /// color (`matches`) going out and on, each now and then (`every`
     /// seconds apart, on `amount` of the time): lamps, windows. `roll`: a
     /// bright bar rolling down the area every `every` seconds, a tube's.
+    /// `flash`: the whole area going dark and back together, every
+    /// `every` seconds, lit `amount` of the time (half to start): a
+    /// warning sign.
     /// `decode`: the area's letters scrambling and settling into the next
     /// of `messages`, its letters at cells picked afresh each round and
     /// the rest noise, `delay` into every `every` seconds, the scramble
@@ -196,7 +199,7 @@ impl Ambient {
                 for x in e.cols[0].max(1)..=e.cols[1].min(80) {
                     let Some(c) = screen.shown(x, y) else { continue };
                     let wanted = match e.kind.as_str() {
-                        "glint" | "flicker" | "wave" | "drips" | "sparkle" | "breathe" => !blank(&c),
+                        "glint" | "flicker" | "wave" | "drips" | "sparkle" | "breathe" | "flash" => !blank(&c),
                         "ripple" => box_line(c.ch),
                         "pulse" | "blink" => matches.is_some_and(|m| near(c.fg, m) || near(c.bg, m)),
                         "dust" | "type" | "roll" => true,
@@ -399,6 +402,13 @@ impl Ambient {
                     return Shown { ch: b.ch, fg: c, bg: c };
                 }
                 (b.bg, b.bg)
+            }
+            "flash" => {
+                let on = if e.amount > 0.0 { e.amount } else { 0.5 };
+                if ((t - e.delay).max(0.0) / e.every.max(0.1)).fract() < on {
+                    return b;
+                }
+                (times(b.fg, 0.12), times(b.bg, 0.12))
             }
             "blink" => {
                 let Some(m) = hex(&e.matches) else { return b };
@@ -773,6 +783,18 @@ mod tests {
         let e = fx("glint", [1, 9]);
         assert!((0..80).any(|x| Ambient::sweep(&e, x, 1, 0.8) > 0.01));
         assert!((0..80).all(|x| Ambient::sweep(&e, x, 1, 4.0) == 0.0));
+    }
+
+    #[test]
+    fn a_flash_darkens_all_at_once() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.write_bytes(b"\x1b[2J\x1b[38;2;255;85;85mWARN");
+        let e = Effect { every: 1.0, delay: 0.0, amount: 0.6, ..fx("flash", [1, 1]) };
+        let a = Ambient::new(&s, &[e]).unwrap();
+        assert_eq!(a.targets.len(), 4);
+        let lit = |t: f32| a.targets.iter().map(|g| colors(a.shade(g, t, &Default::default())).0).collect::<Vec<_>>();
+        assert!(lit(0.3).iter().all(|c| *c == [255, 85, 85]), "lit {:?}", lit(0.3));
+        assert!(lit(0.8).iter().all(|c| c[0] < 60), "dark together {:?}", lit(0.8));
     }
 
     #[test]

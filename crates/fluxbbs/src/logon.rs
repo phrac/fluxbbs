@@ -192,6 +192,7 @@ impl Session {
     /// New: a caller on telnet is told it's unencrypted and how to call
     /// back over SSH (the TELNET screen, or TelnetPlain in plain text),
     /// and goes on only once they've said so: Y goes on, N hangs up.
+    /// TELNET.FX beside the screen animates it meanwhile.
     /// Boards without a TELNET screen skip it.
     async fn telnet_ok(&mut self) -> io::Result<bool> {
         if self.caller.transport != "telnet" {
@@ -210,8 +211,15 @@ impl Session {
         }
         // Whatever was typed at PRELOGON doesn't answer it.
         let _ = self.take_pending_input();
+        // TELNET.FX: the warning flashing while it waits.
+        let mut amb = if self.animating() {
+            self.find_text_file("TELNET").and_then(|p| crate::ambient::sidecar(&p)).and_then(|fx| crate::ambient::Ambient::new(&self.screen, &fx))
+        } else {
+            None
+        };
         loop {
-            match self.read_key().await? {
+            let Some(key) = self.read_key_ambient(&mut amb, false).await? else { continue };
+            match key {
                 Key::Char(b'y' | b'Y') => {
                     tracing::info!("{}: went on over telnet", self.caller.remote.map_or("?".into(), |a| a.to_string()));
                     self.screen.set_color(fluxbbs_term::Color::DEFAULT);

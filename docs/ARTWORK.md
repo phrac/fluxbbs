@@ -183,6 +183,9 @@ delay = 6.0
     letter.
   - `roll`: a bright bar rolls down the area once every `every`
     seconds, as on an old tube.
+  - `flash`: the whole area goes dark and comes back, all at once,
+    every `every` seconds, lit `amount` of the time (half to start):
+    a warning sign (TELNET.FX).
   - `wave`: a glint rippled into bands. `drips`: a bright drop runs
     down each column, the columns a little apart. `sparkle`: cells
     flash here and there for a few seconds. `breathe`: the whole area
@@ -399,7 +402,7 @@ can be drawn differently.
 | `~PI` | the info line |
 | `~PM` | the lightbar command menu (in the gallery: open, play, speed, get, back) |
 | `~C1`-`~C6` | its colors (each takes the color in effect where it sits) |
-| `~S?` / `~E?` | the scroll bar's start and end; `?` is the character for its empty / full part |
+| `~S?` / `~E?` | the scroll bar's start and end; `?` is the character for its empty / full part (not a letter or digit) |
 | `~FA` | where you are |
 | `~NA` `~NF` `~SZ` | the listing's files (packs count as files), folders and size (new) |
 

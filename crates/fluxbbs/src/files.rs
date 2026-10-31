@@ -985,8 +985,9 @@ impl Session {
             }
         }
         // ~S? and ~E? mark the scroll bar's ends; the second character is
-        // the bar's fill (empty / full).
-        let find = |first: u8| self.positions.iter().find(|(k, _)| k[0] == first && !k[1].is_ascii_digit()).map(|(k, v)| (k[1], *v));
+        // the bar's fill (empty / full), never a letter or digit: `~SZ`
+        // is the listing's size.
+        let find = |first: u8| self.positions.iter().find(|(k, _)| k[0] == first && !k[1].is_ascii_alphanumeric()).map(|(k, v)| (k[1], *v));
         let scroll = match (find(b'S'), find(b'E')) {
             (Some((a, (sx, sy, sc))), Some((b, (ex, _, ec)))) if ex >= sx => {
                 let ch = |c: u8| fluxbbs_term::cp437::TO_UNICODE[c as usize];

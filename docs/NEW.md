@@ -25,8 +25,8 @@ differently on purpose. Each line links to the doc with the details.
 - SSH (with the older algorithms SyncTERM needs) and telnet in place of
   modems. ([FEATURES](FEATURES.md#in-detail))
 - Telnet: binary, NAWS, terminal type, and Zmodem over it.
-- Telnet callers are warned: after PRELOGON, the TELNET screen says
-  telnet is unencrypted and how to call back over SSH, and they go on
+- Telnet callers are warned: after PRELOGON, the TELNET screen (WARNING
+  flashing red over it) says telnet is unencrypted and how to call back over SSH, and they go on
   only by pressing Y (N hangs up). Plain-text callers get it as text.
   ([SYSOP](SYSOP.md#telnet-callers))
 - SSH key login and stored logins: a key kept on the account (up to

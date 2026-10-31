@@ -1,7 +1,11 @@
 """TELNET.ANS: what a caller who came in over telnet sees after PRELOGON,
-before the login. The board's name in the prelogon's own TheDraw font,
+before the login. WARNING in the prelogon's own TheDraw font, in red,
 then a box saying telnet is unencrypted and how to call back over SSH,
 and the question the board waits on (Y goes on, N hangs up).
+
+It also writes TELNET.FX beside it: the word flashing while the board
+waits (blink in a screen file means iCE's bright backgrounds here, so
+the flashing is the board's).
 
 The SSH address in it is the board's art/local.py's TELNET_SSH if it has
 one, else [mrc] info_ssh, else the host in [web] download_url with the
@@ -53,18 +57,36 @@ def lines():
     ]
 
 
+def warning(font, spacing):
+    """WARNING in the font, each letter's blank edge columns trimmed so
+    it fits 80 columns; every cell red (bright where the font is bright)."""
+    letters = []
+    for ch in 'WARNING':
+        rows = pre.set_word(font, ch, 0, {}, {})
+        used = [i for i in range(max(len(r) for r in rows)) if any(i < len(r) and r[i] for r in rows)]
+        letters.append([r[used[0]:used[-1] + 1] + [None] * (used[-1] + 1 - len(r)) for r in rows])
+    h = max(len(l) for l in letters)
+    word = [[] for _ in range(h)]
+    for n, l in enumerate(letters):
+        w = max(len(r) for r in l)
+        for y in range(h):
+            row = l[y] if y < len(l) else []
+            word[y].extend(row + [None] * (w - len(row)))
+            if n < len(letters) - 1:
+                word[y].extend([None] * spacing)
+    red = lambda c: None if c is None else (c[0], (RED if c[1] > 7 else 4) if c[1] else 0, 4 if c[2] else 0)
+    return [[red(c) for c in r] for r in word]
+
+
 def main():
-    file, face, spacing, fg_map, bg_map = pre.VARIANTS[0]
+    file, face, spacing, _, _ = pre.VARIANTS[0]
     path = os.path.join(HERE, 'fonts', file)
     fonts = [f for f in pre.read_tdf(path) if f['name'] == face]
     if not fonts:
         sys.exit('%s has no font "%s"' % (path, face))
-    for name in boardname.NAMES:
-        if any(c != ' ' and c not in fonts[0]['glyphs'] for c in name) and name != boardname.NAMES[-1]:
-            continue
-        word = pre.set_word(fonts[0], name, spacing, fg_map, bg_map)
-        if max(len(r) for r in word) <= 80:
-            break
+    word = warning(fonts[0], spacing)
+    if max(len(r) for r in word) > 80:
+        sys.exit('WARNING is %d columns wide' % max(len(r) for r in word))
     pre.LINES = lines()
     # The box in the warning's colors: red at the top to yellow.
     pre.BOX_COLORS = [RED, RED, 4, 4, 6, 6, 6, YELLOW, YELLOW]
@@ -74,6 +96,11 @@ def main():
     # cursor left after the prompt.
     out = out.removesuffix(b'|PK')
     sys.stdout.buffer.write(out)
+    fx = ['# TELNET.ANS: WARNING flashing while the board waits for Y or N',
+          '# (fluxbbs [[effect]]). Made by art/telnet-gen.py; change that, not this.', '',
+          '[[effect]]', 'kind = "flash"', 'rows = [%d, %d]' % (pre.LOGO_ROW, pre.LOGO_ROW + pre.LOGO_ROWS - 1),
+          'cols = [1, 80]', 'every = 1.0', 'delay = 0.0', 'amount = 0.6']
+    open(os.path.join(os.getcwd(), 'TELNET.FX'), 'w').write('\n'.join(fx) + '\n')
 
 
 if __name__ == '__main__':

@@ -1,5 +1,6 @@
 """Drive a telnet session like a BBS terminal: tdrive.py HOST:PORT 'expect=>send' ...
-Answers negotiation as SyncTERM would (TTYPE syncterm, NAWS 80x25, binary).
+Answers negotiation as SyncTERM would (TTYPE syncterm, or $TTYPE; NAWS 80x25, binary);
+DA=1 also answers its device attribute and cursor queries.
 '!cmd' runs cmd with its stdin/stdout bridged to the connection (IAC-escaped)."""
 import os, re, select, socket, subprocess, sys, time
 
@@ -48,11 +49,22 @@ def feed(data):
         elif state == 'subiac':
             if b == SE:
                 if sub[:2] == bytes([24, 1]):
-                    send(bytes([IAC, SB, 24, 0]) + b'syncterm' + bytes([IAC, SE]))
+                    send(bytes([IAC, SB, 24, 0]) + os.environ.get('TTYPE', 'syncterm').encode() + bytes([IAC, SE]))
                 state = 'data'
             else:
                 sub += bytes([b]); state = 'sub'
     raw += bytes(out)
+    # DA=1: answer as SyncTERM does, so the board finds 24-bit color and
+    # animates: device attributes (ESC[c), CTerm's features (ESC[<c), and
+    # cursor reports (ESC[6n, as row 1 column 1) for its pacing.
+    if os.environ.get('DA'):
+        o = bytes(out)
+        for _ in range(o.count(b'\x1b[c')):
+            send(b'\x1b[=67;84;101;114;109;1;316c')
+        for _ in range(o.count(b'\x1b[<c')):
+            send(b'\x1b[<0;6c')
+        for _ in range(o.count(b'\x1b[6n')):
+            send(b'\x1b[1;1R')
     return bytes(out)
 
 def pump(t):

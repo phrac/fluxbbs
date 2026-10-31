@@ -373,7 +373,7 @@ six-digit code it mails them. It's off to start: `*C`, `@` (`[email]`).
 ### Telnet callers
 
 A caller who comes in over telnet sees the TELNET screen after
-PRELOGON: telnet is plain text (their password included), and how to
+PRELOGON, WARNING flashing red at the top (TELNET.FX): telnet is plain text (their password included), and how to
 call back over SSH. They go on only by pressing `Y`; `N` (or Esc) hangs
 up with `TelnetBye`. Callers in plain text get `TelnetPlain` and
 `TelnetAsk` instead. `art/telnet-gen.py` makes the screen (`art/make.py`
