@@ -1591,7 +1591,9 @@ fn file_item(n: u32, f: FileRec, path: PathBuf, mode: Mode) -> Option<Item> {
         _ => None,
     };
     let name = f.name.clone();
-    if is_zip(&name) {
+    // A ZIP by what it holds, not only its name: a nodelist comes as
+    // `agoranet.z03`, a ZIP of `agoranet.303`.
+    if is_zip(&name) || crate::files::is_zip(&path) {
         let place = Place::Zip { zip: path, prefix: String::new() };
         Some(Item::Folder { name, place, pack: true, rec: Some((n, f)), when })
     } else if let Some(kind) = tar {
