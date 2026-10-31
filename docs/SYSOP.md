@@ -481,6 +481,12 @@ A theme lets a board offer more than one look. It is a directory under
 (`MAIN.ANS`, `PRELOGON.ANS`, the list screens...). Everything else
 still comes from `text/`.
 
+New: a theme can have menus of its own too, in `themes/NAME/menus/`,
+read ahead of the board's: a menu redrawn for a theme (its lightbar laid
+over the theme's own picture, say) needs its options drawn to fit.
+A logon step that shows a screen only the theme has shows nothing to
+callers on the other themes.
+
 - `themes.toml` lists the themes with a description and author; `*T`
   edits it. The first is the default.
 - Callers choose with the `UT` command. Put it on a menu, e.g.

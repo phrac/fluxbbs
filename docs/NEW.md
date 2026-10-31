@@ -243,6 +243,15 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   oldest, type or size. ([FILES](FILES.md#art-gallery))
 - The gallery and the file browser show a file's info on I and edit it
   on E (co-SysOp and up), as the file lister does.
+- The file browser pops up a file's whole description when the bar rests
+  on it for a moment, in a box that stays within the list.
+- Files uploaded with no description, or only their name, are described by
+  the board's AI in the background (`aidesc.rs`), which looks at pictures,
+  ANSI art (drawn by `ansishot.rs`) and a PDF's first page; `fluxbbs describe`
+  (`--dry-run`, `--try`, `--limit N`) does the ones already there, and the
+  file editor has K (this file) and L (every such file in the area). Its
+  `-` reads a `.nfo` in a ZIP or a piece of art's SAUCE when there's no
+  FILE_ID.DIZ.
 - Moving a file in the file editor (`=`) moves nothing if you say no to moving the file itself
   (the original moved the record anyway, pointing it at nothing), and viewing a record whose
   file is missing says so instead of hanging up.
@@ -505,7 +514,8 @@ All in [DOORS](DOORS.md).
   see them.
 - Lua scripting in place of IPL, with a `bbs` API.
   ([SCRIPTING](SCRIPTING.md))
-- Screen themes picked by callers (`UT`).
+- Screen themes picked by callers (`UT`), with menus of their own if they
+  need them (`themes/NAME/menus/`).
   ([SYSOP](SYSOP.md#screen-themes))
 - Time zones: the board keeps time in its own zone (`[bbs] time_zone`),
   not the host's clock (which in a container is UTC). Doors see it too.

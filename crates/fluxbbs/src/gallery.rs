@@ -754,10 +754,27 @@ impl Session {
             };
             self.lister_info(&l, &info).await?;
             self.lister_park(&l);
+            // New: a file's whole description pops up once the bar rests on it.
+            let popped = match items.get(cur).and_then(record) {
+                Some((_, f)) if !f.description.is_empty() => self.gallery_popup(&l, f, l.top + (cur - first) as u16).await?,
+                _ => None,
+            };
             let Some(key) = self.read_key_ambient(&mut amb, false).await? else {
                 redraw = true;
                 continue;
             };
+            // The rows it covered, as they were.
+            if let Some((y0, y1)) = popped {
+                for y in y0..=y1 {
+                    self.screen.goto(1, y);
+                    self.screen.set_color(l.cl[0]);
+                    self.screen.clear_eol();
+                    let k = first + (y - l.top) as usize;
+                    if let Some(item) = items.get(k) {
+                        self.gallery_row(&l, item, y, k == cur);
+                    }
+                }
+            }
             let prev = cur;
             let height = (l.bot - l.top + 1) as usize;
             let choice = match key {
@@ -844,6 +861,57 @@ impl Session {
 
     /// One row in the lister's columns: name (highlighted when it's the
     /// bar's), size, and title by artist (or a pack's description).
+    /// New: once the bar has rested on a file for a moment, its whole
+    /// description in a box beside the bar, kept within the list's rows so
+    /// nothing scrolls; the rows it covers, or None if a key came first.
+    async fn gallery_popup(&mut self, l: &Layout, f: &crate::filebase::FileRec, bar: u16) -> io::Result<Option<(u16, u16)>> {
+        self.flush().await?;
+        let rest = tokio::time::Instant::now();
+        while rest.elapsed() < POPUP_AFTER {
+            if self.key_waiting().await? {
+                return Ok(None);
+            }
+        }
+        let x0 = l.name_x.unwrap_or(2).max(2) + 2;
+        let w = (80 - x0 as usize).min(66);
+        let inner = w - 4;
+        // Whichever side of the bar has more room, never over the bar itself.
+        let (below, above) = ((l.bot - bar) as usize, (bar - l.top) as usize);
+        let room = below.max(above).min(POPUP_ROWS);
+        if room < 3 {
+            return Ok(None);
+        }
+        let mut lines: Vec<String> = f.description.iter().flat_map(|d| crate::multinode::wrap(d, inner)).collect();
+        if lines.len() > room - 2 {
+            lines.truncate(room - 2);
+            if let Some(last) = lines.last_mut() {
+                *last = format!("{}...", last.chars().take(inner - 3).collect::<String>());
+            }
+        }
+        let h = lines.len() as u16 + 2;
+        let y0 = if below >= h as usize || below >= above { bar + 1 } else { bar - h };
+        let title: String = f.name.chars().take(inner - 2).collect();
+        self.screen.goto(x0, y0);
+        self.set_slot(Slot::Border);
+        self.write(&format!("┌─ {title} {}┐", "─".repeat(w - 5 - title.chars().count())));
+        for (i, line) in lines.iter().enumerate() {
+            self.screen.goto(x0, y0 + 1 + i as u16);
+            self.set_slot(Slot::Border);
+            self.write("│ ");
+            self.set_slot(Slot::Text);
+            let pad = inner.saturating_sub(line.chars().count());
+            self.write(&format!("{line}{}", " ".repeat(pad)));
+            self.set_slot(Slot::Border);
+            self.write(" │");
+        }
+        self.screen.goto(x0, y0 + h - 1);
+        self.set_slot(Slot::Border);
+        self.write(&format!("└{}┘", "─".repeat(w - 2)));
+        self.lister_park(l);
+        self.flush().await?;
+        Ok(Some((y0, y0 + h - 1)))
+    }
+
     fn gallery_row(&mut self, l: &Layout, item: &Item, y: u16, hi: bool) {
         let name_x = l.name_x.unwrap_or(2);
         let size_x = l.size_x.filter(|&x| x > name_x);
@@ -1323,6 +1391,11 @@ enum Pick {
 
 /// The file base's record for an item, when it is a file in an area (not a
 /// folder, or a piece inside a pack): its area number and the record.
+/// How long the bar rests on a file before its description pops up, and
+/// the most rows the box takes.
+const POPUP_AFTER: std::time::Duration = std::time::Duration::from_millis(2500);
+const POPUP_ROWS: usize = 12;
+
 fn record(item: &Item) -> Option<&(u32, crate::filebase::FileRec)> {
     match item {
         Item::Art { rec: Some(r), .. } | Item::Folder { rec: Some(r), .. } => Some(r),

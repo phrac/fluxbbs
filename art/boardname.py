@@ -72,9 +72,18 @@ def art(name):
     return None
 
 
+# A theme being made (make.py sets FLUX_THEME): its settings in the
+# board's THEMES go over the board's own.
+THEME = os.environ.get('FLUX_THEME', '')
+
+
 def local(name, default):
-    """What the board's art/local.py sets `name` to, else `default`."""
-    return getattr(LOCAL, name, default) if LOCAL else default
+    """What the board's art/local.py sets `name` to (or, while a theme is
+    being made, what its THEMES entry does), else `default`."""
+    if not LOCAL:
+        return default
+    theme = getattr(LOCAL, 'THEMES', {}).get(THEME, {}) if THEME else {}
+    return theme[name] if name in theme else getattr(LOCAL, name, default)
 
 
 NAME, SHORT, SUPER = names()

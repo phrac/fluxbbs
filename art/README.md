@@ -42,12 +42,16 @@ these. disflux's is an example of all of them.
 | `MENUS` | a menu's title and boxes: `{'door': ('online games', [('popular doors', [('1', 'lord'), ...]), ...])}` |
 | `PARAMS`, `COMMANDS`, `CHANGED`, `ADDED` | a menu option's parameter, command, every setting, or a new option: `{('door', '5'): {'command': 'D4', 'param': '...', 'desc': 'Usurper', 'help': 'Usurper'}}` |
 | `HIDDEN_ADDED`, `DROP_REST`, `KEEP_HIDDEN`, `STOCK_FROM`, `GRIDS` | as in `mainmenu-gen.py` |
+| `LABELS` | a single menu entry's new name: `{('main', 'j'): 'chat w/ Penny'}` |
+| `PICTURES` | menus laid over a picture: the art (in the board's `art/`), its dark backdrop recolored, the menu's keys in boxes on the open side; see `build_picture` in `mainmenu-gen.py` |
+| `AICHAT` | the AI chat screen's title, tagline, accent and logo colors, and with `face` part of a picture in its top left corner; see `aichat-gen.py` |
 | `LOGOS` | a menu's logo: a piece of art in the board's `art/` (`{'main': ('MYLOGO.ans', '35')}`) or a TheDraw font (`('tdf', file, face, word, column, options)`) |
 | `PRELOGON_LINES` | the lines under the prelogon's logo |
 | `ABOUT` | the about screen (h on the main menu) |
 | `WELCOME_ART` | a piece of art in the board's `art/` to show first among the welcome screen's logos |
 | `WELCOME_WHATS`, `WELCOME_ARCHIVE` | the welcome's line of what's here, and what the file archive is |
 | `KEEP` | screens `make.py` leaves alone (a hand-drawn `STOCK.ANS`, say) |
+| `THEMES` | screen themes the board makes: `{'penny': {'AICHAT': {...}, 'PICTURES': {...}}}`; `make.py` writes what each one's settings change to `themes/NAME/` and its menus to `themes/NAME/menus/`, and the rest comes from the board's own |
 
 Art a script reads (`THREADS.ans`, `LOGON.ans`...) comes from the board's
 `art/` first, so a board can draw its own: a `LOGON.ans` there is the

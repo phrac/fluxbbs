@@ -130,11 +130,37 @@ async fn updated(cfg: &Ai, u: &User, seen: &Seen) -> anyhow::Result<String> {
 /// One answer from the model, not streamed, without its thinking.
 #[cfg(feature = "ai")]
 pub async fn complete(cfg: &Ai, system: &str, prompt: &str) -> anyhow::Result<String> {
+    ask(cfg, system, json!(prompt)).await
+}
+
+/// New: one answer about a picture (a PNG), shown to the model beside the
+/// prompt. The model has to see images (vega's does).
+#[cfg(feature = "ai")]
+pub async fn complete_seeing(cfg: &Ai, system: &str, prompt: &str, png: &[u8]) -> anyhow::Result<String> {
+    let url = format!("data:image/png;base64,{}", base64(png));
+    ask(cfg, system, json!([{"type": "text", "text": prompt}, {"type": "image_url", "image_url": {"url": url}}])).await
+}
+
+#[cfg(feature = "ai")]
+fn base64(data: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut out = String::with_capacity(data.len().div_ceil(3) * 4);
+    for c in data.chunks(3) {
+        let n = (c[0] as u32) << 16 | (*c.get(1).unwrap_or(&0) as u32) << 8 | *c.get(2).unwrap_or(&0) as u32;
+        for k in 0..4 {
+            out.push(if k <= c.len() { A[(n >> (18 - 6 * k)) as usize & 63] as char } else { '=' });
+        }
+    }
+    out
+}
+
+#[cfg(feature = "ai")]
+async fn ask(cfg: &Ai, system: &str, content: Value) -> anyhow::Result<String> {
     let client = reqwest::Client::builder().timeout(Duration::from_secs(cfg.timeout_seconds.max(10))).build()?;
     let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
     let mut body = json!({
         "model": cfg.model,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": prompt}],
+        "messages": [{"role": "system", "content": system}, {"role": "user", "content": content}],
         "stream": false,
         "max_tokens": cfg.max_tokens,
     });
@@ -209,6 +235,15 @@ pub fn remember(_state: Arc<BbsState>, _u: User, _seen: Seen) {}
 
 #[cfg(test)]
 mod tests {
+    #[cfg(feature = "ai")]
+    #[test]
+    fn base64_pads_as_it_should() {
+        assert_eq!(super::base64(b"Man"), "TWFu");
+        assert_eq!(super::base64(b"Ma"), "TWE=");
+        assert_eq!(super::base64(b"M"), "TQ==");
+        assert_eq!(super::base64(b""), "");
+    }
+
     use super::*;
 
     #[cfg(feature = "ai")]

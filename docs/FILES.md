@@ -108,6 +108,30 @@ In the editor itself:
 A co-SysOp's `edit` in a list edits the description only, as in the
 original.
 
+### Descriptions
+
+- `-` in the file editor reads a description from the file: an
+  archive's FILE_ID.DIZ (`[files] description_files`), else the first
+  `.nfo` in a ZIP, else a piece of art's SAUCE.
+- With the AI on (`[ai]`), a file uploaded with no description, or only
+  its own name (or a meaningless hash some tool left as its SAUCE
+  title, or just a picture's size), is described by the AI in the
+  background: a few words from its name, size and area, its SAUCE, the
+  start of its text, a PDF's words or a ZIP's contents, and, for a
+  model that sees, a look at it: a picture as it is, a piece of ANSI
+  art drawn as one (`.ans`, `.ice`, `.asc`, `.diz`, `.nfo`), a PDF's
+  first page. The board's own lines (`[ text, 59 lines ]`, a picture's
+  size) stay under it.
+- `K` in the file editor asks the AI for this file's description; `L`
+  for every file in the area that has none worth the name (any key
+  stops it).
+- `fluxbbs describe [--dry-run | --try] [--limit N] [config]` does the
+  files already on the board: `--dry-run` lists them, `--try` shows
+  what the AI would say without saving. In the container, run it with
+  `docker exec fluxbbs fluxbbs describe ... /srv/board/iniquity.toml`.
+- In the file browser (`L`), resting the bar on a file for a moment pops
+  up its whole description; any key takes it away.
+
 ### Deleting in bulk
 
 New. Two ways, both asking before anything goes:

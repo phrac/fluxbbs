@@ -1083,7 +1083,13 @@ impl Session {
             f.item('=', "Move file", 0, "", "");
             f.item_beside(40, '*', "Delete file", 0, "", "");
             f.item('+', "Apply description", 0, "", "");
-            f.item_beside(40, '-', "Extract description", 0, "", "");
+            f.item_beside(40, '-', "Read description", 0, "", "");
+            // New: the board's AI writes one, for this file or every file
+            // in the area that has none worth the name.
+            if cfg!(feature = "ai") {
+                f.item('K', "AI description", 0, "", "");
+                f.item_beside(40, 'L', "AI: all bare in area", 0, "", "");
+            }
             let desc_row = f.next_row() + 1;
             f.gap(DESC_SHOWN as u16 + 1);
             self.cfg_draw(&f);
@@ -1225,16 +1231,59 @@ impl Session {
                         self.state.files.update(&fr).map_err(io_err)?;
                         continue 'files;
                     }
+                    // New: an .nfo in a ZIP, or a piece of art's SAUCE, when
+                    // there's no FILE_ID.DIZ.
                     '-' => {
                         let names = self.state.config().files.description_files.clone();
-                        match self.archive_description(&dir.join(&fr.name), &names).await {
-                            Some(lines) if !lines.is_empty() => {
+                        let path = dir.join(&fr.name);
+                        let found = match self.archive_description(&path, &names).await {
+                            Some(lines) if !lines.is_empty() => Some((lines, "the archive's description file")),
+                            _ => crate::files::nfo_description(&path)
+                                .map(|l| (l, "the .nfo"))
+                                .or_else(|| crate::files::art_description(&path, &names).map(|l| (l, "its SAUCE"))),
+                        };
+                        match found {
+                            Some((mut lines, from)) => {
+                                let max = self.state.config().files.max_import_lines as usize;
+                                lines.truncate(if max > 0 { max } else { crate::files::MAX_DESC_LINES });
                                 fr.description = lines;
-                                note = "Description extracted.".into();
+                                note = format!("Description read from {from}.");
                             }
-                            _ => note = "No description found in the archive.".into(),
+                            None => note = "No description file, .nfo or SAUCE found.".into(),
                         }
                         self.state.files.update(&fr).map_err(io_err)?;
+                        continue 'files;
+                    }
+                    #[cfg(feature = "ai")]
+                    'K' => {
+                        note = match crate::aidesc::describe_owned(self.state.clone(), fr.clone()).await {
+                            Ok(d) => {
+                                fr.description = crate::aidesc::with_summary(&fr, d);
+                                "Described by the AI.".into()
+                            }
+                            Err(e) => format!("The AI couldn't: {e:#}"),
+                        };
+                        self.state.files.update(&fr).map_err(io_err)?;
+                        continue 'files;
+                    }
+                    #[cfg(feature = "ai")]
+                    'L' => {
+                        let bare: Vec<FileRec> = self.state.files.list(&a.file).map_err(io_err)?.into_iter().filter(crate::aidesc::is_bare).collect();
+                        let (mut done, total) = (0, bare.len());
+                        for (i, mut b) in bare.into_iter().enumerate() {
+                            if self.key_waiting().await? {
+                                break;
+                            }
+                            self.cfg_info(&mut f, &format!("{}/{total}: {} (any key stops)", i + 1, b.name));
+                            self.flush().await?;
+                            if let Ok(d) = crate::aidesc::describe_owned(self.state.clone(), b.clone()).await {
+                                b.description = crate::aidesc::with_summary(&b, d);
+                                self.state.files.update(&b).map_err(io_err)?;
+                                done += 1;
+                            }
+                        }
+                        tracing::info!("{}: the AI described {done} files in {}", self.user.handle, a.name);
+                        note = format!("The AI described {done} of {total} bare files.");
                         continue 'files;
                     }
                     _ => continue,

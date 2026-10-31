@@ -64,6 +64,18 @@ pub fn zip_description(path: &Path, names: &[String]) -> Option<Vec<String>> {
     None
 }
 
+/// New: a description from the first `.nfo` in a ZIP (a release's info
+/// file, where there's no FILE_ID.DIZ).
+pub fn nfo_description(path: &Path) -> Option<Vec<String>> {
+    let mut zip = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
+    let idx = (0..zip.len()).find(|&i| zip.by_index(i).is_ok_and(|e| e.name().is_ok_and(|n| n.to_ascii_lowercase().ends_with(".nfo"))))?;
+    let mut entry = zip.by_index(idx).ok()?;
+    let mut raw = Vec::new();
+    io::Read::read_to_end(&mut entry, &mut raw).ok()?;
+    let lines = parse_description(&raw);
+    (!lines.is_empty()).then_some(lines)
+}
+
 /// A description from the SAUCE of a single piece of art: the file
 /// itself, or the only file in a ZIP (bar any description file).
 pub fn art_description(path: &Path, desc_files: &[String]) -> Option<Vec<String>> {
@@ -1961,6 +1973,8 @@ impl Session {
                 description: desc,
             };
             self.state.files.add(&mut rec).map_err(io_err)?;
+            // New: a file that came without a description gets one from the AI.
+            crate::aidesc::spawn(self.state.clone(), rec.area.clone(), rec.num);
             self.bump(crate::sysdata::Stat::Upload { kb: rec.size / 1024 });
             if rec.valid {
                 self.user.uploads += 1;
@@ -2029,6 +2043,7 @@ impl Session {
         // other nodes aren't kept waiting a file at a time.
         self.state.files.add_all(&mut recs).map_err(io_err)?;
         for rec in &recs {
+            crate::aidesc::spawn(self.state.clone(), rec.area.clone(), rec.num);
             let s = self.strings().fmt("FaULfileAdded", &[&rec.name, &rec.description.len().to_string()]);
             self.show_line(&s).await?;
         }
@@ -2070,7 +2085,7 @@ pub fn local_record(area: &str, path: &Path, uploader: &str, desc_files: &[Strin
 
 /// For a ZIP with no FILE_ID.DIZ (most early art packs): how many files
 /// it holds and their names, in a few lines.
-fn zip_contents(path: &Path) -> Vec<String> {
+pub(crate) fn zip_contents(path: &Path) -> Vec<String> {
     let Ok(z) = std::fs::File::open(path).map_err(|_| ()).and_then(|f| zip::ZipArchive::new(f).map_err(|_| ())) else { return Vec::new() };
     let names: Vec<String> = z.file_names().flatten().filter(|n| !n.ends_with('/')).map(|n| n.rsplit('/').next().unwrap_or(&n).to_string()).collect();
     if names.is_empty() {

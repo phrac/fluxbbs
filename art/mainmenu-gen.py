@@ -133,6 +133,9 @@ for (_m, _k), _label in boardname.local('LABELS', {}).items():
     _title, _boxes = MENUS[_m]
     MENUS[_m] = (_title, [(_bt, [(i[0], _label, *i[2:]) if i[0] == _k else i for i in _items]) for _bt, _items in _boxes])
 DROP_REST |= boardname.local('DROP_REST', set())
+# Menus a board lays over a picture of its own (see build_picture): {name:
+# {'art', 'color', 'columns': [(box title, [keys])], 'font', ...}}.
+PICTURES = boardname.local('PICTURES', {})
 KEEP_HIDDEN |= boardname.local('KEEP_HIDDEN', set())
 
 # The main menu's variants: a whisper under the boxes, and a phrase
@@ -776,6 +779,51 @@ def build(name, variant):
     return screen, menu_toml(name, title, ink, w, order, labels, extra, effects), ink
 
 
+def build_picture(name, spec):
+    """A menu laid over a picture (a board's PICTURES[name]): the art, its
+    backdrop recolored (backdrop.py), a panel with the title over the menu's
+    boxes in columns on the open side, an optional box of values under
+    them, then the help line and the prompt bar. Everything is placed by
+    row and column, so the picture shows wherever nothing is drawn."""
+    from backdrop import backdrop
+    title, boxes = MENUS[name]
+    ink = Ink(spec.get('accent', '35'))
+    left, w = spec.get('left', 2), spec.get('box_width', 20)
+    names = {k: label for b in boxes for (k, label) in b[1]}
+    labels = {k: spec.get('labels', {}).get(k, v) for k, v in names.items()}
+    out = E + '0m' + E + '2J' + backdrop(boardname.art(spec['art']), tuple(spec['color']), spec.get('threshold', 30), spec.get('speck', 25), fade=spec.get('fade'))
+    # The title panel: the menu's name in a font (the board draws it, from
+    # its fonts/), and a word under it.
+    pw = len(spec['columns']) * (w + 1) - 1
+    out += goto(1, left) + ink.box_top(spec.get('title', title), pw)
+    for y in range(2, 7):
+        out += goto(y, left) + DG + '│' + E + '0m' + ' ' * (pw - 2) + DG + '│'
+    out += goto(7, left) + ink.box_bottom(pw)
+    out += goto(2, left + 2) + E + '0m' + '%[' + spec['font'] + ']' + spec.get('word', title) + '%]'
+    # The boxes: markers numbered down each column, then across.
+    order, row0 = [], 8
+    for c, (box_title, keys) in enumerate(spec['columns']):
+        x = left + c * (w + 1)
+        out += goto(row0, x) + ink.box_top(box_title, w)
+        for i, k in enumerate(keys):
+            order.append(k)
+            out += goto(row0 + 1 + i, x) + DG + '│' + E + '0m' + f'~{len(order):02d}^{len(order):02d}' + ' ' * (w - 2) + DG + '│'
+        out += goto(row0 + 1 + len(keys), x) + ink.box_bottom(w)
+    # A box of values under the columns, if there's room for one.
+    if spec.get('values'):
+        vt, rows = spec['values']
+        vw = spec.get('values_width', w)
+        y0 = row0 + max(len(k) for _, k in spec['columns']) + 3
+        out += goto(y0, left) + ink.box_top(vt, vw)
+        for i, (label, codes) in enumerate(rows):
+            out += goto(y0 + 1 + i, left) + DG + '│' + E + '0m' + ' ' * (vw - 2) + DG + '│'
+            out += goto(y0 + 1 + i, left + 2) + ink.fade_text(label) + ' ' + WH + '{' + f'{vw - 5 - len(label):02d}' + codes
+        out += goto(y0 + 1 + len(rows), left) + ink.box_bottom(vw)
+    out += E + '255;1H' + E + 'A' + E + '0m' + ' ' + ink.BR + '»' + ink.RD + '»' + DG + '» ' + WH + '~HP'
+    out += E + '255;1H' + E + '0m' + prompt_bar(ink, title) + E + '0m'
+    return out.encode('cp437'), menu_toml(name, title, ink, w, order, labels, [], []), ink
+
+
 def doorstat():
     """DOORSTAT.ANS (the doors menu's s): the doors menu's logo and rule,
     the whole scoreboard, a pause; and DOORSTAT.FX, its margins decoding
@@ -810,7 +858,10 @@ def main():
         open(os.path.join(os.getcwd(), 'DOORSTAT.FX'), 'w').write(fx)
         sys.stdout.buffer.write(screen)
         return
-    screen, toml, ink = build(name, variant)
+    if name in PICTURES:
+        screen, toml, ink = build_picture(name, PICTURES[name])
+    else:
+        screen, toml, ink = build(name, variant)
     open(os.path.join(os.getcwd(), '..', 'menus', name.upper() + '.toml'), 'w').write(toml)
     sys.stdout.buffer.write(screen)
     # The tarot readings' header (one line): the menu's rule, with stars

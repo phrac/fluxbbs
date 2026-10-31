@@ -117,8 +117,13 @@ impl MenuState {
 }
 
 impl Session {
+    /// The menus, the caller's theme's own first (new).
     fn menu_dirs(&self) -> Vec<std::path::PathBuf> {
-        self.state.config().menu_dirs()
+        let mut dirs = self.state.config().menu_dirs();
+        if let Some(d) = self.theme_menus() {
+            dirs.insert(0, d);
+        }
+        dirs
     }
 
     /// `menuLoad`: the menu plus GLOBAL's commands if it uses them.

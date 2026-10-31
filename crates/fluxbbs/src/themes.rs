@@ -4,6 +4,10 @@
 //! original packed each library into a `.TFL` file and only the SysOp
 //! could pick one for a user; here they're plain directories and callers
 //! choose their own (`UT`). The first theme listed is the default.
+//!
+//! New: a theme can carry menus of its own too, in a `menus/` directory
+//! inside it, ahead of the board's: a menu laid over a theme's picture
+//! needs its lightbar drawn to fit.
 
 use std::io;
 use std::path::PathBuf;
@@ -63,6 +67,11 @@ impl Session {
     /// The caller's theme, if any themes exist.
     pub fn current_theme(&self) -> Option<Theme> {
         self.state.themes().for_user(&self.user.theme).cloned()
+    }
+
+    /// New: the theme's menus directory, if it has one.
+    pub fn theme_menus(&self) -> Option<PathBuf> {
+        self.theme_dir().map(|d| d.join("menus")).filter(|d| d.is_dir())
     }
 
     /// Where the caller's theme's screens are.

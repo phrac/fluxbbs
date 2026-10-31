@@ -14,6 +14,9 @@ mod aiboard;
 #[cfg(feature = "ai")]
 mod aichat;
 mod aimemory;
+mod aidesc;
+#[cfg(feature = "ai")]
+mod ansishot;
 mod backup;
 #[cfg(feature = "doors")]
 mod bbslink;
@@ -671,6 +674,10 @@ async fn run() -> anyhow::Result<()> {
         return ftn_command(&args[1..]).await;
         #[cfg(not(feature = "ftn"))]
         anyhow::bail!("echomail isn't built into this board (build with --features ftn; docs/BUILDING.md)");
+    }
+    // New: `fluxbbs describe [--dry-run] [--limit N] [config]`.
+    if args.first().is_some_and(|a| a == "describe") {
+        return aidesc::from_args(&args[1..]).await;
     }
     // New: `fluxbbs backup [DAYS] [DIR] [config]`.
     if args.first().is_some_and(|a| a == "backup") {
