@@ -247,6 +247,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - The file browser pops up a file's whole description when the bar rests
   on it for a moment, in a box that stays within the list: for callers who
   turn on "file popups" in user configuration (off to start).
+- Blind uploads aren't asked for a description when the AI will write
+  one.
 - Files uploaded with no description, or only their name, are described by
   the board's AI in the background (`aidesc.rs`), which looks at pictures,
   ANSI art (drawn by `ansishot.rs`), a PDF's first page, and inside ZIPs
@@ -302,6 +304,9 @@ For a board with hundreds of areas and tens of thousands of files:
   of them, `"a phrase"`, `*.zip`, `-word`; areas whose name or line
   about them match too. Results open in the file browser best first,
   with the area on the info line; `f` searches from inside the browser.
+- The search page: the board's name in a search engine's colors (set in
+  a TheDraw font), a box with what the words find dropping down as
+  they're typed, and Search and I'm Feeling Lucky buttons.
 - The file browser opens in the current area with the areas above it
   behind it, so back goes up one level, not to the top; and an area
   with a password asks for it there too (it didn't).
@@ -466,6 +471,8 @@ All in [FEATURES](FEATURES.md#qwk-offline-mail).
   (rescans) still thread, and wait for them 30 days from arriving.
 - Netmail to the board goes to callers' email.
 - AreaFix requests from the shell (`fluxbbs ftn areafix`).
+- File echoes (TIC) tossed into file areas, with `Replaces` and FileFix
+  requests (`fluxbbs ftn filefix`).
 - Several networks at once, each with its own hub.
 - MeshCore radio channels bridged to message areas.
   ([FEATURES](FEATURES.md#meshcore))

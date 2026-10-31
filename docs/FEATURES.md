@@ -1838,6 +1838,7 @@ settings.
 | `fluxbbs ftn toss` | toss what came in |
 | `fluxbbs ftn scan` | scan for posts to send |
 | `fluxbbs ftn areafix +FSX_GEN -FSX_X` | ask the hub's AreaFix to link and unlink echoes (or `%LIST`) |
+| `fluxbbs ftn filefix +FSX_NODE` | the same of its FileFix, for file echoes |
 
 ### Mail coming in
 
@@ -2021,9 +2022,50 @@ the first.
 
 `*C` edits the first network; the others are edited in the file.
 
+### File echoes (TIC)
+
+The hub sends a file echo's files with a TIC each: a few lines naming
+the echo, the file, its description, size and CRC, the sender and a
+password. The tosser (`ftntic.rs`) puts each file in the file area its
+echo is mapped to, as part of every toss:
+
+    [[ftn.filearea]]
+    tag = "AGN_NODE"
+    area = "AGNNODE"
+    network = "agoranet"
+
+- A file echo is a plain file area (sub-areas of a folder, say):
+  callers list, search and download its files like any others, and the
+  new-files scan finds them.
+- The description is the TIC's (`LDesc`, else `Desc`), wrapped to the
+  list's width; the uploader is the address the file came from.
+- `Replaces` (the last nodelist, `AGORANET.Z*`) takes those files and
+  their records out. A file of the same name is replaced.
+- `fluxbbs ftn filefix agoranet +AGN_NODE` asks the hub's FileFix to
+  link a file echo (`-` unlinks, `%LIST` lists them).
+- `filefix_password` is FileFix's password (blank: AreaFix's), and
+  `tic_password` the one the hub's TICs carry (blank: FileFix's). Both
+  are in `*C`, FTN Echomail, with the file echoes (File echoes).
+- What's checked follows FSC-0087 and HTick (the usual hub tosser): a
+  TIC must come from the network's hub (`From`), to the board if it
+  says (`To` is optional), with the right password and a CRC; a name
+  with a path in it (`File`, `Replaces`) is refused. Its file must have
+  the TIC's size and CRC: it's looked for by name, then (as FSC-0087
+  asks, for a file the mailer renamed) by size and CRC alone, so a name
+  binkd escaped (`My\x20File.zip`) still finds its TIC. A TIC that fails
+  goes to `data/ftn/bad` with its file, and the log says why.
+- `Replaces` is a mask (`*`, `?`, any case), as HTick reads it; one
+  starting with `*` is ignored.
+- A TIC for an echo with no area here waits in the inbound with its
+  file (the mail tosser leaves the file alone) until the echo is
+  mapped; so does one whose file hasn't come. After three days it goes
+  to `bad`.
+- Files are only received: the board is a leaf node, so it passes
+  nothing on and hatches nothing of its own.
+
 ### Not yet
 
-Callers writing netmail to an FTN address, and file echoes (TIC).
+Callers writing netmail to an FTN address.
 
 ## From 2.0 and 2.20
 

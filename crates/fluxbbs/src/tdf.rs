@@ -86,23 +86,32 @@ impl Font {
     /// lacks are skipped; an uppercase one stands in for a missing
     /// lowercase one.
     pub fn set(&self, word: &str) -> (Vec<Cell>, u16, u16) {
-        let mut cells = Vec::new();
+        let (cells, w, h) = self.set_letters(word);
+        (cells.into_iter().map(|(_, c)| c).collect(), w, h)
+    }
+
+    /// [`Font::set`], each cell with which of the word's letters (not
+    /// counting spaces) it's part of.
+    pub fn set_letters(&self, word: &str) -> (Vec<(usize, Cell)>, u16, u16) {
+        let mut cells: Vec<(usize, Cell)> = Vec::new();
         let mut x0 = 0u16;
         // A space (no glyph in any face) is a gap of two columns.
         let glyphs: Vec<Option<&Glyph>> = word
             .chars()
             .filter_map(|c| if c == ' ' { Some(None) } else { self.glyphs.get(&c).or_else(|| self.glyphs.get(&c.to_ascii_uppercase())).map(Some) })
             .collect();
+        let mut letter = 0;
         for (gi, g) in glyphs.iter().enumerate() {
             let Some(g) = g else {
                 x0 = x0.saturating_add(2);
                 continue;
             };
+            letter += 1;
             for (y, row) in g.rows.iter().enumerate() {
                 for (x, &(ch, attr)) in row.iter().take(g.width as usize).enumerate() {
                     let (fg, bg) = (attr & 15, (attr >> 4) & 7);
                     if ch != 0 && (ch != b' ' || bg != 0) {
-                        cells.push(Cell { x: x0 + x as u16, y: y as u16, ch, fg, bg });
+                        cells.push((letter - 1, Cell { x: x0 + x as u16, y: y as u16, ch, fg, bg }));
                     }
                 }
             }
@@ -111,13 +120,13 @@ impl Font {
         if cells.is_empty() {
             return (cells, 0, 0);
         }
-        let (top, left) = (cells.iter().map(|c| c.y).min().unwrap_or(0), cells.iter().map(|c| c.x).min().unwrap_or(0));
-        for c in &mut cells {
+        let (top, left) = (cells.iter().map(|c| c.1.y).min().unwrap_or(0), cells.iter().map(|c| c.1.x).min().unwrap_or(0));
+        for (_, c) in &mut cells {
             c.x -= left;
             c.y -= top;
         }
-        let w = cells.iter().map(|c| c.x).max().unwrap_or(0) + 1;
-        let h = cells.iter().map(|c| c.y).max().unwrap_or(0) + 1;
+        let w = cells.iter().map(|c| c.1.x).max().unwrap_or(0) + 1;
+        let h = cells.iter().map(|c| c.1.y).max().unwrap_or(0) + 1;
         (cells, w, h)
     }
 }

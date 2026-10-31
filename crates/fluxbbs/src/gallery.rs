@@ -6,6 +6,8 @@
 //! the whole pack.
 
 use std::collections::HashMap;
+
+use crate::findpage::Choice;
 use std::io::{self, Read, Seek, SeekFrom};
 use std::path::{Path, PathBuf};
 
@@ -453,12 +455,14 @@ impl Session {
         // New: `search` asks what to look for and lists what has it.
         if param.trim().eq_ignore_ascii_case("search") {
             self.newline();
-            let Some(words) = self.ask_find().await? else { return Ok(()) };
-            if self.plain() {
-                return self.find_files_plain(&words).await;
-            }
             self.node.update(|n| n.activity = "Searching files".into());
-            return self.gallery_browse(Place::Found(words.clone()), &format!("search: {words}"), mode, speed).await;
+            let Some(choice) = self.ask_find().await? else { return Ok(()) };
+            return match choice {
+                Choice::Words(words) if self.plain() => self.find_files_plain(&words).await,
+                Choice::Words(words) => self.gallery_browse(Place::Found(words.clone()), &format!("search: {words}"), mode, speed).await,
+                Choice::Area(n) => self.gallery_browse_from(Place::Areas, "file areas", mode, speed, self.area_start(n), None).await,
+                Choice::File(n, name) => self.gallery_browse_from(Place::Areas, "file areas", mode, speed, self.area_start(n), Some(name)).await,
+            };
         }
         let target = match param.trim().to_ascii_lowercase().as_str() {
             "newest" => stats.newest.as_ref(),
@@ -480,25 +484,35 @@ impl Session {
             Some((n, name)) if self.farea_visible(n) => (n, Some(name)),
             _ => (self.user.cur_file_area, None),
         };
-        // The areas above it too, so back goes up one at a time.
+        let start = self.area_start(cur);
+        self.node.update(|n| n.activity = "Browsing files".into());
+        self.gallery_browse_from(Place::Areas, "file areas", mode, speed, start, focus).await
+    }
+
+    /// File area `n` and the areas above it, so back goes up one at a time.
+    fn area_start(&self, n: u32) -> Vec<(String, Place)> {
+        let fa = self.state.fareas();
         let mut start = Vec::new();
-        let mut at = Some(cur);
+        let mut at = Some(n);
         while let Some(n) = at.filter(|_| start.len() < 32) {
             let Some(a) = fa.get(n) else { break };
             start.insert(0, (a.name.clone(), Place::Area(n)));
             at = fa.parent_of(n);
         }
-        self.node.update(|n| n.activity = "Browsing files".into());
-        self.gallery_browse_from(Place::Areas, "file areas", mode, speed, start, focus).await
+        start
     }
 
-    /// New: what to search the file areas for, or None for nothing.
-    async fn ask_find(&mut self) -> io::Result<Option<String>> {
+    /// New: what to search the file areas for, or None for nothing: the
+    /// search page (`findpage.rs`), or a line for a caller without ANSI.
+    async fn ask_find(&mut self) -> io::Result<Option<Choice>> {
+        if !self.plain() {
+            return self.find_page().await;
+        }
         self.say_line("FaFindHelp").await?;
         self.say("FaFindAsk").await?;
         let words = self.read_string(crate::input::ReadOpts::new(70)).await?;
         self.newline();
-        Ok(Some(words.trim().to_string()).filter(|w| !crate::filebase::Find::parse(w).is_empty()))
+        Ok(Some(words.trim().to_string()).filter(|w| !crate::filebase::Find::parse(w).is_empty()).map(Choice::Words))
     }
 
     /// The same search for a caller without ANSI: the file lister, area by area.
@@ -711,8 +725,20 @@ impl Session {
                 Pick::Find => {
                     self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                     self.clear_screen();
-                    if let Some(words) = self.ask_find().await? {
-                        path.push((format!("search: {words}"), Place::Found(words), 0));
+                    match self.ask_find().await? {
+                        Some(Choice::Words(words)) => path.push((format!("search: {words}"), Place::Found(words), 0)),
+                        Some(Choice::Area(n)) => {
+                            if let Some(a) = self.state.fareas().get(n) {
+                                path.push((a.name.clone(), Place::Area(n), 0));
+                            }
+                        }
+                        Some(Choice::File(n, name)) => {
+                            if let Some(a) = self.state.fareas().get(n) {
+                                path.push((a.name.clone(), Place::Area(n), 0));
+                                focus = Some(name);
+                            }
+                        }
+                        None => {}
                     }
                 }
                 // The next order, keeping the bar on the same piece.

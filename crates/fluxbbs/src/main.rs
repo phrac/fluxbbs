@@ -25,6 +25,7 @@ mod tarot;
 #[cfg(feature = "tarot")]
 mod tarotart;
 mod fontview;
+mod findpage;
 mod tdf;
 #[cfg(feature = "casino")]
 mod blackjack;
@@ -99,6 +100,8 @@ mod savers;
 mod fileareas;
 #[cfg(feature = "ftn")]
 mod ftn;
+#[cfg(feature = "ftn")]
+mod ftntic;
 #[cfg(feature = "ftn")]
 mod ftntoss;
 mod filebase;
@@ -474,10 +477,11 @@ fn ftn_log(args: &[String]) -> Option<std::fs::File> {
     std::fs::OpenOptions::new().create(true).append(true).open(dir.join("ftn.log")).ok()
 }
 
-/// `fluxbbs ftn poll [NET]|toss|scan|areafix [NET] +TAG -TAG... [config]`:
-/// the FTN jobs by hand (new); `poll` polls every network's hub, or NET's;
-/// `areafix` asks a hub's AreaFix to link (+) or unlink (-) echoes,
-/// `areafix NET %LIST` for what it carries. Without NET, AreaFix goes to
+/// `fluxbbs ftn poll [NET]|toss|scan|areafix|filefix [NET] +TAG -TAG...
+/// [config]`: the FTN jobs by hand (new); `poll` polls every network's
+/// hub, or NET's; `areafix` asks a hub's AreaFix to link (+) or unlink (-)
+/// echoes, `areafix NET %LIST` for what it carries, and `filefix` the
+/// same of its FileFix for file echoes. Without NET, the request goes to
 /// the network the first tag's echo is on (else the first network).
 #[cfg(feature = "ftn")]
 async fn ftn_command(args: &[String]) -> anyhow::Result<()> {
@@ -496,34 +500,37 @@ async fn ftn_command(args: &[String]) -> anyhow::Result<()> {
             println!("{} message(s) packed", ftntoss::scan(&state)?);
             Ok(())
         }
-        Some("areafix") if rest.len() > 1 => {
+        Some(robot @ ("areafix" | "filefix")) if rest.len() > 1 => {
+            let files = robot == "filefix";
             let ftn = state.config().ftn.clone();
+            let mapped = if files { &ftn.file_areas } else { &ftn.areas };
             // A network's name, else a tag (bare, + or -) or %command.
             let named = !rest[1].starts_with(['+', '-', '%']) && ftn.networks().iter().any(|n| n.name.eq_ignore_ascii_case(&rest[1]));
             let net = if named {
                 ftntoss::network(&state, &rest[1])?
             } else {
                 let tag = rest[1].trim_start_matches(['+', '-']);
-                let on = ftn.areas.iter().find(|a| a.tag.eq_ignore_ascii_case(tag)).map(|a| ftn.network_of(a));
+                let on = mapped.iter().find(|a| a.tag.eq_ignore_ascii_case(tag)).map(|a| ftn.network_of(a));
                 let nets = ftn.networks();
                 match on {
                     Some(n) => ftntoss::network(&state, &n)?,
                     // An echo not mapped yet: which hub can't be guessed.
-                    None if nets.len() > 1 => anyhow::bail!("{tag} isn't in [[ftn.area]]: say which network (fluxbbs ftn areafix NET +{tag})"),
+                    None if nets.len() > 1 => anyhow::bail!("{tag} isn't in [[ftn.{}]]: say which network (fluxbbs ftn {robot} NET +{tag})", if files { "filearea" } else { "area" }),
                     None => nets.into_iter().next().ok_or_else(|| anyhow::anyhow!("ftn: no network set up"))?,
                 }
             };
             let lines = &rest[if named { 2 } else { 1 }..];
             if lines.is_empty() {
-                anyhow::bail!("say what to ask AreaFix: fluxbbs ftn areafix {} +TAG", net.name);
+                anyhow::bail!("say what to ask it: fluxbbs ftn {robot} {} +TAG", net.name);
             }
             let (_, hub) = ftntoss::addresses(&net)?;
             let sysop = state.config().bbs.sysop_alias.clone();
-            ftntoss::netmail(&state, &net, &sysop, "AreaFix", hub, net.areafix_pw(), lines)?;
-            println!("queued for AreaFix at {hub} ({}); it goes with the next poll (fluxbbs ftn poll {})", net.name, net.name);
+            let (to, pw) = if files { ("FileFix", net.filefix_pw()) } else { ("AreaFix", net.areafix_pw()) };
+            ftntoss::netmail(&state, &net, &sysop, to, hub, pw, lines)?;
+            println!("queued for {to} at {hub} ({}); it goes with the next poll (fluxbbs ftn poll {})", net.name, net.name);
             Ok(())
         }
-        _ => anyhow::bail!("usage: fluxbbs ftn poll [NET]|toss|scan|areafix [NET] +TAG -TAG... [config]"),
+        _ => anyhow::bail!("usage: fluxbbs ftn poll [NET]|toss|scan|areafix|filefix [NET] +TAG -TAG... [config]"),
     }
 }
 

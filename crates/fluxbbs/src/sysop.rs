@@ -963,6 +963,16 @@ impl Session {
                                 self.cfg_set(&mut f, key, &a.file);
                             } else {
                                 self.state.files.rename_area(&a.file, &v).map_err(io_err)?;
+                                // File echoes going to it follow it.
+                                let old = (*self.state.config()).clone();
+                                if old.ftn.file_areas.iter().any(|m| m.area.eq_ignore_ascii_case(&a.file)) {
+                                    let mut cfg = old.clone();
+                                    for m in cfg.ftn.file_areas.iter_mut().filter(|m| m.area.eq_ignore_ascii_case(&a.file)) {
+                                        m.area = v.clone();
+                                    }
+                                    crate::sysconfig::save_changes(&self.config_path(), &old, &cfg).map_err(io_err)?;
+                                    self.state.set_config(cfg);
+                                }
                                 for o in areas.areas.iter_mut().filter(|o| o.parent.eq_ignore_ascii_case(&a.file)) {
                                     o.parent = v.clone();
                                 }

@@ -45,6 +45,7 @@ enum Kind {
 enum Entries {
     FtnNetworks,
     FtnEchoes,
+    FtnFileEchoes,
     MeshChannels,
 }
 
@@ -72,6 +73,7 @@ impl Entries {
         match self {
             Entries::FtnNetworks => ("network", "FTN Networks"),
             Entries::FtnEchoes => ("echo", "FTN Echoes"),
+            Entries::FtnFileEchoes => ("file echo", "FTN File Echoes"),
             Entries::MeshChannels => ("channel", "MeshCore Channels"),
         }
     }
@@ -80,6 +82,7 @@ impl Entries {
         match self {
             Entries::FtnNetworks => c.ftn.networks.len(),
             Entries::FtnEchoes => c.ftn.areas.len(),
+            Entries::FtnFileEchoes => c.ftn.file_areas.len(),
             Entries::MeshChannels => c.meshcore.channels.len(),
         }
     }
@@ -89,6 +92,7 @@ impl Entries {
         match self {
             Entries::FtnNetworks => "Name          Address                  Hub          Hub host",
             Entries::FtnEchoes => "Echo tag                  Message area  Network",
+            Entries::FtnFileEchoes => "File echo tag             File area     Network",
             Entries::MeshChannels => "Channel               Message area  From mesh  To mesh",
         }
     }
@@ -100,8 +104,8 @@ impl Entries {
                 let n = &c.ftn.networks[i];
                 format!("{} {} {} {}", cut(&n.name, 13), cut(&n.address, 24), cut(&n.hub, 12), cut(&n.hub_host, 24))
             }
-            Entries::FtnEchoes => {
-                let a = &c.ftn.areas[i];
+            Entries::FtnEchoes | Entries::FtnFileEchoes => {
+                let a = if self == Entries::FtnEchoes { &c.ftn.areas[i] } else { &c.ftn.file_areas[i] };
                 let net = if a.network.is_empty() { "(the first)" } else { &a.network };
                 format!("{} {} {}", cut(&a.tag, 25), cut(&a.area, 13), cut(net, 20))
             }
@@ -125,11 +129,18 @@ impl Entries {
                 col('F', "Packet password", 8, "The packet password (up to 8 characters); blank if none.", Text(|c, i| &mut c.ftn.networks[i].packet_password, TEXT.max(8))),
                 col('G', "AreaFix password", 20, "AreaFix's password; blank to use the session password.", Text(|c, i| &mut c.ftn.networks[i].areafix_password, TEXT.max(40))),
                 col('H', "Origin line", 50, "Text of the origin line on messages sent to it; blank for the FTN section's.", Text(|c, i| &mut c.ftn.networks[i].origin, TEXT.max(60))),
+                col('I', "FileFix password", 20, "FileFix's password; blank to use AreaFix's.", Text(|c, i| &mut c.ftn.networks[i].filefix_password, TEXT.max(40))),
+                col('J', "TIC password", 20, "The password in the TICs of files the hub sends; blank to use FileFix's.", Text(|c, i| &mut c.ftn.networks[i].tic_password, TEXT.max(40))),
             ],
             Entries::FtnEchoes => vec![
                 col('A', "Echo tag", 30, "The echo's tag on the network (AGN_GEN).", Text(|c, i| &mut c.ftn.areas[i].tag, Field::UPPER.max(40))),
                 col('B', "Message area", 8, "Storage key of the message area it's tossed to (*M).", Text(|c, i| &mut c.ftn.areas[i].area, key)),
                 col('C', "Network", 20, "Which network it's on, by name; blank for the first (the FTN section's own).", Text(|c, i| &mut c.ftn.areas[i].network, TEXT.max(20))),
+            ],
+            Entries::FtnFileEchoes => vec![
+                col('A', "File echo tag", 30, "The file echo's tag on the network (AGN_NODE).", Text(|c, i| &mut c.ftn.file_areas[i].tag, Field::UPPER.max(40))),
+                col('B', "File area", 8, "Storage key of the file area its files go to (*F).", Text(|c, i| &mut c.ftn.file_areas[i].area, key)),
+                col('C', "Network", 20, "Which network it's on, by name; blank for the first (the FTN section's own).", Text(|c, i| &mut c.ftn.file_areas[i].network, TEXT.max(20))),
             ],
             Entries::MeshChannels => vec![
                 col('A', "Channel", 20, "The channel's name on the radio (Public).", Text(|c, i| &mut c.meshcore.channels[i].channel, TEXT.max(32))),
@@ -385,6 +396,9 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('B', "Transfer cps", 9, "Bytes per second assumed when estimating transfer time.", Num(|c| c.files.transfer_cps, |c, v| c.files.transfer_cps = v, 1, 1_000_000_000)),
             set('C', "Ask auto-logoff", 3, "Offer to log off when a download finishes?", Bool(|c| &mut c.files.ask_auto_logoff)),
             set('D', "Auto-logoff secs", 3, "Countdown before the auto-logoff hangs up.", Num(|c| c.files.auto_logoff_seconds as u64, |c, v| c.files.auto_logoff_seconds = v as u16, 1, 600)),
+            set('E', "Search logo", 20, "The word at the top of the file search page; blank for the board's name.", Text(|c| &mut c.files.search_logo, TEXT.max(30))),
+            set('F', "Search logo font", 30, "TheDraw font file the search page's logo is set in; blank for plain letters.", Text(|c| &mut c.files.search_font, TEXT.max(100))),
+            set('G', "Search logo face", 12, "Which face in that file, by name; blank for the first.", Text(|c| &mut c.files.search_face, TEXT.max(12))),
         ]),
         ("Upload Tests", false, vec![
             set('A', "Test command", 50, "Run on each upload, %F the file (e.g. clamscan --no-summary %F); blank = none.", Text(|c| &mut c.files.test_command, TEXT.max(200))),
@@ -467,6 +481,9 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('K', "Network name", 20, "What the first network (the one set above) is called here, e.g. fsxnet; echoes name it. Blank: its address's domain.", Text(|c| &mut c.ftn.name, TEXT.max(20))),
             set('L', "More networks", 14, "Other networks this board is a node of, each with its own address, hub and passwords.", Table(Entries::FtnNetworks)),
             set('M', "Echoes", 14, "The echoes carried: each one's tag, the message area it's tossed to, and its network.", Table(Entries::FtnEchoes)),
+            set('N', "File echoes", 14, "The file echoes carried (TIC): each one's tag, the file area its files go to, and its network.", Table(Entries::FtnFileEchoes)),
+            set('O', "FileFix password", 20, "FileFix's password; blank to use AreaFix's.", Text(|c| &mut c.ftn.filefix_password, TEXT.max(40))),
+            set('P', "TIC password", 20, "The password in the TICs of files the hub sends; blank to use FileFix's.", Text(|c| &mut c.ftn.tic_password, TEXT.max(40))),
         ]),
         ("File System", false, vec![
             set('A', "Use file points", 3, "Charge file points for downloads?", Bool(|c| &mut c.files.use_file_points)),
@@ -1012,6 +1029,10 @@ impl Session {
                 Entries::FtnEchoes => {
                     let fresh = |_: &[crate::config::FtnArea]| crate::config::FtnArea { tag: "NEW_ECHO".into(), area: String::new(), network: String::new() };
                     self.list_change(&mut cfg.ftn.areas, cmd, one, fresh).await?;
+                }
+                Entries::FtnFileEchoes => {
+                    let fresh = |_: &[crate::config::FtnArea]| crate::config::FtnArea { tag: "NEW_FILES".into(), area: String::new(), network: String::new() };
+                    self.list_change(&mut cfg.ftn.file_areas, cmd, one, fresh).await?;
                 }
                 Entries::MeshChannels => {
                     let fresh = |_: &[crate::config::MeshChannel]| crate::config::MeshChannel { channel: "Public".into(), area: String::new(), from_mesh: true, to_mesh: true };

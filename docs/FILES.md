@@ -99,6 +99,16 @@ are.
    again from anywhere in the browser. Areas with a password aren't
    searched. (`FF` and `FT`, the original's searches by filespec and by
    one piece of text, are still there for menus that use them.)
+
+   The search opens on a page of its own: the board's name big in a
+   search engine's four colors (`[files] search_font`, a TheDraw font,
+   and `search_face`; `search_logo` for another word), a box, and two
+   buttons. What the words find drops down under the box as they're
+   typed, two matching areas and then the best files; Up and Down pick
+   one and Enter opens it, with the bar on the file. Enter in the box
+   searches; Tab goes to the buttons, and I'm Feeling Lucky opens the
+   best file straight away. Esc goes back. A caller without ANSI gets
+   the one-line prompt.
 2. Put the bar on it and pick `edit`. The file editor (`*Y`) opens on
    that file.
 3. Edit the record, rename (`A`), validate (`H`), move (`=`), or
@@ -120,6 +130,8 @@ original.
 - `-` in the file editor reads a description from the file: an
   archive's FILE_ID.DIZ (`[files] description_files`), else the first
   `.nfo` in a ZIP, else a piece of art's SAUCE.
+- With the AI on, a blind upload (a file sent without naming it first)
+  isn't asked for a description: the AI writes one.
 - With the AI on (`[ai]`), a file uploaded with no description, or only
   its own name (or a meaningless hash some tool left as its SAUCE
   title, just a picture's size, or the board's own list of what a ZIP

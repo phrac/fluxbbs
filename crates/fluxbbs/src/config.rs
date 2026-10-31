@@ -757,6 +757,10 @@ pub struct Ftn {
     pub session_password: String,
     pub packet_password: String,
     pub areafix_password: String,
+    /// FileFix's password (blank: AreaFix's), and the one in the TICs of
+    /// the file echoes the hub sends (blank: FileFix's).
+    pub filefix_password: String,
+    pub tic_password: String,
     /// The origin line's text; blank for the board's name.
     pub origin: String,
     /// Minutes between polls of the hub (0: only by hand, `fluxbbs ftn
@@ -769,12 +773,17 @@ pub struct Ftn {
     /// Echo areas: the network's tag and the message area it's tossed to.
     #[serde(rename = "area", default)]
     pub areas: Vec<FtnArea>,
+    /// File echoes: the network's tag and the file area its files go to
+    /// (`ftntic.rs`).
+    #[serde(rename = "filearea", default, skip_serializing_if = "Vec::is_empty")]
+    pub file_areas: Vec<FtnArea>,
     /// More networks than the first.
     #[serde(rename = "network", default, skip_serializing_if = "Vec::is_empty")]
     pub networks: Vec<FtnNetwork>,
 }
 
-/// One echo and the message area it lives in.
+/// One echo and the message area it lives in (or a file echo and its
+/// file area).
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct FtnArea {
@@ -800,6 +809,8 @@ pub struct FtnNetwork {
     pub session_password: String,
     pub packet_password: String,
     pub areafix_password: String,
+    pub filefix_password: String,
+    pub tic_password: String,
     /// The origin line's text; blank for `[ftn] origin`.
     pub origin: String,
 }
@@ -808,6 +819,16 @@ impl FtnNetwork {
     /// AreaFix's password: its own, else the session password.
     pub fn areafix_pw(&self) -> &str {
         if self.areafix_password.is_empty() { &self.session_password } else { &self.areafix_password }
+    }
+
+    /// FileFix's password: its own, else AreaFix's.
+    pub fn filefix_pw(&self) -> &str {
+        if self.filefix_password.is_empty() { self.areafix_pw() } else { &self.filefix_password }
+    }
+
+    /// The password TICs from the hub carry: its own, else FileFix's.
+    pub fn tic_pw(&self) -> &str {
+        if self.tic_password.is_empty() { self.filefix_pw() } else { &self.tic_password }
     }
 }
 
@@ -846,6 +867,12 @@ impl Ftn {
         // address is fine).
         let names: Vec<String> = checked.into_iter().map(|(n, _)| n.name).collect();
         let mut seen: std::collections::HashMap<String, String> = Default::default();
+        for a in &self.file_areas {
+            let on = self.network_of(a);
+            if !names.iter().any(|n| n.eq_ignore_ascii_case(&on)) {
+                out.push(format!("file echo {} ({}) is on network {on:?}, which there's none of", a.tag, a.area));
+            }
+        }
         for a in &self.areas {
             let on = self.network_of(a);
             if !names.iter().any(|n| n.eq_ignore_ascii_case(&on)) {
@@ -870,6 +897,8 @@ impl Ftn {
             session_password: self.session_password.clone(),
             packet_password: self.packet_password.clone(),
             areafix_password: self.areafix_password.clone(),
+            filefix_password: self.filefix_password.clone(),
+            tic_password: self.tic_password.clone(),
             origin: self.origin.clone(),
         };
         let mut out: Vec<(FtnNetwork, Option<String>)> = Vec::new();
@@ -917,6 +946,11 @@ impl Ftn {
     pub fn areas_of(&self, name: &str) -> Vec<FtnArea> {
         self.areas.iter().filter(|a| self.network_of(a).eq_ignore_ascii_case(name)).cloned().collect()
     }
+
+    /// The file echoes on network `name`.
+    pub fn file_areas_of(&self, name: &str) -> Vec<FtnArea> {
+        self.file_areas.iter().filter(|a| self.network_of(a).eq_ignore_ascii_case(name)).cloned().collect()
+    }
 }
 
 impl Default for Ftn {
@@ -930,10 +964,13 @@ impl Default for Ftn {
             session_password: String::new(),
             packet_password: String::new(),
             areafix_password: String::new(),
+            filefix_password: String::new(),
+            tic_password: String::new(),
             origin: String::new(),
             poll_minutes: 60,
             listen: String::new(),
             areas: Vec::new(),
+            file_areas: Vec::new(),
             networks: Vec::new(),
         }
     }
@@ -1390,6 +1427,11 @@ pub struct Files {
     /// Refuse archives with names that point outside the folder they'd
     /// unpack into (`../`, `/etc/...`).
     pub refuse_unsafe_paths: bool,
+    /// New: the search page's logo (blank: the board's name), set in this
+    /// TheDraw font and face (blank: plain letters), in the page's colors.
+    pub search_logo: String,
+    pub search_font: String,
+    pub search_face: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -1445,6 +1487,9 @@ impl Default for Files {
             max_image_pixels: 2048 * 2048,
             max_gif_frames: 300,
             refuse_unsafe_paths: true,
+            search_logo: String::new(),
+            search_font: String::new(),
+            search_face: String::new(),
         }
     }
 }

@@ -416,6 +416,12 @@ pub fn describe_owned(state: Arc<BbsState>, f: FileRec) -> std::pin::Pin<Box<dyn
 #[cfg(feature = "ai")]
 static ONE_AT_A_TIME: tokio::sync::Semaphore = tokio::sync::Semaphore::const_new(1);
 
+/// Will a bare description be written by the AI ([`spawn`])? Built in and
+/// switched on.
+pub fn will_describe(state: &BbsState) -> bool {
+    cfg!(feature = "ai") && state.config().ai.enabled
+}
+
 /// After an upload, or a file put in an area by hand being added: if the
 /// file's description is bare, have the AI write one, in the background.
 /// By name, not number: a pack may renumber the area while it waits.

@@ -1943,7 +1943,8 @@ impl Session {
             {
                 desc = vec![p.describe()];
             }
-            if desc.is_empty() {
+            // New: a blind upload isn't asked when the AI will describe it.
+            if desc.is_empty() && !(plan.is_none() && crate::aidesc::will_describe(&self.state)) {
                 self.end_test_screen().await?;
                 desc = self.ask_description(&name).await?;
             }

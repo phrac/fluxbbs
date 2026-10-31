@@ -28,6 +28,8 @@ pub struct Tossed {
     pub unknown: u32,
     /// Files that couldn't be read, moved to `bad`.
     pub bad: u32,
+    /// Files from file echoes put in their areas (`ftntic.rs`).
+    pub files: u32,
 }
 
 /// Why a packet wasn't tossed whole.
@@ -157,14 +159,17 @@ pub fn toss(state: &BbsState) -> anyhow::Result<Tossed> {
                 .filter(|(n, _, _)| n.name == net.name || (!net.session_password.is_empty() && n.session_password == net.session_password))
                 .cloned()
                 .collect();
+            crate::ftntic::toss_dir(state, &inbound_dir(state, &net.name), &allowed, &mut t)?;
             toss_dir(state, &inbound_dir(state, &net.name), &allowed, &mut t)?;
         }
         // A network renamed (or left out) leaves its inbound behind: that
         // and `inbound` itself go by the packets' addresses, as by hand.
         for d in stray_dirs(state, &inbound) {
             tracing::warn!("ftn: {} belongs to no network set up; tossing it by its packets' addresses", d.display());
+            crate::ftntic::toss_dir(state, &d, &nets, &mut t)?;
             toss_dir(state, &d, &nets, &mut t)?;
         }
+        crate::ftntic::toss_dir(state, &inbound, &nets, &mut t)?;
         toss_dir(state, &inbound, &nets, &mut t)?;
         retoss_unknown(state, &nets, &mut t)
     })();
@@ -195,13 +200,20 @@ fn toss_dir(state: &BbsState, dir: &Path, nets: &[(FtnNetwork, Addr, Addr)], t: 
     let Ok(rd) = std::fs::read_dir(dir) else { return Ok(()) };
     // Oldest first (by name when the clock can't tell), so a thread comes
     // in in order.
-    let mut files: Vec<PathBuf> = rd.filter_map(Result::ok).map(|e| e.path()).filter(|p| p.is_file()).collect();
+    // Files waiting for their TICs' echoes to be mapped aren't mail, even
+    // a ZIP with a packet in it.
+    let held = crate::ftntic::held(dir);
+    let mut files: Vec<PathBuf> = rd
+        .filter_map(Result::ok)
+        .map(|e| e.path())
+        .filter(|p| p.is_file() && !held.contains(&p.file_name().map(|n| n.to_string_lossy().to_ascii_lowercase()).unwrap_or_default()))
+        .collect();
     files.sort_by_key(|p| (std::fs::metadata(p).and_then(|m| m.modified()).ok(), p.file_name().map(|n| n.to_os_string())));
     for path in files {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
         let lower = name.to_ascii_lowercase();
-        // Part-received files belong to the mailer; TICs, file echoes'
-        // files and nodelists aren't handled, and are left (unread).
+        // Part-received files belong to the mailer; TICs and their files
+        // are `ftntic`'s, and anything else is left (unread).
         let packet = lower.ends_with(".pkt");
         if name.starts_with('.') || !(packet || bundle_name(&lower) || lower.ends_with(".zip")) {
             continue;
@@ -1013,7 +1025,7 @@ mod tests {
         let t = toss(&state).unwrap();
         // FSX_OTHER has no area here: its message is kept apart, the rest
         // tossed.
-        assert_eq!(t, Tossed { packets: 1, echomail: 2, netmail: 1, dupes: 1, unknown: 1, bad: 0 });
+        assert_eq!(t, Tossed { packets: 1, echomail: 2, netmail: 1, dupes: 1, unknown: 1, bad: 0, files: 0 });
         assert!(std::fs::read_dir(&inbound).unwrap().next().is_none());
         assert!(std::fs::read_dir(inbound.parent().unwrap().join("unknown")).unwrap().flatten().any(|e| e.file_name().to_string_lossy().starts_with("fsxnet~FSX_OTHER-")));
         let msgs = state.msgs.all("GENERAL").unwrap();

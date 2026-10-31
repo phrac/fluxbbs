@@ -92,7 +92,7 @@ on port 2222 and telnet on 23. Logs are in `docker logs fluxbbs`.
 - Areas, conferences, the full-screen editor (with [vim keys](docs/FEATURES.md#vim-keys) for those who want them), newscans, email and attachments
 - A [message center](docs/FEATURES.md#message-center) after PTT
 - [QWK](docs/FEATURES.md#qwk-offline-mail) offline mail
-- [FTN echomail](docs/FEATURES.md#ftn-echomail) over binkp
+- [FTN echomail](docs/FEATURES.md#ftn-echomail) and file echoes (TIC) over binkp
 - A [MeshCore](docs/FEATURES.md#meshcore) radio bridge: mesh channels as message areas
 
 ### Files

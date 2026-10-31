@@ -295,5 +295,8 @@ against `tools/fake_meshcore.py` only: there's no radio yet, and rzn
 has no USB radio (a WiFi companion over the tailnet, or ser2net, is the
 plan).
 
+File echoes (TIC, `ftntic.rs`) are built: AgoraNet's six go to file
+areas under an AGORANET folder.
+
 Left: callers writing netmail to FTN addresses (the README's one "not
-done yet"), TIC file echoes, and the DoorParty/BBSLink door networks.
+done yet"), and the DoorParty/BBSLink door networks.
