@@ -282,13 +282,18 @@ outbound as `000103e7.out`, and the board polled with `fluxbbs ftn
 poll`. For the hub calling in, run binkd with `--network host` (rzn's
 firewall drops Docker-to-host connections), give its `node` line
 `127.0.0.1:<port>`, set `[ftn] listen` to that port, and drop the packet
-as `000103e7.cut` (crash): binkd calls within seconds. The live board isn't a node yet: the SysOp applies to fsxNet for
-an address and passwords. Next:
-real doors (LORD, TW2002, Usurper, BRE) in the DOS machine, fixing what
-they trip over. The MeshCore bridge (`meshcore.rs`, channels to message
-areas, ported from the firmware's examples/companion_radio/MyMesh.cpp)
-is built and tested against `tools/fake_meshcore.py` only: there's no
-radio yet, and rzn has no USB radio (a WiFi companion over the tailnet,
-or ser2net, is the plan). New work after that is improvements rather than ports: a
-web or terminal SysOp dashboard in place of the local console, for
-instance.
+as `000103e7.cut` (crash): binkd calls within seconds. The live board
+is an AgoraNet node (46:1/115, since 27 Oct 2026); its fsxNet
+application (sent 21 Oct) is still unanswered.
+
+Done since the last version of this list: real doors (LORD, BRE,
+TW2002, Usurper) run, in the DOS machine or natively, and the
+PTT-style message center with caller-created boards is live. The
+MeshCore bridge (`meshcore.rs`, channels to message areas, ported from
+the firmware's examples/companion_radio/MyMesh.cpp) is built and tested
+against `tools/fake_meshcore.py` only: there's no radio yet, and rzn
+has no USB radio (a WiFi companion over the tailnet, or ser2net, is the
+plan).
+
+Left: callers writing netmail to FTN addresses (the README's one "not
+done yet"), TIC file echoes, and the DoorParty/BBSLink door networks.
