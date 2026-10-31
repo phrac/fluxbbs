@@ -423,6 +423,10 @@ All in [FEATURES](FEATURES.md#message-center).
   replayed for those who held tickets (a logon step too). All of it is
   kept in a ledger, with caps a day in `*C`, Points.
   ([FEATURES](FEATURES.md#points))
+- Doors that spend and pay points (`[points] doors`): `POINTS.SYS` gives
+  the door the caller's points, and the change it writes back is
+  applied, never below zero and wins capped a day.
+  ([DOORS](DOORS.md#pointssys-doors-that-spend-and-pay-points))
 - Esc leaves an infoform without saving; the original had no way out.
 - A handle typed for a tip shows the callers who match as you type, in
   a box to pick from (plain text: Tab completes).

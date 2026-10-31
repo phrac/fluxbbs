@@ -948,7 +948,7 @@ impl SysData {
     /// gave cost them nothing).
     pub fn points_recent(&self, user: u32, n: usize) -> anyhow::Result<Vec<PointsEntry>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stmt = db.prepare("SELECT * FROM points WHERE to_id = ?1 OR (from_id = ?1 AND kind IN ('tip', 'ticket')) ORDER BY id DESC LIMIT ?2")?;
+        let mut stmt = db.prepare("SELECT * FROM points WHERE to_id = ?1 OR (from_id = ?1 AND kind IN ('tip', 'ticket', 'doorspend')) ORDER BY id DESC LIMIT ?2")?;
         let rows = stmt.query_map(params![user, n as i64], points_row)?.collect::<Result<_, _>>()?;
         Ok(rows)
     }

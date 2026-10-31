@@ -381,6 +381,19 @@ impl Session {
         Ok(())
     }
 
+    /// A session for tests: `user` logged in on a node, talking to nobody.
+    #[cfg(test)]
+    pub(crate) fn for_test(state: Arc<BbsState>, user: User) -> Self {
+        let (io, _) = tokio::io::duplex(1 << 16);
+        let (_, size) = watch::channel((80, 24));
+        let caller = Caller { remote: None, transport: "test", login_name: String::new(), key_user: None, term: "ansi".into(), size };
+        let node = state.nodes.acquire("test").expect("a free node");
+        let mut s = Session::new(state, Box::new(io), caller, node);
+        s.user = user.clone();
+        *s.user_base.borrow_mut() = Some(user);
+        s
+    }
+
     fn new(state: Arc<BbsState>, io: Box<dyn Stream>, caller: Caller, node: NodeGuard) -> Self {
         let charset = match state.config().terminal.charset {
             CharsetPref::Cp437 => Charset::Cp437,

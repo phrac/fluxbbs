@@ -74,6 +74,36 @@ the board wrote it isn't read back: its time left is from when the door
 started, and taking it would refund the time spent in a door that never
 writes the file, or one the caller hung up on.
 
+### POINTS.SYS: doors that spend and pay points
+
+A door named in `[points] doors` (by its program's name, `ghostwire`;
+`*C`, Points, "Point doors") gets `POINTS.SYS` beside its drop file,
+whatever drop file it takes, when the board uses file points. Three
+lines, CR LF:
+
+    1250        the caller's file points
+    100         what doors may still pay them today
+    0           the change: the door writes what it spent or paid here
+
+Before it exits the door writes the change on the third line: `-150`
+for 150 spent, `+40` or `40` for 40 won. The first two lines are only
+for the door to read. When the door ends, the board:
+
+- does nothing if the file is as it wrote it, or the third line isn't
+  a number;
+- takes a spend from the caller's points as they are then (tips may
+  have landed meanwhile), never below zero: a door spending more than
+  the caller has takes what there is, and the log says so;
+- pays a win up to what's left of `[points] door_win_daily` (100
+  stock, 0 for no limit) and no more;
+- puts either in the points ledger under the door's name, so `!P`
+  shows "spent in Ghostwire" or "won in Ghostwire".
+
+It's read back however the door ended, a hangup too: a door that's
+killed before writing the file changes nothing. Only doors in the list
+get the file, so no other door can touch points. Doors still pay by
+the minute as well (`door_minutes`).
+
 ### How the drop files differ from the original's
 
 - Each node gets its own drop directory.

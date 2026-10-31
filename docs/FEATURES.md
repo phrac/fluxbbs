@@ -1032,7 +1032,10 @@ back into it, and every movement is kept in the `points` ledger.
 | the lottery | the night's pot |
 
 The casino, slots and Carrier Lost pay points of their own, and
-filling requests pays [its own](#points-for-fills).
+filling requests pays [its own](#points-for-fills). Doors named in
+`[points] doors` can spend and pay points themselves through
+`POINTS.SYS` ([DOORS](DOORS.md#pointssys-doors-that-spend-and-pay-points)),
+paying 100 a day at most (`door_win_daily`).
 
 - **Tips.** `$` at the reader's vote prompt tips the post's author
   (`tip <#> [n]` in plain text), and `!P`'s `t` tips anyone by handle:

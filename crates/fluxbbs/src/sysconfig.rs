@@ -625,6 +625,8 @@ fn more_sections() -> Vec<(char, &'static str, bool, Vec<Setting>)> {
             set('F', "Lottery ticket", 6, "What a lottery ticket costs (!P; 0 = no lottery). Drawn each night at midnight.", Num(|c| c.points.ticket as u64, |c, v| c.points.ticket = v as u32, 0, 1_000_000)),
             set('G', "Tickets a day", 4, "The most tickets a caller may buy a day (0 = no limit).", Num(|c| c.points.tickets_daily as u64, |c, v| c.points.tickets_daily = v as u32, 0, 9999)),
             set('H', "House adds", 6, "File points the house adds to each night's pot when tickets were sold.", Num(|c| c.points.house as u64, |c, v| c.points.house = v as u32, 0, 1_000_000)),
+            set('I', "Point doors", 40, "Doors that may see and spend or pay a caller's points through POINTS.SYS, by program name (ghostwire).", List(|c| &mut c.points.doors)),
+            set('J', "Door wins a day", 6, "The most those doors may pay a caller in a day (0 = no limit).", Num(|c| c.points.door_win_daily as u64, |c, v| c.points.door_win_daily = v as u32, 0, 1_000_000)),
         ]),
     ]
 }

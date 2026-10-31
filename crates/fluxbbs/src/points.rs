@@ -69,6 +69,19 @@ pub(crate) fn credit(state: &BbsState, user_id: u32, amount: u32) -> anyhow::Res
     Ok(())
 }
 
+/// What doors may still pay `user` today (`door_win_daily`).
+fn door_win_room(state: &BbsState, user: u32) -> u32 {
+    let cap = cap(state.config().points.door_win_daily);
+    cap.saturating_sub(state.sys.points_since("doorwin", user, false, today()).unwrap_or(0))
+}
+
+/// The change a door wrote on `POINTS.SYS`'s third line: `-150`, `+40`,
+/// `40`. None if it isn't a number.
+fn points_change(text: &str) -> Option<i64> {
+    let line = text.lines().nth(2)?.trim();
+    line.strip_prefix('+').unwrap_or(line).parse().ok()
+}
+
 /// A node message to `handle`, wherever they're on.
 fn tell(state: &BbsState, handle: &str, from: usize, user: &str, text: &str) {
     for (n, info) in state.nodes.online() {
@@ -244,6 +257,76 @@ impl Session {
                 tracing::info!("{}: {n} point(s) for {minutes} min of {door}", self.user.handle);
             }
             Err(e) => tracing::error!("door points: {e}"),
+        }
+    }
+
+    // ---- doors that spend and pay points -----------------------------------------
+
+    /// May the door `prog` (its program's name) see and change points?
+    #[cfg_attr(not(feature = "doors"), allow(dead_code))]
+    pub(crate) fn points_door(&self, prog: &str) -> bool {
+        self.points_on() && self.state.config().points.doors.iter().any(|d| d.trim().eq_ignore_ascii_case(prog))
+    }
+
+    /// New: `POINTS.SYS` for a door that may change points: the caller's
+    /// points, what doors may still pay them today, and a 0 the door
+    /// changes to what it spent (`-150`) or paid (`+40`).
+    #[cfg_attr(not(feature = "doors"), allow(dead_code))]
+    pub(crate) fn points_sys(&mut self) -> Vec<u8> {
+        self.sync_points();
+        let room = door_win_room(&self.state, self.user.id);
+        format!("{}\r\n{}\r\n0\r\n", self.user.file_points, room).into_bytes()
+    }
+
+    /// After the door: what it wrote on `POINTS.SYS`'s third line, if it
+    /// changed the file. A spend takes no more than the caller has; a win
+    /// no more than `door_win_daily` allows. Both go in the ledger.
+    #[cfg_attr(not(feature = "doors"), allow(dead_code))]
+    pub(crate) fn points_sys_back(&mut self, door: &str, data: &[u8], written: &[u8]) {
+        if data == written {
+            return;
+        }
+        let Some(change) = points_change(&String::from_utf8_lossy(data)) else {
+            tracing::warn!("{}: {door} left POINTS.SYS without a change on its third line; nothing done", self.user.handle);
+            return;
+        };
+        self.sync_points();
+        if change < 0 {
+            let want = change.unsigned_abs().min(u32::MAX as u64) as u32;
+            let take = want.min(self.user.file_points);
+            if take < want {
+                tracing::warn!("{}: {door} spent {want} points, but they had {}; took {take}", self.user.handle, self.user.file_points);
+            }
+            if take == 0 {
+                return;
+            }
+            self.user.file_points -= take;
+            if let Err(e) = self.save_own_user() {
+                tracing::error!("door points: {e}");
+                return;
+            }
+            let e = entry("doorspend", (self.user.id, &self.user.handle), (0, ""), take, door, "");
+            if let Err(e) = self.state.sys.add_points(&e) {
+                tracing::error!("door points: {e}");
+            }
+            tracing::info!("{}: spent {take} point(s) in {door}", self.user.handle);
+        } else if change > 0 {
+            let want = change.min(u32::MAX as i64) as u32;
+            let cap = cap(self.state.config().points.door_win_daily);
+            let e = entry("doorwin", (0, ""), (self.user.id, &self.user.handle), want, door, "");
+            match self.state.sys.add_points_capped(&e, cap, today(), false) {
+                Ok(n) => {
+                    if n < want {
+                        tracing::warn!("{}: {door} paid {want} points; {n} within today's limit", self.user.handle);
+                    }
+                    if n > 0 {
+                        self.user.file_points = self.user.file_points.saturating_add(n);
+                        self.save_user();
+                        tracing::info!("{}: won {n} point(s) in {door}", self.user.handle);
+                    }
+                }
+                Err(e) => tracing::error!("door points: {e}"),
+            }
         }
     }
 
@@ -594,6 +677,8 @@ impl Session {
         match e.kind.as_str() {
             "upvote" => s.fmt("PointsUpvote", &[&e.from, &e.note]),
             "door" => s.fmt("PointsDoor", &[&e.on, &e.note]),
+            "doorwin" => s.fmt("PointsDoorWin", &[&e.on]),
+            "doorspend" => s.fmt("PointsDoorSpend", &[&e.on]),
             "tip" if mine => s.fmt("PointsTipFrom", &[&e.from]),
             "tip" => s.fmt("PointsTipTo", &[&e.to]),
             "ticket" => s.fmt("PointsTickets", &[&e.note]),
@@ -619,6 +704,58 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_doors_change() {
+        assert_eq!(points_change("120\r\n100\r\n-150\r\n"), Some(-150));
+        assert_eq!(points_change("120\r\n100\r\n+40\r\n"), Some(40));
+        assert_eq!(points_change("120\n100\n 7 \n"), Some(7));
+        assert_eq!(points_change("120\r\n100\r\nlots\r\n"), None);
+        assert_eq!(points_change("120\r\n"), None);
+    }
+
+    /// A caller with 100 points in a point door, on a board paying doors
+    /// 50 a day at most.
+    fn in_a_door() -> Session {
+        let state = crate::tests::state();
+        let mut cfg = (*state.config()).clone();
+        cfg.files.use_file_points = true;
+        cfg.points.doors = vec!["ghostwire".into()];
+        cfg.points.door_win_daily = 50;
+        *state.config.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(cfg);
+        let mut u = User { handle: "phrac".into(), file_points: 100, ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        Session::for_test(state, u)
+    }
+
+    fn stored(s: &Session) -> u32 {
+        s.state.users.get(s.user.id).unwrap().unwrap().file_points
+    }
+
+    #[tokio::test]
+    async fn doors_spend_and_pay_points() {
+        let mut s = in_a_door();
+        assert!(s.points_door("GhostWire") && !s.points_door("lord"));
+        let sys = s.points_sys();
+        assert_eq!(sys, b"100\r\n50\r\n0\r\n");
+        // Left as written, or not a number: nothing.
+        s.points_sys_back("Ghostwire", &sys, &sys);
+        s.points_sys_back("Ghostwire", b"100\r\n50\r\nx\r\n", &sys);
+        assert_eq!((s.user.file_points, stored(&s)), (100, 100));
+        // A spend, then a spend of more than is left takes what there is.
+        s.points_sys_back("Ghostwire", b"100\r\n50\r\n-30\r\n", &sys);
+        assert_eq!((s.user.file_points, stored(&s)), (70, 70));
+        s.points_sys_back("Ghostwire", b"70\r\n50\r\n-500\r\n", &sys);
+        assert_eq!((s.user.file_points, stored(&s)), (0, 0));
+        // Wins, up to the day's limit; the room left is in the next file.
+        s.points_sys_back("Ghostwire", b"0\r\n50\r\n+40\r\n", &sys);
+        s.points_sys_back("Ghostwire", b"40\r\n10\r\n+40\r\n", &sys);
+        assert_eq!((s.user.file_points, stored(&s)), (50, 50));
+        assert_eq!(s.points_sys(), b"50\r\n0\r\n0\r\n");
+        // All of it in the ledger, as the caller sees it.
+        let kinds: Vec<(String, u32)> = s.state.sys.points_recent(s.user.id, 10).unwrap().into_iter().map(|e| (e.kind, e.amount)).collect();
+        assert_eq!(kinds, [("doorwin".to_string(), 10), ("doorwin".into(), 40), ("doorspend".into(), 70), ("doorspend".into(), 30)]);
+    }
 
     #[test]
     fn caps_days_and_numbers() {

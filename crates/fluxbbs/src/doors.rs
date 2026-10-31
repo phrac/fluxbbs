@@ -44,7 +44,7 @@ const COM: &str = "1";
 
 /// Every drop file we write, cleared before each door so a door never
 /// reads one left from an earlier call.
-const DROP_FILES: &[&str] = &["DORINFO1.DEF", "DOOR.SYS", "CHAIN.TXT", "DOOR32.SYS"];
+const DROP_FILES: &[&str] = &["DORINFO1.DEF", "DOOR.SYS", "CHAIN.TXT", "DOOR32.SYS", "POINTS.SYS"];
 
 /// Everything a drop file needs, taken from the session.
 #[derive(Debug, Clone, Default)]
@@ -807,6 +807,8 @@ impl Session {
             None
         };
         let dir = cfg.resolve(&cfg.paths.doors).join(format!("node{}", self.node.number()));
+        // New: a door in `[points] doors` gets POINTS.SYS (`points.rs`).
+        let points_sys = self.points_door(&door_name(cmd)).then(|| self.points_sys());
         let prepared = (|| {
             std::fs::create_dir_all(&dir)?;
             let dir = dir.canonicalize()?;
@@ -822,6 +824,9 @@ impl Session {
                 if *name == "DOOR.SYS" {
                     written = data;
                 }
+            }
+            if let Some(p) = &points_sys {
+                std::fs::write(dir.join("POINTS.SYS"), p)?;
             }
             io::Result::Ok((dir, written))
         })();
@@ -864,6 +869,11 @@ impl Session {
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
         if kind == '7' {
             self.door_readback(&dir, &written);
+        }
+        if let Some(p) = &points_sys
+            && let Ok(data) = std::fs::read(dir.join("POINTS.SYS"))
+        {
+            self.points_sys_back(&name, &data, p);
         }
         match result {
             // The shell couldn't find it.

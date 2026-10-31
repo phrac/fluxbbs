@@ -543,11 +543,16 @@ pub struct Points {
     pub tickets_daily: u32,
     /// What the house adds to a day's pot when tickets were sold.
     pub house: u32,
+    /// New: doors that may see and change a caller's points through
+    /// `POINTS.SYS` (by program name: `ghostwire`)...
+    pub doors: Vec<String>,
+    /// ...and the most they may pay a caller in a day (0 = no limit).
+    pub door_win_daily: u32,
 }
 
 impl Default for Points {
     fn default() -> Self {
-        Self { upvote: 1, upvote_daily: 20, door_minutes: 10, door_daily: 10, tip_daily: 200, ticket: 10, tickets_daily: 10, house: 50 }
+        Self { upvote: 1, upvote_daily: 20, door_minutes: 10, door_daily: 10, tip_daily: 200, ticket: 10, tickets_daily: 10, house: 50, doors: Vec::new(), door_win_daily: 100 }
     }
 }
 
