@@ -94,8 +94,10 @@ them after.
 
 ## Releases
 
-Bump `version` in `crates/fluxbbs/Cargo.toml` (and commit), then tag and
-push the tag; its message becomes the release notes:
+Every commit bumps the revision (1.0.1, 1.0.2...: `version` in
+`crates/fluxbbs/Cargo.toml`, and `Cargo.lock`). Releases are minors
+(1.1.0) and majors (2.0.0) only: bump to one, commit, then tag and push
+the tag; its message becomes the release notes:
 
     git tag -a v0.2.0 -m "What's new: ..."
     git push origin v0.2.0
@@ -105,7 +107,7 @@ static (musl) binaries for x86_64 and ARM64 with every component, packs
 each with the stock files (`fluxbbs-v0.2.0-linux-x86_64.tar.gz`), makes
 the GitHub release, and pushes `ghcr.io/phrac/fluxbbs:0.2.0` and
 `:latest` for both machines. A tag whose version doesn't match the
-crate's stops at the first step. To build an existing tag again, run the
+crate's stops at the first step, and only `vX.Y.0` tags start it. To build an existing tag again, run the
 workflow by hand (Actions, release, Run workflow) with the tag.
 
 ## Conventions

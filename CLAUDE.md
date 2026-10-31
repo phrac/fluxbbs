@@ -83,7 +83,11 @@ git: copy `data/` and `files/` across if the board should move with you.
 ## How the user likes to work
 
 - Commit only when asked. They usually say "commit and continue"; commit,
-  push (`origin` is the private `github.com/phrac/fluxbbs`), carry on.
+  push (`origin` is the public `github.com/phrac/fluxbbs`), carry on.
+- Every commit bumps the revision (x.x.X) in `crates/fluxbbs/Cargo.toml`
+  (and `Cargo.lock`) in the same commit. Releases are only minors (x.X.0)
+  and majors (X.0.0), tagged `vX.Y.0` when they ask for one
+  (docs/DEVELOPMENT.md, Releases); never tag a revision.
 - Follow the original's behavior and names (`cfgEditFileArea`, strings by
   their `str*` names), but modernize where DOS-era design doesn't fit (TOML
   and SQLite instead of `.DAT`, directories instead of packed `.TFL`, SSH

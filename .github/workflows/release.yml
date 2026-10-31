@@ -9,7 +9,8 @@ name: release
 
 on:
   push:
-    tags: ["v*"]
+    # Releases are minors and majors only; revisions (x.y.1...) aren't tagged.
+    tags: ["v*.*.0"]
   workflow_dispatch:
     inputs:
       tag:
