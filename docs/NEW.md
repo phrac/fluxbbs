@@ -307,7 +307,9 @@ For a board with hundreds of areas and tens of thousands of files:
   with the area on the info line; `f` searches from inside the browser.
 - The search page: the board's name in a search engine's colors (set in
   a TheDraw font), a box with what the words find dropping down as
-  they're typed, and Search and I'm Feeling Lucky buttons.
+  they're typed, and Search and I'm Feeling Lucky buttons. A search that
+  finds nothing offers "did you mean": misspellings put right from the
+  file base's own words, or the search a word fewer.
 - The file browser opens in the current area with the areas above it
   behind it, so back goes up one level, not to the top; and an area
   with a password asks for it there too (it didn't).

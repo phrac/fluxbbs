@@ -283,6 +283,60 @@ impl FileBase {
         self.find_words_in(areas, find, limit, None)
     }
 
+    /// New: how many validated files in `areas` have every word of `find`
+    /// and none of its left-out ones, counted in SQL (a phrase as a run
+    /// of text, a filespec against the name).
+    pub fn count_words(&self, areas: &[String], find: &Find) -> anyhow::Result<usize> {
+        if areas.is_empty() || find.is_empty() {
+            return Ok(0);
+        }
+        let mut params: Vec<String> = areas.to_vec();
+        let mut conds = Vec::new();
+        for (w, not) in find.want.iter().map(|w| (w, false)).chain(find.not.iter().map(|w| (w, true))) {
+            if Find::is_spec(w) {
+                params.push(wildcard_like(w));
+                conds.push(if not { "name NOT LIKE ? ESCAPE '\\'" } else { "name LIKE ? ESCAPE '\\'" });
+            } else {
+                let like = format!("%{}%", escape_like(w));
+                params.push(like.clone());
+                params.push(like);
+                conds.push(if not {
+                    "NOT (name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')"
+                } else {
+                    "(name LIKE ? ESCAPE '\\' OR description LIKE ? ESCAPE '\\')"
+                });
+            }
+        }
+        let sql = format!("SELECT COUNT(*) FROM files WHERE valid AND area IN ({}) AND {}", vec!["?"; areas.len()].join(","), conds.join(" AND "));
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row(&sql, rusqlite::params_from_iter(params.iter()), |r| r.get::<_, i64>(0))? as usize)
+    }
+
+    /// New: the words in the names and descriptions of the validated
+    /// files in `areas` (three letters or more, lower case), and how many
+    /// files have each: what a search that finds nothing is corrected to.
+    pub fn vocabulary(&self, areas: &[String]) -> anyhow::Result<HashMap<String, u32>> {
+        let mut words: HashMap<String, u32> = HashMap::new();
+        if areas.is_empty() {
+            return Ok(words);
+        }
+        let sql = format!("SELECT name, description FROM files WHERE valid AND area IN ({})", vec!["?"; areas.len()].join(","));
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare(&sql)?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(areas.iter()))?;
+        let mut seen: std::collections::HashSet<String> = Default::default();
+        while let Some(r) = rows.next()? {
+            let (name, desc): (String, String) = (r.get(0)?, r.get(1)?);
+            seen.clear();
+            for w in name.split(|c: char| !c.is_alphanumeric()).chain(desc.split(|c: char| !c.is_alphanumeric())) {
+                if w.chars().count() >= 3 && w.len() <= 30 && seen.insert(w.to_lowercase()) {
+                    *words.entry(w.to_lowercase()).or_default() += 1;
+                }
+            }
+        }
+        Ok(words)
+    }
+
     /// New: [`Self::find_words`] for typeahead, looking at `scan` matches
     /// at most (those with the first word in the name first), so a short,
     /// common word doesn't load the whole file base on each key. The total

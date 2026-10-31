@@ -1008,3 +1008,7 @@ FaFindPageHelp = "every word is looked for:  \"a phrase\"  *.zip  -not      tab 
 FaFindPageFiles = "%S1 files"
 PointsDoorWin = "won in %S1"
 PointsDoorSpend = "spent in %S1"
+FaFindPageMotto = "don't be evil"
+FaFindPageNone = "no results for \"%S1\" on %S2"
+FaFindPageMeant = "no results for \"%S1\" - did you mean"
+FaFindPageFound = "%S1 found"

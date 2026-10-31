@@ -107,8 +107,14 @@ are.
    typed, two matching areas and then the best files; Up and Down pick
    one and Enter opens it, with the bar on the file. Enter in the box
    searches; Tab goes to the buttons, and I'm Feeling Lucky opens the
-   best file straight away. Esc goes back. A caller without ANSI gets
-   the one-line prompt.
+   best file straight away. Esc goes back. A search that finds nothing
+   stays on the page: "no results for ..., did you mean" over searches
+   that do find something, picked the same way. A word no file has is
+   put right from the words the file base has (the closest by a few
+   letters, the commoner first: `nodlist` offers `nodelist`), and words
+   that are there but never together are offered a word fewer. "don't
+   be evil" sits under it all. A caller without ANSI gets the one-line
+   prompt.
 2. Put the bar on it and pick `edit`. The file editor (`*Y`) opens on
    that file.
 3. Edit the record, rename (`A`), validate (`H`), move (`=`), or
