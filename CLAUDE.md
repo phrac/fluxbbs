@@ -295,8 +295,21 @@ against `tools/fake_meshcore.py` only: there's no radio yet, and rzn
 has no USB radio (a WiFi companion over the tailnet, or ser2net, is the
 plan).
 
-File echoes (TIC, `ftntic.rs`) are built: AgoraNet's six go to file
-areas under an AGORANET folder.
+File echoes (TIC, `ftntic.rs`) are live since 31 Oct 2026: AgoraNet's
+six (AGN_NODE, DIFF, INFO, MODS, GAME, MISC) go to the areas under the
+board's AGORANET folder (`files/agoranet/*`, mapped in `[[ftn.filearea]]`),
+FileFix linked all six, and the agoranet network's `filefix_password`
+is also the TIC password (Nick set them the same). The hub runs HTick
+1.9: checks follow its `processTic`, and `fluxbbs ftn filefix agoranet
+"%RESEND name AREA"` fetches a past file (names as in the hub's "New
+files at The Pharcyde!" posts in AGN_HUB; a resend's TIC has no Desc,
+so give it one by hand). Tested against binkd 1.1a-115 in the
+`binkd-test` image with HTick-format TICs (a scratch board with
+`hub_host = ""` so it never polls the real hub).
+
+Doors in `[points] doors` (disflux: ghostwire) get `POINTS.SYS` and may
+spend and pay points (docs/DOORS.md). The `describe` event (04:30 on
+disflux) has the AI describe the last week's uploads still bare.
 
 Left: callers writing netmail to FTN addresses (the README's one "not
 done yet"), and the DoorParty/BBSLink door networks.
