@@ -57,12 +57,16 @@ fn is_hash(s: &str) -> bool {
 /// without its extension), or a meaningless hash.
 pub fn is_bare(f: &FileRec) -> bool {
     let words: Vec<&str> = f.description.iter().map(String::as_str).filter(|l| !is_board_line(l)).collect();
-    let d = squeeze(&words.join(" "));
-    if d.is_empty() || (words.len() == 1 && is_hash(words[0])) {
-        return true;
-    }
-    let stem = f.name.rsplit_once('.').map_or(f.name.as_str(), |(s, _)| s);
-    d == squeeze(&f.name) || d == squeeze(stem)
+    // Joined with spaces, several lines are never a hash.
+    says_nothing(&words.join(" "), &f.name)
+}
+
+/// Whether a line of text (a description, a SAUCE title) says nothing
+/// about the file `name`: empty, a hash, or only its name.
+pub fn says_nothing(text: &str, name: &str) -> bool {
+    let d = squeeze(text);
+    let stem = name.rsplit_once('.').map_or(name, |(s, _)| s);
+    d.is_empty() || is_hash(text) || d == squeeze(name) || d == squeeze(stem)
 }
 
 /// The AI's words as the description, over the board's own summary line.
@@ -346,6 +350,14 @@ mod tests {
         assert!(!is_bare(&rec("a.ans", &["skull by pi", "2026-10-30", "[ text, 59 lines ]"])));
         let f = rec("fluxgirl2.ans", &["fluxgirl2", "2026-10-30", "[ text, 59 lines ]"]);
         assert_eq!(with_summary(&f, "Penny".into()), vec!["Penny".to_string(), "[ text, 59 lines ]".to_string()]);
+    }
+
+    #[test]
+    fn sauce_titles_that_are_only_the_name_say_nothing() {
+        assert!(says_nothing("penny_green", "penny_green.ans"));
+        assert!(says_nothing("QFHHKng1ReWgb4xV8vvDYNSaBhThkOZh", "fluxgirl.ans"));
+        assert!(says_nothing("", "fluxgirl.ans"));
+        assert!(!says_nothing("Neon Nights", "fluxgirl.ans"));
     }
 
     #[test]

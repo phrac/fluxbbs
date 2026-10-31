@@ -947,7 +947,9 @@ impl Session {
             }
             Item::Art { name, size, sauce, rec, .. } => {
                 let (title, by) = match (sauce, rec) {
-                    (Some(s), _) if !s.title.is_empty() => (s.title.clone(), byline(s)),
+                    // A title that's only the file's name (or a tool's
+                    // hash) gives way to the area's description.
+                    (Some(s), _) if !crate::aidesc::says_nothing(&s.title, name) => (s.title.clone(), byline(s)),
                     // A file of a file area: its description.
                     (_, Some((_, f))) if !f.description.is_empty() => (crate::web::blurb(&f.description), String::new()),
                     (Some(s), _) => (s.title.clone(), byline(s)),
