@@ -248,7 +248,10 @@ Backups (24 Oct 2026): a nightly event (`backup 7`, 03:30) writes
 `/opt/fluxbbs/disflux/backups/fluxbbs-*.tar.gz` (database snapshot,
 settings, screens, door data, host keys; not `files/`), keeping 7 days.
 `fluxbbs backup` makes one by hand; restoring is in docs/SYSOP.md.
-Nothing copies them off rzn yet.
+`reflux` pulls them, and `files/`, every night at 04:30
+(`~/pull-disflux.sh` there, into `/mnt/backups/disflux`) through a key
+that rzn's `authorized_keys` limits to read-only `rrsync` of the board
+directory: move the board and that line must move with it.
 
 ## textfiles.com, 22 Oct 2026
 
