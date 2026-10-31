@@ -4,8 +4,9 @@
 //! took files from, the doors they played and what they asked the AI. At
 //! logoff the AI folds that into a few lines about their interests: never
 //! personal details, message text, times or habits, nothing about anyone
-//! else. Callers see it, and can clear it, in their profile (`Q` in user
-//! config). Callers with the bot flag (`B`) have none.
+//! else. Nothing is kept unless the caller turns it on, in their profile
+//! (`Q` in user config), where they see and clear it too. Callers with the
+//! bot flag (`B`) have none.
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
@@ -26,7 +27,7 @@ pub const BOT_FLAG: char = 'B';
 
 /// The longest a memory gets.
 #[cfg(feature = "ai")]
-const MAX_CHARS: usize = 600;
+const MAX_CHARS: usize = 2000;
 
 // Kept on every call; only the AI (`ai`) reads it.
 #[cfg_attr(not(feature = "ai"), allow(dead_code))]
@@ -87,7 +88,7 @@ pub fn is_bot(u: &User) -> bool {
 #[cfg(feature = "ai")]
 pub fn remember(state: Arc<BbsState>, u: User, seen: Seen) {
     let cfg = state.config().ai.clone();
-    if !cfg.enabled || u.id == 0 || is_bot(&u) || seen.is_empty() {
+    if !cfg.enabled || u.id == 0 || !u.ai_memory || is_bot(&u) || seen.is_empty() {
         return;
     }
     tokio::spawn(async move {
@@ -107,8 +108,9 @@ pub fn remember(state: Arc<BbsState>, u: User, seen: Seen) {
 #[cfg(feature = "ai")]
 async fn updated(cfg: &Ai, u: &User, seen: &Seen) -> anyhow::Result<String> {
     let system = "You keep a short memory of a caller to a bulletin board system, so the board's AI can suit them next time \
-        (what to point out, what they'd enjoy). Write at most five short lines of plain text about their interests on this board: \
-        which boards and topics they read and post in, what kinds of files they take, which games they play, what they ask about. \
+        (what to point out, what they'd enjoy). Write plain text about their interests on this board, at most 2000 characters in at most 20 short lines: \
+        which boards and topics they read and post in, what kinds of files they take, which games they play, what they ask about \
+        and the things they enjoy talking about. \
         Keep it coarse and friendly. Never include personal details, message contents, times, how often or how long they call, \
         or anything that would feel like being watched; nothing about other people. Keep what still holds from the old memory and \
         drop what's stale. Reply with the memory only.";
@@ -116,7 +118,7 @@ async fn updated(cfg: &Ai, u: &User, seen: &Seen) -> anyhow::Result<String> {
     let prompt = format!("Caller: {}\n\nOld memory:\n{old}\n\nThis call:\n{}", u.handle, seen.describe());
     let text = complete(cfg, system, &prompt).await?;
     let text = crate::editor::strip_colours(&text);
-    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).take(6).collect();
+    let lines: Vec<&str> = text.lines().map(str::trim).filter(|l| !l.is_empty()).take(20).collect();
     let mut memory = lines.join("\n");
     if memory.chars().count() > MAX_CHARS {
         memory = memory.chars().take(MAX_CHARS).collect();

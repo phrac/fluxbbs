@@ -434,22 +434,23 @@ wherever it puts it) opens a short list:
 | `r` | show your real name on your profile, or not |
 | `u` | upload an ANSI header: up to 8 lines; only colors and cursor-right moves are kept |
 | `c` | clear the header |
-| `m` | see what the board remembers about you (below), and clear it |
+| `m` | turn on what the board remembers about you (below), see it, or turn it off |
 | `v` | see your profile as others do |
 
 #### What the board remembers
 
-After each call, the AI chat's model updates a short memory of the
-caller's interests here: the boards they read and post in, the file
+It's opt-in: nothing is kept until the caller turns it on from their
+profile (`m`), and turning it off forgets it. Once it's on, after each
+call the AI chat's model updates a memory of the caller's interests here: the boards they read and post in, the file
 areas they take files from, the doors they play, and what they asked
 the AI about. It runs in the background after they've gone. It's told
 to keep it coarse and friendly: no personal details, message text,
-times or habits, and nothing about other people. It's at most a few
-lines.
+times or habits, and nothing about other people. It's at most 2,000
+characters, kept with their account in the database.
 
 The AI chat is given it, so it can suit itself to the caller next time.
-The caller can read it and clear it from their profile (`m`). Nothing
-is kept without `[ai] enabled`.
+Memories kept before it was opt-in were cleared. Nothing is kept
+without `[ai] enabled`.
 
 #### Caller notes
 

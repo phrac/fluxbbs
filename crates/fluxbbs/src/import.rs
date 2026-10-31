@@ -744,6 +744,7 @@ fn convert_user(l: &LegacyUser) -> User {
         profile_header: Vec::new(),
         show_real_name: false,
         ai_profile: String::new(),
+        ai_memory: false,
         text_mode: String::new(),
         code_bg: String::new(),
         code_theme: String::new(),

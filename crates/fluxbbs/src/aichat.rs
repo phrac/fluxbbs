@@ -509,7 +509,7 @@ impl Session {
         if crate::aimemory::is_bot(&self.user) {
             return s;
         }
-        if !self.user.ai_profile.trim().is_empty() {
+        if self.user.ai_memory && !self.user.ai_profile.trim().is_empty() {
             s += &format!(
                 " What the board remembers of {}'s interests from earlier calls (they can see this): {}",
                 self.user.handle,

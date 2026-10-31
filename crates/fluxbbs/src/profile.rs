@@ -207,7 +207,7 @@ impl Session {
                 ("r", "ProfileRealName", yn(self.user.show_real_name)),
                 ("u", "ProfileUpload", lines(self.user.profile_header.len())),
                 ("c", "ProfileClear", String::new()),
-                ("m", "ProfileMemory", if self.user.ai_profile.trim().is_empty() { "nothing yet".into() } else { String::new() }),
+                ("m", "ProfileMemory", if !self.user.ai_memory { "off".into() } else if self.user.ai_profile.trim().is_empty() { "nothing yet".into() } else { "on".into() }),
                 ("v", "ProfileView", String::new()),
             ];
             for (k, name, v) in &items {
@@ -240,8 +240,8 @@ impl Session {
         }
     }
 
-    /// What the board remembers of your interests (`aimemory.rs`), and
-    /// clearing it.
+    /// What the board remembers of your interests (`aimemory.rs`): off
+    /// until you turn it on, and turning it off forgets it.
     async fn memory_view(&mut self) -> io::Result<()> {
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
         self.clear_screen();
@@ -251,6 +251,21 @@ impl Session {
         if let Some(u) = self.state.users.get(self.user.id).map_err(io_err)? {
             self.user.ai_profile = u.ai_profile;
         }
+        if crate::aimemory::is_bot(&self.user) {
+            self.rule().await?;
+            self.say_line("MemoryBot").await?;
+            return self.prompt_key().await;
+        }
+        if !self.user.ai_memory {
+            self.say_line("MemoryOff").await?;
+            self.rule().await?;
+            self.say("MemoryAskOn").await?;
+            if self.yes_no(false).await? {
+                self.set_memory(true)?;
+                tracing::info!("{}: turned on what the board remembers", self.user.handle);
+            }
+            return Ok(());
+        }
         if self.user.ai_profile.trim().is_empty() {
             self.say_line("MemoryNone").await?;
         }
@@ -258,21 +273,23 @@ impl Session {
             self.show_line(&format!("|U3 {}", lit(l))).await?;
         }
         self.rule().await?;
-        if crate::aimemory::is_bot(&self.user) {
-            self.say_line("MemoryBot").await?;
-            return self.prompt_key().await;
-        }
-        if self.user.ai_profile.trim().is_empty() {
-            return self.prompt_key().await;
-        }
-        self.say("MemoryAskClear").await?;
+        self.say("MemoryAskOff").await?;
         if self.yes_no(false).await? {
-            let before = self.user.clone();
-            self.user.ai_profile.clear();
-            self.state.users.merge(&before, &self.user).map_err(io_err)?;
-            *self.user_base.borrow_mut() = Some(self.user.clone());
-            tracing::info!("{}: cleared what the board remembers", self.user.handle);
+            self.set_memory(false)?;
+            tracing::info!("{}: turned off and cleared what the board remembers", self.user.handle);
         }
+        Ok(())
+    }
+
+    /// Turn the memory on or off; off forgets what was kept.
+    fn set_memory(&mut self, on: bool) -> io::Result<()> {
+        let before = self.user.clone();
+        self.user.ai_memory = on;
+        if !on {
+            self.user.ai_profile.clear();
+        }
+        self.state.users.merge(&before, &self.user).map_err(io_err)?;
+        *self.user_base.borrow_mut() = Some(self.user.clone());
         Ok(())
     }
 

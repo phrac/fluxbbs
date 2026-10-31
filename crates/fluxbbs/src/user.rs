@@ -96,6 +96,9 @@ pub struct User {
     /// New: what the board remembers of their interests, for the AI chat
     /// (`aimemory.rs`); theirs to see and clear.
     pub ai_profile: String,
+    /// New: whether they've asked the board to keep that memory; off
+    /// until they turn it on (`Q` in user config).
+    pub ai_memory: bool,
     /// New: `plain` for plain text (no ANSI), `ansi`, or blank: plain for
     /// bots (flag B).
     pub text_mode: String,
@@ -204,6 +207,7 @@ impl Default for User {
             profile_header: Vec::new(),
             show_real_name: false,
             ai_profile: String::new(),
+            ai_memory: false,
             text_mode: String::new(),
             code_bg: String::new(),
             code_theme: String::new(),
@@ -318,6 +322,7 @@ impl User {
                 profile_header,
                 show_real_name,
                 ai_profile,
+                ai_memory,
                 text_mode,
                 code_bg,
                 code_theme,
@@ -413,6 +418,7 @@ impl User {
                 profile_header,
                 show_real_name,
                 ai_profile,
+                ai_memory,
                 text_mode,
                 code_bg,
                 code_theme,

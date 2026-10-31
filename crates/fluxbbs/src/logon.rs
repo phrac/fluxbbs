@@ -568,6 +568,14 @@ impl Session {
         self.new_user_prefs(&mut u).await?;
         let pw = self.ask_new_password(&u.handle.clone(), "NuPassword", "NuValidatePW", "NuPWnoMatch").await?;
         u.set_password(&pw);
+        // New: the AI's memory of a caller is opt-in; ask, saying what it is.
+        if cfg!(feature = "ai") && self.state.config().ai.enabled {
+            for key in ["NuMemory1", "NuMemory2", "NuMemory3", "NuMemory4"] {
+                self.say_line(key).await?;
+            }
+            self.say("NuMemoryAsk").await?;
+            u.ai_memory = self.yes_no(false).await?;
+        }
 
         u.first_call = Some(today);
         u.last_call = None;

@@ -605,7 +605,6 @@ FingerNotes = "|U4 Your notes |U2(|U1SysOps only|U2; |U3*N|U1 for all|U2)"
 ProfileMemory = "What the board remembers about you "
 MemoryHead = "|U4 What the board remembers about you |U2(|U1your interests here, kept for the AI chat|U2)"
 MemoryNone = "|U1 Nothing yet|U2. |U1After a call it notes what you were into here|U2: |U1boards|U2, |U1files|U2, |U1games|U2."
-MemoryAskClear = "|U1Forget it all? "
 MemoryBot = "|U1 This account is marked as a bot|U2: |U1nothing is kept|U2."
 HintKey = " |U2(|U3%S1|U2)"
 HintMail = "|U1You have |U3%S1|U1 new email%S2%S3"
@@ -983,3 +982,14 @@ GalleryNotRecord = "|U4Info and edit are for files in an area|U5; |U4folders and
 FileNotOnDisk = "|U4%F |U5isn't in this area's directory|U5; |U4the record is here but the file is gone or was moved|U5."
 # Declining to move the file itself in the file editor's move: nothing moves (new).
 MoveFileKept = "|U4Nothing moved|U5: |U4a record moved without its file points at nothing|U5."
+# The AI's memory of a caller is opt-in (new): off, turning it on, and
+# turning it off (which forgets it).
+MemoryOff = "|U1 Off|U2: |U1nothing is kept|U2. |U1Turned on|U2, |U1the AI notes your boards|U2, |U1files and games|U2."
+MemoryAskOn = "|U1Let the board remember your interests? "
+MemoryAskOff = "|U1Turn it off and forget it all? "
+# Asked at sign-up (new), when the AI is on: the memory, and whether to keep one.
+NuMemory1 = "|U1The AI chat can remember what you're into here|U2: |U1the boards you read|U2,"
+NuMemory2 = "|U1the files you take|U2, |U1the games you play and what you ask it|U2, |U1so it can"
+NuMemory3 = "|U1suit you next time|U2. |U1It's kept with your account|U2; |U1never your messages or"
+NuMemory4 = "|U1personal details|U2. |U1See it or turn it off in your profile|U2, |U1in user config|U2."
+NuMemoryAsk = "|U1Let the board remember your interests? "

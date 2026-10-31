@@ -496,8 +496,8 @@ All in [DOORS](DOORS.md).
   this way keeps its shape. ([FEATURES](FEATURES.md#plain-text))
 - Profiles: an uploaded ANSI header and an opt-in real name.
   ([FEATURES](FEATURES.md#profiles))
-- A short AI-kept memory of each caller's interests, updated after each
-  call, which they can see and clear; SysOps' private caller notes
+- An AI-kept memory of each caller's interests (opt-in, up to 2,000
+  characters), updated after each call, which they can see and turn off; SysOps' private caller notes
   (`*N`); flag `B` for bots, which get neither. The AI chat suits
   itself to both. ([FEATURES](FEATURES.md#what-the-board-remembers))
 - Menu hints: what's waiting for the caller, in the help line when a
