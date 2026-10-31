@@ -315,4 +315,10 @@ Callers write netmail (email to `name@zone:net/node`, `netmail.rs`),
 checked against the network's nodelist (`nodelist.rs`, the newest file
 in the network's `nodelist` file area; disflux: AGNNODE).
 
+MRC chat (`XR`, `mrc.rs`, `mrcchat.rs`, the `mrc` feature) is built
+from uMRC's client and bridge (MIT; protocol 1.3) and tested against
+`tools/fake_mrc.py` (`python3 -u tools/fake_mrc.py 5555`, then `[mrc]
+host = "127.0.0.1"`, `port = 5555`, `tls = false`); not yet against the
+real network (na-multi.relaychat.net:5001).
+
 Left: the DoorParty/BBSLink door networks.

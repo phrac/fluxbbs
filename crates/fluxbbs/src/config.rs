@@ -33,6 +33,7 @@ pub struct Config {
     pub wfc: Wfc,
     pub ai: Ai,
     pub meshcore: MeshCore,
+    pub mrc: Mrc,
     pub ftn: Ftn,
     pub bbslink: BbsLink,
     pub slots: Slots,
@@ -732,6 +733,50 @@ pub struct MeshChannel {
 
 fn yes() -> bool {
     true
+}
+
+/// MRC (new): Multi Relay Chat, live chat with callers on other BBSes,
+/// through one connection from the board to an MRC server (`mrc.rs`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Mrc {
+    pub enabled: bool,
+    /// The MRC server, and its port: 5001 with TLS, 5000 without.
+    pub host: String,
+    pub port: u16,
+    pub tls: bool,
+    /// The board's name on MRC (blank: `[bbs] name`); pipe colours allowed.
+    pub bbs_name: String,
+    /// What MRC tells others about the board (`/info`): its web page,
+    /// telnet and SSH addresses, SysOp and a line about it.
+    pub info_web: String,
+    pub info_telnet: String,
+    pub info_ssh: String,
+    pub info_sysop: String,
+    pub info_desc: String,
+    /// The room a caller starts in.
+    pub room: String,
+    /// Who may chat.
+    pub acs: String,
+}
+
+impl Default for Mrc {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            host: "na-multi.relaychat.net".into(),
+            port: 5001,
+            tls: true,
+            bbs_name: String::new(),
+            info_web: String::new(),
+            info_telnet: String::new(),
+            info_ssh: String::new(),
+            info_sysop: String::new(),
+            info_desc: String::new(),
+            room: "lobby".into(),
+            acs: "s25".into(),
+        }
+    }
 }
 
 impl Default for MeshCore {

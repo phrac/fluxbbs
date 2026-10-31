@@ -33,6 +33,7 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
         "NV" => "nuv",
         "UV" => "email",
         "WX" => "weather",
+        "XR" => "mrc",
         _ => return None,
     })
 }
@@ -41,7 +42,8 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
 /// components are Cargo features (docs/BUILDING.md); one left out
 /// counts as switched off, whatever `[features]` says.
 pub fn built(name: &str) -> bool {
-    const BUILT: [(&str, bool); 11] = [
+    const BUILT: [(&str, bool); 12] = [
+        ("mrc", cfg!(feature = "mrc")),
         ("weather", cfg!(feature = "weather")),
         ("email", cfg!(feature = "email")),
         ("temple", false),
@@ -67,6 +69,7 @@ pub fn command_on(cfg: &Config, code: &str) -> bool {
         Some("bbslink") => cfg.bbslink.enabled,
         Some("nuv") => cfg.nuv.enabled,
         Some("email") => cfg.email.enabled,
+        Some("mrc") => cfg.mrc.enabled,
         Some(name) => cfg.features.on(name),
     }
 }

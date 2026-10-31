@@ -52,7 +52,7 @@ MENUS = {
  'automsg': ('automessage menu', [('automessage', [('s', 'show automessage'), ('w', 'write automessage'), ('r', 'reply to its author'), ('q', 'quit')])]),
  'autosig': ('autosignature menu', [('autosig', [('v', 'show your autosig'), ('e', 'edit autosignature'), ('u', 'upload autosig'), ('d', 'delete autosig'), ('q', 'quit')])]),
  'bbslist': ('bbs list menu', [('bbs list', [('l', 'display bbs list'), ('s', 'show a bbs'), ('a', 'add a bbs to the list'), ('q', 'quit')])]),
- 'multinod': ('multinode', [('nodes', [('w', "who's online"), ('m', 'send a message'), ('c', 'multinode chat'), ('q', 'quit')])]),
+ 'multinod': ('multinode', [('nodes', [('w', "who's online"), ('m', 'send a message'), ('c', 'multinode chat'), ('q', 'quit'), ('r', 'mrc chat')])]),
  'qwkmail': ('offline mail menu', [('packets', [('d', 'download qwk packet'), ('u', 'upload rep packet'), ('q', 'quit')]),
        ('setup', [('j', 'join msg conference'), ('s', 'set newscan date')])]),
  'voting': ('voting booth', [('vote', [('v', 'vote on new questions'), ('o', 'answer a question'), ('r', 'see results'), ('a', 'add a question'), ('q', 'quit')])]),
@@ -95,6 +95,8 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
          ('more', '<'): {'keys': '<', 'command': '-\\', 'param': 'MAIN', 'desc': 'Back', 'help': 'Back to the main menu'},
          # The weather, from the doors menu.
          ('main', '@'): {'keys': '@', 'command': 'WX', 'param': '', 'desc': 'Weather', 'help': 'The weather where you are: the sky now, the next day and the week'},
+         # MRC: chat with callers on other boards (XR), beside the node chat.
+         ('multinod', 'r'): {'keys': 'R', 'command': 'XR', 'param': '', 'desc': 'MRC chat', 'help': 'Chat live with callers on other BBSes (Multi Relay Chat)'},
 }
 # Options a menu gains off the bar (their keys work; the screen says so):
 # the doors menu's s, its full scoreboard.

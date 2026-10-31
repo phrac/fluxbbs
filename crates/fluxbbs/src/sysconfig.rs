@@ -575,6 +575,20 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
 fn more_sections() -> Vec<(char, &'static str, bool, Vec<Setting>)> {
     use Kind::*;
     vec![
+        ('5', "MRC Chat", false, vec![
+            set('A', "Enabled", 3, "Connect to MRC (Multi Relay Chat), live chat with callers on other BBSes (XR on a menu)? Restart to apply.", Bool(|c| &mut c.mrc.enabled)),
+            set('B', "Server", 40, "The MRC server (na-multi.relaychat.net; eu- and au- too).", Text(|c| &mut c.mrc.host, TEXT.max(100))),
+            set('C', "Port", 5, "5001 with TLS, 5000 without.", Num(|c| c.mrc.port as u64, |c, v| c.mrc.port = v as u16, 1, 65535)),
+            set('D', "TLS", 3, "Encrypt the connection (the server's certificate is checked)?", Bool(|c| &mut c.mrc.tls)),
+            set('E', "BBS name", 30, "The board's name on MRC, pipe colours allowed; blank for the board's name.", Text(|c| &mut c.mrc.bbs_name, TEXT.max(60))),
+            set('F', "Web", 40, "The board's web page, for /info (blank: none).", Text(|c| &mut c.mrc.info_web, TEXT.max(100))),
+            set('G', "Telnet", 40, "Its telnet address, host:port.", Text(|c| &mut c.mrc.info_telnet, TEXT.max(100))),
+            set('H', "SSH", 40, "Its SSH address, host:port.", Text(|c| &mut c.mrc.info_ssh, TEXT.max(100))),
+            set('I', "SysOp", 30, "The SysOp's name, for /info.", Text(|c| &mut c.mrc.info_sysop, TEXT.max(60))),
+            set('J', "Description", 50, "A line about the board, for /info.", Text(|c| &mut c.mrc.info_desc, TEXT.max(100))),
+            set('K', "Start room", 20, "The room callers start in.", Text(|c| &mut c.mrc.room, TEXT.max(30))),
+            set('L', "Chat ACS", 20, "Who may chat on MRC.", Text(|c| &mut c.mrc.acs, ACS)),
+        ]),
         ('1', "Paths", true, vec![
             set('A', "Screens", 40, "The board's screens (text library). Relative to the config's folder; restart to apply.", Path(|c| &mut c.paths.text)),
             set('B', "Stock screens", 40, "Screens to fall back on when the board has none of its own. Blank: none. Relative to the config's folder; restart to apply.", PathOrNone(|c| &mut c.paths.stock_text)),
@@ -747,6 +761,7 @@ const GROUPS: &[Group] = &[
         ('Q', "Chat Mode", "Paging the SysOp: hours, beeps, overrides"),
         ('S', "AI Chat", "The AI's server, model, limits, web search, tarot and fortunes"),
         ('T', "MeshCore", "The MeshCore radio bridge"),
+        ('5', "MRC Chat", "Multi Relay Chat with other BBSes: server, the board's name and info"),
         ('U', "FTN Echomail", "Echomail networks: addresses, hub, passwords, polling"),
         ('W', "BBSLink", "Door games on bbslink.net's server: on or off, the board's codes"),
         ('X', "Slot Machine", "Pulls a day, how loose it is, what each line pays"),
@@ -823,6 +838,7 @@ impl Session {
                         'H' => on_off(cfg.web.enabled),
                         'S' => on_off(cfg.ai.enabled),
                         'T' => on_off(cfg.meshcore.enabled),
+                        '5' => on_off(cfg.mrc.enabled),
                         'U' => on_off(cfg.ftn.enabled),
                         'W' => on_off(cfg.bbslink.enabled),
                         'Z' => {

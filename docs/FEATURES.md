@@ -2164,6 +2164,52 @@ screen should (its markers are in [ARTWORK](ARTWORK.md#chat)).
 | Enter alone | who's in chat |
 | `/quit` or Esc | leave |
 
+### MRC chat
+
+`XR` (`R` on the multinode menu): MRC, Multi Relay Chat, live chat with
+callers on other BBSes (Mystic, Synchronet, Enigma and the rest) through
+one connection from the board to an MRC server. It's laid out as irssi
+lays out IRC:
+
+- a topic bar (`#room: topic`) over the scrolling window, each line
+  timed (24-hour), MRC's pipe colours shown, the board's own notices
+  marked `-!-`, and a line that names you or comes to you alone timed
+  in yellow;
+- a status bar: the time, your name, the room and how many are in it,
+  MRC's size (users, BBSes), and, scrolled back, how much has come
+  since (`Act:`) and how much of it was for you;
+- the line you type on, `[#room]`, 420 characters at most (sent in
+  pieces of 140).
+
+| Type | Does |
+|---|---|
+| `/join #room` (`/j`), `/part` | change room (`/part`: back to the lobby) |
+| `/msg name text` (`/m`, `/t`) | a message to one person, wherever they are |
+| `/r text` | answer the last one who messaged you |
+| `/me action` | an action |
+| `/topic text` | the room's topic |
+| `/names` (`/who`) | who's in the room |
+| `/list` (`/rooms`) | the rooms |
+| `/clear`, `/help`, `/quit` (or Esc) | |
+| any other `/command` | goes to the MRC server (`/register`, `/identify`, `/info`, `/server help`...) |
+
+PgUp and PgDn scroll back (1,000 lines), Up and Down bring back what
+you typed, Tab finishes a name in the room. Your name on MRC is your
+handle, spaces as `_`; the server may add a number if it's taken
+elsewhere. Leaving, however it happens (a hangup too), tells MRC.
+
+`[mrc]` (`*C` `5`): `enabled`, the server (`host`, `port`, `tls`:
+na-multi.relaychat.net, 5001 with TLS, the certificate checked), the
+board's name there (`bbs_name`, pipe colours allowed; blank for the
+board's), what `/info` says about it (`info_web`, `info_telnet`,
+`info_ssh`, `info_sysop`, `info_desc`), the room callers start in, and
+who may chat (`acs`, s25; never bots). The board keeps the connection
+up (`mrc.rs`): it answers the server's pings, and after a drop it tries
+again, waiting longer each time up to five minutes; callers in chat see
+it go and come back, and are put back in their room. The protocol (1.3)
+follows uMRC's client and bridge (MIT). `tools/fake_mrc.py` is a fake
+server to try it against.
+
 ### Invisible
 
 `XI` after `>L` in the matrix is a hidden logon. It asks

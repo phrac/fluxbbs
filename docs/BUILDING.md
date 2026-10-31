@@ -23,6 +23,7 @@ disflux, the flagship board, runs with all of them.
 | `ai` | AI chat (`AI`), the AI on the message boards, and the board's memory of callers | HTTPS; an OpenAI-style model server (`[ai]`) |
 | `ftn` | FTN echomail: packets, tossing, binkp, `fluxbbs ftn` | |
 | `meshcore` | The MeshCore radio bridge | a MeshCore companion radio |
+| `mrc` | MRC (Multi Relay Chat), live chat with callers on other BBSes (`XR`); off until `[mrc] enabled` | an outbound connection to an MRC server (TLS, port 5001) |
 | `pdf` | Showing PDFs in the file browser and art gallery | Poppler (`poppler-utils`) on the host |
 | `lua` | Lua scripts on menus (`-X`) and in screens (`%!`) | builds Lua itself (no system Lua needed) |
 | `textfiles` | The textfiles.com importer (`fluxbbs textfiles`) | HTTPS |
@@ -96,6 +97,6 @@ Where core code calls into it, give the core a stand-in (as the
 effects' `Ambient` and the MeshCore outbox have) rather than scattering
 `cfg`s through the callers. To check every component on its own:
 
-    for f in doors effects screensavers casino carrierlost tarot ai ftn meshcore pdf lua textfiles; do
+    for f in doors effects screensavers casino carrierlost tarot ai ftn meshcore mrc pdf lua textfiles; do
         cargo clippy -p fluxbbs --all-targets --no-default-features --features $f
     done

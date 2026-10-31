@@ -83,6 +83,10 @@ mod menu;
 mod menuedit;
 #[cfg(feature = "meshcore")]
 mod meshcore;
+#[cfg(feature = "mrc")]
+mod mrc;
+#[cfg(feature = "mrc")]
+mod mrcchat;
 mod messages;
 mod msgareas;
 mod multinode;
@@ -224,6 +228,9 @@ pub struct BbsState {
     pub ai_usage: std::sync::Mutex<std::collections::HashMap<(u32, chrono::NaiveDate), u32>>,
     /// Posts on their way to the MeshCore bridge.
     pub mesh: MeshOutbox,
+    /// New: the board's MRC connection (`mrc.rs`).
+    #[cfg(feature = "mrc")]
+    pub mrc: mrc::Hub,
     /// Codes out to confirm callers' email addresses (`UV`).
     #[cfg(feature = "email")]
     pub email: emailver::CodeStore,
@@ -602,6 +609,8 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         guard: guard::Guard::new(),
         ai_usage: Default::default(),
         mesh: Default::default(),
+        #[cfg(feature = "mrc")]
+        mrc: Default::default(),
         doors_in_use: Default::default(),
         started: clock::now().naive_local(),
     });
@@ -727,6 +736,8 @@ async fn run() -> anyhow::Result<()> {
     tokio::spawn(newposts::watch(state.clone()));
     #[cfg(feature = "meshcore")]
     tokio::spawn(meshcore::run(state.clone()));
+    #[cfg(feature = "mrc")]
+    tokio::spawn(mrc::run(state.clone()));
     #[cfg(feature = "ftn")]
     tokio::spawn(binkp::run(state.clone()));
     #[cfg(feature = "ftn")]
@@ -824,6 +835,8 @@ pub mod tests {
             guard: guard::Guard::new(),
             ai_usage: Default::default(),
             mesh: Default::default(),
+            #[cfg(feature = "mrc")]
+            mrc: Default::default(),
             doors_in_use: Default::default(),
             started: clock::now().naive_local(),
             config: std::sync::RwLock::new(Arc::new(config)),

@@ -44,6 +44,14 @@ on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mquit 
 off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;142mu\u001b[38;2;227;57;57mi\u001b[38;2;170;0;0mt                           \u001b[0m"
 
 [[command]]
+keys = "R"
+command = "XR"
+desc = "MRC chat"
+help = "Chat live with callers on other BBSes (Multi Relay Chat)"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41mr\u001b[0;30;41m) \u001b[0;1;37;41mmrc chat                       \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31mr\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;206;206mr\u001b[38;2;255;158;158mc \u001b[38;2;243;73;73mc\u001b[38;2;219;49;49mh\u001b[38;2;194;24;24ma\u001b[38;2;170;0;0mt                       \u001b[0m"
+
+[[command]]
 keys = "B"
 command = "XB"
 acs = "s250"

@@ -345,6 +345,8 @@ impl Session {
             "XM" => self.node_message().await?,
             "XB" => self.node_broadcast().await?,
             "XC" => self.node_chat().await?,
+            #[cfg(feature = "mrc")]
+            "XR" => self.mrc_chat().await?,
             "XI" => self.invisible(param).await?,
             "XS" => self.node_status(param),
 

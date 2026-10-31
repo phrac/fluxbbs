@@ -486,6 +486,10 @@ All in [FEATURES](FEATURES.md#qwk-offline-mail).
 - Several networks at once, each with its own hub.
 - MeshCore radio channels bridged to message areas.
   ([FEATURES](FEATURES.md#meshcore))
+- MRC (Multi Relay Chat) built in (`XR`): live chat with other BBSes'
+  callers, laid out like irssi (topic bar, timed scrolling window,
+  status bar, input line, scrollback, history, name completion), one
+  connection for the whole board. ([FEATURES](FEATURES.md#mrc-chat))
 
 ## Doors
 
