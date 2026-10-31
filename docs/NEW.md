@@ -483,6 +483,12 @@ All in [DOORS](DOORS.md).
   messages and AI chat replies. Each caller picks a code theme and a
   Markdown theme (Nord, Dracula, One Dark, Monokai, classic) and the
   code background. ([FEATURES](FEATURES.md#code-and-markdown))
+- Web pages in the viewer (`.htm`, `.html`): laid out as a text
+  browser dumps them, links numbered and listed at the end; tables in
+  columns. Anything wider than the screen (tables, `<pre>`) scrolls
+  sideways with the arrows. ([FEATURES](FEATURES.md#web-pages))
+- ZIPs from PKZIP 1.x (Shrink, Reduce, Implode) open in the browser and
+  the gallery like any other.
 - BBSLink: games on bbslink.net's server, with players from other
   boards (`DB code`, the stock BBSLINK menu). ([DOORS](DOORS.md#bbslink))
 - A log of every door played (who, which, when, how long), for the

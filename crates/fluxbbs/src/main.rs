@@ -114,6 +114,7 @@ mod weather;
 mod web;
 mod newposts;
 mod nodes;
+mod html;
 mod pager;
 #[cfg(feature = "pdf")]
 mod pdf;

@@ -52,12 +52,12 @@ pub struct Span {
 
 pub type Line = Vec<Span>;
 
-fn span(text: impl Into<String>, ink: Ink, shade: bool) -> Span {
+pub(crate) fn span(text: impl Into<String>, ink: Ink, shade: bool) -> Span {
     Span { text: text.into(), ink, shade }
 }
 
 /// Add text to a line, joining it to the last span if it looks the same.
-fn push(line: &mut Line, text: &str, ink: Ink, shade: bool) {
+pub(crate) fn push(line: &mut Line, text: &str, ink: Ink, shade: bool) {
     if text.is_empty() {
         return;
     }
@@ -739,7 +739,7 @@ fn inline_chars(text: &str, base: Ink, st: &mut Inline) -> Vec<(char, Ink, bool)
 
 /// Words of styled characters wrapped into lines `width` wide; the first
 /// line starts with `first`, later ones with `next`.
-fn wrap(chars: &[(char, Ink, bool)], width: usize, first: &Line, next: &Line) -> Vec<Line> {
+pub(crate) fn wrap(chars: &[(char, Ink, bool)], width: usize, first: &Line, next: &Line) -> Vec<Line> {
     struct W<'a> {
         lines: Vec<Line>,
         cur: Line,

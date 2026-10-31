@@ -390,6 +390,23 @@ Themes are 24-bit color, on terminals that take it (UTF-8 ones, and
 SyncTERM); others get classic, and dark gray (iCE) behind code. The same
 drawing is used for code blocks in messages and AI chat.
 
+#### Web pages
+
+`.htm` and `.html` files are laid out as a text browser would dump
+them: the title and headings with a rule under them, **bold**,
+*italic* and code in their colors, lists, quotes with a bar, `<pre>`
+kept as it is, and pictures by their alt text (`[img: logo.gif]`
+without). Links are numbered (`text[3]`) and their addresses listed
+under **Links** at the end. Tables come out in columns, their text
+wrapped to fit the screen; a table of one column (most page layouts)
+is just its contents. Scripts, styles and forms are left out, and a
+page that isn't UTF-8 is read as Windows-1252.
+
+What can't be wrapped (a `<pre>` block, a table too wide even with its
+words wrapped) is kept whole: the left and right arrows scroll the
+viewer sideways, ten columns a press, and its title shows the columns
+in view.
+
 #### The file base on screens
 
 Screens can show what's in the file base, with `%FT`...`%FV` (see

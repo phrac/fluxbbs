@@ -224,40 +224,7 @@ pub fn decode(b: &[u8]) -> String {
 }
 
 fn entities(s: &str) -> String {
-    let mut out = String::with_capacity(s.len());
-    let mut rest = s;
-    while let Some(i) = rest.find('&') {
-        out.push_str(&rest[..i]);
-        rest = &rest[i..];
-        let end = rest[1..].find(|c: char| !(c.is_ascii_alphanumeric() || c == '#')).map(|e| e + 1).unwrap_or(rest.len());
-        let name = &rest[1..end];
-        let semi = rest[end..].starts_with(';');
-        let decoded = match name {
-            "amp" => Some('&'),
-            "lt" => Some('<'),
-            "gt" => Some('>'),
-            "quot" => Some('"'),
-            "apos" => Some('\''),
-            "nbsp" => Some(' '),
-            n if n.starts_with('#') => {
-                let d = &n[1..];
-                if let Some(h) = d.strip_prefix(['x', 'X']) { u32::from_str_radix(h, 16).ok() } else { d.parse().ok() }.and_then(char::from_u32)
-            }
-            _ => None,
-        };
-        match decoded {
-            Some(c) if !name.is_empty() => {
-                out.push(c);
-                rest = &rest[end + semi as usize..];
-            }
-            _ => {
-                out.push('&');
-                rest = &rest[1..];
-            }
-        }
-    }
-    out.push_str(rest);
-    out
+    crate::html::entities(s)
 }
 
 /// HTML as lines of text: tags dropped (`<br>` and `<p>` end a line),

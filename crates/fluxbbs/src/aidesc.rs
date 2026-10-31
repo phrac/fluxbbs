@@ -58,7 +58,16 @@ fn is_hash(s: &str) -> bool {
 pub fn is_bare(f: &FileRec) -> bool {
     let words: Vec<&str> = f.description.iter().map(String::as_str).filter(|l| !is_board_line(l)).collect();
     // Joined with spaces, several lines are never a hash.
-    says_nothing(&words.join(" "), &f.name)
+    let text = words.join(" ");
+    says_nothing(&text, &f.name) || is_listing(&text)
+}
+
+/// The board's own stand-in for a ZIP without a FILE_ID.DIZ
+/// (`files::zip_contents`): "2 files: HYPERP.DOC HYPERP.EXE".
+fn is_listing(text: &str) -> bool {
+    let mut words = text.split_whitespace();
+    let (Some(n), Some(what)) = (words.next().and_then(|n| n.parse::<usize>().ok()), words.next()) else { return false };
+    matches!(what, "file:" | "files:") && words.count() <= n
 }
 
 /// Whether a line of text (a description, a SAUCE title) says nothing
@@ -358,6 +367,14 @@ mod tests {
         assert!(says_nothing("QFHHKng1ReWgb4xV8vvDYNSaBhThkOZh", "fluxgirl.ans"));
         assert!(says_nothing("", "fluxgirl.ans"));
         assert!(!says_nothing("Neon Nights", "fluxgirl.ans"));
+    }
+
+    #[test]
+    fn the_boards_own_zip_listing_is_bare() {
+        assert!(is_bare(&rec("hyperp.zip", &["2 files: HYPERP.DOC HYPERP.EXE"])));
+        assert!(is_bare(&rec("big.zip", &["139 files: A.ANS B.ANS", "C.ANS"])));
+        assert!(!is_bare(&rec("x.zip", &["2 files: a door game and its docs"])));
+        assert!(!is_bare(&rec("x.zip", &["Hyper Pascal compiler"])));
     }
 
     #[test]

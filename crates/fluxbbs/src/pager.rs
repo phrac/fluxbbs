@@ -14,6 +14,11 @@ use crate::input::Key;
 use crate::session::Session;
 
 const WIDTH: usize = 80;
+/// New: the widest a row of a web page's grid is kept (`<pre>`, tables),
+/// scrolled sideways in the viewer.
+const MAX_WIDTH: usize = 1000;
+/// Columns a left or right arrow scrolls.
+const SIDEWAYS: usize = 10;
 /// Rows a file may draw on, so a stray cursor move can't run away.
 const MAX_ROWS: usize = 10_000;
 
@@ -71,13 +76,17 @@ pub fn trimmed(mut grid: Vec<Vec<Cell>>) -> Vec<Vec<Cell>> {
     grid
 }
 
-/// New: a file by its name: Markdown drawn, source code in colors, and
+/// New: a file by its name: Markdown drawn, web pages laid out (wider
+/// than the screen where they need to be), source code in colors, and
 /// anything else as `render` draws it.
 pub fn render_named(text: &[u8], utf8: bool, name: &str, look: &crate::markup::Look) -> Vec<Vec<Cell>> {
     // CP437 for the upper half only: newlines and tabs stay what they are.
     let plain = || if utf8 { String::from_utf8_lossy(text).into_owned() } else { text.iter().map(|&b| if b < 0x80 { b as char } else { cp437::TO_UNICODE[b as usize] }).collect() };
     if crate::markup::is_markdown(name) {
         return from_lines(&crate::markup::render_markdown(&plain(), WIDTH), look);
+    }
+    if crate::html::is_html(name) {
+        return cells_of(&crate::html::render(&crate::html::decode(text), WIDTH), look, MAX_WIDTH);
     }
     // Source code with ANSI codes in it is art, not code.
     if let Some(lang) = crate::markup::lang_for_name(name).filter(|_| !text.contains(&0x1b)) {
@@ -88,6 +97,10 @@ pub fn render_named(text: &[u8], utf8: bool, name: &str, look: &crate::markup::L
 
 /// Styled lines as rows of cells (each cut at the width).
 pub fn from_lines(lines: &[crate::markup::Line], look: &crate::markup::Look) -> Vec<Vec<Cell>> {
+    cells_of(lines, look, WIDTH)
+}
+
+fn cells_of(lines: &[crate::markup::Line], look: &crate::markup::Look, width: usize) -> Vec<Vec<Cell>> {
     lines
         .iter()
         .map(|l| {
@@ -95,7 +108,7 @@ pub fn from_lines(lines: &[crate::markup::Line], look: &crate::markup::Look) -> 
             for s in l {
                 let attr = Attr { fore: s.ink.color(), back: 0, bright_back: false, shade: s.shade, rgb: look.rgb(s.ink, s.shade), rgb_back: None };
                 for ch in cp437::encode(&s.text) {
-                    if row.len() < WIDTH {
+                    if row.len() < width {
                         row.push(Cell { ch: if ch < 0x20 { b' ' } else { ch }, attr });
                     }
                 }
@@ -378,12 +391,21 @@ impl Session {
         let total = grid.len();
         let last_top = total.saturating_sub(height);
         let mut top = 0usize;
-        let mut drawn: Option<usize> = None;
+        // New: rows wider than the screen (a web page's tables and
+        // `<pre>`) scroll sideways with the left and right arrows.
+        let wide = grid.iter().map(Vec::len).max().unwrap_or(0);
+        let last_left = wide.saturating_sub(WIDTH);
+        let mut left = 0usize;
+        let mut drawn: Option<(usize, usize)> = None;
         let shade = self.look().shade;
+        let help = if help == "ViewerHelp" && last_left > 0 { "ViewerHelpWide" } else { help };
         loop {
-            if drawn != Some(top) {
+            if drawn != Some((top, left)) {
                 self.clear_screen();
-                let range = format!("{}-{} of {}", top + 1, (top + height).min(total), total);
+                let mut range = format!("{}-{} of {}", top + 1, (top + height).min(total), total);
+                if last_left > 0 {
+                    range += &format!(", cols {}-{} of {wide}", left + 1, (left + WIDTH).min(wide));
+                }
                 // One line: a long name and SAUCE title mustn't wrap.
                 // Kept to one line with the rest of it.
                 let room = 79usize.saturating_sub(22 + range.chars().count());
@@ -392,19 +414,26 @@ impl Session {
                 self.show(&s).await?;
                 for (k, line) in grid.iter().skip(top).take(height).enumerate() {
                     self.screen.goto(1, 2 + k as u16);
+                    let line = &line[left.min(line.len())..(left + WIDTH).min(line.len())];
                     self.screen.write_bytes(&row_bytes(line, &shade));
                 }
                 self.screen.goto(1, rows as u16);
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                 let help = self.strings().get(help).to_string();
                 self.show(&help).await?;
-                drawn = Some(top);
+                drawn = Some((top, left));
             }
             let key = self.read_key().await?;
             if let Some(c) = key.upper().filter(|c| extra.contains(c)) {
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                 self.clear_screen();
                 return Ok(Some(c));
+            }
+            match key {
+                Key::Left => left = left.saturating_sub(SIDEWAYS),
+                Key::Right => left = (left + SIDEWAYS).min(last_left),
+                Key::Home => left = 0,
+                _ => {}
             }
             top = match key {
                 Key::Up => top.saturating_sub(1),
