@@ -46,6 +46,14 @@ CREATE TABLE IF NOT EXISTS files (
 CREATE INDEX IF NOT EXISTS files_name ON files(name COLLATE NOCASE);
 ";
 
+/// Added since a database was made; only ever at the end.
+const STEPS: &[crate::sysdata::Step] = &[
+    // New: a line about each file area (`*F`, `fluxbbs describe --areas`),
+    // kept here rather than in fileareas.toml so it can be written while
+    // the board runs.
+    crate::sysdata::Step::Sql("CREATE TABLE IF NOT EXISTS area_info (area TEXT PRIMARY KEY COLLATE NOCASE, about TEXT NOT NULL)"),
+];
+
 fn from_row(r: &Row) -> rusqlite::Result<FileRec> {
     let desc: String = r.get("description")?;
     Ok(FileRec {
@@ -109,13 +117,13 @@ pub struct FileBase {
 impl FileBase {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let mut db = crate::sysdata::open_db(path)?;
-        crate::sysdata::migrate(&mut db, "filebase", SCHEMA, &[])?;
+        crate::sysdata::migrate(&mut db, "filebase", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
         let mut db = Connection::open_in_memory()?;
-        crate::sysdata::migrate(&mut db, "filebase", SCHEMA, &[])?;
+        crate::sysdata::migrate(&mut db, "filebase", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db) })
     }
 
@@ -303,13 +311,32 @@ impl FileBase {
     pub fn rename_area(&self, from: &str, to: &str) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("UPDATE files SET area = ?2 WHERE area = ?1", params![from, to])?;
+        db.execute("UPDATE area_info SET area = ?2 WHERE area = ?1", params![from, to])?;
         Ok(())
     }
 
     /// Forget every file record in an area.
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.execute("DELETE FROM area_info WHERE area = ?1", [area])?;
         Ok(db.execute("DELETE FROM files WHERE area = ?1", [area])? as u32)
+    }
+
+    /// New: the line about an area, empty if it has none.
+    pub fn area_about(&self, area: &str) -> anyhow::Result<String> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row("SELECT about FROM area_info WHERE area = ?1", [area], |r| r.get(0)).optional()?.unwrap_or_default())
+    }
+
+    /// New: set the line about an area; empty takes it away.
+    pub fn set_area_about(&self, area: &str, about: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        if about.trim().is_empty() {
+            db.execute("DELETE FROM area_info WHERE area = ?1", [area])?;
+        } else {
+            db.execute("INSERT OR REPLACE INTO area_info (area, about) VALUES (?1, ?2)", params![area, about.trim()])?;
+        }
+        Ok(())
     }
 
     /// `fsSortFileArea`: renumber an area's files in the given order.
@@ -466,6 +493,21 @@ mod tests {
 
     fn names(fb: &FileBase, area: &str) -> Vec<String> {
         fb.list(area).unwrap().into_iter().map(|f| format!("{}:{}", f.num, f.name)).collect()
+    }
+
+    #[test]
+    fn areas_have_a_line_about_them() {
+        let fb = FileBase::open_memory().unwrap();
+        assert_eq!(fb.area_about("UTILS").unwrap(), "");
+        fb.set_area_about("UTILS", " DOS utilities ").unwrap();
+        assert_eq!(fb.area_about("utils").unwrap(), "DOS utilities");
+        fb.rename_area("UTILS", "TOOLS").unwrap();
+        assert_eq!(fb.area_about("TOOLS").unwrap(), "DOS utilities");
+        fb.set_area_about("TOOLS", "").unwrap();
+        assert_eq!(fb.area_about("TOOLS").unwrap(), "");
+        fb.set_area_about("TOOLS", "x").unwrap();
+        fb.delete_area("TOOLS").unwrap();
+        assert_eq!(fb.area_about("TOOLS").unwrap(), "");
     }
 
     #[test]

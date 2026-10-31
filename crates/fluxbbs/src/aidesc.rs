@@ -300,6 +300,110 @@ pub async fn describe(state: &BbsState, f: &FileRec) -> anyhow::Result<String> {
     Ok(d)
 }
 
+#[cfg(feature = "ai")]
+const SYSTEM_AREA: &str = "You write the one-line descriptions of file areas on a bulletin board system: shown beside the area's name in a list, \
+saying what's in it. You're told the area's name, where it sits, its sub-areas and some of its files. \
+Answer with only the description: 4 to 9 words, under 50 characters. No quotes, no closing period, \
+and don't just repeat the area's name. If little is known, say plainly what kind of files it holds.";
+
+/// What the board can tell the AI about file area `num`: where it sits,
+/// its sub-areas (with their lines, done first), and a spread of its
+/// files, the described ones first. None if there's nothing to go on.
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
+pub fn area_evidence(state: &BbsState, num: u32) -> anyhow::Result<Option<String>> {
+    let fa = state.fareas();
+    let Some(area) = fa.get(num) else { return Ok(None) };
+    let name = |n: u32| fa.get(n).map(|a| crate::editor::strip_colours(&a.name)).unwrap_or_default();
+    let mut out = vec![format!("File area: {}", name(num))];
+    let above: Vec<String> = fa.lineage(num).into_iter().skip(1).map(name).collect();
+    if !above.is_empty() {
+        out.push(format!("Inside: {}", above.join(", inside ")));
+    }
+    let subs = fa.children(Some(num));
+    if !subs.is_empty() {
+        out.push(format!("Its {} sub-areas:", subs.len()));
+        for &n in subs.iter().take(30) {
+            let about = fa.get(n).map(|a| state.files.area_about(&a.file)).transpose()?.unwrap_or_default();
+            out.push(if about.is_empty() { format!("- {}", name(n)) } else { format!("- {}: {about}", name(n)) });
+        }
+    }
+    let files = state.files.list(&area.file)?;
+    if files.is_empty() && subs.is_empty() {
+        return Ok(None);
+    }
+    out.push(format!("{} files in it{}", files.len(), if files.is_empty() { "" } else { ", among them:" }));
+    let (told, bare): (Vec<&FileRec>, Vec<&FileRec>) = files.iter().partition(|f| !is_bare(f));
+    // An even spread through the area, not just its first files.
+    let spread = |v: &[&FileRec], n: usize| -> Vec<String> {
+        let step = (v.len() / n.max(1)).max(1);
+        v.iter().step_by(step).take(n).map(|f| if is_bare(f) { format!("- {}", f.name) } else { format!("- {}: {}", f.name, crate::web::blurb(&f.description)) }).collect()
+    };
+    let told = spread(&told, 30);
+    let room = 40 - told.len();
+    out.extend(told);
+    out.extend(spread(&bare, room));
+    Ok(Some(out.join("\n")))
+}
+
+/// Ask the AI for a line about file area `num`.
+#[cfg(feature = "ai")]
+pub async fn describe_area(state: &BbsState, num: u32) -> anyhow::Result<String> {
+    let cfg = state.config();
+    anyhow::ensure!(cfg.ai.enabled, "the AI is switched off");
+    let Some(facts) = area_evidence(state, num)? else { anyhow::bail!("nothing in it to go on") };
+    let d = tidy(&crate::aimemory::complete(&cfg.ai, SYSTEM_AREA, &facts).await?);
+    anyhow::ensure!(!d.is_empty(), "the AI said nothing");
+    Ok(d)
+}
+
+/// `fluxbbs describe --areas`: a line for each file area without one,
+/// the deepest first, so an area above can go by what's under it.
+async fn describe_areas(state: &BbsState, only: Option<&str>, limit: usize, dry: bool, try_only: bool) -> anyhow::Result<()> {
+    let fa = state.fareas();
+    let mut todo: Vec<(u32, usize)> = fa.tree();
+    if let Some(o) = only {
+        let n = fa.areas.iter().position(|a| a.file.eq_ignore_ascii_case(o)).ok_or_else(|| anyhow::anyhow!("no file area {o}"))? as u32 + 1;
+        let under = fa.subtree(n);
+        todo.retain(|(m, _)| under.contains(m));
+    }
+    let mut left = Vec::new();
+    for (n, depth) in todo {
+        let Some(a) = fa.get(n) else { continue };
+        if state.files.area_about(&a.file)?.is_empty() {
+            left.push((n, depth));
+        }
+    }
+    left.sort_by_key(|&(_, d)| std::cmp::Reverse(d));
+    println!("{} file areas without a line about them", left.len());
+    let total = left.len().min(limit);
+    for (i, (n, _)) in left.into_iter().take(limit).enumerate() {
+        let Some(a) = fa.get(n) else { continue };
+        let label = crate::editor::strip_colours(&a.name);
+        // New: how far along a long run is.
+        let at = progress(i, total);
+        if dry {
+            println!("{at}{}: {label}", a.file);
+            continue;
+        }
+        #[cfg(feature = "ai")]
+        match describe_area(state, n).await {
+            Ok(d) => {
+                println!("{at}{} ({label}): {d}", a.file);
+                if !try_only {
+                    state.files.set_area_about(&a.file, &d)?;
+                }
+            }
+            Err(e) => println!("{at}{} ({label}): not described ({e:#})", a.file),
+        }
+        #[cfg(not(feature = "ai"))]
+        {
+            let _ = try_only;
+            anyhow::bail!("the AI isn't built into this board (build with --features ai; docs/BUILDING.md)");
+        }
+    }
+    Ok(())
+}
+
 /// `describe` as a boxed future that owns what it needs: the file
 /// editor's future is deep already, and the web client's would overflow
 /// the compiler's checks inside it.
@@ -340,8 +444,15 @@ pub fn spawn(state: Arc<BbsState>, area: String, num: u32) {
 /// `fluxbbs describe [--dry-run | --try] [--limit N] [--area AREA] [config]`: describe
 /// the files already on the board whose descriptions are bare. `--dry-run`
 /// lists them; `--try` asks the AI and shows what it says, saving nothing.
+/// `[#12/250] `: item `i` (from 0) of `total`, padded so the lines
+/// after it line up.
+fn progress(i: usize, total: usize) -> String {
+    let w = total.to_string().len();
+    format!("[#{:>w$}/{total}] ", i + 1)
+}
+
 pub async fn from_args(args: &[String]) -> anyhow::Result<()> {
-    let (mut dry, mut try_only) = (false, false);
+    let (mut dry, mut try_only, mut areas) = (false, false, false);
     let mut limit = usize::MAX;
     let mut only: Option<String> = None;
     let mut config = crate::config::default_path();
@@ -350,32 +461,39 @@ pub async fn from_args(args: &[String]) -> anyhow::Result<()> {
         match a.as_str() {
             "--dry-run" => dry = true,
             "--try" => try_only = true,
+            "--areas" => areas = true,
             "--limit" => limit = it.next().and_then(|n| n.parse().ok()).ok_or_else(|| anyhow::anyhow!("--limit takes a number"))?,
             "--area" => only = Some(it.next().cloned().ok_or_else(|| anyhow::anyhow!("--area takes an area's file name"))?),
             other => config = other.into(),
         }
     }
     let state = crate::load_state(&config)?;
+    if areas {
+        return describe_areas(&state, only.as_deref(), limit, dry, try_only).await;
+    }
     let mut bare = Vec::new();
     for area in state.fareas().areas.iter().filter(|a| only.as_ref().is_none_or(|o| a.file.eq_ignore_ascii_case(o))) {
         bare.extend(state.files.list(&area.file)?.into_iter().filter(is_bare));
     }
     println!("{} files with bare descriptions", bare.len());
-    for f in bare.into_iter().take(limit) {
+    let total = bare.len().min(limit);
+    for (i, f) in bare.into_iter().take(limit).enumerate() {
+        // New: how far along a long run is.
+        let at = progress(i, total);
         if dry {
-            println!("{}/{}: {:?}", f.area, f.name, f.description.join(" "));
+            println!("{at}{}/{}: {:?}", f.area, f.name, f.description.join(" "));
             continue;
         }
         #[cfg(feature = "ai")]
         match describe(&state, &f).await {
-            Ok(d) if try_only => println!("{}/{}: {d}", f.area, f.name),
+            Ok(d) if try_only => println!("{at}{}/{}: {d}", f.area, f.name),
             Ok(d) => {
-                println!("{}/{}: {d}", f.area, f.name);
+                println!("{at}{}/{}: {d}", f.area, f.name);
                 let mut f = f;
                 f.description = with_summary(&f, d);
                 state.files.update(&f)?;
             }
-            Err(e) => println!("{}/{}: not described ({e:#})", f.area, f.name),
+            Err(e) => println!("{at}{}/{}: not described ({e:#})", f.area, f.name),
         }
         #[cfg(not(feature = "ai"))]
         {
@@ -461,6 +579,12 @@ mod tests {
         assert!(says_nothing("QFHHKng1ReWgb4xV8vvDYNSaBhThkOZh", "fluxgirl.ans"));
         assert!(says_nothing("", "fluxgirl.ans"));
         assert!(!says_nothing("Neon Nights", "fluxgirl.ans"));
+    }
+
+    #[test]
+    fn progress_counts_from_one_and_lines_up() {
+        assert_eq!(progress(0, 250), "[#  1/250] ");
+        assert_eq!(progress(249, 250), "[#250/250] ");
     }
 
     #[test]

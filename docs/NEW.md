@@ -274,6 +274,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - RAR, 7Z and LHA through bsdtar or 7-Zip; ZIP read natively.
 - `fluxbbs add-files` adds files copied into every area from the shell;
   a ZIP without a FILE_ID.DIZ is described by what's in it.
+- File areas have a line about what's in them (`*F`, About), shown in
+  the file browser; `fluxbbs describe --areas` has the AI write them.
+  ([FILES](FILES.md))
 - Files moved or renamed by hand keep their records: packing (`*K`,
   `pack-files`, the event) and `add-files` pair a missing file's record
   with the file where it went, by size and name, instead of forgetting

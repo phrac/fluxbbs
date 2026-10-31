@@ -934,8 +934,10 @@ impl Session {
                         }
                 }
                 let count = if count == 1 { "1 file".to_string() } else { format!("{count} files") };
-                let newest = newest.map(|d| format!("newest {}", d.format("%Y-%m-%d"))).unwrap_or_else(|| "empty".into());
-                (format!("{name}/"), count, newest, String::new())
+                // New: the line about the area (`*F`), else its newest file's date.
+                let about = fa.get(*c).and_then(|a| self.state.files.area_about(&a.file).ok()).unwrap_or_default();
+                let what = if about.is_empty() { newest.map(|d| format!("newest {}", d.format("%Y-%m-%d"))).unwrap_or_else(|| "empty".into()) } else { about };
+                (format!("{name}/"), count, what, String::new())
             }
             Item::Folder { name, pack, rec, .. } => {
                 let what = match rec {

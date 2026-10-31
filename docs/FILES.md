@@ -127,10 +127,20 @@ original.
 - `K` in the file editor asks the AI for this file's description; `L`
   for every file in the area that has none worth the name (any key
   stops it).
-- `fluxbbs describe [--dry-run | --try] [--limit N] [config]` does the
-  files already on the board: `--dry-run` lists them, `--try` shows
-  what the AI would say without saving. In the container, run it with
+- `fluxbbs describe [--dry-run | --try] [--limit N] [--area KEY] [config]`
+  does the files already on the board: `--dry-run` lists them, `--try`
+  shows what the AI would say without saving, `--area` does one area.
+  In the container, run it with
   `docker exec fluxbbs fluxbbs describe ... /srv/board/iniquity.toml`.
+- Each file area can have a line about what's in it (`L`, About, in
+  `*F`), shown beside it in the file browser in place of its newest
+  file's date. `fluxbbs describe --areas` has the AI write one for each
+  area without: it's told where the area sits, its sub-areas and a
+  spread of its files' names and descriptions, and does the deepest
+  areas first, so an area above goes by what's under it (`--area KEY`
+  does that area and everything under it). The lines are kept in the
+  database, not `fileareas.toml`, so they're written while the board
+  runs and show at once.
 - In the file browser (`L`), resting the bar on a file for a moment pops
   up its whole description; any key takes it away.
 

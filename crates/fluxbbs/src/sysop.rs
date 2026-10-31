@@ -937,6 +937,10 @@ impl Session {
             f.item('I', "Sort method", 20, a.sort.label(), "How *S sorts this file area.");
             f.item('J', "Sort direction", 20, directions[a.sort_descending as usize], "Direction to sort files.");
             f.item('K', "Sub-area of", 8, &a.parent, "The area this is listed under: pick it from the list, or the top level.");
+            // New: a line about what's in it, for the file browser; kept
+            // in the file base, so it's saved at once.
+            let about = self.state.files.area_about(&a.file).map_err(io_err)?;
+            f.item('L', "About", 40, &about, "A line about what's in the area, shown beside it in the file browser (blank: its newest file's date).");
             f.label("Files", 6, files.to_string());
             f.item('[', "Previous area", 0, "", "");
             f.item(']', "Next area", 0, "", "");
@@ -1017,6 +1021,11 @@ impl Session {
                         }
                         f.set(key, &a.parent);
                         self.cfg_draw(&f);
+                    }
+                    'L' => {
+                        if let Some(v) = self.cfg_text(&mut f, key, Field::TEXT.max(crate::aidesc::MAX_CHARS)).await? {
+                            self.state.files.set_area_about(&a.file, &v).map_err(io_err)?;
+                        }
                     }
                     '[' => break -1,
                     ']' => break 1,
