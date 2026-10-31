@@ -173,6 +173,17 @@ async fn run_command(state: &Arc<BbsState>, cmd: &str) -> anyhow::Result<()> {
         dos if dos.starts_with("dos ") => crate::doors::run_dos_event(state, dos[4..].trim()).await,
         #[cfg(not(feature = "doors"))]
         dos if dos.starts_with("dos ") => anyhow::bail!("event {dos:?}: DOS doors aren't built into this board"),
+        // New: uploads the AI couldn't describe when they came (it was
+        // down), described now: the last week's, `N` a night (50).
+        d if d == "describe" || d.starts_with("describe ") => {
+            let limit = match d.split_whitespace().nth(1) {
+                Some(n) => n.parse().with_context(|| format!("event {d:?}: describe takes a number of files"))?,
+                None => crate::aidesc::RECENT_LIMIT,
+            };
+            let n = crate::aidesc::describe_recent(state, limit).await?;
+            tracing::info!("event: described {n} upload(s)");
+            Ok(())
+        }
         b if b == "backup" || b.starts_with("backup ") => {
             let (days, dir) = crate::backup::parse(&b.split_whitespace().skip(1).collect::<Vec<_>>())?;
             // The snapshot and the archive are file work: off the async threads.

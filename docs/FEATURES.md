@@ -688,6 +688,7 @@ An event's command goes to the shell, or is one of the built-in jobs:
 | `pack-messages` | removes callers' boards never posted in (`board_empty_days`); deleted messages go from the trash by themselves ([The trash](#the-trash)) |
 | `pack-files` | packs the file areas |
 | `backup [DAYS] [DIR]` | backs up the database and settings, keeping DAYS days (new; [SYSOP](SYSOP.md#backups)) |
+| `describe [N]` | has the AI describe the last week's uploads still without a description (the AI was down when they came), N a night (50) (new) |
 | `dos COMMAND` | runs a DOS program or batch file in the built-in machine, for a door's maintenance |
 
 Options:

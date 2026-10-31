@@ -347,6 +347,14 @@ impl FileBase {
         Ok(db.query_row("SELECT * FROM files WHERE area = ?1 AND num = ?2", params![area, num], from_row).optional()?)
     }
 
+    /// New: the files uploaded since `since`, newest first.
+    pub fn uploaded_since(&self, since: NaiveDate) -> anyhow::Result<Vec<FileRec>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT * FROM files WHERE uploaded >= ?1 ORDER BY uploaded DESC, id DESC")?;
+        let rows = stmt.query_map([since], from_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// A file by name in an area (exact, case-insensitive).
     pub fn find(&self, area: &str, name: &str) -> anyhow::Result<Option<FileRec>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
@@ -636,6 +644,19 @@ mod tests {
 
     fn names(fb: &FileBase, area: &str) -> Vec<String> {
         fb.list(area).unwrap().into_iter().map(|f| format!("{}:{}", f.num, f.name)).collect()
+    }
+
+    #[test]
+    fn recent_uploads_newest_first() {
+        let fb = FileBase::open_memory().unwrap();
+        let day = |d: u32| NaiveDate::from_ymd_opt(2026, 10, d);
+        for (name, d) in [("OLD.ZIP", 1), ("NEW.ZIP", 30), ("MID.ZIP", 25)] {
+            let mut f = rec("UTILS", name);
+            f.uploaded = day(d);
+            fb.add(&mut f).unwrap();
+        }
+        let got: Vec<String> = fb.uploaded_since(day(24).unwrap()).unwrap().into_iter().map(|f| f.name).collect();
+        assert_eq!(got, ["NEW.ZIP", "MID.ZIP"]);
     }
 
     #[test]

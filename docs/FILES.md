@@ -147,6 +147,10 @@ original.
   `fluxbbs add-files`/`pack-files` there and then, with progress
   (`--no-describe` skips it; `^C` stops it, and `fluxbbs describe`
   finishes later).
+- An upload the AI couldn't describe when it came (it was down, say)
+  is caught by a `describe` event: each night it describes the last
+  week's uploads still without a description, 50 at most (`describe
+  N` for another number).
 - `K` in the file editor asks the AI for this file's description; `L`
   for every file in the area that has none worth the name (any key
   stops it).

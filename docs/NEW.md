@@ -248,7 +248,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   on it for a moment, in a box that stays within the list: for callers who
   turn on "file popups" in user configuration (off to start).
 - Blind uploads aren't asked for a description when the AI will write
-  one.
+  one; a nightly `describe` event catches those it couldn't (it was
+  down).
 - Files uploaded with no description, or only their name, are described by
   the board's AI in the background (`aidesc.rs`), which looks at pictures,
   ANSI art (drawn by `ansishot.rs`), a PDF's first page, and inside ZIPs

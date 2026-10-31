@@ -503,6 +503,45 @@ pub async fn describe_added(config: &Path, added: &[(String, String)]) -> anyhow
     Ok(())
 }
 
+/// Days back the nightly `describe` event looks, and how many files it
+/// describes a night unless told.
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
+pub const RECENT_DAYS: i64 = 7;
+pub const RECENT_LIMIT: usize = 50;
+
+/// New: the `describe [N]` event: files uploaded in the last week whose
+/// descriptions are still bare (the AI was down when they came, say), at
+/// most `limit`, newest first. Returns how many were described.
+pub async fn describe_recent(state: &BbsState, limit: usize) -> anyhow::Result<usize> {
+    #[cfg(not(feature = "ai"))]
+    {
+        let _ = (state, limit);
+        anyhow::bail!("the AI isn't built into this board");
+    }
+    #[cfg(feature = "ai")]
+    {
+        anyhow::ensure!(state.config().ai.enabled, "the AI is switched off");
+        let since = crate::clock::now().date_naive() - chrono::Duration::days(RECENT_DAYS);
+        let bare: Vec<FileRec> = state.files.uploaded_since(since)?.into_iter().filter(is_bare).take(limit).collect();
+        let mut done = 0;
+        for f in bare {
+            let _turn = ONE_AT_A_TIME.acquire().await;
+            // An upload since described, or changed by hand, is left.
+            let Some(mut f) = state.files.find(&f.area, &f.name)?.filter(is_bare) else { continue };
+            match describe(state, &f).await {
+                Ok(d) => {
+                    tracing::info!("ai: described {} as {d:?}", f.name);
+                    f.description = with_summary(&f, d);
+                    state.files.update(&f)?;
+                    done += 1;
+                }
+                Err(e) => tracing::warn!("ai: couldn't describe {}: {e:#}", f.name),
+            }
+        }
+        Ok(done)
+    }
+}
+
 async fn describe_these(state: &BbsState, bare: Vec<FileRec>, dry: bool, try_only: bool) -> anyhow::Result<()> {
     let total = bare.len();
     for (i, f) in bare.into_iter().enumerate() {
@@ -550,6 +589,12 @@ mod tests {
             valid: true,
             description: desc.iter().map(|s| s.to_string()).collect(),
         }
+    }
+
+    #[tokio::test]
+    async fn the_nightly_job_needs_the_ai_on() {
+        let state = crate::tests::state();
+        assert!(describe_recent(&state, 10).await.is_err());
     }
 
     #[test]
