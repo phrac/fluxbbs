@@ -547,6 +547,28 @@ async fn ftn_command(args: &[String]) -> anyhow::Result<()> {
     }
 }
 
+/// New: a board with no users gets its SysOp, user #1, as Iniquity's
+/// installer made it: `[bbs] sysop_alias` (SysOp) with password SYSOP,
+/// which the password rules have changed at the first login.
+fn first_sysop(config: &Config, users: &UserStore) -> anyhow::Result<()> {
+    let handle = if config.bbs.sysop_alias.trim().is_empty() { "SysOp".to_string() } else { config.bbs.sysop_alias.trim().to_string() };
+    let level = config.levels.keys().filter_map(|k| k.chars().next()).max().unwrap_or('A');
+    let mut u = user::User {
+        handle: handle.clone(),
+        real_name: "System Operator".into(),
+        sl: 255,
+        dsl: 255,
+        level,
+        palette: config.colors.clone(),
+        file_points: 64000,
+        ..Default::default()
+    };
+    u.set_password("SYSOP");
+    users.insert(&mut u)?;
+    tracing::warn!("no users yet: made the SysOp account, {handle} / SYSOP; log in and change the password");
+    Ok(())
+}
+
 /// Load a board: its config, strings, databases and areas.
 fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     let config = Config::load(path)?;
@@ -554,6 +576,9 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     let db = config.db_path();
     let users = UserStore::open(&db).with_context(|| format!("user database {}", db.display()))?;
     tracing::info!("{} users in {}", users.count()?, db.display());
+    if users.count()? == 0 {
+        first_sysop(&config, &users)?;
+    }
     let areas = MsgAreas::load(&config.resolve(&config.paths.msgareas))?;
     let msgs = MsgBase::open(&db)?;
     // Deleted email goes for good now; what earlier versions kept goes here.

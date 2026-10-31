@@ -68,6 +68,9 @@ differently on purpose. Each line links to the doc with the details.
   `pack-files`, `textfiles`, `ftn`, `--wfc`.
 - A Docker image and compose file.
   ([SYSOP](SYSOP.md#running-in-a-container))
+- A board with no users makes its SysOp on first start (`SysOp` /
+  `SYSOP`, the password changed at the first login), where Iniquity's
+  installer did.
 
 ## Keeping bots out
 

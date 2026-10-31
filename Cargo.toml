@@ -4,7 +4,7 @@ members = ["crates/*"]
 
 [workspace.package]
 edition = "2024"
-license = "MIT OR Apache-2.0"
+license = "MIT"
 
 # Decoding pictures is painfully slow unoptimised; tests decode GIFs.
 [profile.dev.package.image]

@@ -16,10 +16,12 @@ purpose): add a line there for every feature the original didn't have.
     git clone git@github.com:phrac/fluxbbs.git && cd fluxbbs
     tools/setup_host.sh
 
-That unpacks the stock install into `original/stock/` (git-ignored), builds,
-and, if there's no `data/fluxbbs.db` (or older `iniquity.db`), creates one from the stock install
-(SysOp / `SYSOP`, system password `SYSTEM`) without touching the committed
-config. SSH host keys are made in `data/` on first run. Showing PDFs
+That builds, and unpacks the stock install into `original/stock/` if
+`original/inqa26r5.zip` is there. Iniquity's release and source aren't in
+git since the repo went public (1 Nov 2026; copyrighted): copy `original/`
+across from rzn (`/opt/fluxbbs/src/original`) for the source and the
+legacy tests. A board with no users makes its SysOp on first start
+(`SysOp` / `SYSOP`, made to change it; system password `SYSTEM`). SSH host keys are made in `data/` on first run. Showing PDFs
 needs Poppler (`poppler-utils`; in the Docker image, not on rzn itself,
 so test PDFs in a container). Needs `cargo` and
 `unzip`; live tests also want `python3` and `ssh`, and Zmodem tests `sz`/`rz`
@@ -28,9 +30,10 @@ git: copy `data/` and `files/` across if the board should move with you.
 
 ## Where things are
 
-- `original/source/`: the Turbo Pascal source (`.PAS`, CP437). Port from
-  it, not from memory: read the unit before porting a feature.
-- `original/inqa26r5.zip`: the 1.00a26r5 release; `original/stock/` is the
+- `original/source/` (local only, not in git): the Turbo Pascal source
+  (`.PAS`, CP437). Port from it, not from memory: read the unit before
+  porting a feature.
+- `original/inqa26r5.zip` (local only): the 1.00a26r5 release; `original/stock/` is the
   stock install unpacked from it (by `tools/setup_host.sh`), used by the
   legacy tests (`cargo test` uses it when present) and as an
   import source.
@@ -215,8 +218,8 @@ in `*E`/`*F`/`*C` writes its copy back over yours. Screens in its `text/`
 are read on each display and need neither. The board directory was copied from
 ryzen (every file hash-checked); the ryzen board still runs and is now a
 separate copy, so don't develop or post there. `cargo` on rzn is in
-`~/.cargo/bin`; `original/inqa26r5.zip` is in git, so `tools/setup_host.sh`
-works there (once the stock install is unpacked; see below).
+`~/.cargo/bin`; rzn's checkout has `original/` (release, source, stock)
+locally.
 
 Fixed 18 Oct: AI chat (the image now has CA certificates, and a client
 that can't be built says `AiUnavailable` instead of dropping the caller;

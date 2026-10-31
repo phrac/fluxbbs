@@ -1,16 +1,17 @@
 #!/usr/bin/env bash
-# Get a fresh clone ready: unpack the stock Iniquity install for the tests,
-# give the board a starting database if it has none, and build.
+# Get a fresh clone ready: build, and unpack the stock Iniquity install for
+# the legacy tests if you have its release (original/inqa26r5.zip; it isn't
+# in git). The board makes its SysOp (SysOp / SYSOP) on its first start.
 #
 #   tools/setup_host.sh            # from the repo root
 #
-# Needs: cargo, unzip. Safe to run again; it never touches an existing
-# data/fluxbbs.db (or a pre-rename iniquity.db) or the *.toml configuration.
+# Needs: cargo (and unzip for the release). Safe to run again; it never
+# touches data/ or the *.toml configuration.
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 stock=original/stock
-if [ ! -f "$stock/INIQUITY.DAT" ]; then
+if [ ! -f "$stock/INIQUITY.DAT" ] && [ -f original/inqa26r5.zip ]; then
     echo "unpacking the stock install into $stock"
     tmp=$(mktemp -d)
     trap 'rm -rf "$tmp"' EXIT
@@ -26,20 +27,8 @@ FEATURES=${FEATURES-full}
 echo "building${FEATURES:+ with $FEATURES}"
 cargo build --release ${FEATURES:+--features "$FEATURES"}
 
-if [ ! -f data/fluxbbs.db ] && [ ! -f data/iniquity.db ]; then
-    # Import the stock install somewhere else and keep only its database
-    # (users, including SysOp, statistics, the BBS list), so the committed
-    # configuration stays as it is.
-    echo "creating data/fluxbbs.db from the stock install"
-    tmp_import=$(mktemp -d)
-    ./target/release/fluxbbs import "$stock" "$tmp_import" > /dev/null
-    mkdir -p data
-    cp "$tmp_import/data/fluxbbs.db" data/fluxbbs.db
-    rm -rf "$tmp_import"
-fi
-
 echo
 echo "ready:"
 echo "  ./target/release/fluxbbs                       # SSH :2222, telnet :2323"
-echo "  cargo test --features full                       # includes the legacy readers"
+echo "  cargo test --features full                       # the legacy readers too, with original/stock"
 echo "  log in as SysOp / SYSOP (system password SYSTEM); change both before going public"

@@ -51,16 +51,18 @@ slash can't go there.
 
 ## Quick start
 
-You need `cargo` and `unzip`. Showing PDFs also needs Poppler
-(`poppler-utils`), and Python scripts `python3`.
+You need `cargo`. Showing PDFs also needs Poppler (`poppler-utils`), and
+Python scripts `python3`.
 
-    tools/setup_host.sh                      # first time: stock data, build
+    tools/setup_host.sh                      # first time: build
     cargo run --release --features full      # serves fluxbbs.toml
     ssh -p 2222 anyname@localhost            # UTF-8 terminal
     syncterm ssh://anyname@localhost:2222    # CP437 BBS terminal
     syncterm telnet://localhost:2323         # plain telnet
 
-- Log in as `SysOp` / `SYSOP`, with system password `SYSTEM`. Change both.
+- A new board makes its SysOp on first start: log in as `SysOp` /
+  `SYSOP` (you'll be asked for a new password), with system password
+  `SYSTEM` (change it in `*C`).
 - New callers pick "apply as new", or type `new` at the login prompt.
 - `--wfc` adds the waiting-for-caller screen on the console.
 - The database is `data/fluxbbs.db` and uploads live in `files/`.
@@ -223,9 +225,14 @@ over Iniquity: [docs/NEW.md](docs/NEW.md).
 setup, MicroDOS, the local status bar, and the Oblivion/Renegade
 converters.
 
+## License
+
+flux/bbs is under the [MIT License](LICENSE).
+
 ## Credits
 
 Iniquity BBS © 1995–97 Mike Fricker and the Iniquity Development Team.
-flux/bbs began as a port of it and reimplements its behavior in Rust.
+flux/bbs began as a port of it and reimplements its behavior in Rust;
+Iniquity's own release and source aren't part of this repository.
 The stock prompts are Iniquity's, as are the classic screens and menus
 (`classic/`); the stock screens and menus are disflux's.

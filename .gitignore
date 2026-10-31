@@ -3,7 +3,11 @@ data/
 files/
 __pycache__/
 *.raw
+# Iniquity itself (the release and its source) is copyrighted: kept
+# locally for reference and the legacy tests, never committed.
 original/stock/
+original/inqa26r5.zip
+original/source/
 doors/
 tools/proto.log
 backups/

@@ -36,8 +36,8 @@ All under `crates/fluxbbs/src/`.
 |---|---|
 | `menus/`, `text/`, `themes/`, `*.toml` | the stock r5 setup, imported |
 | `crates/fluxbbs/assets/strings.toml` | the stock prompt strings, built in |
-| `original/` | the original Turbo Pascal source and the 1.00a26r5 release, for reference (© the Iniquity authors) |
-| `original/stock/` | the stock install, unpacked from the release by `tools/setup_host.sh` |
+| `original/` | not in git (© the Iniquity authors): put the 1.00a26r5 release (`inqa26r5.zip`) and the Turbo Pascal source (`source/`) here if you have them, for reference |
+| `original/stock/` | the stock install, unpacked from the release by `tools/setup_host.sh` when it's there |
 | [ARTWORK.md](ARTWORK.md) | checklist of screens to replace with custom art |
 
 ## Tools
@@ -94,8 +94,8 @@ them after.
 
 ## Conventions
 
-- Port from the Turbo Pascal source in `original/source/`, not from
-  memory. Read the unit before porting a feature. The files are CP437
+- Port from the Turbo Pascal source in `original/source/` (not in git;
+  see above), not from memory. Read the unit before porting a feature. The files are CP437
   with CRLF: `iconv -f cp437 -t utf-8 FILE.PAS | tr -d '\r'`.
 - Follow the original's behavior and names (`cfgEditFileArea`, strings
   by their `str*` names). Modernize where DOS-era design doesn't fit.
