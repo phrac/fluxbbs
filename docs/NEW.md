@@ -245,7 +245,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - The gallery and the file browser show a file's info on I and edit it
   on E (co-SysOp and up), as the file lister does.
 - The file browser pops up a file's whole description when the bar rests
-  on it for a moment, in a box that stays within the list.
+  on it for a moment, in a box that stays within the list: for callers who
+  turn on "file popups" in user configuration (off to start).
 - Files uploaded with no description, or only their name, are described by
   the board's AI in the background (`aidesc.rs`), which looks at pictures,
   ANSI art (drawn by `ansishot.rs`) and a PDF's first page; `fluxbbs describe`

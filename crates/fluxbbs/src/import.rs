@@ -745,6 +745,7 @@ fn convert_user(l: &LegacyUser) -> User {
         show_real_name: false,
         ai_profile: String::new(),
         ai_memory: false,
+        file_popups: false,
         text_mode: String::new(),
         code_bg: String::new(),
         code_theme: String::new(),

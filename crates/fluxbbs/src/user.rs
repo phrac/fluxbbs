@@ -99,6 +99,9 @@ pub struct User {
     /// New: whether they've asked the board to keep that memory; off
     /// until they turn it on (`Q` in user config).
     pub ai_memory: bool,
+    /// New: a file's whole description popping up in the file browser
+    /// when the bar rests on it; off until they turn it on.
+    pub file_popups: bool,
     /// New: `plain` for plain text (no ANSI), `ansi`, or blank: plain for
     /// bots (flag B).
     pub text_mode: String,
@@ -208,6 +211,7 @@ impl Default for User {
             show_real_name: false,
             ai_profile: String::new(),
             ai_memory: false,
+            file_popups: false,
             text_mode: String::new(),
             code_bg: String::new(),
             code_theme: String::new(),
@@ -323,6 +327,7 @@ impl User {
                 show_real_name,
                 ai_profile,
                 ai_memory,
+                file_popups,
                 text_mode,
                 code_bg,
                 code_theme,
@@ -419,6 +424,7 @@ impl User {
                 show_real_name,
                 ai_profile,
                 ai_memory,
+                file_popups,
                 text_mode,
                 code_bg,
                 code_theme,

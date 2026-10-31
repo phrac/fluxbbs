@@ -35,7 +35,7 @@ def fade(n,rev):
 BOXES=[('about you',47,12,[('l','location','~DL'),('a','address','~EA'),('u','usernote','~FU'),('n','phone','~BN'),
                         ('z','zip code','~OZ'),('p','profile','~QP'),('k','ssh keys','~PK'),('t','theme','~NT'),(None,'by','~*A'),('r','code theme','~UR'),('m','md theme','~VM'),('i','editor keys','~ZI')]),
        ('settings',30,12,[('s','screen len','~GS'),('e','emulation','~ME'),('q','autoquote','~LQ'),('y','yes/no bars','~HY'),
-                       ('x','expert mode','~IX'),('h','hot keys','~JH'),('w','pausing','~KW'),('c','time zone','~RC'),('b','text mode','~SB'),('g','code bg','~TG'),('v','animations','~WV'),('d','screensaver','~XD')])]
+                       ('x','expert mode','~IX'),('h','hot keys','~JH'),('w','pausing','~KW'),('c','time zone','~RC'),('b','text mode','~SB'),('g','code bg','~TG'),('v','animations','~WV'),('d','screensaver','~XD'),('f','file popups','~1F')])]
 H=max(len(b[3]) for b in BOXES)
 def top(t,w):
     head=BR+'─'+DG+'[ '+fade_text(t)+' '+DG+']'

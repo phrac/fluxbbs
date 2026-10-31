@@ -754,9 +754,10 @@ impl Session {
             };
             self.lister_info(&l, &info).await?;
             self.lister_park(&l);
-            // New: a file's whole description pops up once the bar rests on it.
+            // New: a file's whole description pops up once the bar rests on
+            // it, for callers who turned that on (file popups, in user config).
             let popped = match items.get(cur).and_then(record) {
-                Some((_, f)) if !f.description.is_empty() => self.gallery_popup(&l, f, l.top + (cur - first) as u16).await?,
+                Some((_, f)) if self.user.file_popups && !f.description.is_empty() => self.gallery_popup(&l, f, l.top + (cur - first) as u16).await?,
                 _ => None,
             };
             let Some(key) = self.read_key_ambient(&mut amb, false).await? else {

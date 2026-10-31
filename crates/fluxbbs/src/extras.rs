@@ -772,7 +772,9 @@ impl Session {
             let mut fields: Vec<(char, char, (u16, u16, fluxbbs_term::Color))> = Vec::new();
             for (code, pos) in self.positions.clone() {
                 let (f, k) = (code[0] as char, code[1] as char);
-                if f.is_ascii_uppercase() && k.is_ascii_alphanumeric() {
+                // Fields past Z are digits, with a letter for their key
+                // (`~01`, a lightbar's marker, isn't one).
+                if (f.is_ascii_uppercase() && k.is_ascii_alphanumeric()) || (f.is_ascii_digit() && k.is_ascii_alphabetic()) {
                     fields.push((f, k.to_ascii_uppercase(), pos));
                 }
             }
@@ -864,6 +866,8 @@ impl Session {
             'Y' => squish(&u.mail_address, 28),
             // New: vim keys in the full-screen editor, or its own.
             'Z' => if u.editor_keys == "vim" { "vim" } else { "standard" }.into(),
+            // New: descriptions popping up in the file browser.
+            '1' => if u.file_popups { "on" } else { "off" }.into(),
             'X' => match crate::sysconfig::SAVERS.iter().find(|s| s.0 == u.saver) {
                 Some(s) => s.0.into(),
                 None => "board's".into(),
@@ -927,6 +931,7 @@ impl Session {
             }
             'W' => self.user.animate = if self.user.animate == "off" { String::new() } else { "off".into() },
             'Z' => self.user.editor_keys = if self.user.editor_keys == "vim" { String::new() } else { "vim".into() },
+            '1' => self.user.file_popups = !self.user.file_popups,
             // Change or confirm it (`UV`).
             #[cfg(feature = "email")]
             'Y' if self.email_on() => self.email_check("").await?,
@@ -1030,6 +1035,7 @@ impl Session {
             ('W', 'V', "Animations"),
             ('X', 'D', "Screen saver"),
             ('Z', 'I', "Editor keys"),
+            ('1', 'F', "File popups"),
         ]
         .to_vec();
         // New: the email address, where the board asks for one.
