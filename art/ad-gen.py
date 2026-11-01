@@ -12,6 +12,9 @@ boards' ads in AGN_ADS use too.
     python3 -I art/ad-gen.py spec7 > art/ads/FLUXADnn.ANS  # 03's look, games added (7)
     python3 -I art/ad-gen.py echo9 > art/ads/FLUXADnn.ANS  # 07 for echomail: short lines (9; 08 was
                                                           # its first try, before a review's fixes)
+    python3 -I art/ad-gen.py echo10 > art/ads/FLUXADnn.ANS # 09 with what's built in (10)
+    python3 -I art/ad-gen.py echo11 > art/ads/FLUXADnn.ANS # 10, nouns only (11)
+    python3 -I art/ad-gen.py echo12 > art/ads/FLUXADnn.ANS # 11, get-it and call-in rows (12)
 
 art/ads/ keeps every one: a changed ad is a new file, the next number,
 never written over an old one (they've gone out on the networks as they
@@ -500,9 +503,155 @@ def echo9_ad():
     return out, 'flux/bbs + disflux'
 
 
+# Revision 10: 09 with what comes built in (weather, the casino, tarot,
+# carrier lost...) in a section of its own.
+SOFTWARE10 = [
+    ('version', '[v1.1] .. rust .. mit license'),
+    ('runs on', 'linux x86_64 + arm64, static .. docker'),
+    ('connect', 'ssh, telnet .. cp437, utf-8, 24-bit color'),
+    ('msgs', 'threaded bases w/ voting, @mentions,'),
+    ('', 'caller subs, qwk, vim keys in the fse'),
+    ('nets', 'ftn over binkp: echomail, netmail, tic'),
+    ('', 'mrc chat'),
+    ('files', 'search w/ typeahead .. art gallery'),
+    ('', 'ansi, gif and pdf viewer'),
+    ('doors', 'door.sys, door32.sys, bbslink'),
+    ('', 'dos doors run inside. no dosbox'),
+    ('scripts', 'python'),
+    ('imports', 'iniquity 1.00a26r5 boards, as they are'),
+]
+
+BUILTIN = [
+    ('weather', 'your sky in pixels, the week ahead, an'),
+    ('', 'ai weatherman at the map, radar, records'),
+    ('casino', 'slots, video poker, blackjack,'),
+    ('', 'roulette, craps, the bar, a players club'),
+    ('', 'chips pay out in file points + time'),
+    ('tarot', 'card of the day, three-card spreads,'),
+    ('', 'fortune cookies'),
+    ('games', '[carrier lost]: war-dial a dead exchange, 1994'),
+    ('points', 'votes and doors pay, tips, a nightly lottery'),
+    ('ai chat', 'free. knows the board and the web'),
+    ('savers', 'digital rain, a starfield, demoscene fire'),
+]
+
+
+def echo10_ad():
+    """Revision 10: for echomail, as 09, with the built-in games and gear."""
+    out = ['']
+    out += echo_logo('ROYSAC2C.TDF', 'RoySAC2Ppl', 'flux/bbs', [PINK, PINK, PINK, MAG, MAG, MAG], spacing=0)
+    out += ['']
+    out += echo_specs(SOFTWARE10, PINK)
+    out += ['', echo_rule('built in, not doors', MAG), '']
+    out += echo_specs(BUILTIN, PINK)
+    out += ['', compact(cells(center((DIM, 'github.com/'), (WHITE, 'phrac/fluxbbs')))),
+            compact(cells(center((DIM, 'ghcr.io/'), (WHITE, 'phrac/fluxbbs')))), '']
+    out += [echo_rule('world hq', TEAL), '']
+    out += echo_logo('AMNESIAX.TDF', 'Amnesia Cyan', 'disflux', [WHITE, CYAN, CYAN, CYAN, TEAL, TEAL, TEAL])
+    out += ['', compact(cells(center(*BOARD7['tag']))), '']
+    out += echo_specs(BOARD8, CYAN)
+    out += ['', echo_rule('', TEAL)]
+    return out, 'flux/bbs + disflux'
+
+
+# Revision 11: 10's things as a plain list, nouns only (10 read like ai).
+SOFTWARE11 = [
+    ('version', '[v1.1] .. rust .. mit'),
+    ('runs on', 'linux x86_64/arm64 .. docker'),
+    ('connect', 'ssh .. telnet .. cp437/utf-8 .. 24-bit color'),
+    ('msgs', 'threads .. voting .. @mentions .. user subs'),
+    ('', 'qwk .. fse w/ vim keys'),
+    ('nets', 'ftn/binkp .. echomail .. netmail .. tic .. mrc'),
+    ('files', 'typeahead search .. ansi/gif/pdf viewer'),
+    ('doors', 'door.sys .. door32.sys .. bbslink'),
+    ('', 'dos doors native, no dosbox'),
+    ('scripts', 'python'),
+    ('imports', 'iniquity 1.00a26r5'),
+]
+
+EXTRAS = [
+    ('weather', '7 day .. 30 day vs normal .. records'),
+    ('', 'drought monitor .. ai forecaster'),
+    ('casino', 'slots .. video poker .. blackjack'),
+    ('', 'roulette .. craps .. bar .. players club'),
+    ('tarot', 'daily card .. 3 card spread .. fortunes'),
+    ('games', 'carrier lost .. lottery .. points/tips'),
+    ('ai', 'free ai chat'),
+    ('savers', 'matrix rain .. starfield .. fire'),
+]
+
+
+def echo11_ad():
+    """Revision 11: 10, nouns only."""
+    out = ['']
+    out += echo_logo('ROYSAC2C.TDF', 'RoySAC2Ppl', 'flux/bbs', [PINK, PINK, PINK, MAG, MAG, MAG], spacing=0)
+    out += ['']
+    out += echo_specs(SOFTWARE11, PINK)
+    out += ['', echo_rule('extras', MAG), '']
+    out += echo_specs(EXTRAS, PINK)
+    out += ['', compact(cells(center((DIM, 'github.com/'), (WHITE, 'phrac/fluxbbs')))),
+            compact(cells(center((DIM, 'ghcr.io/'), (WHITE, 'phrac/fluxbbs')))), '']
+    out += [echo_rule('world hq', TEAL), '']
+    out += echo_logo('AMNESIAX.TDF', 'Amnesia Cyan', 'disflux', [WHITE, CYAN, CYAN, CYAN, TEAL, TEAL, TEAL])
+    out += ['', compact(cells(center(*BOARD7['tag']))), '']
+    out += echo_specs(BOARD11, CYAN)
+    out += ['', echo_rule('', TEAL)]
+    return out, 'flux/bbs + disflux'
+
+
+BOARD11 = [
+    ('sysop', '[phrac] .. co: subcarrier'),
+    ('nodes', '8 .. ssh [disfluxbbs.com:2222]'),
+    ('', 'telnet [disfluxbbs.com]'),
+    ('files', '68k+ .. textfiles.com .. 16colo.rs .. phrack'),
+    ('doors', 'lord .. tw2002 .. bre .. usurper .. oo2'),
+    ('', 'food fight .. [ghostwire] (ours)'),
+    ('nets', 'agoranet 46:1/115 .. mrc'),
+    ('loc', 'southeast nebraska'),
+]
+
+
+# Revision 12: 11 with where to get flux/bbs and how to call disflux as
+# rows of their own, in white (11's dim github line hardly showed).
+GET12 = [
+    ('get it', '[github.com/phrac/fluxbbs]'),
+    ('docker', '[ghcr.io/phrac/fluxbbs]'),
+]
+
+BOARD12 = [
+    ('ssh', '[disfluxbbs.com] port [2222]'),
+    ('telnet', '[disfluxbbs.com] port [23]'),
+    ('nodes', '8'),
+    ('sysop', '[phrac] .. co: subcarrier'),
+    ('files', '68k+ .. textfiles.com .. 16colo.rs .. phrack'),
+    ('doors', 'lord .. tw2002 .. bre .. usurper .. oo2'),
+    ('', 'food fight .. [ghostwire] (ours)'),
+    ('nets', 'agoranet 46:1/115 .. mrc'),
+    ('loc', 'southeast nebraska'),
+]
+
+
+def echo12_ad():
+    """Revision 12: 11 with get-it and call-in rows."""
+    out = ['']
+    out += echo_logo('ROYSAC2C.TDF', 'RoySAC2Ppl', 'flux/bbs', [PINK, PINK, PINK, MAG, MAG, MAG], spacing=0)
+    out += ['']
+    out += echo_specs(SOFTWARE11, PINK)
+    out += ['']
+    out += echo_specs(GET12, PINK)
+    out += ['', echo_rule('extras', MAG), '']
+    out += echo_specs(EXTRAS, PINK)
+    out += ['', echo_rule('world hq', TEAL), '']
+    out += echo_logo('AMNESIAX.TDF', 'Amnesia Cyan', 'disflux', [WHITE, CYAN, CYAN, CYAN, TEAL, TEAL, TEAL])
+    out += ['', compact(cells(center(*BOARD7['tag']))), '']
+    out += echo_specs(BOARD12, CYAN)
+    out += ['', echo_rule('', TEAL)]
+    return out, 'flux/bbs + disflux'
+
+
 def main():
     which = sys.argv[1] if len(sys.argv) > 1 else 'fluxbbs'
-    out, title = {'fluxbbs': fluxbbs_ad, 'fun': fun_ad, 'games': games_ad, 'spec7': spec7_ad, 'echo9': echo9_ad}[which]()
+    out, title = {'fluxbbs': fluxbbs_ad, 'fun': fun_ad, 'games': games_ad, 'spec7': spec7_ad, 'echo9': echo9_ad, 'echo10': echo10_ad, 'echo11': echo11_ad, 'echo12': echo12_ad}[which]()
     for line in out:
         w = len(re.sub(r'\x1b\[([0-9]*)C', lambda m: ' ' * int(m.group(1) or 1), re.sub(r'\x1b\[[0-9;]*m', '', line)))
         if w >= 80:
