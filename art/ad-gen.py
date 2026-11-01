@@ -8,6 +8,7 @@ or a message.
     python3 -I art/ad-gen.py fun > art/ads/FLUXADnn.ANS    # games and gear (5)
     python3 -I art/ad-gen.py games > art/ads/FLUXADnn.ANS  # the same, plainer (6)
     python3 -I art/ad-gen.py spec7 > art/ads/FLUXADnn.ANS  # 03's look, games added (7)
+    python3 -I art/ad-gen.py echo8 > art/ads/FLUXADnn.ANS  # 07 for echomail: short lines (8)
 
 art/ads/ keeps every one: a changed ad is a new file, the next number,
 never written over an old one (they've gone out on the networks as they
@@ -296,13 +297,188 @@ def spec7_ad():
     return out, 'flux/bbs + disflux'
 
 
+# For echomail: a message reader takes a line at a time, and some drop
+# the colors from lines much over 80 characters (Pharcyde's did, 1 Nov
+# 2026, with 07's 589-byte logo rows). So a line is laid out as cells
+# and written again with as few codes as it takes: a color only when it
+# changes, the shortest code that gets there, and cursor-forward over
+# runs of blanks. ECHO_MAX is the most a line may take, codes and all.
+ECHO_MAX = 79
+
+
+def cells(line):
+    """An ANSI line (SGR codes only) as cells of (char, fg, bg)."""
+    out, fg, bg, bold = [], 7, 0, False
+    for m in re.finditer(r'\x1b\[([0-9;]*)m|(.)', line, re.S):
+        if m.group(2) is not None:
+            out.append((m.group(2), fg | (8 if bold else 0), bg))
+            continue
+        for p in (m.group(1) or '0').split(';'):
+            n = int(p or 0)
+            if n == 0:
+                fg, bg, bold = 7, 0, False
+            elif n == 1:
+                bold = True
+            elif 30 <= n <= 37:
+                fg = pre.ANSI.index(n - 30)
+            elif 40 <= n <= 47:
+                bg = pre.ANSI.index(n - 40)
+    return out
+
+
+def compact(row):
+    """Cells as short ANSI: a blank (a space on black) takes no color, runs
+    of blanks are a cursor move, and each change takes the least code."""
+    while row and row[-1][0] == ' ' and row[-1][2] == 0:
+        row = row[:-1]
+    out, fg, bg, i = '', 7, 0, 0
+    while i < len(row):
+        ch, f, b = row[i]
+        if ch == ' ' and b == 0:
+            j = i
+            while j < len(row) and row[j][0] == ' ' and row[j][2] == 0:
+                j += 1
+            n = j - i
+            out += ' ' * n if n < 4 else f'\x1b[{n}C'
+            i = j
+            continue
+        if (f, b) != (fg, bg):
+            parts = []
+            reset = (fg > 7 and f < 8) or (bg != 0 and b == 0)
+            if reset:
+                parts.append('0')
+                fg, bg = 7, 0
+            if f > 7 and fg < 8:
+                parts.append('1')
+            if (f & 7) != (fg & 7):
+                parts.append('3%d' % pre.ANSI[f & 7])
+            if b != bg:
+                parts.append('4%d' % pre.ANSI[b])
+            out += '\x1b[' + ';'.join(parts) + 'm'
+            fg, bg = f, b
+        out += ch
+        i += 1
+    return out + ('\x1b[0m' if (fg, bg) != (7, 0) else '')
+
+
+def for_echomail(lines):
+    """The lines written short, and how long the longest is."""
+    out = [compact(cells(l)) for l in lines]
+    return out, max(len(l) for l in out)
+
+
+def echo_logo(file, face, word, grad, spacing=None):
+    """A logo that fits echomail's lines: each row in one color (grad, top
+    to bottom), the font's gray shading drawn as \u2591 in that color, so
+    a row needs one color code and keeps its shape."""
+    font = next(f for f in pre.read_tdf(os.path.join(HERE, 'fonts', file)) if f['name'] == face)
+    rows = [r for r in pre.set_word(font, word, font['spacing'] if spacing is None else spacing, {}, {}) if any(r)]
+    lead = (80 - max(len(r) for r in rows)) // 2
+    out = []
+    for i, r in enumerate(rows):
+        col = grad[min(i * len(grad) // len(rows), len(grad) - 1)]
+        cl = [(' ', 7, 0)] * lead
+        for cell in r:
+            if cell is None:
+                cl.append((' ', 7, 0))
+                continue
+            ch, fg, bg = cell
+            if ch in (0, 32):
+                cl.append(((LIGHT if bg == 7 else FULL), col, 0) if bg else (' ', 7, 0))
+                continue
+            g = bytes([ch]).decode('cp437')
+            cl.append((LIGHT if fg in (7, 8) and g in FULL + DARK + MEDIUM else g, col, 0))
+        out.append(compact(cl))
+    return out
+
+
+FULL, DARK, MEDIUM, LIGHT = '\u2588', '\u2593', '\u2592', '\u2591'
+
+
+def echo_specs(rows, accent, width=9):
+    """Spec rows for echomail: the text rewrapped so no line, codes and
+    all, is over ECHO_MAX."""
+    out = []
+    for label, text in rows:
+        words, lab = text.split(' '), label
+        while words:
+            n = len(words)
+            while n > 1 and len(compact(cells(specs([(lab, ' '.join(words[:n]))], accent, width)[0]))) > ECHO_MAX:
+                n -= 1
+            out.append(compact(cells(specs([(lab, ' '.join(words[:n]))], accent, width)[0])))
+            words, lab = words[n:], ''
+    return out
+
+
+def echo_rule(title='', accent=PINK, mid=MAG):
+    """A shorter rule for echomail: 40 columns, centered, two colors."""
+    if not title:
+        return compact(cells(' ' * 20 + c(mid) + '─' * 40))
+    side = (40 - len(title) - 4) // 2
+    line = ' ' * 20 + c(mid) + '─' * side + '[ ' + c(WHITE) + title + c(mid) + ' ]' + '─' * (40 - side - len(title) - 4)
+    return compact(cells(line))
+
+
+# 07's spec rows split by hand for echomail's short lines.
+SOFTWARE8 = [
+    ('version', '[v1.1] .. rust .. mit license'),
+    ('runs on', 'linux x86_64 + arm64, static .. docker'),
+    ('connect', 'ssh, telnet .. cp437, utf-8, 24-bit color'),
+    ('msgs', 'threaded bases w/ voting, @mentions,'),
+    ('', 'caller subs, qwk, vim keys in the fse'),
+    ('nets', 'ftn over binkp: echomail, netmail, tic'),
+    ('', 'mrc chat'),
+    ('files', 'search w/ typeahead .. art gallery'),
+    ('', 'ansi, gif and pdf viewer'),
+    ('doors', 'door.sys, door32.sys, bbslink'),
+    ('', 'dos doors run inside. no dosbox'),
+    ('games', '[casino]: slots, video poker, blackjack,'),
+    ('', 'roulette, craps .. [carrier lost] .. [tarot]'),
+    ('extras', 'free ai chat .. points, tips, lottery'),
+    ('', 'screen savers'),
+    ('scripts', 'python'),
+    ('imports', 'iniquity 1.00a26r5 boards, as they are'),
+]
+
+BOARD8 = [
+    ('sysop', '[phrac] .. co-sysop subcarrier'),
+    ('nodes', '8 .. ssh [disfluxbbs.com:2222]'),
+    ('', 'telnet [disfluxbbs.com]'),
+    ('files', '68,000+ .. all of textfiles.com,'),
+    ('', '16colo.rs packs, phrack, 2600'),
+    ('doors', 'lord, tw2002, bre, usurper, overkill ii,'),
+    ('', 'food fight, [ghostwire] (ours, alpha)'),
+    ('ai', 'penny, free'),
+    ('nets', 'agoranet 46:1/115 .. mrc'),
+    ('where', 'southeast nebraska'),
+]
+
+
+def echo8_ad():
+    """Revision 8: 07 for echomail, every line at most ECHO_MAX."""
+    out = ['']
+    out += echo_logo('ROYSAC2C.TDF', 'RoySAC2Ppl', 'flux/bbs', [PINK, PINK, PINK, MAG, MAG, MAG], spacing=0)
+    out += ['']
+    out += echo_specs(SOFTWARE8, PINK)
+    out += ['', compact(cells(center((DIM, 'github.com/'), (WHITE, 'phrac/fluxbbs')))),
+            compact(cells(center((DIM, 'ghcr.io/'), (WHITE, 'phrac/fluxbbs')))), '']
+    out += [echo_rule('world hq', CYAN, TEAL), '']
+    out += echo_logo('AMNESIAX.TDF', 'Amnesia Cyan', 'disflux', [WHITE, CYAN, CYAN, CYAN, TEAL, TEAL, TEAL])
+    out += ['', compact(cells(center(*BOARD7['tag']))), '']
+    out += echo_specs(BOARD8, CYAN)
+    out += ['', echo_rule('', CYAN, TEAL)]
+    return out, 'flux/bbs + disflux'
+
+
 def main():
     which = sys.argv[1] if len(sys.argv) > 1 else 'fluxbbs'
-    out, title = {'fluxbbs': fluxbbs_ad, 'fun': fun_ad, 'games': games_ad, 'spec7': spec7_ad}[which]()
+    out, title = {'fluxbbs': fluxbbs_ad, 'fun': fun_ad, 'games': games_ad, 'spec7': spec7_ad, 'echo8': echo8_ad}[which]()
     for line in out:
-        w = len(re.sub(r'\x1b\[[0-9;]*[A-Za-z]', '', line))
+        w = len(re.sub(r'\x1b\[([0-9]*)C', lambda m: ' ' * int(m.group(1) or 1), re.sub(r'\x1b\[[0-9;]*m', '', line)))
         if w >= 80:
             sys.exit(f'{w} columns: {line!r}')
+        if which.startswith('echo') and len(line) > ECHO_MAX:
+            sys.exit(f'{len(line)} bytes, over {ECHO_MAX} for echomail: {line!r}')
     data = ('\r\n'.join(out) + E + '0m\r\n').encode('cp437')
     sys.stdout.buffer.write(data + sauce(len(data), len(out), title))
 
