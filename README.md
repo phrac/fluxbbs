@@ -21,6 +21,13 @@ to switch back to.
 graffiti logo, a lightbar, and time left in the status bar, as in 1995.
 The noise above the logo moves.*
 
+![File search on disflux, in IcyTerm](docs/screenshots/featured.png)
+
+*File search, in IcyTerm: the board's name in a search engine's colors,
+and matches dropping down as you type, with the words that matched lit
+up in each file's description. Across every file on the board, with "did
+you mean" when nothing's found.*
+
 ## disflux, world HQ
 
 disflux is flux/bbs world HQ: the board it's built on and for, where
@@ -35,14 +42,12 @@ telnet to `disfluxbbs.com`.
 | **Message boards** after PTT: what's hot, who moderates, the latest post, and boards callers run themselves. AgoraNet echomail sits in its own folder. | **A thread as a tree**: replies and comments hang under what they answer, with the post's votes. |
 | ![The message editor](docs/screenshots/editor.png) | ![MRC chat](docs/screenshots/mrc.png) |
 | **The full-screen editor** in vim mode. `9dd` trimmed the quote to the part being answered. `ins nor` in the status bar is normal mode. | **MRC chat**, laid out like irssi: rooms shared with other BBSes, `/` commands with typeahead and help, direct messages. |
-| ![File search](docs/screenshots/search.png) | ![The file browser](docs/screenshots/browse.png) |
-| **File search**: the board's name in a search engine's colors, matches dropping down as you type, and "did you mean" when nothing's found. Across all 67,976 files. | **The file browser**: areas, sub-areas, packs opened as folders, and the textfiles.com archive, with points and downloads at the top. |
 | ![AI chat](docs/screenshots/ai.png) | ![The art gallery](docs/screenshots/gallery.png) |
 | **AI chat** with Penny, disflux's hostess: asked about Phrack, she searched the files and named the areas. It runs on the board's own models. | **The art gallery**: the scene's packs, opened in place, their pieces played back at modem speed. |
-| ![Doors](docs/screenshots/doors.png) | ![The casino](docs/screenshots/casino.png) |
-| **Doors**: LORD, BRE and Tradewars in a DOS machine built into the board, native ones like Usurper, BBSLink, and games written for disflux. | **The casino**: walk the floor to slots, video poker, blackjack, roulette, craps and the bar, paying in minutes and file points. |
-| ![The screen saver](docs/screenshots/saver.png) | ![The telnet warning](docs/screenshots/telnet.png) |
-| **Screen savers**: digital rain in the board's colors, a warp starfield or the demoscene fire, after a while idle at a menu. | **Telnet callers are warned**: WARNING flashes while they choose to go on or call back over SSH. |
+| ![The file browser](docs/screenshots/browse.png) | ![Doors](docs/screenshots/doors.png) |
+| **The file browser**: areas, sub-areas, packs opened as folders, and the textfiles.com archive, with points and downloads at the top. | **Doors**: LORD, BRE and Tradewars in a DOS machine built into the board, native ones like Usurper, BBSLink, and games written for disflux. |
+| ![The casino](docs/screenshots/casino.png) | ![The screen saver](docs/screenshots/saver.png) |
+| **The casino**: walk the floor to slots, video poker, blackjack, roulette, craps and the bar, paying in minutes and file points. | **Screen savers**: digital rain in the board's colors, a warp starfield or the demoscene fire, after a while idle at a menu. |
 
 The whole board runs in one process. SQLite and TOML files hold its
 data and settings. An old Iniquity board imports and looks the same.
