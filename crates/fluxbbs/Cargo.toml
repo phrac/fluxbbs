@@ -26,7 +26,7 @@ tracing = "0.1.44"
 tracing-subscriber = { version = "0.3.23", features = ["env-filter"] }
 zip = { version = "9.0.4", default-features = false, features = ["deflate", "legacy-zip"] }
 zmodem2 = "0.7.3"
-image = { version = "0.25.10", default-features = false, features = ["gif", "png", "jpeg"] }
+image = { version = "0.25.10", default-features = false, features = ["gif", "png", "jpeg", "webp"] }
 futures-util = "0.3.34"
 md-5 = { version = "0.10", optional = true }
 hmac = { version = "0.12", optional = true }

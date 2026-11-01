@@ -13,7 +13,7 @@ use image::codecs::gif::GifDecoder;
 use image::imageops::FilterType;
 use image::{AnimationDecoder, ImageDecoder, ImageFormat, RgbaImage};
 
-const IMAGES: [&str; 4] = ["gif", "png", "jpg", "jpeg"];
+const IMAGES: [&str; 5] = ["gif", "png", "jpg", "jpeg", "webp"];
 /// Decoded pixels allowed across all of a GIF's frames, whatever the
 /// limits say, so the work stays bounded.
 const MAX_TOTAL_PIXELS: u64 = 300_000_000;
@@ -128,6 +128,7 @@ pub fn load(data: &[u8], cols: usize, rows: usize, lim: Limits) -> Result<Pictur
     let name = match format {
         ImageFormat::Png => "PNG",
         ImageFormat::Jpeg => "JPEG",
+        ImageFormat::WebP => "WebP",
         _ => "Picture",
     };
     Ok(Picture { format: name, width: w, height: h, frames: vec![frame_of(&img, tw, th, 0)] })
@@ -228,6 +229,16 @@ mod tests {
         assert_eq!(p.describe(), "GIF image, 160x90, 3 frames");
         let tall = load(&gif(1, 100, 400), 80, 24, ANY).unwrap();
         assert_eq!((tall.frames[0].w, tall.frames[0].h), (12, 48));
+    }
+
+    #[test]
+    fn webp_is_a_picture_whatever_its_name() {
+        let img = RgbaImage::from_pixel(160, 90, image::Rgba([255, 0, 0, 255]));
+        let mut data = Vec::new();
+        img.write_with_encoder(image::codecs::webp::WebPEncoder::new_lossless(&mut data)).unwrap();
+        let p = load(&data, 80, 24, ANY).unwrap();
+        assert_eq!((p.format, p.width, p.height), ("WebP", 160, 90));
+        assert!(is_image("PHOTO.WEBP"));
     }
 
     #[test]

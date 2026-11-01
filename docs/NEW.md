@@ -244,7 +244,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   tar and tar.gz opened in place; text and ANSI in a viewer. The area
   being browsed becomes the current one, so leaving stays there.
 - In the browser, pictures show as ANSI (half-blocks, 24-bit) and
-  animated GIFs play.
+  animated GIFs play. GIF, PNG, JPEG and WebP (told apart by their
+  contents, not their names).
 - `FW newest`, `hot`, `heavy`, `dig`, `kingpin` open the browser on
   that file.
 - The art gallery (`AG`), after Mystic's: a folder or a file area of

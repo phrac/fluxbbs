@@ -523,7 +523,7 @@ uses `LISTFILE.ANS`, so the two can be drawn differently. The lister
 
 ### Pictures
 
-`.gif`, `.png` and `.jpg` are shown as ANSI: half-blocks fitted to the
+`.gif`, `.png`, `.jpg` and `.webp` (its first frame) are shown as ANSI: half-blocks fitted to the
 screen.
 
 - Colors are 24-bit on SyncTERM and UTF-8 terminals, else the nearest
