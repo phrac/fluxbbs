@@ -54,6 +54,8 @@ differently on purpose. Each line links to the doc with the details.
 - Settings, strings, areas, levels, protocols, archivers, infoforms and
   themes can be edited while the board runs.
 - `*C` writes `fluxbbs.toml` back keeping its comments.
+- `*C` edits long settings (AI Chat's Extra prompt) in the full-screen
+  editor, in paragraphs, rather than on one line.
 - An importer for an existing DOS install: users (passwords re-hashed),
   messages, files and descriptions, areas, conferences, levels,
   strings, menus, screens, stats, history, callers, BBS list,

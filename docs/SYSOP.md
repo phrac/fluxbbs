@@ -143,6 +143,11 @@ In each `*C` section, the description of the setting under the bar
 shows at the bottom as you move it, and stays there while you edit it;
 one too long for the line goes on over a second.
 
+Long text, such as AI Chat's Extra prompt (`G`, `[ai] system_prompt`),
+opens in the full-screen editor instead of on one line: write it as
+paragraphs, a blank line between them, and save (`/`, then `S`); the
+form shows it on one line.
+
 ### Screen savers
 
 `*C`, SSH, Telnet and Terminal, `P` (`[terminal] screensaver_style`)
