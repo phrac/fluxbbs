@@ -68,9 +68,10 @@ disflux's own scripts, moved here; change them and run `make.py` for the
 stock set (and for your board) again.
 
 `ad-gen.py` isn't a board screen and `make.py` doesn't run it: it makes
-`FLUXBBS.ANS` here, the ad for flux/bbs and disflux (16 colors, CRLF,
-SAUCE), for ad rotations, file echoes and other boards
-(`python3 -I art/ad-gen.py > art/FLUXBBS.ANS`).
+the ads for flux/bbs and disflux (16 colors, CRLF, SAUCE), for ad
+rotations, file echoes and other boards. They're kept in `ads/`, one
+file per revision (`FLUXAD02.ANS`, `FLUXAD03.ANS`...): a changed ad is
+the next number, never written over an old one.
 
 The prompts that go with them (AI chat's `Ai*`, node chat's `MNC*`) are
 in the stock `strings.toml`: `agent-gen.py strings` and `nodechat-gen.py
