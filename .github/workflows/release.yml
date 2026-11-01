@@ -107,6 +107,8 @@ jobs:
       - uses: actions/download-artifact@v4
         with:
           path: dist
+          # Only the archives: the image jobs leave build records too.
+          pattern: fluxbbs-*
           merge-multiple: true
       - name: Notes, from the tag's message (else the commits since the last tag)
         run: |
