@@ -1,14 +1,17 @@
 """The ads for flux/bbs and disflux. Every ad sells both: the software
 (what it is, where to get it) and the board (how to call it). 16 colors,
-no cursor moves, lines under 80 columns and CRLF ends, with a SAUCE
-record, so they show the same in any ANSI viewer, a board's ad rotation
-or a message.
+lines under 80 columns and CRLF ends, with a SAUCE record, so they show
+the same in any ANSI viewer, a board's ad rotation or a message. The
+echo* ones are written for echomail: no line over ECHO_MAX bytes, codes
+and all, with cursor-forward (ESC[nC) over runs of blanks, as other
+boards' ads in AGN_ADS use too.
 
     python3 -I art/ad-gen.py > art/ads/FLUXADnn.ANS        # the spec sheet
     python3 -I art/ad-gen.py fun > art/ads/FLUXADnn.ANS    # games and gear (5)
     python3 -I art/ad-gen.py games > art/ads/FLUXADnn.ANS  # the same, plainer (6)
     python3 -I art/ad-gen.py spec7 > art/ads/FLUXADnn.ANS  # 03's look, games added (7)
-    python3 -I art/ad-gen.py echo8 > art/ads/FLUXADnn.ANS  # 07 for echomail: short lines (8)
+    python3 -I art/ad-gen.py echo9 > art/ads/FLUXADnn.ANS  # 07 for echomail: short lines (9; 08 was
+                                                          # its first try, before a review's fixes)
 
 art/ads/ keeps every one: a changed ad is a new file, the next number,
 never written over an old one (they've gone out on the networks as they
@@ -328,10 +331,13 @@ def cells(line):
 
 def compact(row):
     """Cells as short ANSI: a blank (a space on black) takes no color, runs
-    of blanks are a cursor move, and each change takes the least code."""
+    of blanks are a cursor move, and each change takes the least code. A
+    line sets its own color before it paints anything (a reader may set
+    one of its own at each line), and a short run of blanks after a
+    background resets it first, or the spaces would show it."""
     while row and row[-1][0] == ' ' and row[-1][2] == 0:
         row = row[:-1]
-    out, fg, bg, i = '', 7, 0, 0
+    out, fg, bg, i = '', None, None, 0
     while i < len(row):
         ch, f, b = row[i]
         if ch == ' ' and b == 0:
@@ -339,18 +345,27 @@ def compact(row):
             while j < len(row) and row[j][0] == ' ' and row[j][2] == 0:
                 j += 1
             n = j - i
-            out += ' ' * n if n < 4 else f'\x1b[{n}C'
+            if n >= 4:
+                out += f'\x1b[{n}C'
+            else:
+                if bg not in (None, 0):
+                    out += '\x1b[0m'
+                    fg, bg = 7, 0
+                out += ' ' * n
             i = j
             continue
         if (f, b) != (fg, bg):
             parts = []
-            reset = (fg > 7 and f < 8) or (bg != 0 and b == 0)
-            if reset:
+            fresh = fg is None
+            if fresh and f > 7 and b == 0:
+                # Bright on black, from nothing: 1;3x says it all.
+                fg, bg = 0, 0
+            elif fg is None or (fg > 7 and f < 8) or (bg != 0 and b == 0):
                 parts.append('0')
                 fg, bg = 7, 0
             if f > 7 and fg < 8:
                 parts.append('1')
-            if (f & 7) != (fg & 7):
+            if (f & 7) != (fg & 7) or fresh:
                 parts.append('3%d' % pre.ANSI[f & 7])
             if b != bg:
                 parts.append('4%d' % pre.ANSI[b])
@@ -358,19 +373,17 @@ def compact(row):
             fg, bg = f, b
         out += ch
         i += 1
-    return out + ('\x1b[0m' if (fg, bg) != (7, 0) else '')
-
-
-def for_echomail(lines):
-    """The lines written short, and how long the longest is."""
-    out = [compact(cells(l)) for l in lines]
-    return out, max(len(l) for l in out)
+    # No reset at the end: the next line sets its own color, and the ad's
+    # last line gets one (main()).
+    return out
 
 
 def echo_logo(file, face, word, grad, spacing=None):
     """A logo that fits echomail's lines: each row in one color (grad, top
-    to bottom), the font's gray shading drawn as \u2591 in that color, so
-    a row needs one color code and keeps its shape."""
+    to bottom), so a row needs one color code. A cell is drawn from its
+    color and its background both: ink on ink is solid, the font's gray
+    shading is \u2591, and a gray half block on an ink background is the
+    other half in ink, so the letters keep their shape."""
     font = next(f for f in pre.read_tdf(os.path.join(HERE, 'fonts', file)) if f['name'] == face)
     rows = [r for r in pre.set_word(font, word, font['spacing'] if spacing is None else spacing, {}, {}) if any(r)]
     lead = (80 - max(len(r) for r in rows)) // 2
@@ -379,20 +392,33 @@ def echo_logo(file, face, word, grad, spacing=None):
         col = grad[min(i * len(grad) // len(rows), len(grad) - 1)]
         cl = [(' ', 7, 0)] * lead
         for cell in r:
-            if cell is None:
-                cl.append((' ', 7, 0))
-                continue
-            ch, fg, bg = cell
-            if ch in (0, 32):
-                cl.append(((LIGHT if bg == 7 else FULL), col, 0) if bg else (' ', 7, 0))
-                continue
-            g = bytes([ch]).decode('cp437')
-            cl.append((LIGHT if fg in (7, 8) and g in FULL + DARK + MEDIUM else g, col, 0))
+            g = ink_cell(cell)
+            cl.append((g, col, 0) if g != ' ' else (' ', 7, 0))
         out.append(compact(cl))
     return out
 
 
+def ink_cell(cell):
+    """What one cell of a color font becomes in a single color."""
+    if cell is None:
+        return ' '
+    ch, fg, bg = cell
+    ink = lambda c: c not in (0, 7, 8)
+    g = ' ' if ch in (0, 32) else bytes([ch]).decode('cp437')
+    if g == ' ':
+        return FULL if ink(bg) else LIGHT if bg else ' '
+    if ink(bg):
+        if ink(fg):
+            return FULL
+        # Gray on ink: the ink is what's left of the cell.
+        return {UPPER: LOWER, LOWER: UPPER, LEFT: RIGHT, RIGHT: LEFT, FULL: LIGHT, DARK: LIGHT, MEDIUM: MEDIUM, LIGHT: DARK}.get(g, FULL)
+    if not ink(fg) and g in FULL + DARK + MEDIUM:
+        return LIGHT
+    return g
+
+
 FULL, DARK, MEDIUM, LIGHT = '\u2588', '\u2593', '\u2592', '\u2591'
+UPPER, LOWER, LEFT, RIGHT = '\u2580', '\u2584', '\u258c', '\u2590'
 
 
 def echo_specs(rows, accent, width=9):
@@ -400,7 +426,9 @@ def echo_specs(rows, accent, width=9):
     all, is over ECHO_MAX."""
     out = []
     for label, text in rows:
-        words, lab = text.split(' '), label
+        # Words, a [bracketed phrase] kept as one, so a break never
+        # falls inside it.
+        words, lab = re.findall(r'\[[^\]]*\]\S*|\S+', text), label
         while words:
             n = len(words)
             while n > 1 and len(compact(cells(specs([(lab, ' '.join(words[:n]))], accent, width)[0]))) > ECHO_MAX:
@@ -410,8 +438,9 @@ def echo_specs(rows, accent, width=9):
     return out
 
 
-def echo_rule(title='', accent=PINK, mid=MAG):
-    """A shorter rule for echomail: 40 columns, centered, two colors."""
+def echo_rule(title='', mid=MAG):
+    """A shorter rule for echomail: 40 columns, centered, in one color
+    (the title in white)."""
     if not title:
         return compact(cells(' ' * 20 + c(mid) + '─' * 40))
     side = (40 - len(title) - 4) // 2
@@ -454,32 +483,42 @@ BOARD8 = [
 ]
 
 
-def echo8_ad():
-    """Revision 8: 07 for echomail, every line at most ECHO_MAX."""
+def echo9_ad():
+    """Revision 9: 07 for echomail, every line at most ECHO_MAX (08 was
+    the first try; it's in git and art/ads)."""
     out = ['']
     out += echo_logo('ROYSAC2C.TDF', 'RoySAC2Ppl', 'flux/bbs', [PINK, PINK, PINK, MAG, MAG, MAG], spacing=0)
     out += ['']
     out += echo_specs(SOFTWARE8, PINK)
     out += ['', compact(cells(center((DIM, 'github.com/'), (WHITE, 'phrac/fluxbbs')))),
             compact(cells(center((DIM, 'ghcr.io/'), (WHITE, 'phrac/fluxbbs')))), '']
-    out += [echo_rule('world hq', CYAN, TEAL), '']
+    out += [echo_rule('world hq', TEAL), '']
     out += echo_logo('AMNESIAX.TDF', 'Amnesia Cyan', 'disflux', [WHITE, CYAN, CYAN, CYAN, TEAL, TEAL, TEAL])
     out += ['', compact(cells(center(*BOARD7['tag']))), '']
     out += echo_specs(BOARD8, CYAN)
-    out += ['', echo_rule('', CYAN, TEAL)]
+    out += ['', echo_rule('', TEAL)]
     return out, 'flux/bbs + disflux'
 
 
 def main():
     which = sys.argv[1] if len(sys.argv) > 1 else 'fluxbbs'
-    out, title = {'fluxbbs': fluxbbs_ad, 'fun': fun_ad, 'games': games_ad, 'spec7': spec7_ad, 'echo8': echo8_ad}[which]()
+    out, title = {'fluxbbs': fluxbbs_ad, 'fun': fun_ad, 'games': games_ad, 'spec7': spec7_ad, 'echo9': echo9_ad}[which]()
     for line in out:
         w = len(re.sub(r'\x1b\[([0-9]*)C', lambda m: ' ' * int(m.group(1) or 1), re.sub(r'\x1b\[[0-9;]*m', '', line)))
         if w >= 80:
             sys.exit(f'{w} columns: {line!r}')
         if which.startswith('echo') and len(line) > ECHO_MAX:
             sys.exit(f'{len(line)} bytes, over {ECHO_MAX} for echomail: {line!r}')
-    data = ('\r\n'.join(out) + E + '0m\r\n').encode('cp437')
+    if which.startswith('echo'):
+        # The last line ends in a reset, if it hasn't one: checked as
+        # written.
+        if not out[-1].endswith(E + '0m'):
+            out[-1] += E + '0m'
+        if len(out[-1]) > ECHO_MAX:
+            sys.exit(f'{len(out[-1])} bytes on the last line, over {ECHO_MAX}')
+        data = ('\r\n'.join(out) + '\r\n').encode('cp437')
+    else:
+        data = ('\r\n'.join(out) + E + '0m\r\n').encode('cp437')
     sys.stdout.buffer.write(data + sauce(len(data), len(out), title))
 
 
