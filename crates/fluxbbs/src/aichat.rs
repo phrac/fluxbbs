@@ -579,6 +579,18 @@ impl Session {
         self.flush().await
     }
 
+    /// Keys typed while the dots are up: read and dropped (at most a few
+    /// hundred, so a stuck key can't hold the reply up).
+    async fn ai_drop_typed(&mut self) -> io::Result<()> {
+        for _ in 0..256 {
+            if !self.key_waiting().await? {
+                break;
+            }
+            self.input.clear();
+        }
+        Ok(())
+    }
+
     async fn ai_thinking_done(&mut self) -> io::Result<()> {
         let (x, y) = (self.screen.where_x(), self.screen.where_y());
         self.screen.goto(1, y);
@@ -731,8 +743,33 @@ impl Session {
             if let Some(k) = &key {
                 req = req.bearer_auth(k);
             }
-            let resp = req.send().await.map_err(io_err)?;
+            // New: the dots from the moment Enter is pressed, pulsing while
+            // the server takes the question in (a busy one is slow to start
+            // answering); keys typed meanwhile are dropped, or they'd page
+            // the reply and type the next question when it comes.
+            let mut tick = 0usize;
+            let mut pulse = tokio::time::interval(std::time::Duration::from_millis(220));
+            pulse.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+            let send = req.send();
+            tokio::pin!(send);
+            let resp = loop {
+                tokio::select! {
+                    r = &mut send => match r {
+                        Ok(r) => break r,
+                        Err(e) => {
+                            self.ai_thinking_done().await?;
+                            return Err(io_err(e));
+                        }
+                    },
+                    _ = pulse.tick() => {
+                        self.ai_thinking(tick).await?;
+                        tick += 1;
+                        self.ai_drop_typed().await?;
+                    }
+                }
+            };
             if !resp.status().is_success() {
+                self.ai_thinking_done().await?;
                 let status = resp.status();
                 let text = resp.text().await.unwrap_or_default();
                 return Err(io_err(format!("{status}: {}", text.chars().take(200).collect::<String>())));
@@ -759,11 +796,6 @@ impl Session {
             self.ai_style = None;
             let mut begun = false;
             let mut named = false;
-            // New: a pulse of dots while the first words are on their way.
-            let mut tick = 0usize;
-            let mut pulse = tokio::time::interval(std::time::Duration::from_millis(220));
-            pulse.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
-            pulse.tick().await;
             'stream: loop {
                 let chunk = tokio::select! {
                     c = rx.recv() => match c {
@@ -773,6 +805,7 @@ impl Session {
                     _ = pulse.tick(), if !named => {
                         self.ai_thinking(tick).await?;
                         tick += 1;
+                        self.ai_drop_typed().await?;
                         continue;
                     }
                 };
