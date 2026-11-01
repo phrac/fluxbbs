@@ -651,11 +651,7 @@ impl Session {
             "BANNER" => chat.add(&format!("|14* |13<|15#|13> |15{arg}"), false),
             "NOTIFY" => chat.add(&format!("|14* |14<|15!|14> |15{arg}"), false),
             "STATS" | "LATENCY" => chat.dirty = true,
-            _ if p.to_user.is_empty() || p.to_user.eq_ignore_ascii_case(&chat.nick) => {
-                if p.to_user != "NOTME" {
-                    chat.notice(&p.body);
-                }
-            }
+            _ if (p.to_user.is_empty() || p.to_user.eq_ignore_ascii_case(&chat.nick)) && p.to_user != "NOTME" => chat.notice(&p.body),
             _ => {}
         }
     }

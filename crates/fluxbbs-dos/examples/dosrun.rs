@@ -127,7 +127,7 @@ fn main() -> Result<(), String> {
                     *counts.entry((t.sregs[1], t.ip)).or_default() += 1;
                 }
                 let mut top: Vec<_> = counts.into_iter().collect();
-                top.sort_by(|a, b| b.1.cmp(&a.1));
+                top.sort_by_key(|t| std::cmp::Reverse(t.1));
                 eprintln!("profile at {at}s: {} instructions in the ring, status {st:?}, halted {}", ring.len(), m.cpu.halted);
                 for ((cs, ip), n) in top.iter().take(12) {
                     let bytes: Vec<String> = (0..8).map(|i| format!("{:02x}", m.mem.read8(((*cs as u32) << 4) + *ip as u32 + i))).collect();

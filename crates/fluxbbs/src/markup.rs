@@ -424,14 +424,7 @@ pub struct CodeState {
 }
 
 fn starts(chars: &[char], i: usize, s: &str) -> bool {
-    let mut k = i;
-    for c in s.chars() {
-        if chars.get(k) != Some(&c) {
-            return false;
-        }
-        k += 1;
-    }
-    true
+    s.chars().enumerate().all(|(k, c)| chars.get(i + k) == Some(&c))
 }
 
 /// One line of code in colors (tabs as 4 spaces).

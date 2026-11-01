@@ -151,7 +151,7 @@ impl Session {
                         Focus::Box(Some(i)) if i < shown.len() => Some(shown.swap_remove(i).to),
                         _ if empty => None,
                         Focus::Lucky => self.lucky(&areas, &words),
-                        _ => Some(Choice::Words(words.clone())).filter(|_| self.results(&areas, &Find::parse(&words)) > 0),
+                        _ => (self.results(&areas, &Find::parse(&words)) > 0).then(|| Choice::Words(words.clone())),
                     };
                     match choice {
                         Some(c) => {

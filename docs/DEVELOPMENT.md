@@ -107,7 +107,10 @@ static (musl) binaries for x86_64 and ARM64 with every component, packs
 each with the stock files (`fluxbbs-v0.2.0-linux-x86_64.tar.gz`), makes
 the GitHub release, and pushes `ghcr.io/phrac/fluxbbs:0.2.0` and
 `:latest` for both machines. A tag whose version doesn't match the
-crate's stops at the first step, and only `vX.Y.0` tags start it. To build an existing tag again, run the
+crate's stops at the first step, and only `vX.Y.0` tags start it.
+It checks with the Rust named in the workflow (`RUST`, 1.99.1 now):
+update rzn's (`rustup update`) and that together, since a newer clippy
+finds new things. To build an existing tag again, run the
 workflow by hand (Actions, release, Run workflow) with the tag.
 
 ## Conventions

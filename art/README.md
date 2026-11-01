@@ -67,6 +67,11 @@ messages the headers decode, `fonts/` the TheDraw fonts. They're
 disflux's own scripts, moved here; change them and run `make.py` for the
 stock set (and for your board) again.
 
+`ad-gen.py` isn't a board screen and `make.py` doesn't run it: it makes
+`FLUXBBS.ANS` here, the ad for flux/bbs and disflux (16 colors, CRLF,
+SAUCE), for ad rotations, file echoes and other boards
+(`python3 -I art/ad-gen.py > art/FLUXBBS.ANS`).
+
 The prompts that go with them (AI chat's `Ai*`, node chat's `MNC*`) are
 in the stock `strings.toml`: `agent-gen.py strings` and `nodechat-gen.py
 strings` print them, to paste in after changing their colors.

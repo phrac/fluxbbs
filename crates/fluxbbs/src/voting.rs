@@ -266,7 +266,7 @@ impl Session {
         }
         let mut lines = 4;
         for (i, a) in q.answers.iter().enumerate() {
-            let pct = if total == 0 { 0 } else { a.votes * 100 / total };
+            let pct = (a.votes * 100).checked_div(total).unwrap_or(0);
             let w = waves([("AP", format!("{pct}%")), ("AD", a.text.clone()), ("VN", (i + 1).to_string()), ("VR", a.votes.to_string())]);
             let more = match rep.as_mut() {
                 Some(r) => self.repeat_row(r, &w, false).await?,

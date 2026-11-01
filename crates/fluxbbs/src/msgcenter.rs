@@ -751,7 +751,7 @@ impl Session {
             let scores = self.state.msgs.scores(a.key()).map_err(io_err)?;
             let comments = self.state.msgs.comment_counts(a.key()).map_err(io_err)?;
             let mut ts = threads(&v.msgs);
-            ts.sort_by(|x, y| y.last.cmp(&x.last));
+            ts.sort_by_key(|x| std::cmp::Reverse(x.last));
             match self.user.thread_sort.as_str() {
                 "hot" => {
                     let heat = self.heat_now()?;

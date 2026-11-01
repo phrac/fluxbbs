@@ -2154,8 +2154,11 @@ fn fmt_secs(s: u64) -> String {
 /// Lines of an uploaded text file: UTF-8 or CP437, tabs expanded, long
 /// lines wrapped to the message width, at most 500 lines. New: lines may
 /// end CR LF, LF or (as messages' do) CR alone, and a line with ANSI in it
-/// keeps its escapes and isn't wrapped (its codes aren't columns).
+/// keeps its escapes and isn't wrapped (its codes aren't columns). A
+/// SAUCE record (and its comments) after the end-of-file mark, as art
+/// and ads carry, isn't text: it's left out.
 pub fn text_lines(bytes: &[u8]) -> Vec<String> {
+    let bytes = without_sauce(bytes);
     let utf8 = std::str::from_utf8(bytes).is_ok();
     let mut out = Vec::new();
     let mut srcs: Vec<&[u8]> = Vec::new();
@@ -2223,6 +2226,24 @@ pub(crate) fn short_size(n: u64) -> String {
     format!("{v:.0} TB")
 }
 
+/// The file without the SAUCE record at its end (128 bytes from
+/// `SAUCE00`), the comment block before it, and the end-of-file mark.
+fn without_sauce(bytes: &[u8]) -> &[u8] {
+    let n = bytes.len();
+    if n < 128 || &bytes[n - 128..n - 121] != b"SAUCE00" {
+        return bytes;
+    }
+    let mut end = n - 128;
+    let comments = bytes[n - 128 + 104] as usize;
+    if comments > 0 && end >= 5 + comments * 64 && &bytes[end - 5 - comments * 64..end - comments * 64] == b"COMNT" {
+        end -= 5 + comments * 64;
+    }
+    if end > 0 && bytes[end - 1] == 0x1a {
+        end -= 1;
+    }
+    &bytes[..end]
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2283,6 +2304,12 @@ mod tests {
         assert_eq!(l.len(), 2);
         assert!(l[0].starts_with("\x1b[1;35m") && l[0].chars().count() > 90);
         assert_eq!(l[1], "\x1b[5C\u{2588}");
+        // An ad with its SAUCE record: the record isn't part of the post.
+        let mut sauced = b"ad\r\n".to_vec();
+        sauced.push(0x1a);
+        sauced.extend(b"SAUCE00");
+        sauced.extend(b"flux/bbs ad".iter().copied().chain(std::iter::repeat(b' ')).take(121));
+        assert_eq!(text_lines(&sauced), ["ad"]);
     }
 
     #[test]
