@@ -145,19 +145,7 @@ impl Session {
                     // New: the description may be several lines: the
                     // full-screen editor.
                     'G' => {
-                        let ctx = crate::editor::EditCtx {
-                            subject: format!("{}: other info", b.name),
-                            from: self.user.handle.clone(),
-                            to: b.name.clone(),
-                            date: crate::clock::now().naive_local(),
-                            anonymous: false,
-                            can_anonymous: false,
-                            can_autosig: false,
-                            autosig: false,
-                            reply: None,
-                            auto_quote: false,
-                            text: b.info.lines().map(String::from).collect(),
-                        };
+                        let ctx = crate::editor::EditCtx::plain_text(format!("{}: other info", b.name), self.user.handle.clone(), b.name.clone(), b.info.lines().map(String::from).collect());
                         if let Some(done) = self.edit_message(ctx).await? {
                             let lines: Vec<String> = done.lines.iter().map(|l| l.trim_end().to_string()).collect();
                             let n = lines.iter().rposition(|l| !l.trim().is_empty()).map_or(0, |i| i + 1).min(crate::extras::BBS_INFO_LINES);

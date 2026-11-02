@@ -144,9 +144,14 @@ shows at the bottom as you move it, and stays there while you edit it;
 one too long for the line goes on over a second.
 
 Long text, such as AI Chat's Extra prompt (`G`, `[ai] system_prompt`),
-opens in the full-screen editor instead of on one line: write it as
-paragraphs, a blank line between them, and save (`/`, then `S`); the
-form shows it on one line.
+opens in the full-screen editor instead of on one line. Its lines are
+kept as written (a line too long for the screen is wrapped for editing
+only if you change it), and the form shows it all on one line. Save as
+with any message (`/`, then `S` full-screen; a line of `.` in plain
+mode, where the whole text is typed again). The Extra prompt holds up
+to 4,000 characters; past that, `*C` offers to take you back to the
+editor. To empty it, clear the text and save; in plain mode, where an
+empty text isn't saved, `*C` asks whether to clear it instead.
 
 ### Screen savers
 

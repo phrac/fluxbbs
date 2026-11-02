@@ -55,7 +55,7 @@ differently on purpose. Each line links to the doc with the details.
   themes can be edited while the board runs.
 - `*C` writes `fluxbbs.toml` back keeping its comments.
 - `*C` edits long settings (AI Chat's Extra prompt) in the full-screen
-  editor, in paragraphs, rather than on one line.
+  editor, keeping their lines, rather than on one line.
 - An importer for an existing DOS install: users (passwords re-hashed),
   messages, files and descriptions, areas, conferences, levels,
   strings, menus, screens, stats, history, callers, BBS list,
@@ -221,7 +221,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - Lightbar menus hold 29 options (24 before).
 - `~PC` marks where a lightbar's cursor waits (a prompt bar's slot).
 - Lists with a moving bar (area lists, `*F`...), where the original
-  asked for a number; numbers still work, and `/` searches.
+  asked for a number; numbers still work, and `/` searches. The bar
+  goes round from the last row to the first and back.
   ([FILES](FILES.md#sub-areas))
 - A list's BOT screen can be a prompt bar (`~HP` keys, `~PC` slot).
   ([ARTWORK](ARTWORK.md#prompt-bar-bot-screens))
@@ -276,6 +277,7 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   (the original moved the record anyway, pointing it at nothing), and viewing a record whose
   file is missing says so instead of hanging up.
 - View in the file lister and editor opens pictures and PDFs as the gallery does.
+- PgDn and PgUp page the file lister (next and previous).
 - Art drawn in 24-bit or 256 colour shows in its own colours in the
   scrolling viewer, not only when played.
 - PDFs in the browser: the text to read, and the pages as pictures

@@ -69,7 +69,7 @@ and `FaBarInGroup`.
 
 | Key | Does |
 |---|---|
-| arrows, PgUp/PgDn, Home/End | move the bar and scroll |
+| arrows, PgUp/PgDn, Home/End | move the bar and scroll; up from the top goes round to the bottom, down from the bottom to the top |
 | Enter or right | pick the area |
 | left or backspace | go back up a level |
 | Esc | stay put |

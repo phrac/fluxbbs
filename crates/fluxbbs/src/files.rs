@@ -1261,6 +1261,11 @@ impl Session {
                 }
                 _ => {}
             }
+            // New: PgDn and PgUp page the list (PgDn stays on the last
+            // page rather than leave it, as "next" does).
+            if key == Key::PgDn && rows.last().is_none_or(|r| r.idx + 1 >= files.len()) {
+                continue;
+            }
             let c = match key {
                 Key::Esc | Key::Backspace => Some('Q'),
                 Key::Enter => None,
@@ -1271,7 +1276,13 @@ impl Session {
                 }),
             };
             let m = if bar.is_some() { &mut barm } else { &mut list };
+            let paged = match key {
+                Key::PgDn => Some("next"),
+                Key::PgUp => Some("previous"),
+                _ => None,
+            };
             let choice = match c {
+                _ if paged.is_some() => paged,
                 None => Some(m.items[m.pos]),
                 Some(c) => m.items.iter().enumerate().find(|(i, it)| it.starts_with(c.to_ascii_lowercase()) && !m.off[*i]).map(|(i, it)| {
                     m.pos = i;
@@ -1431,19 +1442,7 @@ impl Session {
 
     /// `faEditFileDesc` (co-SysOp `edit` in the lister).
     pub(crate) async fn edit_description(&mut self, mut f: FileRec) -> io::Result<()> {
-        let ctx = EditCtx {
-            subject: format!("Desc [{}]", f.name),
-            from: self.user.handle.clone(),
-            to: "n/a".into(),
-            date: crate::clock::now().naive_local(),
-            anonymous: false,
-            can_anonymous: false,
-            can_autosig: false,
-            autosig: false,
-            reply: None,
-            auto_quote: false,
-            text: f.description.clone(),
-        };
+        let ctx = EditCtx::plain_text(format!("Desc [{}]", f.name), self.user.handle.clone(), "n/a".into(), f.description.clone());
         if let Some(done) = self.edit_message(ctx).await? {
             f.description = done.lines.into_iter().take(MAX_DESC_LINES).collect();
             self.state.files.update(&f).map_err(io_err)?;

@@ -1321,8 +1321,9 @@ impl Session {
                         search = Some(String::new());
                         typed = "/".into();
                     }
-                    Key::Up => cur = cur.saturating_sub(1),
-                    Key::Down => cur = (cur + 1).min(last),
+                    // New: the bar goes round from either end.
+                    Key::Up => cur = if cur == 0 { last } else { cur - 1 },
+                    Key::Down => cur = if cur >= last { 0 } else { cur + 1 },
                     Key::PgUp => cur = cur.saturating_sub(height),
                     Key::PgDn => cur = (cur + height).min(last),
                     Key::Home => cur = 0,

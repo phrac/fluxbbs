@@ -1115,10 +1115,13 @@ impl Session {
             }
             Item::Art { name, size, sauce, rec, .. } => {
                 let (title, by) = match (sauce, rec) {
+                    // A file of a file area: its description, if it says
+                    // anything (the SAUCE title can be a name the file
+                    // no longer has).
+                    (_, Some((_, f))) if !crate::aidesc::is_bare(f) => (crate::web::blurb(&f.description), sauce.as_ref().map(byline).unwrap_or_default()),
                     // A title that's only the file's name (or a tool's
                     // hash) gives way to the area's description.
                     (Some(s), _) if !crate::aidesc::says_nothing(&s.title, name) => (s.title.clone(), byline(s)),
-                    // A file of a file area: its description.
                     (_, Some((_, f))) if !f.description.is_empty() => (crate::web::blurb(&f.description), String::new()),
                     (Some(s), _) => (s.title.clone(), byline(s)),
                     (None, _) => (kind_word(name).to_string(), String::new()),

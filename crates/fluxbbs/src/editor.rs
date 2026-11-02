@@ -707,6 +707,26 @@ pub struct EditCtx<'a> {
     pub text: Vec<String>,
 }
 
+impl EditCtx<'_> {
+    /// For editing plain text (settings, descriptions, screens): no
+    /// anonymous, autosig or reply.
+    pub fn plain_text(subject: String, from: String, to: String, text: Vec<String>) -> Self {
+        EditCtx {
+            subject,
+            from,
+            to,
+            date: crate::clock::now().naive_local(),
+            anonymous: false,
+            can_anonymous: false,
+            can_autosig: false,
+            autosig: false,
+            reply: None,
+            auto_quote: false,
+            text,
+        }
+    }
+}
+
 pub struct EditResult {
     pub lines: Vec<String>,
     pub subject: String,

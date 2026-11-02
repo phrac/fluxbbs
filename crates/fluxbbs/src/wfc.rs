@@ -822,19 +822,7 @@ impl Session {
         let path = session::find_ci(&dir, &name).unwrap_or_else(|| dir.join(&name));
         let text = std::fs::read(&path).map(|b| fluxbbs_term::cp437::decode(&b)).unwrap_or_default();
         let lines: Vec<String> = text.trim_end_matches('\x1a').lines().map(|l| l.trim_end_matches('\r').to_string()).collect();
-        let ctx = crate::editor::EditCtx {
-            subject: name.clone(),
-            from: self.user.handle.clone(),
-            to: String::new(),
-            date: crate::clock::now().naive_local(),
-            anonymous: false,
-            can_anonymous: false,
-            can_autosig: false,
-            autosig: false,
-            reply: None,
-            auto_quote: false,
-            text: lines,
-        };
+        let ctx = crate::editor::EditCtx::plain_text(name.clone(), self.user.handle.clone(), String::new(), lines);
         if let Some(r) = self.edit_message(ctx).await? {
             let mut out = r.lines.join("\r\n");
             out.push_str("\r\n");

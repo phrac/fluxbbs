@@ -17,9 +17,9 @@ fn io_err(e: anyhow::Error) -> io::Error {
 /// How a setting is edited.
 enum Kind {
     Text(fn(&mut Config) -> &mut String, Field),
-    /// New: long text (a paragraph or more), edited in the full-screen
-    /// editor rather than on one line.
-    Prose(fn(&mut Config) -> &mut String),
+    /// New: text of several lines, edited in the full-screen editor
+    /// rather than on one line; the most characters.
+    Lines(fn(&mut Config) -> &mut String, usize),
     Bool(fn(&mut Config) -> &mut bool),
     /// Getter, setter, min, max.
     Num(fn(&Config) -> u64, fn(&mut Config, u64), u64, u64),
@@ -193,7 +193,7 @@ const ALIAS_FORMATS: [&str; 8] =
 fn shown(kind: &Kind, c: &mut Config) -> String {
     match kind {
         Kind::Text(get, _) => get(c).clone(),
-        Kind::Prose(get) => get(c).split_whitespace().collect::<Vec<_>>().join(" "),
+        Kind::Lines(get, _) => get(c).split_whitespace().collect::<Vec<_>>().join(" "),
         Kind::Bool(get) => yes_no(*get(c)).into(),
         Kind::Num(get, ..) => get(c).to_string(),
         Kind::List(get) => get(c).join(", "),
@@ -458,7 +458,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('D', "API key variable", 30, "Environment variable holding an API key, if the server needs one.", Text(|c| &mut c.ai.api_key_env, TEXT.max(60))),
             set('E', "Access", 20, "Who may use it; stock is s250|fI (SysOps, or users given flag I).", Text(|c| &mut c.ai.acs, ACS)),
             set('F', "AI's name", 20, "What the AI is called on screen and to itself.", Text(|c| &mut c.ai.name, TEXT.max(30))),
-            set('G', "Extra prompt", 50, "Added to the built-in system prompt (its personality, house rules). Opens the full-screen editor; blank lines split paragraphs.", Prose(|c| &mut c.ai.system_prompt)),
+            set('G', "Extra prompt", 50, "Added to the built-in system prompt (its personality, house rules). Opens the full-screen editor.", Lines(|c| &mut c.ai.system_prompt, 4000)),
             set('H', "Reply length", 6, "Most tokens in one reply.", Num(|c| c.ai.max_tokens as u64, |c, v| c.ai.max_tokens = v as u32, 50, 100_000)),
             set('I', "Daily limit", 5, "Messages a caller may send a day (0 = no limit; SysOps have none).", Num(|c| c.ai.daily_limit as u64, |c, v| c.ai.daily_limit = v as u32, 0, 100_000)),
             set('J', "Web search", 3, "Let the AI search the web?", Bool(|c| &mut c.ai.web_search)),
@@ -991,22 +991,38 @@ impl Session {
                         self.cfg_draw(&f);
                     }
                 }
-                Kind::Prose(get) => {
-                    let ctx = crate::editor::EditCtx {
-                        subject: s.label.to_string(),
-                        from: self.user.handle.clone(),
-                        to: self.user.handle.clone(),
-                        date: crate::clock::now().naive_local(),
-                        anonymous: false,
-                        can_anonymous: false,
-                        can_autosig: false,
-                        autosig: false,
-                        reply: None,
-                        auto_quote: false,
-                        text: prose_lines(get(cfg)),
-                    };
-                    if let Some(done) = self.edit_message(ctx).await? {
-                        *get(cfg) = prose_of(&done.lines);
+                Kind::Lines(get, max) => {
+                    let was = get(cfg).clone();
+                    let loaded = text_lines(&was);
+                    let mut text = loaded.clone();
+                    loop {
+                        let ctx = crate::editor::EditCtx::plain_text(s.label.to_string(), self.user.handle.clone(), self.user.handle.clone(), text);
+                        let done = self.edit_message(ctx).await?;
+                        self.cfg_draw(&f);
+                        let Some(done) = done else {
+                            // The plain editor won't save nothing: ask.
+                            if self.plain() && !was.is_empty() && self.cfg_ask(&mut f, "Clear it?", false).await? {
+                                get(cfg).clear();
+                            }
+                            break;
+                        };
+                        let lines: Vec<String> = done.lines.iter().map(|l| l.trim_end().to_string()).collect();
+                        let n = lines.iter().rposition(|l| !l.trim().is_empty()).map_or(0, |i| i + 1);
+                        // Unchanged: kept as it was (a long line the editor
+                        // wrapped stays one line).
+                        if lines[..n] == loaded[..] {
+                            break;
+                        }
+                        let new = lines[..n].join("\n");
+                        let len = new.chars().count();
+                        if len <= *max {
+                            *get(cfg) = new;
+                            break;
+                        }
+                        if !self.cfg_ask(&mut f, &format!("Too long: {len} characters, the most is {max}. Edit it again?"), true).await? {
+                            break;
+                        }
+                        text = lines[..n].to_vec();
                     }
                     f.set(key, shown(&s.kind, cfg));
                     self.cfg_draw(&f);
@@ -1140,40 +1156,19 @@ impl Session {
     }
 }
 
-/// Long text as lines for the editor: its paragraphs wrapped, a blank
-/// line between them.
-fn prose_lines(text: &str) -> Vec<String> {
+/// Multi-line text as lines for the editor: its own lines, any too
+/// long for the screen wrapped.
+fn text_lines(text: &str) -> Vec<String> {
     let mut out = Vec::new();
-    for para in text.split("\n\n").filter(|p| !p.trim().is_empty()) {
-        if !out.is_empty() {
-            out.push(String::new());
+    for l in text.lines() {
+        let l = l.trim_end();
+        if l.chars().count() <= 76 {
+            out.push(l.to_string());
+        } else {
+            out.extend(crate::multinode::wrap(l, 76));
         }
-        out.extend(crate::multinode::wrap(para, 76));
     }
     out
-}
-
-/// The editor's lines back as long text: each paragraph's lines joined
-/// into one, paragraphs (split by blank lines) a blank line apart.
-fn prose_of(lines: &[String]) -> String {
-    let mut paras: Vec<String> = Vec::new();
-    let mut cur = String::new();
-    for l in lines.iter().map(|l| l.trim()) {
-        if l.is_empty() {
-            if !cur.is_empty() {
-                paras.push(std::mem::take(&mut cur));
-            }
-        } else {
-            if !cur.is_empty() {
-                cur.push(' ');
-            }
-            cur.push_str(l);
-        }
-    }
-    if !cur.is_empty() {
-        paras.push(cur);
-    }
-    paras.join("\n\n")
 }
 
 #[cfg(test)]
@@ -1181,13 +1176,12 @@ mod tests {
     use super::*;
 
     #[test]
-    fn prose_round_trips_through_the_editor() {
-        let text = format!("{}\n\nSecond paragraph.", "word ".repeat(40).trim_end());
-        let lines = prose_lines(&text);
-        assert!(lines.len() > 3 && lines.iter().all(|l| l.chars().count() <= 76));
-        assert_eq!(prose_of(&lines), text);
-        assert_eq!(prose_of(&["  a".into(), "b ".into(), String::new(), String::new(), "c".into(), String::new()]), "a b\n\nc");
-        assert!(prose_lines("").is_empty());
+    fn long_text_keeps_its_lines() {
+        let text = "House rules:\n- no piracy\n\n- be kind";
+        assert_eq!(text_lines(text), ["House rules:", "- no piracy", "", "- be kind"]);
+        let long = text_lines(&"word ".repeat(40));
+        assert!(long.len() > 1 && long.iter().all(|l| l.chars().count() <= 76));
+        assert!(text_lines("").is_empty());
     }
 
     #[test]
