@@ -1346,6 +1346,10 @@ same shelf that day.
   hurries it), then the reading room's own reader shows it: the text on
   warm paper between leather bands, the title and page above, a ribbon
   below that grows as you read (plain-text callers get the lines).
+- **Ask the AI.** With the AI on, `a` in the reader has it read the
+  book and say what it is in a paragraph or two, on a card over the
+  page. The answer is kept for the book, so the next caller who asks
+  gets it at once and it costs one AI call a book.
   Leaving a book part way bookmarks it, and it opens there next time
   (a red ribbon hangs under it); reading to the end finishes it (a gold
   mark on its spine) and counts on the caller's card: the status line

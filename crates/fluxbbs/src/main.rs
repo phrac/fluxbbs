@@ -43,7 +43,7 @@ mod craps;
 mod lottery;
 #[cfg(feature = "casino")]
 mod poker;
-#[cfg(any(feature = "casino", feature = "carrierlost", feature = "effects", feature = "weather"))]
+#[cfg(any(feature = "casino", feature = "carrierlost", feature = "effects", feature = "weather", feature = "library"))]
 mod pixels;
 #[cfg(feature = "casino")]
 mod roulette;
