@@ -169,6 +169,9 @@ has the details.
   roulette and craps, a bar and a players club
 - [Carrier Lost](docs/FEATURES.md#carrier-lost): a reflex war-dialing
   run on a pixel CRT, with a shared leaderboard
+- A [reading room](docs/FEATURES.md#reading-room): a library by a fire
+  whose shelf is a new set of the board's textfiles every day, picked
+  on a theme, with bookmarks and a reading card
 - [AI chat](docs/FEATURES.md#ai-chat) that can search the web and knows
   its way around the board, and a
   [tarot and fortune door](docs/FEATURES.md#tarot-and-fortunes) it reads

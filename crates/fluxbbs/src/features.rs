@@ -16,6 +16,7 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
         "AL" => "slots",
         "AC" => "casino",
         "AP" => "carrier_lost",
+        "AB" => "library",
         // The temple, retired: old menus drop it.
         "AD" => "temple",
         "AG" => "gallery",
@@ -42,7 +43,7 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
 /// components are Cargo features (docs/BUILDING.md); one left out
 /// counts as switched off, whatever `[features]` says.
 pub fn built(name: &str) -> bool {
-    const BUILT: [(&str, bool); 12] = [
+    const BUILT: [(&str, bool); 13] = [
         ("mrc", cfg!(feature = "mrc")),
         ("weather", cfg!(feature = "weather")),
         ("email", cfg!(feature = "email")),
@@ -51,6 +52,7 @@ pub fn built(name: &str) -> bool {
         ("slots", cfg!(feature = "casino")),
         ("casino", cfg!(feature = "casino")),
         ("carrier_lost", cfg!(feature = "carrierlost")),
+        ("library", cfg!(feature = "library")),
         ("ai", cfg!(feature = "ai")),
         ("bbslink", cfg!(feature = "doors")),
         ("doors", cfg!(feature = "doors")),

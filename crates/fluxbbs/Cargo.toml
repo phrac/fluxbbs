@@ -42,7 +42,7 @@ lettre = { version = "0.11.23", default-features = false, features = ["builder",
 # in *C Features, and its settings still load.
 [features]
 default = []
-full = ["doors", "effects", "screensavers", "games", "ai", "ftn", "meshcore", "mrc", "pdf", "python", "textfiles", "email", "weather"]
+full = ["doors", "effects", "screensavers", "games", "ai", "ftn", "meshcore", "mrc", "pdf", "python", "textfiles", "email", "weather", "library"]
 # DOS doors in the built-in DOS machine, external doors, and BBSLink.
 doors = ["dep:fluxbbs-dos", "dep:reqwest", "dep:md-5"]
 # Menus and screens that animate while they wait (.FX effects, glints),
@@ -56,6 +56,8 @@ casino = []
 carrierlost = []
 # The tarot's readings come from the AI, so it brings `ai`.
 tarot = ["ai"]
+# The reading room: a shelf of textfiles a day, on a theme, by a fire.
+library = []
 # AI chat, the AI on the message boards, and its memory of callers.
 ai = ["dep:reqwest"]
 # FidoNet-style echomail: packets, tossing, binkp.

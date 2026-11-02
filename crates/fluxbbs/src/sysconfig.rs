@@ -574,6 +574,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('K', "QWK mail", 3, "Offline mail packets (QD QU).", Bool(|c| &mut c.features.qwk)),
             set('L', "Automessage", 3, "The automessage (AS AW AR).", Bool(|c| &mut c.features.automessage)),
             set('M', "Scripts", 3, "Python scripts from menus (-X).", Bool(|c| &mut c.features.scripts)),
+            set('N', "Reading room", 3, "The reading room (AB).", Bool(|c| &mut c.features.library)),
         ]),
     ]
 }
@@ -629,6 +630,16 @@ fn more_sections() -> Vec<(char, &'static str, bool, Vec<Setting>)> {
             set('C', "News screen", 12, "Screen put in each packet as its news. Blank: none.", Text(|c| &mut c.qwk.news, Field::UPPER.max(12))),
             set('D', "Goodbye screen", 12, "Screen put in each packet as its goodbye. Blank: none.", Text(|c| &mut c.qwk.goodbye, Field::UPPER.max(12))),
             set('E', "Strip signatures", 3, "Leave callers' auto-signatures out of the messages in packets?", Bool(|c| &mut c.qwk.strip_sigs)),
+        ]),
+        ('6', "Reading Room", false, vec![
+            set('A', "Access", 20, "Who may come in (AB).", Text(|c| &mut c.library.acs, ACS)),
+            set('B', "Areas", 50, "File areas (storage keys) the books come from, their sub-areas too; blank: every area.", List(|c| &mut c.library.areas)),
+            set('C', "Most books", 3, "The most books on a day's shelf (33 fit).", Num(|c| c.library.books as u64, |c, v| c.library.books = v as u32, 1, 33)),
+            set('D', "Fewest books", 3, "The fewest a theme must find to be the day's; else the next theme is tried.", Num(|c| c.library.min_books as u64, |c, v| c.library.min_books = v as u32, 1, 33)),
+            set('E', "Smallest (KB)", 4, "Files smaller than this aren't shelved.", Num(|c| c.library.min_kb as u64, |c, v| c.library.min_kb = v as u32, 0, 9999)),
+            set('F', "Largest (KB)", 4, "Nor files bigger than this.", Num(|c| c.library.max_kb as u64, |c, v| c.library.max_kb = v as u32, 1, 9999)),
+            set('G', "Skip words", 50, "Words that keep a file off the shelf, over the built-in ones (how-tos for harm, release notes).", List(|c| &mut c.library.skip)),
+            set('H', "Built-in themes", 3, "Use the built-in themes as well as the board's own ([[library.theme]] in fluxbbs.toml)?", Bool(|c| &mut c.library.builtin_themes)),
         ]),
         ('3', "Doors and Weather", false, vec![
             set('A', "DOSBox command", 50, "Blank: the built-in DOS machine runs DOS doors. Else a DOSBox command (%C: the config written for each door), for a door it can't run.", Text(|c| &mut c.dos.emulator, TEXT.max(200))),
@@ -765,6 +776,7 @@ const GROUPS: &[Group] = &[
         ('P', "Upload Tests", "Testing and unpacking uploads, the BBS ad, pictures"),
         ('G', "Art Gallery", "The gallery's folder or file area, access, play speed"),
         ('2', "QWK Mail", "Offline mail packets: the packet name, its screens, signatures"),
+        ('6', "Reading Room", "The day's shelf of textfiles: access, areas, how many, skip words"),
     ]),
     ("talk & networks", &[
         ('Q', "Chat Mode", "Paging the SysOp: hours, beeps, overrides"),

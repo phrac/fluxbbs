@@ -237,6 +237,8 @@ impl Session {
             "AC" => self.casino(param).await?,
             #[cfg(feature = "carrierlost")]
             "AP" => self.carrier_lost(param).await?,
+            #[cfg(feature = "library")]
+            "AB" => self.library(param).await?,
             "MF" => self.top_fillers().await?,
             "FW" => self.file_browser(param).await?,
             "FV" => self.view_archive(param).await?,

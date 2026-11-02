@@ -103,7 +103,9 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
 }
 # Options a menu gains off the bar (their keys work; the screen says so):
 # the doors menu's s, its full scoreboard.
-HIDDEN_ADDED = {'door': [{'keys': 'S', 'command': '-F', 'param': 'DOORSTAT', 'desc': 'Scoreboard', 'help': 'Who played what, when and for how long', 'hidden': True}]}
+# and r, the reading room.
+HIDDEN_ADDED = {'door': [{'keys': 'S', 'command': '-F', 'param': 'DOORSTAT', 'desc': 'Scoreboard', 'help': 'Who played what, when and for how long', 'hidden': True},
+                         {'keys': 'R', 'command': 'AB', 'param': '', 'desc': 'Reading room', 'help': "A shelf of textfiles by the fire, on a new theme every day", 'hidden': True}]}
 DROP_REST = {'door', 'more'}
 # Menus with no stock menu of their own: whose options they take, and
 # their own title, prompt and screen.

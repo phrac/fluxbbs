@@ -456,6 +456,11 @@ All in [FEATURES](FEATURES.md#message-center).
   colours and spacing go out on echomail.
 - Catching up: `z` in the message center marks a board, a folder or
   every board read (plain text: `z <#>`, `z all`, `z` in a board).
+- The reading room (`AB`): a library by a fire, drawn on the pixel
+  stage, whose shelf is 15 to 30 of the board's textfiles that change
+  every day, picked across the areas on a theme (hackers, ghost
+  stories, the kitchen...); books open at the caller's bookmark, and
+  reading one to the end marks it on their card.
 - Carrier Lost (`AP`): a reflex war-dialing run on the pixel stage.
   Tune a dial until the needle sits on a live carrier and lock on, then
   catch a three-signal handshake in its sync band for a haul of bytes.
@@ -648,6 +653,7 @@ All in [DOORS](DOORS.md).
 | `AL` (+ `free`) | the slot machine; `free`, the day's free pull |
 | `!P` (+ `lottery` `tip`) | your points, the lottery, tips |
 | `AP` | Carrier Lost (the dial-up game) |
+| `AB` (+ `new`, SysOps) | the reading room; `new` chooses today's shelf again |
 | `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin` `search`) | file browser |
 | `MH` | message center |

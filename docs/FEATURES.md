@@ -1311,6 +1311,65 @@ The dial cap (dials a night) is in `*C`, Casino and Carrier Lost; the
 rest of `[carrier]` (bytes a file point, gear cost) is in the board's
 TOML.
 
+## Reading room
+
+`AB` (the stock door menu's hidden `R`) is the reading room: a library
+drawn on the casino's pixel stage, a fire going in the grate, a cat
+asleep on the rug, and a bookcase whose shelf is a set of the board's
+textfiles that changes every day (`library.rs`). Every caller sees the
+same shelf that day.
+
+- **The day's theme.** Each day has one: hackers, phone phreaks, BBS
+  days, ghost stories, the space race, the kitchen, and so on (23 are
+  built in). A theme is a set of words; the books are files whose name
+  or description has them (their areas' names count for less), so a
+  shelf is a curated mix from across the board rather than one
+  directory: at most three from any one area, and a third of the shelf
+  from any one section. A credit ("by The Silver Ghost") doesn't count
+  as what a file is about.
+- **Days.** A theme can have days of its own (`MM-DD`, or a range
+  `MM-DD..MM-DD`): ghost stories at Halloween, hackers on 2 November
+  (the Morris worm), the kitchen at Thanksgiving. The rest go round a
+  day at a time, and one whose day is within a week waits for it.
+- **What's shelved.** Text that reads as prose (mostly letters; no
+  ANSI, tables or lists), between `min_kb` and `max_kb`, in a validated
+  record. How-tos for hurting people and files that aren't for reading
+  (release notes, cracks, BBS lists) never are: a built-in list of
+  words, which `skip` adds to. Copies of one file are shelved once.
+- **Choosing.** The day's first visit chooses the shelf and keeps it;
+  a SysOp's `AB new` chooses again. If a theme finds fewer than
+  `min_books`, the next is tried.
+- **In the room.** The arrows walk along the shelves (up and down a
+  shelf at a time, round from either end); the line under the room
+  says what the book under the bar is. Enter opens it in the viewer.
+  Leaving a book part way bookmarks it, and it opens there next time
+  (a red ribbon hangs under it); reading to the end finishes it (a gold
+  mark on its spine) and counts on the caller's card: the status line
+  shows how many of today's they've read, how many in all, and who
+  else is in the room. Plain-text callers get a numbered list.
+- `fluxbbs library [--day YYYY-MM-DD] [--days N]` shows what a day's
+  shelf would be (or the themes of the days to come) without keeping
+  it, for trying out themes.
+
+    [library]
+    acs = ""            # who may come in
+    areas = []          # file areas the books come from (and their sub-areas); none: all
+    books = 24          # the most on a shelf (33 fit)
+    min_books = 15      # the fewest a theme must find
+    min_kb = 2
+    max_kb = 64
+    skip = []           # more words that keep a file off the shelf
+    builtin_themes = true
+
+    [[library.theme]]   # the board's own, beside the built-in ones
+    name = "Modem nights"
+    note = "Dial in, stay up late."
+    words = ["modem", "baud", "carrier", "hayes"]
+    dates = ["03-21"]
+
+All of it is in `*C`, Reading Room (`6`), but the themes, which are in
+the TOML. The feature switch is `[features] library` (`*C`, Features).
+
 ## Message center
 
 `MH` (`r` on the message menu) and `MW Read` (`n` there) replace the

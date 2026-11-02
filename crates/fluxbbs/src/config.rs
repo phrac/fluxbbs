@@ -49,6 +49,8 @@ pub struct Config {
     pub email: Email,
     /// New: the weather door (`weather`).
     pub weather: Weather,
+    /// New: the reading room (`library`).
+    pub library: Library,
     /// New: which parts of the board are on.
     pub features: Features,
     /// External transfer protocols, in addition to built-in Zmodem. Only
@@ -202,6 +204,7 @@ pub struct Features {
     pub qwk: bool,
     pub automessage: bool,
     pub scripts: bool,
+    pub library: bool,
 }
 
 impl Default for Features {
@@ -221,13 +224,14 @@ impl Default for Features {
             qwk: true,
             automessage: true,
             scripts: true,
+            library: true,
         }
     }
 }
 
 impl Features {
     /// Each feature's name (as in the TOML) and whether it's on.
-    pub fn all(&self) -> [(&'static str, bool); 13] {
+    pub fn all(&self) -> [(&'static str, bool); 14] {
         [
             ("tarot", self.tarot),
             ("slots", self.slots),
@@ -242,6 +246,7 @@ impl Features {
             ("qwk", self.qwk),
             ("automessage", self.automessage),
             ("scripts", self.scripts),
+            ("library", self.library),
         ]
     }
 
@@ -254,6 +259,49 @@ impl Features {
     pub fn off(&self) -> Vec<&'static str> {
         self.all().iter().filter(|(_, on)| !on).map(|(n, _)| *n).collect()
     }
+}
+
+/// The reading room (`AB`; new): a shelf of textfiles a day, on a theme.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct Library {
+    /// Who may come in.
+    pub acs: String,
+    /// The file areas (storage keys) the books come from, their
+    /// sub-areas too; none: every file area.
+    pub areas: Vec<String>,
+    /// The most books on the shelf, and the fewest a theme must find to
+    /// be used.
+    pub books: u32,
+    pub min_books: u32,
+    /// Sizes a book may be, in KB.
+    pub min_kb: u32,
+    pub max_kb: u32,
+    /// Words that keep a file off the shelf (in its name or
+    /// description), over the built-in ones.
+    pub skip: Vec<String>,
+    /// Use the built-in themes as well as the board's own.
+    pub builtin_themes: bool,
+    /// The board's own themes.
+    #[serde(rename = "theme", skip_serializing_if = "Vec::is_empty")]
+    pub themes: Vec<LibraryTheme>,
+}
+
+impl Default for Library {
+    fn default() -> Self {
+        Self { acs: String::new(), areas: Vec::new(), books: 24, min_books: 15, min_kb: 2, max_kb: 64, skip: Vec::new(), builtin_themes: true, themes: Vec::new() }
+    }
+}
+
+/// A day's theme: the words its books are found by, what the mantel
+/// says, and the days it takes over (`MM-DD`, or `MM-DD..MM-DD`).
+#[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct LibraryTheme {
+    pub name: String,
+    pub note: String,
+    pub words: Vec<String>,
+    pub dates: Vec<String>,
 }
 
 /// The art gallery (`AG`; new): a folder of art and art packs.

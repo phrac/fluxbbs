@@ -288,6 +288,7 @@ fn activity(raw: &str) -> String {
         "Paging the SysOp" => "paging the sysop",
         r if r.starts_with("Chatting") => "chatting",
         r if r.starts_with("Writing") => "writing a message",
+        r if r == "In the reading room" || r.ends_with(" in the reading room") => "in the reading room",
         _ => "online",
     }
     .into()

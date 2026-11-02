@@ -20,6 +20,7 @@ disflux, the flagship board, runs with all of them.
 | `carrierlost` | Carrier Lost (`AP`) | |
 | `tarot` | The tarot and fortunes (`AT`) | `ai`, which it brings: the AI reads the cards |
 | `games` | All three games: `casino`, `carrierlost`, `tarot` | |
+| `library` | The reading room (`AB`): a shelf of the board's textfiles by a fire, on a new theme every day; `fluxbbs library` shows the shelves to come | |
 | `ai` | AI chat (`AI`), the AI on the message boards, and the board's memory of callers | HTTPS; an OpenAI-style model server (`[ai]`) |
 | `ftn` | FTN echomail: packets, tossing, binkp, `fluxbbs ftn` | |
 | `meshcore` | The MeshCore radio bridge | a MeshCore companion radio |
@@ -97,6 +98,6 @@ Where core code calls into it, give the core a stand-in (as the
 effects' `Ambient` and the MeshCore outbox have) rather than scattering
 `cfg`s through the callers. To check every component on its own:
 
-    for f in doors effects screensavers casino carrierlost tarot ai ftn meshcore mrc pdf python textfiles; do
+    for f in doors effects screensavers casino carrierlost tarot library ai ftn meshcore mrc pdf python textfiles; do
         cargo clippy -p fluxbbs --all-targets --no-default-features --features $f
     done

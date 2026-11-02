@@ -51,6 +51,8 @@ mod roulette;
 mod slotart;
 #[cfg(feature = "casino")]
 mod slots;
+#[cfg(feature = "library")]
+mod library;
 mod links;
 mod regret;
 mod archview;
@@ -703,6 +705,13 @@ async fn run() -> anyhow::Result<()> {
         return ftn_command(&args[1..]).await;
         #[cfg(not(feature = "ftn"))]
         anyhow::bail!("echomail isn't built into this board (build with --features ftn; docs/BUILDING.md)");
+    }
+    // New: `fluxbbs library [--day D] [--days N] [config]`.
+    if args.first().is_some_and(|a| a == "library") {
+        #[cfg(feature = "library")]
+        return library::from_args(&args[1..]);
+        #[cfg(not(feature = "library"))]
+        anyhow::bail!("the reading room isn't built into this board (build with --features library; docs/BUILDING.md)");
     }
     // New: `fluxbbs describe [--dry-run] [--limit N] [config]`.
     if args.first().is_some_and(|a| a == "describe") {

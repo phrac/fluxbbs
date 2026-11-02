@@ -1696,12 +1696,17 @@ impl Session {
     /// viewer: the text before any SAUCE record, CP437 unless it's UTF-8.
     /// New: code and Markdown drawn (`markup.rs`), and the area named.
     async fn view_text_file(&mut self, path: &Path, name: &str, area: &str) -> io::Result<()> {
+        let grid = self.text_grid(path, name)?;
+        let title = format!("{name} in {}", crate::editor::strip_colours(area));
+        self.page_grid(&title, &grid).await
+    }
+
+    /// A text file drawn for the viewer.
+    pub(crate) fn text_grid(&self, path: &Path, name: &str) -> io::Result<Vec<Vec<crate::pager::Cell>>> {
         let data = std::fs::read(path)?;
         let text = crate::upscan::text_part(&data);
         let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
-        let grid = crate::pager::trimmed(crate::pager::render_named(text, utf8, name, &self.look()));
-        let title = format!("{name} in {}", crate::editor::strip_colours(area));
-        self.page_grid(&title, &grid).await
+        Ok(crate::pager::trimmed(crate::pager::render_named(text, utf8, name, &self.look())))
     }
 
     /// A scratch directory of this node's own for archiver work.

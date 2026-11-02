@@ -371,6 +371,12 @@ impl Session {
     /// The same, with `extra` keys that also end it (returned, upper
     /// case) and `help` naming the status line's string.
     pub(crate) async fn page_grid_keys(&mut self, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char]) -> io::Result<Option<char>> {
+        self.page_grid_from(title, grid, help, extra, 0).await.map(|r| r.key)
+    }
+
+    /// The same, opened at line `start` (a bookmark); says where the
+    /// caller left it and whether they saw the end.
+    pub(crate) async fn page_grid_from(&mut self, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char], start: usize) -> io::Result<Paged> {
         self.full_screen_done();
         // New: plain text gets the lines, one after another.
         if self.plain() {
@@ -384,13 +390,14 @@ impl Session {
             }
             self.write("--- end");
             self.newline();
-            return Ok(None);
+            return Ok(Paged { key: None, top: 0, seen_end: true });
         }
         let rows = self.screen.rows().max(5) as usize;
         let height = rows - 2;
         let total = grid.len();
         let last_top = total.saturating_sub(height);
-        let mut top = 0usize;
+        let mut top = start.min(last_top);
+        let mut seen_end = false;
         // New: rows wider than the screen (a web page's tables and
         // `<pre>`) scroll sideways with the left and right arrows.
         let wide = grid.iter().map(Vec::len).max().unwrap_or(0);
@@ -422,12 +429,13 @@ impl Session {
                 let help = self.strings().get(help).to_string();
                 self.show(&help).await?;
                 drawn = Some((top, left));
+                seen_end |= top >= last_top;
             }
             let key = self.read_key().await?;
             if let Some(c) = key.upper().filter(|c| extra.contains(c)) {
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                 self.clear_screen();
-                return Ok(Some(c));
+                return Ok(Paged { key: Some(c), top, seen_end });
             }
             match key {
                 Key::Left => left = left.saturating_sub(SIDEWAYS),
@@ -454,8 +462,18 @@ impl Session {
         }
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
         self.clear_screen();
-        Ok(None)
+        Ok(Paged { key: None, top, seen_end })
     }
+}
+
+/// How a page through a grid ended: the key that ended it (one of the
+/// extra keys), the line at the top, and whether the end was shown.
+pub(crate) struct Paged {
+    pub key: Option<char>,
+    #[cfg_attr(not(feature = "library"), allow(dead_code))]
+    pub top: usize,
+    #[cfg_attr(not(feature = "library"), allow(dead_code))]
+    pub seen_end: bool,
 }
 
 #[cfg(test)]

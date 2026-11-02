@@ -178,6 +178,13 @@ help = "Who played what, when and for how long"
 hidden = true
 
 [[command]]
+keys = "R"
+command = "AB"
+desc = "Reading room"
+help = "A shelf of textfiles by the fire, on a new theme every day"
+hidden = true
+
+[[command]]
 keys = "Q"
 command = "-\\"
 param = "main"
