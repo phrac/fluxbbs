@@ -821,9 +821,14 @@ struct Look {
     picked: bool,
     finished: bool,
     marked: bool,
+    /// Off the shelf (being read): a gap where it stood.
+    gone: bool,
 }
 
 fn draw_spine(cv: &mut Canvas, x: i32, board: i32, name: &str, look: Look, old: bool) {
+    if look.gone {
+        return;
+    }
     let (c, h) = spine(name);
     let c = if old { scale(c, 0.45) } else if look.picked { add(scale(c, 1.3), rgb(60, 50, 30), 0.6) } else { c };
     let lift = if look.picked { 1 } else { 0 };
@@ -1022,6 +1027,74 @@ fn draw_room(cv: &mut Canvas, t: f32, shelf: &Shelf, pick: usize, looks: &[Look]
     cv.label(21usize.saturating_sub(plaque.chars().count() / 2), 3, &plaque, rgb(40, 24, 10), Some(rgb(186, 146, 70)));
 }
 
+/// A book taken down and opened, `k` of the way (0 to 1): pulled out of
+/// its place on the shelf (`from`: its middle), carried to the middle
+/// of the room as it turns to show its cover, then opened onto its
+/// pages, the room dimming behind it.
+fn draw_pull(cv: &mut Canvas, k: f32, from: (f32, f32), color: [f32; 3]) {
+    let lerp = |a: f32, b: f32, t: f32| a + (b - a) * t;
+    let dim = 0.6 * smooth(0.15, 0.6, k);
+    if dim > 0.0 {
+        for p in cv.px.iter_mut() {
+            *p = scale(*p, 1.0 - dim);
+        }
+    }
+    let (cx, cy) = (40.0, 22.0);
+    let out = smooth(0.0, 0.22, k);
+    let fly = smooth(0.22, 0.6, k);
+    let open = smooth(0.62, 0.95, k);
+    // Pulled out (up and a little forward), then carried.
+    let x = lerp(from.0, cx, fly);
+    let y = lerp(from.1 - 2.0 * out, cy, fly);
+    let w = lerp(2.0 + out, 15.0, fly);
+    let h = lerp(7.0, 22.0, fly);
+    let cover = |cv: &mut Canvas, x0: f32, x1: f32, top: f32, bot: f32| {
+        for py in top.round() as i32..bot.round() as i32 {
+            for px in x0.round() as i32..x1.round() as i32 {
+                let edge = px == x0.round() as i32 || px == x1.round() as i32 - 1 || py == top.round() as i32 || py == bot.round() as i32 - 1;
+                let band = ((py as f32 - top) / (bot - top) - 0.25).abs() < 0.05 || ((py as f32 - top) / (bot - top) - 0.75).abs() < 0.05;
+                let c = if edge || band { mix(color, rgb(220, 180, 90), 0.6) } else { color };
+                cv.set(px, py, c);
+            }
+        }
+    };
+    let page = |cv: &mut Canvas, x0: f32, x1: f32, top: f32, bot: f32, seed: i32| {
+        for py in top.round() as i32..bot.round() as i32 {
+            for px in x0.round() as i32..x1.round() as i32 {
+                let inner = py > top.round() as i32 + 1 && py < bot.round() as i32 - 2 && px > x0.round() as i32 + 1 && px < x1.round() as i32 - 2;
+                // Lines of print, words and gaps.
+                let ink = inner && py % 2 == 0 && hash(px / 3 + seed, py) > 0.25;
+                cv.set(px, py, if ink { rgb(150, 132, 104) } else { mix(rgb(242, 230, 200), rgb(214, 196, 160), (px as f32 - x0) / (x1 - x0).max(1.0)) });
+            }
+        }
+    };
+    let (top, bot) = (y - h / 2.0, y + h / 2.0);
+    if open <= 0.0 {
+        cover(cv, x - w / 2.0, x + w / 2.0, top, bot);
+        return;
+    }
+    // Open: the right page lies under the cover, which swings over to
+    // the left and becomes the left page.
+    let half = 15.0;
+    page(cv, cx, cx + half, top, bot, 7);
+    if open < 0.5 {
+        let cw = half * (1.0 - 2.0 * open);
+        cover(cv, cx, cx + cw.max(1.0), top - 1.0, bot + 1.0);
+    } else {
+        let lw = half * (2.0 * open - 1.0);
+        page(cv, cx - lw.max(1.0), cx, top, bot, 3);
+        // The cover showing behind the left page once it's flat.
+        if open > 0.9 {
+            cover(cv, cx - half - 1.0, cx - half, top - 1.0, bot + 1.0);
+            cover(cv, cx + half, cx + half + 1.0, top - 1.0, bot + 1.0);
+        }
+    }
+    // The spine's shadow down the middle.
+    for py in top.round() as i32..bot.round() as i32 {
+        cv.blend(cx as i32, py, rgb(90, 70, 50), 0.5);
+    }
+}
+
 // ---- the caller's card ---------------------------------------------------------
 
 /// What a caller has read: books finished, and bookmarks (the line each
@@ -1118,7 +1191,7 @@ impl Session {
                 .iter()
                 .map(|b| {
                     let k = b.key();
-                    Look { picked: false, finished: card.finished.contains(&k), marked: card.marks.iter().any(|m| m.0 == k) }
+                    Look { finished: card.finished.contains(&k), marked: card.marks.iter().any(|m| m.0 == k), ..Default::default() }
                 })
                 .collect();
             let mut st = self.stage_open();
@@ -1131,7 +1204,7 @@ impl Session {
                 line_for = Some(pick);
             }
             let since = Instant::now();
-            let go: Option<Book> = loop {
+            let go: Option<(Book, Option<usize>)> = loop {
                 if line_for != Some(pick) {
                     let n = today_counts.get(&shelf.books[pick].key()).copied().unwrap_or(0);
                     let line = self.book_line(&shelf, pick, &looks, n);
@@ -1163,7 +1236,7 @@ impl Session {
                         match key {
                             Key::Up | Key::Left => *sel = (*sel + n - 1) % n,
                             Key::Down | Key::Right | Key::Tab => *sel = (*sel + 1) % n,
-                            Key::Enter | Key::Char(b' ') => break Some(list[*sel].0.clone()),
+                            Key::Enter | Key::Char(b' ') => break Some((list[*sel].0.clone(), None)),
                             _ => overlay = None,
                         }
                         continue;
@@ -1180,7 +1253,7 @@ impl Session {
                     Key::Down => pick = if pick + per < n { pick + per } else { pick % per },
                     Key::Home => pick = 0,
                     Key::End => pick = n - 1,
-                    Key::Enter | Key::Char(b' ') => break Some(shelf.books[pick].clone()),
+                    Key::Enter | Key::Char(b' ') => break Some((shelf.books[pick].clone(), Some(pick))),
                     Key::Esc => break None,
                     k => match k.upper() {
                         Some('Q') => break None,
@@ -1199,8 +1272,40 @@ impl Session {
                     },
                 }
             };
+            // The book comes down off the shelf (or up off the lamp
+            // table, one from the most read) and opens.
+            if let Some((b, at)) = &go {
+                let from = match at {
+                    Some(i) => {
+                        let (x, shelf_no) = slots(shelf.books.len())[*i];
+                        (x as f32 + 1.0, BOARDS[shelf_no] as f32 - 4.0)
+                    }
+                    None => (73.0, 34.0),
+                };
+                let mut gone = looks.clone();
+                if let Some(i) = at {
+                    gone[*i].gone = true;
+                }
+                self.stage_line(MSG_ROW, &[], st.truecolor);
+                let start = Instant::now();
+                loop {
+                    let k = start.elapsed().as_secs_f32() / 1.6;
+                    let t = st.t();
+                    draw_room(&mut st.cv, t, &shelf, usize::MAX, &gone, &shelf.theme);
+                    draw_pull(&mut st.cv, k.min(1.0), from, spine(&b.name).0);
+                    self.stage_show(&mut st, true).await?;
+                    self.flush().await?;
+                    if k >= 1.15 || self.key_waiting().await? {
+                        break;
+                    }
+                    tokio::time::sleep(Duration::from_millis(45)).await;
+                }
+                while self.key_waiting().await? {
+                    self.read_key().await?;
+                }
+            }
             self.stage_close();
-            let Some(b) = go else { break };
+            let Some((b, _)) = go else { break };
             message = self.read_book(&b, &shelf).await?;
             overlay = None;
         }
@@ -1290,7 +1395,7 @@ impl Session {
         tracing::info!("{}: library: reading {}", self.user.handle, key);
         count_read(&self.state, b, self.user.id);
         let title = if b.title.is_empty() { b.name.clone() } else { format!("{} ({})", b.title, b.name) };
-        let paged = self.page_grid_from(&title, &grid, "ViewerHelp", &[], start).await?;
+        let paged = if self.plain() { self.page_grid_from(&title, &grid, "ViewerHelp", &[], start).await? } else { self.book_reader(&title, &grid, start).await? };
         card.marks.retain(|m| m.0 != key);
         let said = if !paged.seen_end && paged.top == 0 {
             // Put back unread: nothing to say.
@@ -1310,6 +1415,103 @@ impl Session {
         };
         self.card_save(&mut card);
         Ok(Some(painted(&crate::editor::strip_colours(&said), [235, 205, 150])))
+    }
+
+    /// The reading room's own reader: the text on warm paper between
+    /// bands of leather, the title and page over it, a ribbon under it
+    /// showing how far in.
+    async fn book_reader(&mut self, title: &str, grid: &[Vec<crate::pager::Cell>], start: usize) -> io::Result<crate::pager::Paged> {
+        let tc = self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8;
+        let bg = |out: &mut Vec<u8>, c: Ink| {
+            if tc {
+                out.extend(format!("\x1b[48;2;{};{};{}m", c[0], c[1], c[2]).as_bytes());
+            } else {
+                out.extend(format!("\x1b[48;5;{}m", crate::picture::xterm256(c)).as_bytes());
+            }
+        };
+        const PAPER: Ink = [38, 28, 20];
+        const PRINT: Ink = [236, 220, 188];
+        const LEATHER: Ink = [86, 34, 26];
+        const GILT: Ink = [232, 190, 110];
+        let rows = self.screen.rows().max(5) as usize;
+        let height = rows - 2;
+        let total = grid.len();
+        let last_top = total.saturating_sub(height);
+        let mut top = start.min(last_top);
+        let mut seen_end = false;
+        let pages = total.div_ceil(height).max(1);
+        // A margin, where the text leaves room for one.
+        let wide = grid.iter().map(|r| r.iter().rposition(|c| c.ch > b' ').map_or(0, |i| i + 1)).max().unwrap_or(0);
+        let margin = (80usize.saturating_sub(wide) / 2).min(2);
+        // Every cell is painted (not left to erase-line, which not every
+        // terminal fills with the background).
+        let fill = |out: &mut Vec<u8>, used: usize| out.extend(std::iter::repeat_n(b' ', 80usize.saturating_sub(used)));
+        self.screen.write_bytes(b"\x1b[?25l");
+        let mut drawn = None;
+        loop {
+            if drawn != Some(top) {
+                seen_end |= top >= last_top;
+                let mut out = Vec::new();
+                // The band over the page: the book's title, where we are.
+                out.extend(b"\x1b[1;1H\x1b[0m");
+                bg(&mut out, LEATHER);
+                ink(&mut out, GILT, tc);
+                let page = format!("page {} of {}", (top / height + 1).min(pages), pages);
+                let room = 80 - page.len() - 8;
+                let t: String = title.chars().take(room).collect();
+                let line: String = format!("  \u{2666} {t:<room$} {page}  ").chars().take(80).collect();
+                out.extend(fluxbbs_term::cp437::encode(&line));
+                fill(&mut out, line.chars().count());
+                for k in 0..height {
+                    out.extend(format!("\x1b[{};1H", k + 2).as_bytes());
+                    bg(&mut out, PAPER);
+                    ink(&mut out, PRINT, tc);
+                    let mut text = vec![b' '; margin];
+                    if let Some(row) = grid.get(top + k) {
+                        text.extend(row.iter().take(80 - margin).map(|c| if c.ch < 0x20 { b' ' } else { c.ch }));
+                    }
+                    let used = text.len();
+                    out.extend(text);
+                    fill(&mut out, used);
+                }
+                // The band under it: a ribbon as long as the way in, the keys.
+                out.extend(format!("\x1b[{rows};1H").as_bytes());
+                bg(&mut out, LEATHER);
+                let done = ((top + height).min(total) as f32 / total.max(1) as f32 * 16.0).round() as usize;
+                ink(&mut out, [200, 40, 50], tc);
+                out.extend(b"  ");
+                out.extend(std::iter::repeat_n(0xDB, done));
+                ink(&mut out, [120, 60, 50], tc);
+                out.extend(std::iter::repeat_n(0xB0, 16 - done));
+                ink(&mut out, GILT, tc);
+                let keys = b"   pgup/pgdn turn  up/down line  home/end  q closes";
+                out.extend(keys);
+                fill(&mut out, 2 + 16 + keys.len());
+                out.extend(b"\x1b[0m");
+                self.screen.write_bytes(&out);
+                drawn = Some(top);
+            }
+            let key = self.read_key().await?;
+            top = match key {
+                Key::Up => top.saturating_sub(1),
+                Key::Down | Key::Enter => (top + 1).min(last_top),
+                Key::PgUp => top.saturating_sub(height),
+                Key::PgDn => (top + height).min(last_top),
+                Key::Home => 0,
+                Key::End => last_top,
+                Key::Esc => break,
+                k => match k.upper() {
+                    Some(' ' | 'N') => (top + height).min(last_top),
+                    Some('P') => top.saturating_sub(height),
+                    Some('B' | 'Q' | 'X') => break,
+                    _ => top,
+                },
+            };
+        }
+        self.screen.write_bytes(b"\x1b[0m\x1b[?25h");
+        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+        self.clear_screen();
+        Ok(crate::pager::Paged { key: None, top, seen_end })
     }
 
     async fn library_plain(&mut self, shelf: &Shelf) -> io::Result<()> {
@@ -1420,6 +1622,12 @@ mod tests {
         looks[9].marked = true;
         let mut cv = Canvas::new(W, H);
         draw_room(&mut cv, t, &shelf, 5, &looks, &shelf.theme);
+        if let Some(k) = std::env::var("ROOM_PULL").ok().and_then(|k| k.parse::<f32>().ok()) {
+            let (x, shelf_no) = slots(24)[5];
+            looks[5].gone = true;
+            draw_room(&mut cv, t, &shelf, usize::MAX, &looks, &shelf.theme);
+            draw_pull(&mut cv, k, (x as f32 + 1.0, BOARDS[shelf_no] as f32 - 4.0), spine("book5.txt").0);
+        }
         match std::env::var("ROOM_CARD").as_deref() {
             Ok("note") => {
                 let text = "Pull up a chair, the kettle's on. Tonight it's the phone network and the kids who knew it better than Ma Bell. Start with The Black Box and mind the operator.";

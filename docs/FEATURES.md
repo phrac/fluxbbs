@@ -1341,7 +1341,11 @@ same shelf that day.
   `min_books`, the next is tried.
 - **In the room.** The arrows walk along the shelves (up and down a
   shelf at a time, round from either end); the line under the room
-  says what the book under the bar is. Enter opens it in the viewer.
+  says what the book under the bar is. Enter takes it down: it slides
+  off the shelf, comes forward as the room dims, and opens (any key
+  hurries it), then the reading room's own reader shows it: the text on
+  warm paper between leather bands, the title and page above, a ribbon
+  below that grows as you read (plain-text callers get the lines).
   Leaving a book part way bookmarks it, and it opens there next time
   (a red ribbon hangs under it); reading to the end finishes it (a gold
   mark on its spine) and counts on the caller's card: the status line

@@ -460,7 +460,8 @@ All in [FEATURES](FEATURES.md#message-center).
   stage, whose shelf is 15 to 30 of the board's textfiles that change
   every day, picked across the areas on a theme (hackers, ghost
   stories, the kitchen...); books open at the caller's bookmark, and
-  reading one to the end marks it on their card. The AI leaves a note
+  reading one to the end marks it on their card. A book is pulled off
+  the shelf and opened on screen, and read on warm paper. The AI leaves a note
   about the day's shelf on the mantel (`n`), and `m` shows the most
   read books, all time and today.
 - Carrier Lost (`AP`): a reflex war-dialing run on the pixel stage.
