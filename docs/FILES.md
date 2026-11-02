@@ -483,6 +483,7 @@ too.
 
 | Key | Does |
 |---|---|
+| arrows, PgUp/PgDn, Home/End | move the bar; up and PgUp from the top go round to the bottom, down and PgDn from the bottom to the top |
 | Enter | views a piece in the scrolling viewer |
 | P | plays it as it was sent in its day, which is how animated ANSIs animate; any key stops it |
 | S | cycles the play speed: instant, 2400, 9600, 14400, 28800, 38400, 57600, 115200 |

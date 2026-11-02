@@ -48,6 +48,24 @@ pub fn commas(n: u64) -> String {
 
 /// A file's description from FILE_ID.DIZ (or another named file) inside a
 /// ZIP archive.
+/// Where the page of the file lister that ends before `end` starts: as
+/// many files back as fill its rows (one at least), each as
+/// `lister_page` lays it out.
+fn page_back(files: &[FileRec], end: usize, l: &Layout) -> usize {
+    let lines = (l.bot - l.top + 1) as usize;
+    let (mut first, mut used) = (end, 0);
+    while first > 0 {
+        let f = &files[first - 1];
+        let need = f.description.len().max(1) + lister_shown_name(&f.name, l.name_width()).is_none() as usize;
+        if used + need > lines && first < end {
+            break;
+        }
+        used += need;
+        first -= 1;
+    }
+    first
+}
+
 pub fn zip_description(path: &Path, names: &[String]) -> Option<Vec<String>> {
     let file = std::fs::File::open(path).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
@@ -1176,6 +1194,8 @@ impl Session {
         };
         let mut first = 0usize;
         let mut bar: Option<usize> = None;
+        // The bar goes on the page's last file once it's drawn.
+        let mut bar_last = false;
         let mut redraw_screen = true;
         let mut l = self.lister_layout(false);
         let mut rows: Vec<Row> = Vec::new();
@@ -1204,6 +1224,9 @@ impl Session {
                 let last = rows.last().map_or(first, |r| r.idx);
                 self.lister_scroll(&l, first, last, files.len());
                 redraw_screen = false;
+                if std::mem::take(&mut bar_last) {
+                    bar = rows.len().checked_sub(1);
+                }
                 if bar.is_some_and(|b| b >= rows.len()) {
                     bar = None;
                 }
@@ -1232,14 +1255,36 @@ impl Session {
                         let f = &files[rows[b].idx];
                         self.lister_name(&l, f, rows[b].y, false, self.batch.contains(&(a.num, f.num)));
                     }
-                    bar = match (bar, key) {
-                        (None, Key::Up) => Some(rows.len() - 1),
-                        (None, _) => Some(0),
-                        (Some(0), Key::Up) => None,
-                        (Some(b), Key::Up) => Some(b - 1),
-                        (Some(b), _) if b + 1 >= rows.len() => None,
-                        (Some(b), _) => Some(b + 1),
+                    // New: past the page's first or last file the bar goes
+                    // on to the page before or after (round from either
+                    // end of the list), onto its last or first file.
+                    let turn = match (bar, key) {
+                        (Some(0), Key::Up) => Some(if first == 0 { page_back(&files, files.len(), &l) } else { page_back(&files, first, &l) }),
+                        (Some(b), Key::Down) if b + 1 >= rows.len() => Some(match rows.last() {
+                            Some(r) if r.idx + 1 < files.len() => r.idx + 1,
+                            _ => 0,
+                        }),
+                        _ => None,
                     };
+                    if let Some(to) = turn {
+                        if to == first {
+                            // One page: round it.
+                            bar = Some(if key == Key::Up { rows.len() - 1 } else { 0 });
+                        } else {
+                            first = to;
+                            bar = Some(0);
+                            bar_last = key == Key::Up;
+                            redraw_screen = true;
+                            continue;
+                        }
+                    } else {
+                        bar = match (bar, key) {
+                            (None, Key::Up) => Some(rows.len() - 1),
+                            (None, _) => Some(0),
+                            (Some(b), Key::Up) => Some(b - 1),
+                            (Some(b), _) => Some(b + 1),
+                        };
+                    }
                     if let Some(b) = bar {
                         let f = &files[rows[b].idx];
                         self.lister_name(&l, f, rows[b].y, true, self.batch.contains(&(a.num, f.num)));
@@ -1261,11 +1306,33 @@ impl Session {
                 }
                 _ => {}
             }
-            // New: PgDn and PgUp page the list (PgDn stays on the last
-            // page rather than leave it, as "next" does).
-            if key == Key::PgDn && rows.last().is_none_or(|r| r.idx + 1 >= files.len()) {
+            // New: PgDn and PgUp page the list, going round from the
+            // last page to the first and back ("next" on the last page
+            // leaves the list instead).
+            let wrap = match key {
+                Key::PgDn if rows.last().is_none_or(|r| r.idx + 1 >= files.len()) => Some(0),
+                Key::PgUp if first == 0 => Some(page_back(&files, files.len(), &l)),
+                _ => None,
+            };
+            if let Some(to) = wrap {
+                if to != first {
+                    first = to;
+                    bar = None;
+                    redraw_screen = true;
+                }
                 continue;
             }
+            // New: with the bar on a file, Esc takes it off (back to the
+            // whole menu); otherwise Esc quits, as before.
+            if key == Key::Esc
+                && let Some(b) = bar.take() {
+                    let f = &files[rows[b].idx];
+                    self.lister_name(&l, f, rows[b].y, false, self.batch.contains(&(a.num, f.num)));
+                    self.lister_menu(&l, &mut list);
+                    let info = self.strings().get("FaListInfo").to_string();
+                    self.lister_info(&l, &info).await?;
+                    continue;
+                }
             let c = match key {
                 Key::Esc | Key::Backspace => Some('Q'),
                 Key::Enter => None,
@@ -1306,17 +1373,7 @@ impl Session {
                 }
                 "previous" => {
                     if first > 0 {
-                        // Step back a page's worth of files.
-                        let lines = (l.bot - l.top + 1) as usize;
-                        let mut used = 0;
-                        while first > 0 {
-                            let need = files[first - 1].description.len().max(1);
-                            if used + need > lines {
-                                break;
-                            }
-                            used += need;
-                            first -= 1;
-                        }
+                        first = page_back(&files, first, &l);
                         bar = None;
                         redraw_screen = true;
                     }

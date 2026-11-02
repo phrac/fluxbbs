@@ -277,7 +277,10 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   (the original moved the record anyway, pointing it at nothing), and viewing a record whose
   file is missing says so instead of hanging up.
 - View in the file lister and editor opens pictures and PDFs as the gallery does.
-- PgDn and PgUp page the file lister (next and previous).
+- PgDn and PgUp page the file lister, round from the last page to the
+  first and back; the bar goes on from a page's last file to the next
+  page's first (and back), and Esc takes it off. In the gallery the bar
+  goes round from either end.
 - Art drawn in 24-bit or 256 colour shows in its own colours in the
   scrolling viewer, not only when played.
 - PDFs in the browser: the text to read, and the pages as pictures

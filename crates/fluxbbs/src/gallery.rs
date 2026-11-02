@@ -940,21 +940,23 @@ impl Session {
             }
             let prev = cur;
             let height = (l.bot - l.top + 1) as usize;
+            let last = items.len().saturating_sub(1);
+            // New: the bar and the pages go round from either end.
             let choice = match key {
                 Key::Up => {
-                    cur = cur.saturating_sub(1);
+                    cur = if cur == 0 { last } else { cur - 1 };
                     None
                 }
                 Key::Down => {
-                    cur = (cur + 1).min(items.len().saturating_sub(1));
+                    cur = if cur >= last { 0 } else { cur + 1 };
                     None
                 }
                 Key::PgUp => {
-                    cur = cur.saturating_sub(height);
+                    cur = if cur == 0 { last } else { cur.saturating_sub(height) };
                     None
                 }
                 Key::PgDn => {
-                    cur = (cur + height).min(items.len().saturating_sub(1));
+                    cur = if cur >= last { 0 } else { (cur + height).min(last) };
                     None
                 }
                 Key::Home => {
