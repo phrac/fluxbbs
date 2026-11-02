@@ -1347,6 +1347,16 @@ same shelf that day.
   mark on its spine) and counts on the caller's card: the status line
   shows how many of today's they've read, how many in all, and who
   else is in the room. Plain-text callers get a numbered list.
+- **The note on the mantel.** With the AI on (`ai`), it writes a note
+  for each day's shelf as it's chosen, in its own voice (`[ai] name`
+  and the extra prompt): a few lines about the theme, perhaps naming a
+  book or two. It's up on a card when the room opens; `n` brings it
+  back. Without the AI the card has the theme's own line.
+- **Most read.** Each caller who opens a book counts once as its
+  reader (and once a day as one of today's). `m` shows the twelve most
+  read on a card, from any day's shelf, with today's readers beside
+  them; Enter reads one. The line under the room says how many have
+  read the book under the bar today.
 - `fluxbbs library [--day YYYY-MM-DD] [--days N]` shows what a day's
   shelf would be (or the themes of the days to come) without keeping
   it, for trying out themes.

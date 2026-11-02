@@ -110,6 +110,10 @@ pub struct Shelf {
     pub theme: String,
     pub note: String,
     pub books: Vec<Book>,
+    /// New: the AI's note on the mantel about the day's shelf, once it's
+    /// written (in the background, when the shelf is chosen).
+    #[serde(default)]
+    pub penny: String,
 }
 
 /// A file that could be a book.
@@ -373,6 +377,7 @@ pub fn choose(state: &BbsState, day: NaiveDate) -> anyhow::Result<Shelf> {
         theme: theme.name,
         note: theme.note,
         books: books.into_iter().map(|i| Book { area: cands[i].area.clone(), name: cands[i].name.clone(), title: cands[i].title.clone() }).collect(),
+        penny: String::new(),
     })
 }
 
@@ -389,7 +394,174 @@ pub async fn today(state: Arc<BbsState>, again: bool) -> anyhow::Result<Shelf> {
     let shelf = tokio::task::spawn_blocking(move || choose(&st, day)).await??;
     state.sys.script_set(STORE, "shelf", Some(&serde_json::to_string(&shelf)?))?;
     tracing::info!("library: {}'s shelf is {:?}, {} books", day, shelf.theme, shelf.books.len());
+    #[cfg(feature = "ai")]
+    if state.config().ai.enabled && !shelf.books.is_empty() {
+        let (st, sh) = (state.clone(), shelf.clone());
+        tokio::spawn(async move {
+            match tokio::time::timeout(Duration::from_secs(120), penny_note(&st, &sh)).await {
+                Ok(Ok(note)) => {
+                    // Onto the shelf as kept, if it's still the day's.
+                    let kept = st.sys.script_get(STORE, "shelf").ok().flatten().and_then(|v| serde_json::from_str::<Shelf>(&v).ok());
+                    if let Some(mut k) = kept.filter(|k| k.day == sh.day && k.theme == sh.theme) {
+                        tracing::info!("library: the AI's note: {note:?}");
+                        k.penny = note;
+                        if let Ok(v) = serde_json::to_string(&k) {
+                            let _ = st.sys.script_set(STORE, "shelf", Some(&v));
+                        }
+                    }
+                }
+                Ok(Err(e)) => tracing::warn!("library: no note from the AI: {e:#}"),
+                Err(_) => tracing::warn!("library: no note from the AI: it took too long"),
+            }
+        });
+    }
     Ok(shelf)
+}
+
+/// The AI's note for the mantel: a few lines about the day's theme and
+/// shelf, in its own voice (`[ai] name` and the extra prompt).
+#[cfg(feature = "ai")]
+async fn penny_note(state: &BbsState, shelf: &Shelf) -> anyhow::Result<String> {
+    let cfg = state.config();
+    let name = if cfg.ai.name.trim().is_empty() { "the librarian".to_string() } else { cfg.ai.name.trim().to_string() };
+    let system = format!(
+        "You are {name}, who looks after {board}, a bulletin board system. {extra}\n\nTonight you're leaving a handwritten note on the \
+         mantel of the board's reading room, a library by a fire whose shelf is a set of old textfiles on one theme. Write the note: \
+         two or three short sentences, under 260 characters, in your own voice, inviting callers to pull up a chair and read. \
+         You may name one or two of the titles. Plain text only: no quotes around it, no emoji, no markdown, no signature.",
+        board = cfg.bbs.name,
+        extra = cfg.ai.system_prompt.trim(),
+    );
+    let titles: Vec<&str> = shelf.books.iter().map(|b| if b.title.is_empty() { b.name.as_str() } else { b.title.as_str() }).take(10).collect();
+    let prompt = format!("Tonight's theme: {}. ({})\nSome of the books on the shelf:\n- {}", shelf.theme, shelf.note, titles.join("\n- "));
+    let answer = crate::aimemory::complete(&cfg.ai, &system, &prompt).await?;
+    let note = answer.split_whitespace().collect::<Vec<_>>().join(" ");
+    let note = note.trim_matches(['"', '\'', '`', ' ']);
+    anyhow::ensure!(!note.is_empty(), "the AI said nothing");
+    // Kept to the card (eight lines), cut at a word.
+    let mut out = String::new();
+    for w in note.split(' ') {
+        if out.chars().count() + w.chars().count() + 1 > 340 {
+            break;
+        }
+        if !out.is_empty() {
+            out.push(' ');
+        }
+        out.push_str(w);
+    }
+    Ok(out)
+}
+
+/// How often a book has been opened: by whom (each caller once), and by
+/// how many today.
+#[derive(Clone, Default, Serialize, Deserialize)]
+struct ReadCount {
+    area: String,
+    name: String,
+    title: String,
+    readers: Vec<u32>,
+    day: String,
+    today: Vec<u32>,
+}
+
+/// One node at a time changes the counts.
+static COUNTING: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+fn read_counts(state: &BbsState) -> Vec<ReadCount> {
+    state.sys.script_get(STORE, "reads").ok().flatten().and_then(|v| serde_json::from_str(&v).ok()).unwrap_or_default()
+}
+
+/// Count `user` as a reader of `b`.
+fn count_read(state: &BbsState, b: &Book, user: u32) {
+    let _held = COUNTING.lock().unwrap_or_else(|e| e.into_inner());
+    let today = crate::clock::now().date_naive().to_string();
+    let mut all = read_counts(state);
+    let i = match all.iter().position(|r| r.area == b.area && r.name == b.name) {
+        Some(i) => i,
+        None => {
+            all.push(ReadCount { area: b.area.clone(), name: b.name.clone(), title: b.title.clone(), ..Default::default() });
+            all.len() - 1
+        }
+    };
+    let r = &mut all[i];
+    if r.day != today {
+        r.day = today;
+        r.today.clear();
+    }
+    if !r.readers.contains(&user) {
+        r.readers.push(user);
+    }
+    if !r.today.contains(&user) {
+        r.today.push(user);
+    }
+    // The most read are kept when there are too many.
+    if all.len() > 3000 {
+        all.sort_by_key(|r| std::cmp::Reverse(r.readers.len()));
+        all.truncate(2500);
+    }
+    if let Ok(v) = serde_json::to_string(&all)
+        && let Err(e) = state.sys.script_set(STORE, "reads", Some(&v))
+    {
+        tracing::error!("library: counting a read: {e}");
+    }
+}
+
+/// The most read books, most readers first (then most today).
+fn most_read(state: &BbsState, visible: &HashSet<String>, n: usize) -> Vec<(Book, usize, usize)> {
+    let today = crate::clock::now().date_naive().to_string();
+    let mut all: Vec<(Book, usize, usize)> = read_counts(state)
+        .into_iter()
+        .filter(|r| visible.contains(&r.area.to_ascii_uppercase()))
+        .map(|r| {
+            let t = if r.day == today { r.today.len() } else { 0 };
+            (Book { area: r.area, name: r.name, title: r.title }, r.readers.len(), t)
+        })
+        .collect();
+    all.sort_by(|a, b| b.1.cmp(&a.1).then(b.2.cmp(&a.2)));
+    all.truncate(n);
+    all
+}
+
+/// A card over the room: the note on the mantel, or the most read.
+enum Overlay {
+    Note(Vec<String>),
+    Most(Vec<(Book, usize, usize)>, usize),
+}
+
+/// Draw the card: parchment, its lines, the one picked marked.
+fn draw_overlay(cv: &mut Canvas, o: &Overlay, who: &str) {
+    const COL: usize = 14;
+    const WIDTH: usize = 52;
+    let paper = rgb(236, 222, 186);
+    let ink_c = rgb(60, 40, 25);
+    let (head, lines, foot, sel): (String, Vec<String>, &str, Option<usize>) = match o {
+        Overlay::Note(lines) => (format!("a note from {}", who.to_lowercase()), lines.clone(), "any key puts it back", None),
+        Overlay::Most(list, sel) => {
+            let lines = list
+                .iter()
+                .map(|(b, n, t)| {
+                    let title = if b.title.is_empty() { b.name.clone() } else { b.title.clone() };
+                    let today = if *t > 0 { format!("{t} today") } else { String::new() };
+                    let count = format!("{n:>3}  {today:<8}");
+                    let room = WIDTH - 4 - count.chars().count() - 2;
+                    format!("{count}  {}", title.chars().take(room).collect::<String>())
+                })
+                .collect();
+            ("most read in the reading room".to_string(), lines, "enter reads  esc puts it back", Some(*sel))
+        }
+    };
+    let top = 3usize;
+    let rows = lines.len() + 4;
+    for r in 0..rows {
+        cv.label(COL, top + r, &" ".repeat(WIDTH), ink_c, Some(paper));
+    }
+    cv.label(COL + 2, top, &head, rgb(140, 30, 30), Some(paper));
+    for (i, l) in lines.iter().enumerate() {
+        let picked = sel == Some(i);
+        let text = format!("{:<w$}", l, w = WIDTH - 4);
+        cv.label(COL + 2, top + 2 + i, &text, if picked { paper } else { ink_c }, Some(if picked { rgb(120, 70, 36) } else { paper }));
+    }
+    cv.label(COL + 2, top + rows - 1, foot, rgb(140, 120, 90), Some(paper));
 }
 
 /// `fluxbbs library [--day YYYY-MM-DD] [--days N] [CONFIG]`: the shelves
@@ -771,6 +943,9 @@ fn draw_room(cv: &mut Canvas, t: f32, shelf: &Shelf, pick: usize, looks: &[Look]
             }
         }
     }
+    // A note pinned up beside the clock.
+    cv.rect(26, 3, 3, 3, rgb(236, 222, 186));
+    cv.set(27, 3, rgb(200, 30, 40));
     // The clock in the middle of the mantel.
     for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (0, 0)] {
         cv.set(21 + dx, 4 + dy, if (dx, dy) == (0, 0) { rgb(40, 30, 20) } else { rgb(200, 160, 70) });
@@ -912,10 +1087,32 @@ impl Session {
             return self.library_plain(&shelf).await;
         }
         let mut pick = 0usize;
-        let mut message: Option<Vec<(char, Ink)>> = Some(painted(&format!("tonight: {}. {}", shelf.theme.to_lowercase(), shelf.note), [235, 200, 140]));
+        let who = { let n = self.state.config().ai.name.trim().to_string(); if n.is_empty() { "the librarian".to_string() } else { n } };
+        // Her note's up when the room opens, if she's written one.
+        let note_lines = |shelf: &Shelf| -> Vec<String> {
+            let text = if shelf.penny.is_empty() { format!("Tonight: {}. {}", shelf.theme, shelf.note) } else { shelf.penny.clone() };
+            crate::multinode::wrap(&text, 46).into_iter().take(8).collect()
+        };
+        let mut overlay = (!shelf.penny.is_empty()).then(|| Overlay::Note(note_lines(&shelf)));
+        let mut message: Option<Vec<(char, Ink)>> =
+            shelf.penny.is_empty().then(|| painted(&format!("tonight: {}. {}", shelf.theme.to_lowercase(), shelf.note), [235, 200, 140]));
+        let mut shelf = shelf;
         loop {
             self.node.update(|n| n.activity = "In the reading room".into());
+            // The note may have come since.
+            if shelf.penny.is_empty()
+                && let Ok(s) = today(self.state.clone(), false).await
+                && s.day == shelf.day
+            {
+                shelf.penny = s.penny;
+            }
             let card = self.card();
+            let counts = read_counts(&self.state);
+            let today_counts: HashMap<String, usize> = counts
+                .iter()
+                .filter(|r| r.day == shelf.day)
+                .map(|r| (format!("{}/{}", r.area, r.name), r.today.len()))
+                .collect();
             let looks: Vec<Look> = shelf
                 .books
                 .iter()
@@ -934,14 +1131,18 @@ impl Session {
                 line_for = Some(pick);
             }
             let since = Instant::now();
-            let go = loop {
+            let go: Option<Book> = loop {
                 if line_for != Some(pick) {
-                    let line = self.book_line(&shelf, pick, &looks);
+                    let n = today_counts.get(&shelf.books[pick].key()).copied().unwrap_or(0);
+                    let line = self.book_line(&shelf, pick, &looks, n);
                     self.stage_line(MSG_ROW, &line, st.truecolor);
                     line_for = Some(pick);
                 }
                 let t = st.t();
                 draw_room(&mut st.cv, t, &shelf, pick, &looks, &shelf.theme);
+                if let Some(o) = &overlay {
+                    draw_overlay(&mut st.cv, o, &who);
+                }
                 self.stage_show(&mut st, true).await?;
                 self.flush().await?;
                 if !self.key_waiting().await? {
@@ -951,9 +1152,27 @@ impl Session {
                     }
                     continue;
                 }
+                let key = self.read_key().await?;
+                match &mut overlay {
+                    Some(Overlay::Note(_)) => {
+                        overlay = None;
+                        continue;
+                    }
+                    Some(Overlay::Most(list, sel)) => {
+                        let n = list.len();
+                        match key {
+                            Key::Up | Key::Left => *sel = (*sel + n - 1) % n,
+                            Key::Down | Key::Right | Key::Tab => *sel = (*sel + 1) % n,
+                            Key::Enter | Key::Char(b' ') => break Some(list[*sel].0.clone()),
+                            _ => overlay = None,
+                        }
+                        continue;
+                    }
+                    None => {}
+                }
                 let n = shelf.books.len();
                 let per = n.div_ceil(3).max(1);
-                match self.read_key().await? {
+                match key {
                     Key::Left => pick = (pick + n - 1) % n,
                     Key::Right | Key::Tab => pick = (pick + 1) % n,
                     // Up and down go a shelf at a time, round from the top.
@@ -961,31 +1180,44 @@ impl Session {
                     Key::Down => pick = if pick + per < n { pick + per } else { pick % per },
                     Key::Home => pick = 0,
                     Key::End => pick = n - 1,
-                    Key::Enter | Key::Char(b' ') => break Some(pick),
+                    Key::Enter | Key::Char(b' ') => break Some(shelf.books[pick].clone()),
                     Key::Esc => break None,
-                    k => {
-                        if k.upper() == Some('Q') {
-                            break None;
+                    k => match k.upper() {
+                        Some('Q') => break None,
+                        Some('N') => overlay = Some(Overlay::Note(note_lines(&shelf))),
+                        Some('M') => {
+                            let list = most_read(&self.state, &visible, 12);
+                            if list.is_empty() {
+                                let s = crate::editor::strip_colours(self.strings().get("LibraryNoneRead"));
+                                self.stage_line(MSG_ROW, &painted(&s, [235, 200, 140]), st.truecolor);
+                                line_for = Some(pick);
+                            } else {
+                                overlay = Some(Overlay::Most(list, 0));
+                            }
                         }
-                    }
+                        _ => {}
+                    },
                 }
             };
             self.stage_close();
-            let Some(i) = go else { break };
-            message = self.read_book(&shelf.books[i], &shelf).await?;
+            let Some(b) = go else { break };
+            message = self.read_book(&b, &shelf).await?;
+            overlay = None;
         }
         self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
         Ok(())
     }
 
     /// The line about the book under the bar: its title, and the file.
-    fn book_line(&self, shelf: &Shelf, pick: usize, looks: &[Look]) -> Vec<(char, Ink)> {
+    fn book_line(&self, shelf: &Shelf, pick: usize, looks: &[Look], readers: usize) -> Vec<(char, Ink)> {
         let b = &shelf.books[pick];
         let mut line = painted(&format!("{}/{}  ", pick + 1, shelf.books.len()), [150, 120, 90]);
         let title = if b.title.is_empty() { b.name.clone() } else { b.title.clone() };
-        let room = 74usize.saturating_sub(line.len() + b.name.len());
+        let read = if readers > 0 { format!("  {readers} read today") } else { String::new() };
+        let room = 74usize.saturating_sub(line.len() + b.name.len() + read.len());
         line.extend(painted(&title.chars().take(room).collect::<String>(), [245, 225, 185]));
         line.extend(painted(&format!("  {}", b.name), [140, 120, 100]));
+        line.extend(painted(&read, [230, 170, 90]));
         match looks.get(pick) {
             Some(l) if l.finished => line.extend(painted(" *", [255, 215, 90])),
             Some(l) if l.marked => line.extend(painted(" >", [220, 60, 60])),
@@ -996,17 +1228,12 @@ impl Session {
 
     fn library_status(&mut self, st: &Stage, shelf: &Shelf, card: &Card) {
         let read = shelf.books.iter().filter(|b| card.finished.contains(&b.key())).count();
-        let mut out = format!("\x1b[{STATUS_ROW};1H\x1b[0m\x1b[K ").into_bytes();
-        ink(&mut out, [170, 140, 110], st.truecolor);
-        out.extend(b"read ");
-        ink(&mut out, [255, 215, 120], st.truecolor);
-        out.extend(format!("{read}/{}", shelf.books.len()).as_bytes());
-        ink(&mut out, [170, 140, 110], st.truecolor);
-        out.extend(b" today  ");
-        ink(&mut out, [255, 215, 120], st.truecolor);
-        out.extend(card.finished.len().to_string().as_bytes());
-        ink(&mut out, [170, 140, 110], st.truecolor);
-        out.extend(b" in all");
+        let (dim, lit) = ([170, 140, 110], [255, 215, 120]);
+        // Pieces that go whole or not at all.
+        let mut parts: Vec<Vec<(String, Ink)>> = vec![
+            vec![("read ".into(), dim), (format!("{read}/{}", shelf.books.len()), lit), (" today".into(), dim)],
+            vec![("  ".into(), dim), (card.finished.len().to_string(), lit), (" in all".into(), dim)],
+        ];
         // Others in the room.
         let me = self.node.number();
         let others: Vec<String> = self
@@ -1019,15 +1246,27 @@ impl Session {
             .take(3)
             .collect();
         if !others.is_empty() {
-            ink(&mut out, [170, 140, 110], st.truecolor);
-            out.extend(b"  also here: ");
-            ink(&mut out, [230, 200, 150], st.truecolor);
-            out.extend(fluxbbs_term::cp437::encode(&others.join(", ")));
+            // Before the count of all, which gives way first.
+            parts.insert(1, vec![("  here: ".into(), dim), (others.join(", "), [230, 200, 150])]);
+        }
+        let keys = self.strings().get("LibraryKeys").to_string();
+        let len = self.visible_len(&fluxbbs_term::cp437::encode(&keys));
+        // What's on the left stops short of the keys.
+        let mut room = 80usize.saturating_sub(len + 3);
+        let mut out = format!("\x1b[{STATUS_ROW};1H\x1b[0m\x1b[K ").into_bytes();
+        for piece in parts {
+            let n: usize = piece.iter().map(|(t, _)| t.chars().count()).sum();
+            if n > room {
+                continue;
+            }
+            room -= n;
+            for (text, c) in piece {
+                ink(&mut out, c, st.truecolor);
+                out.extend(fluxbbs_term::cp437::encode(&text));
+            }
         }
         out.extend(b"\x1b[0m");
         self.screen.write_bytes(&out);
-        let keys = self.strings().get("LibraryKeys").to_string();
-        let len = self.visible_len(&fluxbbs_term::cp437::encode(&keys));
         self.screen.goto(80u16.saturating_sub(len as u16).max(1), STATUS_ROW);
         self.write_with_controls(&keys);
         self.screen.write_bytes(b"\x1b[0m");
@@ -1049,10 +1288,15 @@ impl Session {
         let start = card.marks.iter().find(|m| m.0 == key).map_or(0, |m| m.1);
         self.node.update(|n| n.activity = format!("Reading {} in the reading room", b.name));
         tracing::info!("{}: library: reading {}", self.user.handle, key);
+        count_read(&self.state, b, self.user.id);
         let title = if b.title.is_empty() { b.name.clone() } else { format!("{} ({})", b.title, b.name) };
         let paged = self.page_grid_from(&title, &grid, "ViewerHelp", &[], start).await?;
         card.marks.retain(|m| m.0 != key);
-        let said = if paged.seen_end {
+        let said = if !paged.seen_end && paged.top == 0 {
+            // Put back unread: nothing to say.
+            self.card_save(&mut card);
+            return Ok(None);
+        } else if paged.seen_end {
             if !card.finished.contains(&key) {
                 card.finished.push(key);
             }
@@ -1073,6 +1317,10 @@ impl Session {
             self.newline();
             self.write(&format!("The reading room. Tonight: {}. {}", shelf.theme, shelf.note));
             self.newline();
+            if !shelf.penny.is_empty() {
+                self.write(&format!("A note on the mantel: {}", shelf.penny));
+                self.newline();
+            }
             let card = self.card();
             for (i, b) in shelf.books.iter().enumerate() {
                 let done = if card.finished.contains(&b.key()) { "*" } else { " " };
@@ -1166,12 +1414,23 @@ mod tests {
         let Ok(out) = std::env::var("ROOM_OUT") else { return };
         let t: f32 = std::env::var("ROOM_T").ok().and_then(|t| t.parse().ok()).unwrap_or(1.0);
         let books = (0..24).map(|i| Book { area: "A".into(), name: format!("book{i}.txt"), title: format!("Book {i}") }).collect();
-        let shelf = Shelf { day: String::new(), theme: "Phone phreaks".into(), note: String::new(), books };
+        let shelf = Shelf { day: String::new(), theme: "Phone phreaks".into(), note: String::new(), books, penny: String::new() };
         let mut looks = vec![Look::default(); 24];
         looks[3].finished = true;
         looks[9].marked = true;
         let mut cv = Canvas::new(W, H);
         draw_room(&mut cv, t, &shelf, 5, &looks, &shelf.theme);
+        match std::env::var("ROOM_CARD").as_deref() {
+            Ok("note") => {
+                let text = "Pull up a chair, the kettle's on. Tonight it's the phone network and the kids who knew it better than Ma Bell. Start with The Black Box and mind the operator.";
+                draw_overlay(&mut cv, &Overlay::Note(crate::multinode::wrap(text, 46)), "Penny");
+            }
+            Ok("most") => {
+                let list = (0..8).map(|i| (Book { area: "A".into(), name: format!("b{i}"), title: format!("A much-read textfile number {i}") }, 12 - i, i % 3)).collect();
+                draw_overlay(&mut cv, &Overlay::Most(list, 2), "Penny");
+            }
+            _ => {}
+        }
         let mut enc = crate::pixels::Encoder::new(true, W, H);
         let mut bytes = b"\x1b[2J".to_vec();
         bytes.extend(enc.frame(&cv, 1));
