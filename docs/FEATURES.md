@@ -1313,7 +1313,7 @@ TOML.
 
 ## Reading room
 
-`AB` (the stock door menu's hidden `R`) is the reading room: a library
+`AB` (`#` on the stock main menu, and the door menu's hidden `R`) is the reading room: a library
 drawn on the casino's pixel stage, a fire going in the grate, a cat
 asleep on the rug, and a bookcase whose shelf is a set of the board's
 textfiles that changes every day (`library.rs`). Every caller sees the

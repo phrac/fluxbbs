@@ -29,11 +29,11 @@ MENUDIR = boardname.CLASSIC_MENUS
 # name: (title, [(box title, [(key, label)])])
 MENUS = {
  'main': ('main menu', [('talk', [('m', 'message boards'), ('e', 'email'), ('o', 'oneliners'), ('a', 'mrc chat'), ('j', 'ai chat'), ('w', "who's on"), ('x', 'nodes'), ('p', 'page sysop'), ('n', 'feedback')]),
-       ('files & fun', [('f', 'files'), ('r', 'art gallery'), ('d', 'doors'), ('k', 'points & lottery'), ('b', 'bbs list'), ('@', 'weather'), ('v', 'voting booth'), ('i', 'infoforms'), ('h', 'about flux/bbs')]),
+       ('files & fun', [('f', 'files'), ('r', 'art gallery'), ('d', 'doors'), ('k', 'points & lottery'), ('b', 'bbs list'), ('@', 'weather'), ('v', 'voting booth'), ('#', 'reading room'), ('h', 'about flux/bbs')]),
        ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('>', 'more...'), ('g', 'goodbye')])]),
  # The main menu's overflow: what's used least. Their keys still work
  # from the main menu too (hidden there).
- 'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('<', 'back')])]),
+ 'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('i', 'infoforms'), ('<', 'back')])]),
  'file': ('file menu', [('areas', [('a', 'change area'), ('j', 'join conference'), ('[', 'previous area'), (']', 'next area'), ('#', 'jump to area #')]),
        ('find', [('l', 'browse files'), ('f', 'search files'), ('n', 'newscan'), ('s', 'set newscan date'), ('e', 'scan select')]),
        ('transfer', [('d', 'download'), ('u', 'upload'), ('+', 'flag for batch'), ('b', 'batch edit'), ('q', 'quit')])]),
@@ -97,6 +97,8 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
          ('more', '<'): {'keys': '<', 'command': '-\\', 'param': 'MAIN', 'desc': 'Back', 'help': 'Back to the main menu'},
          ('more', '!'): {'keys': '!', 'command': '-/', 'param': 'AUTOMSG', 'acs': 's25', 'desc': 'AutoMsg menu', 'help': 'The automessage: show it, write one, reply to its author'},
          # The weather, from the doors menu.
+         # The reading room (AB), where infoforms were (now on more...).
+         ('main', '#'): {'keys': '#', 'command': 'AB', 'param': '', 'desc': 'Reading room', 'help': 'A shelf of textfiles by the fire, on a new theme every day'},
          ('main', '@'): {'keys': '@', 'command': 'WX', 'param': '', 'desc': 'Weather', 'help': 'The weather where you are: the sky now, the next day and the week'},
          # MRC: chat with callers on other boards (XR), beside the node chat.
          ('multinod', 'r'): {'keys': 'R', 'command': 'XR', 'param': '', 'desc': 'MRC chat', 'help': 'Chat live with callers on other BBSes (Multi Relay Chat)'},
