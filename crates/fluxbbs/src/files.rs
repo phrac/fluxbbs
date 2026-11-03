@@ -549,6 +549,11 @@ impl Session {
                 self.newline();
             }
         }
+        // New: its votes and comments.
+        for l in self.file_push_lines(f) {
+            self.write_with_controls(&l);
+            self.newline();
+        }
         Ok(())
     }
 
@@ -1103,6 +1108,8 @@ impl Session {
         }
         let lines = (l.bot - l.top + 1) as usize;
         let no_desc = self.state.config().files.no_description.clone();
+        // New: each file's score, before its description.
+        let scores = files.first().and_then(|f| self.state.files.file_scores(&f.area).ok()).unwrap_or_default();
         let mut rows = Vec::new();
         let mut used = 0;
         for (idx, f) in files.iter().enumerate().skip(first) {
@@ -1139,10 +1146,17 @@ impl Session {
                 self.write(&f.points.to_string());
             }
             if let Some(x) = l.desc_x {
+                let score = scores.get(&f.name.to_lowercase()).copied().unwrap_or_default();
+                let label = score.label();
                 for (i, d) in desc.iter().take(lines - used_name).enumerate() {
                     self.screen.goto(x, y + i as u16);
+                    let mut room = 79usize.saturating_sub(x as usize);
+                    if i == 0 && !label.is_empty() {
+                        self.write_with_controls(&format!("{}{label} ", if score.score < 0 { "|12" } else { "|10" }));
+                        room = room.saturating_sub(label.len() + 1);
+                    }
                     self.screen.set_color(l.cl[0]);
-                    self.write_with_controls(&squish(d, 79usize.saturating_sub(x as usize)));
+                    self.write_with_controls(&squish(d, room));
                 }
             }
             rows.push(Row { idx, y: y - below as u16 });
@@ -1187,8 +1201,8 @@ impl Session {
             xs: Vec::new(),
         };
         let mut barm = MenuBar {
-            items: &["flag", "download", "view", "info", "edit", "quit"],
-            off: vec![false, false, false, false, !cosysop, false],
+            items: &["flag", "download", "view", "info", "vote", "edit", "quit"],
+            off: vec![false, false, false, false, false, !cosysop, false],
             pos: 0,
             xs: Vec::new(),
         };
@@ -1346,6 +1360,8 @@ impl Session {
             let paged = match key {
                 Key::PgDn => Some("next"),
                 Key::PgUp => Some("previous"),
+                // New: `x` votes or comments, as in the message center.
+                k if k.upper() == Some('X') && bar.is_some() => Some("vote"),
                 _ => None,
             };
             let choice = match c {
@@ -1456,6 +1472,14 @@ impl Session {
                         } else {
                             self.edit_description(f).await?;
                         }
+                    }
+                    redraw_screen = true;
+                }
+                "vote" => {
+                    if let Some(f) = selected
+                        && self.file_push_prompt(&f).await?
+                    {
+                        info_dirty = true;
                     }
                     redraw_screen = true;
                 }
@@ -2074,6 +2098,10 @@ impl Session {
                 description: desc,
             };
             self.state.files.add(&mut rec).map_err(io_err)?;
+            // New: the caller's own upload, for upvotes to pay them.
+            if let Err(e) = self.state.files.mark_caller_upload(&rec.area, &rec.name, self.user.id) {
+                tracing::error!("marking {}'s upload: {e}", self.user.handle);
+            }
             // New: a file that came without a description gets one from the AI.
             crate::aidesc::spawn(self.state.clone(), rec.area.clone(), rec.name.clone());
             self.bump(crate::sysdata::Stat::Upload { kb: rec.size / 1024 });

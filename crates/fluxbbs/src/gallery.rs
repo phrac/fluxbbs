@@ -118,6 +118,8 @@ enum Place {
     /// New: what a search of the file areas found (`FW search`, or F in
     /// the browser): the words.
     Found(String),
+    /// New: the hot files: pushed most lately (`FW votes`).
+    Hot,
 }
 
 /// Where a piece is.
@@ -310,7 +312,7 @@ fn list(place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
             }
         }
         // Listed by the session, which knows what the caller may see.
-        Place::Area(_) | Place::Areas | Place::Found(_) => {}
+        Place::Area(_) | Place::Areas | Place::Found(_) | Place::Hot => {}
         Place::Zip { zip, prefix } => {
             let mut z = zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(io::Error::other)?;
             let mut seen = Vec::new();
@@ -452,6 +454,14 @@ impl Session {
         let mode = Mode { all: true, cap: if cap == 0 { u64::MAX } else { cap } };
         let speed = self.state.config().gallery.speed;
         let stats = self.file_stats(true);
+        // New: `votes`, the hot files (most voted on and talked about lately).
+        if param.trim().eq_ignore_ascii_case("votes") {
+            if self.plain() {
+                return self.hot_files_plain().await;
+            }
+            self.node.update(|n| n.activity = "Browsing files".into());
+            return self.gallery_browse(Place::Hot, "hot files", mode, speed).await;
+        }
         // New: `search` asks what to look for and lists what has it.
         if param.trim().eq_ignore_ascii_case("search") {
             self.newline();
@@ -601,15 +611,25 @@ impl Session {
                 unlocked.push(n);
             }
             // A search lists best first, unless another order is asked for.
+            let hot = matches!(place, Place::Hot);
             let (mut items, found) = match &place {
                 Place::Found(words) => {
                     let (items, total) = self.found_items(words, mode)?;
                     (items, Some(total))
                 }
+                Place::Hot => (self.hot_items(mode)?, None),
                 _ => (self.gallery_list(&place, mode).await?, None),
             };
-            if found.is_none() || self.gallery_order != Order::Name {
+            // The hot list is hottest first unless asked otherwise.
+            if (found.is_none() && !hot) || self.gallery_order != Order::Name {
                 sort_items(&mut items, self.gallery_order);
+            }
+            if hot && items.is_empty() {
+                path.pop();
+                if path.is_empty() {
+                    return self.say_line("FaHotNone").await;
+                }
+                continue;
             }
             if found.is_some() && items.is_empty() {
                 path.pop();
@@ -820,6 +840,47 @@ impl Session {
         Ok((out, total))
     }
 
+    /// New: the hot files as browser items.
+    fn hot_items(&mut self, mode: Mode) -> io::Result<Vec<Item>> {
+        let fa = self.state.fareas();
+        let mut out = Vec::new();
+        for (n, f) in self.hot_files(crate::filepush::HOT_FILES)? {
+            let Some(a) = fa.get(n) else { continue };
+            let path = self.farea_dir(a).join(&f.name);
+            out.extend(file_item(n, f, path, Mode { all: true, ..mode }));
+        }
+        Ok(out)
+    }
+
+    /// The hot files for a caller without ANSI: a numbered list, and the
+    /// information on the one picked.
+    async fn hot_files_plain(&mut self) -> io::Result<()> {
+        let hot = self.hot_files(crate::filepush::HOT_FILES)?;
+        if hot.is_empty() {
+            return self.say_line("FaHotNone").await;
+        }
+        loop {
+            self.newline();
+            for (i, (_, f)) in hot.iter().enumerate() {
+                let label = self.file_score(f).label();
+                let line = format!("{:>3}. {label:>4} {} - {}", i + 1, f.name, crate::web::blurb(&f.description));
+                self.write(&line.chars().take(79).collect::<String>());
+                self.newline();
+            }
+            self.say("FaHotPick").await?;
+            let s = self.read_string(crate::input::ReadOpts::new(3)).await?;
+            self.newline();
+            match s.trim().parse::<usize>() {
+                Ok(n) if (1..=hot.len()).contains(&n) => {
+                    let f = hot[n - 1].1.clone();
+                    self.file_info(&f).await?;
+                    self.prompt_key().await?;
+                }
+                _ => return Ok(()),
+            }
+        }
+    }
+
     /// The listing, dressed like the file lister: `screen` (GALLERY.ANS or
     /// LISTFILE.ANS) if there is one, else LISTFILE.ANS (the same markers: ~TL/~BL the list rows,
     /// ~FN/~FS/~FD the columns, ~PI the info line, ~PM the menu bar,
@@ -830,11 +891,12 @@ impl Session {
         // New: info and edit, as the file lister has them; edit for a co-SysOp and up.
         let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
         let mut menu = MenuBar {
-            items: &["open", "play", "speed", "reorder", "get", "info", "edit", "find", "back"],
-            off: vec![false, false, false, false, false, false, !cosysop, !opts.search, false],
+            items: &["open", "play", "speed", "reorder", "get", "info", "vote", "edit", "find", "back"],
+            off: vec![false, false, false, false, false, false, false, !cosysop, !opts.search, false],
             pos: 0,
             xs: Vec::new(),
         };
+        let mut scores = item_scores(&self.state, items);
         let mut cur = start.min(items.len().saturating_sub(1));
         let mut first = 0usize;
         let mut l = self.lister_layout(false);
@@ -893,7 +955,7 @@ impl Session {
                     self.screen.clear_eol();
                 }
                 for (k, item) in items.iter().enumerate().skip(first).take(height) {
-                    self.gallery_row(&l, item, l.top + (k - first) as u16, k == cur);
+                    self.gallery_row(&l, item, l.top + (k - first) as u16, k == cur, &scores);
                 }
                 if items.is_empty() {
                     self.screen.goto(l.name_x.unwrap_or(2), l.top);
@@ -934,7 +996,7 @@ impl Session {
                     self.screen.clear_eol();
                     let k = first + (y - l.top) as usize;
                     if let Some(item) = items.get(k) {
-                        self.gallery_row(&l, item, y, k == cur);
+                        self.gallery_row(&l, item, y, k == cur, &scores);
                     }
                 }
             }
@@ -983,6 +1045,8 @@ impl Session {
                     Some('R') => Some("reorder"),
                     Some('G' | 'D') => Some("get"),
                     Some('I') => Some("info"),
+                    // New: votes and comments, `x` as in the message center.
+                    Some('V' | 'X') => Some("vote"),
                     Some('E') if cosysop => Some("edit"),
                     Some('F' | '/') if opts.search => Some("find"),
                     Some('B') => Some("back"),
@@ -1012,8 +1076,16 @@ impl Session {
                     }
                     "reorder" => return Ok(Pick::Resort(cur)),
                     "info" if items.get(cur).is_some_and(|i| record(i).is_some()) => return Ok(Pick::Info(cur)),
+                    "vote" if items.get(cur).is_some_and(|i| record(i).is_some()) => {
+                        if let Some((_, f)) = items.get(cur).and_then(record).cloned()
+                            && self.file_push_prompt(&f).await?
+                        {
+                            scores = item_scores(&self.state, items);
+                        }
+                        redraw = true;
+                    }
                     "edit" if items.get(cur).is_some_and(|i| record(i).is_some()) => return Ok(Pick::Edit(cur)),
-                    "info" | "edit" => note = Some(self.strings().get("GalleryNotRecord").to_string()),
+                    "info" | "edit" | "vote" => note = Some(self.strings().get("GalleryNotRecord").to_string()),
                     "find" if opts.search => return Ok(Pick::Find),
                     "find" => note = Some(self.strings().get("FaFindNotHere").to_string()),
                     "back" => return Ok(Pick::Back),
@@ -1021,8 +1093,8 @@ impl Session {
                 }
             }
             if cur != prev && cur >= first && cur < first + height {
-                self.gallery_row(&l, &items[prev], l.top + (prev - first) as u16, false);
-                self.gallery_row(&l, &items[cur], l.top + (cur - first) as u16, true);
+                self.gallery_row(&l, &items[prev], l.top + (prev - first) as u16, false, &scores);
+                self.gallery_row(&l, &items[cur], l.top + (cur - first) as u16, true, &scores);
             }
         }
     }
@@ -1080,7 +1152,7 @@ impl Session {
         Ok(Some((y0, y0 + h - 1)))
     }
 
-    fn gallery_row(&mut self, l: &Layout, item: &Item, y: u16, hi: bool) {
+    fn gallery_row(&mut self, l: &Layout, item: &Item, y: u16, hi: bool, scores: &Scores) {
         let name_x = l.name_x.unwrap_or(2);
         let size_x = l.size_x.filter(|&x| x > name_x);
         let desc_x = l.desc_x.unwrap_or(30).max(name_x + 13);
@@ -1130,6 +1202,11 @@ impl Session {
                 };
                 (name.clone(), crate::files::short_size(*size), title, by)
             }
+        };
+        // New: a file's score before what it is.
+        let title = match record(item).and_then(|(_, f)| scores.get(&format!("{}/{}", f.area.to_lowercase(), f.name.to_lowercase()))) {
+            Some(sc) if sc.votes > 0 => format!("{} {title}", sc.label()),
+            _ => title,
         };
         self.screen.goto(name_x.saturating_sub(1).max(1), y);
         self.screen.set_color(if hi { l.cl[3] } else { l.cl[0] });
@@ -1612,6 +1689,22 @@ fn file_item(n: u32, f: FileRec, path: PathBuf, mode: Mode) -> Option<Item> {
     } else {
         None
     }
+}
+
+/// The pushed files among `items`: their sums, by `area/name` in lower case.
+type Scores = HashMap<String, crate::filebase::FileScore>;
+
+fn item_scores(state: &crate::BbsState, items: &[Item]) -> Scores {
+    let mut areas: Vec<String> = items.iter().filter_map(record).map(|(_, f)| f.area.to_lowercase()).collect();
+    areas.sort();
+    areas.dedup();
+    let mut out = HashMap::new();
+    for a in areas {
+        for (name, sc) in state.files.file_scores(&a).unwrap_or_default() {
+            out.insert(format!("{a}/{name}"), sc);
+        }
+    }
+    out
 }
 
 fn record(item: &Item) -> Option<&(u32, crate::filebase::FileRec)> {

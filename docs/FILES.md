@@ -488,7 +488,8 @@ too.
 | P | plays it as it was sent in its day, which is how animated ANSIs animate; any key stops it |
 | S | cycles the play speed: instant, 2400, 9600, 14400, 28800, 38400, 57600, 115200 |
 | R | reorders the list: by name, newest first, oldest first, by type, by size (biggest first); folders stay at the top, and the order lasts the visit |
-| I | the file's information, as the file lister shows it (files in an area; not folders, or pieces inside a pack) |
+| I | the file's information, as the file lister shows it, with its votes and comments (files in an area; not folders, or pieces inside a pack) |
+| V or X | vote on the file or comment on it ([FEATURES](FEATURES.md#votes-and-comments-on-files)) |
 | E | edits it, for a co-SysOp and up: a SysOp gets the file editor (`*Y`) on that file, a co-SysOp its description |
 | D | downloads the piece (pulled out of its pack) or a whole pack, for `download_acs` |
 

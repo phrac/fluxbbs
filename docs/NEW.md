@@ -277,6 +277,10 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   (the original moved the record anyway, pointing it at nothing), and viewing a record whose
   file is missing says so instead of hanging up.
 - View in the file lister and editor opens pictures and PDFs as the gallery does.
+- Votes and comments on files, as on posts (`x`: `+`, `-`, `>`): a
+  score beside each file, its pushes under its information, hot files
+  (`h` on the file menu, `FW votes`); upvotes pay points only on
+  callers' own uploads.
 - PgDn and PgUp page the file lister, round from the last page to the
   first and back; the bar goes on from a page's last file to the next
   page's first (and back), and Esc takes it off. In the gallery the bar
@@ -462,7 +466,8 @@ All in [FEATURES](FEATURES.md#message-center).
   stories, the kitchen...); books open at the caller's bookmark, and
   reading one to the end marks it on their card. A book is pulled off
   the shelf and opened on screen, and read on warm paper, where `a`
-  asks the AI what the book is about. The AI leaves a note
+  asks the AI what the book is about and `d` discusses it further,
+  `x` votes or comments and `c` shows them. The AI leaves a note
   about the day's shelf on the mantel (`n`), and `m` shows the most
   read books, all time and today.
 - Carrier Lost (`AP`): a reflex war-dialing run on the pixel stage.
@@ -659,7 +664,7 @@ All in [DOORS](DOORS.md).
 | `AP` | Carrier Lost (the dial-up game) |
 | `AB` (+ `new`, SysOps) | the reading room; `new` chooses today's shelf again |
 | `DB` (+ door code) | BBSLink doors |
-| `FW` (+ `newest` `hot` `heavy` `dig` `kingpin` `search`) | file browser |
+| `FW` (+ `newest` `hot` `heavy` `dig` `kingpin` `search` `votes`) | file browser; `votes`, the hot files |
 | `MH` | message center |
 | `MW` (+ `Read`) | new posts at logon |
 | `MX` (+ `newest` `hot` `dig` `mouth` `loud` `unread`) | jump to a message from the stats |

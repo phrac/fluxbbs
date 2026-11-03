@@ -17,6 +17,7 @@ use chrono::{Datelike, NaiveDate};
 use serde::{Deserialize, Serialize};
 
 use crate::config::{Library, LibraryTheme};
+use crate::filebase::FileRec;
 use crate::input::Key;
 use crate::pixels::{Canvas, H, Ink, Stage, W, add, hash, ink, mix, painted, rgb, scale, smooth};
 use crate::session::Session;
@@ -472,6 +473,72 @@ async fn summarize(state: &BbsState, book: &Book, text: &str) -> anyhow::Result<
     let prompt = format!("The file: {title}\n\n{text}");
     let answer = crate::aimemory::complete(&cfg.ai, &system, &prompt).await?;
     // Paragraphs kept, each one's lines joined.
+    let paras: Vec<String> = answer
+        .split("\n\n")
+        .map(|p| p.split_whitespace().collect::<Vec<_>>().join(" "))
+        .filter(|p| !p.is_empty())
+        .take(3)
+        .collect();
+    anyhow::ensure!(!paras.is_empty(), "the AI said nothing");
+    Ok(paras.join("\n\n"))
+}
+
+/// Text and background colors.
+fn paint(out: &mut Vec<u8>, fg: Ink, bg: Ink, tc: bool) {
+    ink(out, fg, tc);
+    if tc {
+        out.extend(format!("\x1b[48;2;{};{};{}m", bg[0], bg[1], bg[2]).as_bytes());
+    } else {
+        out.extend(format!("\x1b[48;5;{}m", crate::picture::xterm256(bg)).as_bytes());
+    }
+}
+
+/// Text in paragraphs (a blank line between), each wrapped to `width`.
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
+fn paragraphs(text: &str, width: usize) -> Vec<String> {
+    let mut lines = Vec::new();
+    for (i, para) in text.split("\n\n").enumerate() {
+        if i > 0 {
+            lines.push(String::new());
+        }
+        lines.extend(crate::multinode::wrap(para, width));
+    }
+    lines
+}
+
+/// A book's text as plain ASCII lines, at most `most` characters.
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
+fn book_text(grid: &[Vec<crate::pager::Cell>], most: usize) -> String {
+    let body = grid
+        .iter()
+        .map(|r| String::from_utf8_lossy(&r.iter().map(|c| if c.ch < 0x20 || c.ch > 0x7e { b' ' } else { c.ch }).collect::<Vec<u8>>()).trim_end().to_string())
+        .collect::<Vec<_>>()
+        .join("\n");
+    body.chars().take(most).collect()
+}
+
+/// The AI's answer to a caller's question about a book, the talk so far
+/// in mind.
+#[cfg(feature = "ai")]
+async fn answer_about(state: &BbsState, book: &Book, text: &str, summary: &str, so_far: &[(bool, String)], question: &str) -> anyhow::Result<String> {
+    let cfg = state.config();
+    let name = if cfg.ai.name.trim().is_empty() { "the librarian".to_string() } else { cfg.ai.name.trim().to_string() };
+    let system = format!(
+        "You are {name}, who looks after {board}, a bulletin board system. {extra}\n\nA caller in the board's reading room is \
+         asking you about the textfile they're reading. Answer their question from the text, briefly (under 120 words), in your \
+         own voice. Where the text doesn't say, say so, or say plainly that what you add is your own knowledge; don't make things \
+         up. Don't give working instructions for anything harmful. Plain text for an 80-column terminal: no markdown, no lists, \
+         no emoji.",
+        board = cfg.bbs.name,
+        extra = cfg.ai.system_prompt.trim(),
+    );
+    let title = if book.title.is_empty() { book.name.clone() } else { format!("{} ({})", book.title, book.name) };
+    let mut prompt = format!("The file: {title}\n\n{text}\n\nWhat you told them about it: {summary}\n");
+    for (ai, words) in so_far {
+        prompt.push_str(&format!("\n{}: {words}", if *ai { "You" } else { "Caller" }));
+    }
+    prompt.push_str(&format!("\nCaller: {question}\nYou:"));
+    let answer = crate::aimemory::complete(&cfg.ai, &system, &prompt).await?;
     let paras: Vec<String> = answer
         .split("\n\n")
         .map(|p| p.split_whitespace().collect::<Vec<_>>().join(" "))
@@ -1348,7 +1415,14 @@ impl Session {
         let b = &shelf.books[pick];
         let mut line = painted(&format!("{}/{}  ", pick + 1, shelf.books.len()), [150, 120, 90]);
         let title = if b.title.is_empty() { b.name.clone() } else { b.title.clone() };
-        let read = if readers > 0 { format!("  {readers} read today") } else { String::new() };
+        let mut read = if readers > 0 { format!("  {readers} read today") } else { String::new() };
+        // New: its votes.
+        if let Ok(Some(f)) = self.state.files.find(&b.area, &b.name) {
+            let label = self.file_score(&f).label();
+            if !label.is_empty() {
+                read = format!("  {label}{read}");
+            }
+        }
         let room = 74usize.saturating_sub(line.len() + b.name.len() + read.len());
         line.extend(painted(&title.chars().take(room).collect::<String>(), [245, 225, 185]));
         line.extend(painted(&format!("  {}", b.name), [140, 120, 100]));
@@ -1465,7 +1539,13 @@ impl Session {
         const LEATHER: Ink = [86, 34, 26];
         const GILT: Ink = [232, 190, 110];
         let rows = self.screen.rows().max(5) as usize;
-        let height = rows - 2;
+        // Three rows of header over the page, a row of keys under it.
+        const HEAD: usize = 3;
+        let height = rows.saturating_sub(HEAD + 1).max(1);
+        let place = {
+            let fa = self.state.fareas();
+            fa.areas.iter().find(|a| a.file.eq_ignore_ascii_case(&book.area)).map(|a| crate::editor::strip_colours(&a.name)).unwrap_or_default()
+        };
         let total = grid.len();
         let last_top = total.saturating_sub(height);
         let mut top = start.min(last_top);
@@ -1491,18 +1571,47 @@ impl Session {
             if drawn != Some(top) {
                 seen_end |= top >= last_top;
                 let mut out = Vec::new();
-                // The band over the page: the book's title, where we are.
+                // The header: the room and the shelf it's from, the page;
+                // the title tooled in gilt between rules; a fringe of
+                // leather over the paper.
                 out.extend(b"\x1b[1;1H\x1b[0m");
-                bg(&mut out, LEATHER);
-                ink(&mut out, GILT, tc);
+                bg(&mut out, [60, 22, 16]);
                 let page = format!("page {} of {}", (top / height + 1).min(pages), pages);
-                let room = 80 - page.len() - 8;
-                let t: String = title.chars().take(room).collect();
-                let line: String = format!("  \u{2666} {t:<room$} {page}  ").chars().take(80).collect();
-                out.extend(fluxbbs_term::cp437::encode(&line));
-                fill(&mut out, line.chars().count());
+                let left = format!("  \u{2666} the reading room \u{00B7} {}", place.to_lowercase());
+                let left: String = left.chars().take(78 - page.len() - 2).collect();
+                ink(&mut out, [176, 132, 84], tc);
+                out.extend(fluxbbs_term::cp437::encode(&left));
+                let gap = 80 - left.chars().count() - page.len() - 2;
+                out.extend(std::iter::repeat_n(b' ', gap));
+                ink(&mut out, GILT, tc);
+                out.extend(page.as_bytes());
+                out.extend(b"  ");
+                out.extend(b"\x1b[2;1H");
+                bg(&mut out, LEATHER);
+                let t: String = title.chars().take(62).collect();
+                let n = t.chars().count();
+                let side = (80 - n - 4) / 2;
+                ink(&mut out, [150, 104, 56], tc);
+                out.extend(std::iter::repeat_n(0xCD, side));
+                out.push(0xB5);
+                ink(&mut out, [255, 222, 140], tc);
+                out.push(b' ');
+                out.extend(fluxbbs_term::cp437::encode(&t));
+                out.push(b' ');
+                ink(&mut out, [150, 104, 56], tc);
+                out.push(0xC6);
+                out.extend(std::iter::repeat_n(0xCD, 80 - side - n - 4));
+                out.extend(b"\x1b[3;1H");
+                bg(&mut out, PAPER);
+                ink(&mut out, LEATHER, tc);
+                // The leather's lower edge, and the ribbon hanging from it.
+                out.extend(std::iter::repeat_n(0xDF, 72));
+                ink(&mut out, [200, 40, 50], tc);
+                out.push(0xDB);
+                ink(&mut out, LEATHER, tc);
+                out.extend(std::iter::repeat_n(0xDF, 7));
                 for k in 0..height {
-                    out.extend(format!("\x1b[{};1H", k + 2).as_bytes());
+                    out.extend(format!("\x1b[{};1H", k + 1 + HEAD).as_bytes());
                     bg(&mut out, PAPER);
                     ink(&mut out, PRINT, tc);
                     let mut text = vec![b' '; margin];
@@ -1524,8 +1633,8 @@ impl Session {
                 out.extend(std::iter::repeat_n(0xB0, 16 - done));
                 ink(&mut out, GILT, tc);
                 let keys = match &asker {
-                    Some(who) => format!("   pgup/pgdn turn  home/end  a ask {}  q close", who.to_lowercase()),
-                    None => "   pgup/pgdn turn  up/down line  home/end  q closes".to_string(),
+                    Some(who) => format!("   pgup/pgdn  x vote  c comments  a ask {}  q close", who.to_lowercase()),
+                    None => "   pgup/pgdn turn  x vote  c comments  q close".to_string(),
                 };
                 let keys: String = keys.chars().take(80 - 18).collect();
                 out.extend(fluxbbs_term::cp437::encode(&keys));
@@ -1546,7 +1655,26 @@ impl Session {
                 k => match k.upper() {
                     Some(' ' | 'N') => (top + height).min(last_top),
                     Some('P') => top.saturating_sub(height),
-                    Some('B' | 'Q' | 'X') => break,
+                    Some('B' | 'Q') => break,
+                    // New: votes and comments on the book.
+                    Some('X') => {
+                        if let Ok(Some(f)) = self.state.files.find(&book.area, &book.name) {
+                            self.file_push_prompt(&f).await?;
+                        }
+                        drawn = None;
+                        top
+                    }
+                    Some('C') => {
+                        let f = self.state.files.find(&book.area, &book.name).ok().flatten();
+                        self.comments_card(f.as_ref(), tc);
+                        if self.read_key().await?.upper() == Some('X')
+                            && let Some(f) = f
+                        {
+                            self.file_push_prompt(&f).await?;
+                        }
+                        drawn = None;
+                        top
+                    }
                     #[cfg(feature = "ai")]
                     Some('A') if asker.is_some() => {
                         let who = asker.clone().unwrap_or_default();
@@ -1566,6 +1694,7 @@ impl Session {
 
     /// `a` in the reader: the AI's word on the book, a paragraph or two,
     /// on a card over the page. Kept once written, for every caller.
+    /// From there `d` discusses it further.
     #[cfg(feature = "ai")]
     async fn ask_about(&mut self, book: &Book, grid: &[Vec<crate::pager::Cell>], who: &str, tc: bool) -> io::Result<()> {
         let key = format!("summary:{}", book.key());
@@ -1573,19 +1702,11 @@ impl Session {
         let text = match kept {
             Some(t) => Ok(t),
             None => {
-                self.reader_card(&format!("{} is reading it...", who.to_lowercase()), &[], tc);
+                self.reader_card(&format!("{} is reading it...", who.to_lowercase()), &[], "", tc);
                 self.flush().await?;
-                let body: String = grid
-                    .iter()
-                    .map(|r| String::from_utf8_lossy(&r.iter().map(|c| if c.ch < 0x20 || c.ch > 0x7e { b' ' } else { c.ch }).collect::<Vec<u8>>()).trim_end().to_string())
-                    .collect::<Vec<_>>()
-                    .join("\n");
-                let body: String = body.chars().take(24_000).collect();
+                let body = book_text(grid, 24_000);
                 let asked = tokio::time::timeout(Duration::from_secs(120), summarize(&self.state, book, &body)).await;
-                // Keys pressed while waiting go nowhere.
-                while self.key_waiting().await? {
-                    self.read_key().await?;
-                }
+                self.drain_keys().await?;
                 match asked {
                     Ok(Ok(t)) => {
                         let _ = self.state.sys.script_set(STORE, &key, Some(&t));
@@ -1597,58 +1718,157 @@ impl Session {
                 }
             }
         };
-        let (head, lines) = match text {
-            Ok(t) => {
-                let mut lines = Vec::new();
-                for (i, para) in t.split("\n\n").enumerate() {
-                    if i > 0 {
-                        lines.push(String::new());
-                    }
-                    lines.extend(crate::multinode::wrap(para, 70));
-                }
-                lines.truncate(16);
-                (format!("{} says", who.to_lowercase()), lines)
-            }
+        let summary = match text {
+            Ok(t) => t,
             Err(e) => {
                 tracing::warn!("library: no summary of {}: {e}", book.key());
-                (format!("{} couldn't get through it just now", who.to_lowercase()), Vec::new())
+                self.reader_card(&format!("{} couldn't get through it just now", who.to_lowercase()), &[], "any key goes back to the page", tc);
+                self.read_key().await?;
+                return Ok(());
             }
         };
-        self.reader_card(&head, &lines, tc);
-        self.read_key().await?;
+        let mut lines = paragraphs(&summary, 70);
+        lines.truncate(16);
+        self.reader_card(&format!("{} says", who.to_lowercase()), &lines, "d discuss it further   any other key goes back to the page", tc);
+        if self.read_key().await?.upper() == Some('D') {
+            self.discuss(book, grid, &summary, who, tc).await?;
+        }
         Ok(())
     }
 
-    /// A card of paper over the reader's page: a heading and its lines.
+    /// Discussing a book with the AI (new): the caller asks, it answers
+    /// from the text, the talk scrolling on the page. Enter alone, or
+    /// `ASK_MOST` questions, ends it.
     #[cfg(feature = "ai")]
-    fn reader_card(&mut self, head: &str, lines: &[String], tc: bool) {
-        let paint = |out: &mut Vec<u8>, fg: Ink, bgc: Ink| {
-            ink(out, fg, tc);
-            if tc {
-                out.extend(format!("\x1b[48;2;{};{};{}m", bgc[0], bgc[1], bgc[2]).as_bytes());
-            } else {
-                out.extend(format!("\x1b[48;5;{}m", crate::picture::xterm256(bgc)).as_bytes());
+    async fn discuss(&mut self, book: &Book, grid: &[Vec<crate::pager::Cell>], summary: &str, who: &str, tc: bool) -> io::Result<()> {
+        const ASK_MOST: usize = 12;
+        let body = book_text(grid, 16_000);
+        let lc = who.to_lowercase();
+        // The talk: (the AI's, the words).
+        let mut talk: Vec<(bool, String)> = vec![(true, "ask me anything about it.".into())];
+        let rows = self.screen.rows().max(8) as usize;
+        let ask_row = rows;
+        tracing::info!("{}: library: discussing {} with {}", self.user.handle, book.key(), who);
+        loop {
+            self.discuss_draw(&talk, &lc, rows, tc);
+            let asked = talk.iter().filter(|(ai, _)| !ai).count();
+            if asked >= ASK_MOST {
+                self.reader_card(&format!("{lc} has to get back to the shelves"), &[], "any key goes back to the page", tc);
+                self.read_key().await?;
+                return Ok(());
             }
-        };
+            // The row cleared to leather, then the question asked on it.
+            let mut out = format!("\x1b[{ask_row};1H\x1b[0m").into_bytes();
+            paint(&mut out, [232, 190, 110], [86, 34, 26], tc);
+            out.extend(std::iter::repeat_n(b' ', 79));
+            out.extend(format!("\x1b[{ask_row};1H").as_bytes());
+            out.extend(fluxbbs_term::cp437::encode(&format!(" ask {lc} (enter alone goes back): ")));
+            self.screen.write_bytes(&out);
+            self.screen.write_bytes(b"\x1b[?25h");
+            let q = self.read_string(crate::input::ReadOpts::new(80usize.saturating_sub(lc.len() + 32))).await?;
+            self.screen.write_bytes(b"\x1b[?25l");
+            let q = crate::editor::strip_colours(&q).trim().to_string();
+            if q.is_empty() || self.hangup {
+                return Ok(());
+            }
+            talk.push((false, q.clone()));
+            talk.push((true, "...".into()));
+            self.discuss_draw(&talk, &lc, rows, tc);
+            self.flush().await?;
+            let so_far: Vec<(bool, String)> = talk[1..talk.len() - 2].to_vec();
+            let answer = tokio::time::timeout(Duration::from_secs(120), answer_about(&self.state, book, &body, summary, &so_far, &q)).await;
+            self.drain_keys().await?;
+            let said = match answer {
+                Ok(Ok(a)) => a,
+                Ok(Err(e)) => {
+                    tracing::warn!("library: discussing {}: {e:#}", book.key());
+                    "sorry, i lost my place there. ask me again?".into()
+                }
+                Err(_) => "sorry, that one took me too long. ask me again?".into(),
+            };
+            if let Some(last) = talk.last_mut() {
+                last.1 = said;
+            }
+        }
+    }
+
+    /// The talk on the page, newest at the bottom, the rows over the
+    /// prompt.
+    #[cfg(feature = "ai")]
+    fn discuss_draw(&mut self, talk: &[(bool, String)], who: &str, rows: usize, tc: bool) {
+        const HEAD: usize = 3;
+        let room = rows.saturating_sub(HEAD + 1);
+        let mut lines: Vec<(String, Ink)> = Vec::new();
+        for (ai, words) in talk {
+            if !lines.is_empty() {
+                lines.push((String::new(), [236, 220, 188]));
+            }
+            if *ai {
+                lines.push((format!("  {who}:"), [232, 190, 110]));
+                lines.extend(paragraphs(words, 74).into_iter().map(|l| (format!("    {l}"), [236, 220, 188])));
+            } else {
+                lines.push(("  you:".into(), [200, 120, 90]));
+                lines.extend(crate::multinode::wrap(words, 74).into_iter().map(|l| (format!("    {l}"), [214, 196, 160])));
+            }
+        }
+        let skip = lines.len().saturating_sub(room);
+        let mut out = Vec::new();
+        for k in 0..room {
+            out.extend(format!("\x1b[{};1H", HEAD + 1 + k).as_bytes());
+            let (text, fg) = lines.get(skip + k).cloned().unwrap_or_default();
+            paint(&mut out, fg, [38, 28, 20], tc);
+            let t: String = text.chars().take(80).collect();
+            out.extend(fluxbbs_term::cp437::encode(&format!("{t:<80}")));
+        }
+        out.extend(b"\x1b[0m");
+        self.screen.write_bytes(&out);
+    }
+
+    /// Keys pressed while waiting go nowhere.
+    #[cfg(feature = "ai")]
+    async fn drain_keys(&mut self) -> io::Result<()> {
+        while self.key_waiting().await? {
+            self.read_key().await?;
+        }
+        Ok(())
+    }
+
+    /// A card of paper over the reader's page: a heading, its lines, and
+    /// a word at its foot.
+    fn reader_card(&mut self, head: &str, lines: &[String], foot: &str, tc: bool) {
         const CARD: Ink = [236, 222, 186];
         const WIDTH: usize = 74;
-        let (col, top) = (4usize, 4usize);
+        let (col, top) = (4usize, 5usize);
         let mut rows: Vec<(String, Ink)> = vec![(String::new(), [60, 40, 25]), (head.to_string(), [140, 30, 30]), (String::new(), [60, 40, 25])];
         rows.extend(lines.iter().map(|l| (l.clone(), [60, 40, 25])));
-        rows.push((String::new(), [60, 40, 25]));
-        if !lines.is_empty() {
-            rows.push(("any key goes back to the page".into(), [140, 120, 90]));
+        if !foot.is_empty() {
             rows.push((String::new(), [60, 40, 25]));
+            rows.push((foot.into(), [140, 120, 90]));
         }
+        rows.push((String::new(), [60, 40, 25]));
         let mut out = Vec::new();
         for (i, (text, fg)) in rows.iter().enumerate() {
             out.extend(format!("\x1b[{};{}H", top + i, col).as_bytes());
-            paint(&mut out, *fg, CARD);
+            paint(&mut out, *fg, CARD, tc);
             let t: String = format!("  {text}").chars().take(WIDTH).collect();
             out.extend(fluxbbs_term::cp437::encode(&format!("{t:<WIDTH$}")));
         }
         out.extend(b"\x1b[0m");
         self.screen.write_bytes(&out);
+    }
+
+    /// `c` in the reader: the book's votes and comments on a card.
+    fn comments_card(&mut self, f: Option<&FileRec>, tc: bool) {
+        let lines: Vec<String> = f.map(|f| self.file_push_lines(f)).unwrap_or_default().iter().map(|l| crate::editor::strip_colours(l)).collect();
+        if lines.is_empty() {
+            self.reader_card("no votes or comments yet", &[], "x votes or comments   any key goes back to the page", tc);
+        } else {
+            let mut lines = lines;
+            let head = lines.remove(0).replace('─', "").trim().to_string();
+            let n = lines.len();
+            let shown: Vec<String> = lines.into_iter().skip(n.saturating_sub(14)).collect();
+            self.reader_card(&head, &shown, "x votes or comments   any key goes back to the page", tc);
+        }
     }
 
     async fn library_plain(&mut self, shelf: &Shelf) -> io::Result<()> {

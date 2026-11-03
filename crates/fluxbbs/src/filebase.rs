@@ -52,7 +52,49 @@ const STEPS: &[crate::sysdata::Step] = &[
     // kept here rather than in fileareas.toml so it can be written while
     // the board runs.
     crate::sysdata::Step::Sql("CREATE TABLE IF NOT EXISTS area_info (area TEXT PRIMARY KEY COLLATE NOCASE, about TEXT NOT NULL)"),
+    // New: votes and one-line comments on files (`filepush.rs`), by the
+    // file's area and name, which follow it when it's renamed or moved.
+    crate::sysdata::Step::Sql(
+        "CREATE TABLE IF NOT EXISTS file_pushes (id INTEGER PRIMARY KEY, area TEXT NOT NULL COLLATE NOCASE, \
+         name TEXT NOT NULL COLLATE NOCASE, user_id INTEGER NOT NULL, handle TEXT NOT NULL, kind INTEGER NOT NULL, \
+         text TEXT NOT NULL, at TEXT NOT NULL)",
+    ),
+    crate::sysdata::Step::Sql("CREATE INDEX IF NOT EXISTS file_pushes_file ON file_pushes(area, name)"),
+    // New: files a caller uploaded through the board (not imported), and
+    // who: their upvotes pay that caller.
+    crate::sysdata::Step::Sql(
+        "CREATE TABLE IF NOT EXISTS file_uploads (area TEXT NOT NULL COLLATE NOCASE, name TEXT NOT NULL COLLATE NOCASE, \
+         user_id INTEGER NOT NULL, PRIMARY KEY (area, name))",
+    ),
 ];
+
+/// New: a file's pushes in sum.
+#[derive(Debug, Clone, Copy, Default, PartialEq)]
+pub struct FileScore {
+    pub score: i32,
+    pub votes: u32,
+    pub comments: u32,
+}
+
+impl FileScore {
+    /// As lists show it (`+4`, `X2`, `HOT`), blank with no votes.
+    pub fn label(&self) -> String {
+        if self.votes == 0 { String::new() } else { crate::pushes::score_label(Some(self.score)) }
+    }
+}
+
+/// New: a vote (`kind` 1 up, -1 down) or a one-line comment (0) on a file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct FilePush {
+    pub id: i64,
+    pub area: String,
+    pub name: String,
+    pub user_id: u32,
+    pub handle: String,
+    pub kind: i8,
+    pub text: String,
+    pub at: chrono::NaiveDateTime,
+}
 
 fn from_row(r: &Row) -> rusqlite::Result<FileRec> {
     let desc: String = r.get("description")?;
@@ -461,6 +503,12 @@ impl FileBase {
 
     pub fn update(&self, f: &FileRec) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        // Renamed: its pushes and upload go with it.
+        let old: Option<String> = db.query_row("SELECT name FROM files WHERE area = ?1 AND num = ?2", params![f.area, f.num], |r| r.get(0)).optional()?;
+        if let Some(old) = old.filter(|o| *o != f.name) {
+            db.execute("UPDATE file_pushes SET name = ?3 WHERE area = ?1 AND name = ?2", params![f.area, old, f.name])?;
+            db.execute("UPDATE OR IGNORE file_uploads SET name = ?3 WHERE area = ?1 AND name = ?2", params![f.area, old, f.name])?;
+        }
         db.execute(
             "UPDATE files SET name = ?3, size = ?4, date = ?5, uploader = ?6, uploaded = ?7,
                 downloads = ?8, points = ?9, valid = ?10, description = ?11
@@ -473,10 +521,22 @@ impl FileBase {
         Ok(())
     }
 
-    /// Remove a file's record and close the gap in the numbering.
+    /// Remove a file's record and close the gap in the numbering; its
+    /// pushes go too.
     pub fn remove(&self, area: &str, num: u32) -> anyhow::Result<()> {
+        self.remove_record(area, num, true)
+    }
+
+    fn remove_record(&self, area: &str, num: u32, forget: bool) -> anyhow::Result<()> {
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if forget {
+            let name: Option<String> = tx.query_row("SELECT name FROM files WHERE area = ?1 AND num = ?2", params![area, num], |r| r.get(0)).optional()?;
+            if let Some(name) = name {
+                tx.execute("DELETE FROM file_pushes WHERE area = ?1 AND name = ?2", params![area, name])?;
+                tx.execute("DELETE FROM file_uploads WHERE area = ?1 AND name = ?2", params![area, name])?;
+            }
+        }
         tx.execute("DELETE FROM files WHERE area = ?1 AND num = ?2", params![area, num])?;
         // Two steps so UNIQUE (area, num) holds after each statement.
         tx.execute("UPDATE files SET num = -(num - 1) WHERE area = ?1 AND num > ?2", params![area, num])?;
@@ -505,7 +565,12 @@ impl FileBase {
     /// Move a file's record to the end of another area.
     pub fn move_to(&self, area: &str, num: u32, to: &str) -> anyhow::Result<u32> {
         let Some(mut f) = self.get(area, num)? else { anyhow::bail!("no file {num} in {area}") };
-        self.remove(area, num)?;
+        {
+            let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+            db.execute("UPDATE file_pushes SET area = ?3 WHERE area = ?1 AND name = ?2", params![area, f.name, to])?;
+            db.execute("UPDATE OR IGNORE file_uploads SET area = ?3 WHERE area = ?1 AND name = ?2", params![area, f.name, to])?;
+        }
+        self.remove_record(area, num, false)?;
         f.area = to.to_string();
         f.num = 0;
         self.add(&mut f)?;
@@ -517,6 +582,8 @@ impl FileBase {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("UPDATE files SET area = ?2 WHERE area = ?1", params![from, to])?;
         db.execute("UPDATE area_info SET area = ?2 WHERE area = ?1", params![from, to])?;
+        db.execute("UPDATE file_pushes SET area = ?2 WHERE area = ?1", params![from, to])?;
+        db.execute("UPDATE OR IGNORE file_uploads SET area = ?2 WHERE area = ?1", params![from, to])?;
         Ok(())
     }
 
@@ -524,7 +591,94 @@ impl FileBase {
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("DELETE FROM area_info WHERE area = ?1", [area])?;
+        db.execute("DELETE FROM file_pushes WHERE area = ?1", [area])?;
+        db.execute("DELETE FROM file_uploads WHERE area = ?1", [area])?;
         Ok(db.execute("DELETE FROM files WHERE area = ?1", [area])? as u32)
+    }
+
+    // ---- pushes on files (new) -------------------------------------------
+
+    /// A file's pushes, oldest first.
+    pub fn file_pushes(&self, area: &str, name: &str) -> anyhow::Result<Vec<FilePush>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT id, area, name, user_id, handle, kind, text, at FROM file_pushes WHERE area = ?1 AND name = ?2 ORDER BY id")?;
+        let rows = stmt
+            .query_map(params![area, name], |r| {
+                Ok(FilePush { id: r.get(0)?, area: r.get(1)?, name: r.get(2)?, user_id: r.get(3)?, handle: r.get(4)?, kind: r.get(5)?, text: r.get(6)?, at: r.get(7)? })
+            })?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Add a push; a vote takes the place of the caller's last one on the file.
+    pub fn add_file_push(&self, p: &FilePush) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        if p.kind != 0 {
+            tx.execute("DELETE FROM file_pushes WHERE area = ?1 AND name = ?2 AND user_id = ?3 AND kind <> 0", params![p.area, p.name, p.user_id])?;
+        }
+        tx.execute(
+            "INSERT INTO file_pushes (area, name, user_id, handle, kind, text, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![p.area, p.name, p.user_id, p.handle, p.kind, p.text, p.at],
+        )?;
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// Take a caller's pushes off a file (a co-SysOp's clean-up).
+    pub fn remove_file_pushes(&self, area: &str, name: &str, user_id: u32) -> anyhow::Result<usize> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.execute("DELETE FROM file_pushes WHERE area = ?1 AND name = ?2 AND user_id = ?3", params![area, name, user_id])?)
+    }
+
+    /// When a caller last pushed a file.
+    pub fn last_file_push_at(&self, user_id: u32) -> anyhow::Result<Option<chrono::NaiveDateTime>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row("SELECT MAX(at) FROM file_pushes WHERE user_id = ?1", [user_id], |r| r.get(0))?)
+    }
+
+    /// Each pushed file in an area, by its name in lower case: its score
+    /// (ups less downs), how many votes and how many comments.
+    pub fn file_scores(&self, area: &str) -> anyhow::Result<HashMap<String, FileScore>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare(
+            "SELECT name, SUM(kind), SUM(kind <> 0), SUM(kind = 0) FROM file_pushes WHERE area = ?1 GROUP BY name COLLATE NOCASE",
+        )?;
+        let rows = stmt
+            .query_map([area], |r| Ok((r.get::<_, String>(0)?.to_lowercase(), FileScore { score: r.get(1)?, votes: r.get(2)?, comments: r.get(3)? })))?
+            .collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Pushes since `since`: (area, name, kind, when), for the hot list.
+    pub fn file_pushes_since(&self, since: chrono::NaiveDateTime) -> anyhow::Result<Vec<(String, String, i8, chrono::NaiveDateTime)>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT area, name, kind, at FROM file_pushes WHERE at >= ?1")?;
+        let rows = stmt.query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// The best scored files ever: (area, name, score), at most `n`.
+    pub fn top_scored_files(&self, n: usize) -> anyhow::Result<Vec<(String, String, i32)>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare(
+            "SELECT area, name, SUM(kind) AS s FROM file_pushes GROUP BY area, name COLLATE NOCASE HAVING s > 0 ORDER BY s DESC, MAX(at) DESC LIMIT ?1",
+        )?;
+        let rows = stmt.query_map([n as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// A file a caller uploaded through the board (not an import).
+    pub fn mark_caller_upload(&self, area: &str, name: &str, user_id: u32) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.execute("INSERT OR REPLACE INTO file_uploads (area, name, user_id) VALUES (?1, ?2, ?3)", params![area, name, user_id])?;
+        Ok(())
+    }
+
+    /// Who uploaded a file through the board, if a caller did.
+    pub fn caller_upload(&self, area: &str, name: &str) -> anyhow::Result<Option<u32>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row("SELECT user_id FROM file_uploads WHERE area = ?1 AND name = ?2", params![area, name], |r| r.get(0)).optional()?)
     }
 
     /// New: the line about an area, empty if it has none.

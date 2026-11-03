@@ -35,7 +35,7 @@ MENUS = {
  # from the main menu too (hidden there).
  'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('i', 'infoforms'), ('<', 'back')])]),
  'file': ('file menu', [('areas', [('a', 'change area'), ('j', 'join conference'), ('[', 'previous area'), (']', 'next area'), ('#', 'jump to area #')]),
-       ('find', [('l', 'browse files'), ('f', 'search files'), ('n', 'newscan'), ('s', 'set newscan date'), ('e', 'scan select')]),
+       ('find', [('l', 'browse files'), ('f', 'search files'), ('h', 'hot files'), ('n', 'newscan'), ('s', 'set newscan date'), ('e', 'scan select')]),
        ('transfer', [('d', 'download'), ('u', 'upload'), ('+', 'flag for batch'), ('b', 'batch edit'), ('q', 'quit')])]),
  'message': ('message menu', [('read & post', [('r', 'read messages'), ('n', 'new messages'), ('p', 'post message'), ('b', 'text search'), ('h', 'how it works')]),
        ('areas', [('a', 'change area'), ('l', 'list areas'), ('j', 'join conference'), ('#', 'jump to area #')]),
@@ -97,6 +97,8 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
          ('more', '<'): {'keys': '<', 'command': '-\\', 'param': 'MAIN', 'desc': 'Back', 'help': 'Back to the main menu'},
          ('more', '!'): {'keys': '!', 'command': '-/', 'param': 'AUTOMSG', 'acs': 's25', 'desc': 'AutoMsg menu', 'help': 'The automessage: show it, write one, reply to its author'},
          # The weather, from the doors menu.
+         # The hot files: most voted on and talked about lately.
+         ('file', 'h'): {'keys': 'H', 'command': 'FW', 'param': 'votes', 'desc': 'Hot files', 'help': 'The files most voted on and talked about lately'},
          # The reading room (AB), where infoforms were (now on more...).
          ('main', '#'): {'keys': '#', 'command': 'AB', 'param': '', 'desc': 'Reading room', 'help': 'A shelf of textfiles by the fire, on a new theme every day'},
          ('main', '@'): {'keys': '@', 'command': 'WX', 'param': '', 'desc': 'Weather', 'help': 'The weather where you are: the sky now, the next day and the week'},

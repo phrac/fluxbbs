@@ -1344,12 +1344,23 @@ same shelf that day.
   says what the book under the bar is. Enter takes it down: it slides
   off the shelf, comes forward as the room dims, and opens (any key
   hurries it), then the reading room's own reader shows it: the text on
-  warm paper between leather bands, the title and page above, a ribbon
-  below that grows as you read (plain-text callers get the lines).
+  warm paper under a leather header three rows tall (the room and the
+  shelf it's from, the page, the title tooled between rules, a ribbon
+  hanging over the paper), a ribbon at the foot that grows as you read
+  (plain-text callers get the lines).
 - **Ask the AI.** With the AI on, `a` in the reader has it read the
   book and say what it is in a paragraph or two, on a card over the
   page. The answer is kept for the book, so the next caller who asks
   gets it at once and it costs one AI call a book.
+- **Discuss it further.** From that card, `d` opens a talk about the
+  book on the page: the caller asks, the AI answers from the text
+  (saying when the text doesn't say), up to 12 questions; Enter alone
+  goes back to reading. Each question sends the book along, so this one
+  isn't kept.
+- **Votes and comments.** `x` in the reader votes on the book or
+  comments on it, `c` shows its votes and comments on a card, as on
+  any file ([votes on files](#votes-and-comments-on-files)); the line
+  under the room shows a book's score.
   Leaving a book part way bookmarks it, and it opens there next time
   (a red ribbon hangs under it); reading to the end finishes it (a gold
   mark on its spine) and counts on the caller's card: the status line
@@ -1749,6 +1760,30 @@ and as `HOT` from 25.
 - Packing a message takes its pushes with it.
 - Karma, on a caller's profile, is the votes on their public posts (not
   anonymous ones).
+
+### Votes and comments on files
+
+Files take pushes too (`filepush.rs`), with the same keys: `x` on a
+file, then `+` up, `-` down, `>` a comment of up to 50 characters, and
+`d` for a co-SysOp to take a caller's pushes off. `x` works on the file
+under the bar in the file lister and in the file browser and gallery
+(where `vote` is also on the menu), and in the reading room's reader.
+
+- One vote a caller, which voting again replaces; comments as often as
+  every five seconds. No voting on your own upload.
+- A downvote is how callers flag a file with something wrong in it, and
+  the prompt says so ("what's wrong with it?").
+- The score shows before a file's description in the lister and
+  browser (`+4`, `X2`, `HOT`), and its pushes under its information
+  (`I`), after the description.
+- An upvote pays file points ([points](#points)) the same as on a post,
+  but only to a caller who uploaded the file through the board. Imported
+  files (the textfiles archive, `add-files`, file echoes) pay no one.
+- **Hot files** (`h` on the file menu, `FW votes`): the files pushed
+  most in the last three days, votes one each way and comments a half,
+  fading with age, then the best scored ever.
+- Renaming or moving a file takes its pushes with it; deleting it takes
+  them away. They stay on this board: TIC, FTN and QWK don't carry them.
 
 ### File links
 

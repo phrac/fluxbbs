@@ -115,6 +115,7 @@ mod nodelist;
 #[cfg(feature = "ftn")]
 mod ftntoss;
 mod filebase;
+mod filepush;
 mod filesync;
 mod files;
 mod transfer;

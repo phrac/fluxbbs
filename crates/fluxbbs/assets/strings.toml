@@ -976,7 +976,7 @@ FsVimUnknown = "|U1unknown|U2: |U3%S1|U2 (|U3:wq :q :q! :N|U2, |U3:|U2 and enter
 # A post on a board in the caller's "my boards", told as it lands (new).
 NewPostNotice = "|U2» |U1new on |U3%S1|U2: |U3%S2 |U1by |U3%S3"
 # The browser's info or edit on something that is not a file in an area (new).
-GalleryNotRecord = "|U4Info and edit are for files in an area|U5; |U4folders and pieces inside a pack have no record|U5."
+GalleryNotRecord = "|U4Info, vote and edit are for files in an area|U5; |U4folders and pieces inside a pack have no record|U5."
 
 # Viewing a file whose record is in an area but whose file isn't on disk (new).
 FileNotOnDisk = "|U4%F |U5isn't in this area's directory|U5; |U4the record is here but the file is gone or was moved|U5."
@@ -1041,3 +1041,10 @@ LibraryFinished = "you finished %S1. %S2 of %S3 on today's shelf read."
 LibraryMarked = "bookmarked %S1 at line %S2; it opens there next time."
 LibraryPlainPrompt = "|U1Read which|U2? |U1(|U3enter|U1 leaves)|U2> |U3"
 LibraryNoneRead = "nobody has read anything in here yet. be the first."
+FilePushAsk = "|U4Vote on the file|U5: |U3+|U1 up  |U3-|U1 down (bad info)  |U3>|U1 comment  |U3esc|U1 cancel|U5: "
+FilePushAskSysop = "|U4Vote on the file|U5: |U3+|U1 up  |U3-|U1 down  |U3>|U1 comment  |U3d|U1 remove someone's  |U3esc|U1 cancel|U5: "
+FilePushOwn = "|U4You can't vote on your own upload|U5: |U4a comment (|U3>|U4) is fine|U5."
+FilePushTextDown = "|12- |U4Vote down |U5(|U4what's wrong with it|U5?): |U6"
+FilePushTextComment = "|11> |U4Comment|U5: |U6"
+FaHotNone = "|U4Nothing's been voted on or commented on yet|U5."
+FaHotPick = "|U1Which file|U2? |U1(|U3enter|U1 leaves)|U2> |U3"

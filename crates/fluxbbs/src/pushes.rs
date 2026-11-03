@@ -80,7 +80,7 @@ impl Session {
     }
 
     /// The reader's bottom line, cleared for a prompt.
-    fn bar_line(&mut self) {
+    pub(crate) fn bar_line(&mut self) {
         let rows = self.screen.rows();
         self.screen.goto(1, rows);
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
@@ -88,7 +88,7 @@ impl Session {
     }
 
     /// A word on the bottom line, until a key.
-    async fn bar_note(&mut self, name: &str) -> io::Result<bool> {
+    pub(crate) async fn bar_note(&mut self, name: &str) -> io::Result<bool> {
         let s = self.strings().get(name).to_string();
         self.bar_text(&s).await
     }

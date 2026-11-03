@@ -240,6 +240,34 @@ impl Session {
         }
     }
 
+    /// New: an upvote on a file: points to the caller who uploaded it
+    /// through the board (`upvote`, once per voter and file, within
+    /// `upvote_daily`); imported files pay no one.
+    pub(crate) fn pay_file_upvote(&self, f: &crate::filebase::FileRec) {
+        let cfg = self.state.config().points.clone();
+        if !self.points_on() || cfg.upvote == 0 {
+            return;
+        }
+        let Ok(Some(uid)) = self.state.files.caller_upload(&f.area, &f.name) else { return };
+        if uid == self.user.id {
+            return;
+        }
+        let Ok(Some(author)) = self.state.users.get(uid) else { return };
+        if author.deleted || is_bot(&author) {
+            return;
+        }
+        let on = format!("file:{}/{}", f.area, f.name);
+        let e = entry("upvote", (self.user.id, &self.user.handle), (author.id, &author.handle), cfg.upvote, &on, &f.name);
+        match self.state.sys.add_points_capped(&e, cap(cfg.upvote_daily), today(), true) {
+            Ok(0) => {}
+            Ok(n) => match credit(&self.state, author.id, n) {
+                Ok(()) => tracing::info!("{}: upvote paid {} {n} point(s) for {}", self.user.handle, author.handle, on),
+                Err(e) => tracing::error!("upvote points to {}: {e}", author.handle),
+            },
+            Err(e) => tracing::error!("upvote points: {e}"),
+        }
+    }
+
     /// After a door: a point per `door_minutes` played, up to
     /// `door_daily` a day.
     #[cfg_attr(not(feature = "doors"), allow(dead_code))]
