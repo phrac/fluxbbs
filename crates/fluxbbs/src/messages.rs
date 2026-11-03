@@ -1698,7 +1698,17 @@ pub(crate) fn flow_to(lines: &[String], width: usize, hard: bool) -> Vec<String>
     let mut carry: Option<(String, String)> = None;
     let mut fenced = false;
     let cut = |lead: &str, text: &str| -> (String, Option<String>) {
-        let room = width.saturating_sub(lead.chars().count()).max(20);
+        let lead_len = lead.chars().count();
+        // A lead too deep to leave room: hard, the whole line is cut at the
+        // width as it is; else twenty columns at least for the words.
+        if hard && lead_len + 20 > width {
+            let all: Vec<char> = format!("{lead}{text}").chars().collect();
+            if all.len() <= width {
+                return (all.into_iter().collect(), None);
+            }
+            return (all[..width].iter().collect(), Some(all[width..].iter().collect::<String>().trim().to_string()).filter(|r| !r.is_empty()).map(|r| r.to_string()));
+        }
+        let room = width.saturating_sub(lead_len).max(20);
         let chars: Vec<char> = text.chars().collect();
         if chars.len() <= room {
             return (format!("{lead}{text}"), None);
@@ -1714,13 +1724,22 @@ pub(crate) fn flow_to(lines: &[String], width: usize, hard: bool) -> Vec<String>
         let rest: String = chars[at..].iter().collect::<String>().trim().to_string();
         (format!("{lead}{}", fits.trim_end()), (!rest.is_empty()).then_some(rest))
     };
-    // A line kept as it is, but (hard) no wider than the width.
+    // A line kept as it is, but (hard) no wider than the width: cut into
+    // pieces, a quote's lead on each.
     let keep = |out: &mut Vec<String>, l: &str| {
         let chars: Vec<char> = l.chars().collect();
         if !hard || chars.len() <= width {
             out.push(l.to_string());
-        } else {
+            return;
+        }
+        let lead: Vec<char> = quote_lead(l).chars().collect();
+        let room = width.saturating_sub(lead.len());
+        if room < 10 {
             out.extend(chars.chunks(width.max(1)).map(|c| c.iter().collect::<String>()));
+            return;
+        }
+        for piece in chars[lead.len()..].chunks(room) {
+            out.push(lead.iter().chain(piece).collect());
         }
     };
     let flush = |out: &mut Vec<String>, carry: &mut Option<(String, String)>| {
@@ -1744,6 +1763,12 @@ pub(crate) fn flow_to(lines: &[String], width: usize, hard: bool) -> Vec<String>
         }
         let lead = quote_lead(l).to_string();
         let text = &l[lead.len()..];
+        // A quoted blank line (`> `) is a paragraph's end, as a blank is.
+        if text.trim().is_empty() {
+            flush(&mut out, &mut carry);
+            out.push(l.clone());
+            continue;
+        }
         let mut text = text.to_string();
         if let Some((was, words)) = carry.take() {
             // Its paragraph goes on here: the words first.
@@ -1905,6 +1930,22 @@ mod tests {
         let table = l("Name             City             Node          Notes about the board here\nBob              Dallas           1:2/3         fine\nand more rows of it\n");
         assert_eq!(unbreak(&table, 79), None);
         assert!(r.contains(&"The hobby counts and the forum is free!".to_string()) && r.contains(&"```".to_string()) && r.contains(&"binkd -C".to_string()), "{r:#?}");
+    }
+
+    #[test]
+    fn quoting_keeps_paragraphs_and_width() {
+        let l = |t: &str| t.lines().map(String::from).collect::<Vec<_>>();
+        // A quoted blank line stays a blank line.
+        let q = l(&format!("> {}\n> \n> next paragraph", "word ".repeat(20).trim_end()));
+        let out = flow_to(&q, 79, true);
+        assert!(out.contains(&"> ".to_string()) && out.last().map(String::as_str) == Some("> next paragraph"), "{out:#?}");
+        // A lead too deep for room: still no wider than the width.
+        let deep = vec![format!("{} {}", ">".repeat(65), "words ".repeat(10).trim_end())];
+        assert!(flow_to(&deep, 79, true).iter().all(|x| x.chars().count() <= 79));
+        // A quoted line of symbols, cut: its lead on every piece.
+        let sym = vec![format!("> {}", "-=".repeat(50))];
+        let out = flow_to(&sym, 79, true);
+        assert!(out.len() == 2 && out.iter().all(|x| x.starts_with("> ") && x.chars().count() <= 79), "{out:#?}");
     }
 
     #[test]

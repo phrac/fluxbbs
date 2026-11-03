@@ -323,17 +323,15 @@ impl Session {
             .collect();
         let mut lines = out.len();
         if let Ok((msgs, _)) = self.state.msgs.find_words(&areas.keys, find, MAX_SUGGEST * 3, Some(SCAN)) {
-            let mut seen: Vec<String> = Vec::new();
+            let mut seen = std::collections::HashSet::new();
             for m in msgs {
                 let Some(&n) = areas.num_of.get(&m.area.to_lowercase()) else { continue };
                 let subject = plain(&m.subject);
                 let label = format!("{subject} ({})", plain(&m.from.name));
                 // An ad posted again and again (the same words): once.
-                let same = format!("{label}\n{}", m.body().join("\n"));
-                if seen.contains(&same) {
+                if !seen.insert(crate::msgbase::repeat_key(&m)) {
                     continue;
                 }
-                seen.push(same);
                 let snip = snippet(&crate::msgbase::plain_text(&m), &subject, &find.want, SNIPPET_W);
                 let s = Suggestion { label, place: area_name(n), to: Choice::Message(n, m.id), snippet: snip };
                 if lines + s.lines() > MAX_SUGGEST {

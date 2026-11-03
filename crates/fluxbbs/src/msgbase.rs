@@ -367,6 +367,21 @@ pub fn plain_text(m: &Message) -> String {
     crate::editor::strip_colours(&out)
 }
 
+/// New: what makes two messages one ad posted again: the same subject,
+/// author, area and words, tearline, origin and SEEN-BY aside; hashed.
+pub fn repeat_key(m: &Message) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    (m.subject.to_lowercase(), m.from.name.to_lowercase(), m.area.to_lowercase()).hash(&mut h);
+    for l in m.body() {
+        let t = l.trim_start();
+        if !(t.starts_with("---") || t.starts_with("* Origin") || t.starts_with("SEEN-BY")) {
+            l.trim_end().hash(&mut h);
+        }
+    }
+    h.finish()
+}
+
 /// A word somewhere a search looks: subject, who from or to, or the text.
 const SEARCH_LIKE: &str = "(subject LIKE ? ESCAPE '\\' OR from_name LIKE ? ESCAPE '\\' OR to_name LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')";
 
@@ -576,6 +591,15 @@ impl MsgBase {
     pub fn count_words(&self, areas: &[String], find: &crate::filebase::Find) -> anyhow::Result<usize> {
         if areas.is_empty() || find.is_empty() {
             return Ok(0);
+        }
+        // As find_words counts: a filespec's * and ? match no message, and
+        // a word beyond ASCII is matched in Rust (SQL's LIKE folds ASCII's
+        // case only), so those are counted the long way.
+        if find.want.iter().any(|w| w.contains(['*', '?'])) {
+            return Ok(0);
+        }
+        if find.want.iter().chain(&find.not).any(|w| !w.is_ascii()) {
+            return Ok(self.find_words(areas, find, 0, None)?.1);
         }
         let mut params: Vec<String> = areas.to_vec();
         let mut conds: Vec<String> = Vec::new();
@@ -1572,6 +1596,7 @@ mod tests {
         assert_eq!(mb.count_public(&areas).unwrap(), 3);
         assert_eq!(mb.count_words(&areas, &find).unwrap(), 3);
         assert_eq!(mb.count_words(&areas, &crate::filebase::Find::parse("blue -red")).unwrap(), 2);
+        assert_eq!(mb.count_words(&areas, &crate::filebase::Find::parse("blu*")).unwrap(), mb.find_words(&areas, &crate::filebase::Find::parse("blu*"), 10, None).unwrap().1);
         assert!(mb.vocabulary(&areas).unwrap().contains_key("modems"));
     }
 

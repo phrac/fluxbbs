@@ -1447,7 +1447,7 @@ impl Session {
         // An ad posted again and again (the same words): its best copy
         // only. Replies in a thread, which share a subject, all stay.
         let mut seen = HashSet::new();
-        msgs.retain(|m| seen.insert((m.subject.to_lowercase(), m.from.name.to_lowercase(), m.area.to_lowercase(), m.body().join("\n"))));
+        msgs.retain(|m| seen.insert(crate::msgbase::repeat_key(m)));
         let area_of = |m: &Message| areas.iter().find(|a| a.key().eq_ignore_ascii_case(&m.area)).cloned();
         let rows: Vec<BarRow> = msgs
             .iter()

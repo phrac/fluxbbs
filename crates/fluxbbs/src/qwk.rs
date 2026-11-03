@@ -241,17 +241,20 @@ pub fn parse_rep(data: &[u8]) -> Vec<Reply> {
         // One is a field only if it carries on the header's own (cut at 25):
         // a reply that starts "To: everyone who..." is words.
         let from = text(&h[46..71]);
+        // The header's field was cut (all 25 used) and this carries it on.
         let extends = |short: &str, long: &str| {
-            let (short, long) = (short.trim().to_lowercase(), long.trim().to_lowercase());
-            !short.is_empty() && long.len() > short.len() && long.starts_with(&short)
+            let (short, long) = (short.trim_end().to_lowercase(), long.trim().to_lowercase());
+            short.chars().count() == 25 && long.len() > short.len() && long.starts_with(&short)
         };
+        // Or just says it again (readers that write the lines every time).
+        let same = |short: &str, long: &str| !short.trim().is_empty() && short.trim().eq_ignore_ascii_case(long.trim());
         let mut head = 0;
         while head < lines.len() && head < 3 {
             let l = &lines[head];
             match l.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim())) {
                 Some((k, v)) if k == "to" && extends(&to, v) => to = crate::editor::printable(v).into_owned(),
                 Some((k, v)) if k == "subject" && extends(&subject, v) => subject = crate::editor::printable(v).into_owned(),
-                Some((k, v)) if k == "from" && extends(&from, v) => {}
+                Some((k, v)) if (k == "to" && same(&to, v)) || (k == "subject" && same(&subject, v)) || (k == "from" && (same(&from, v) || extends(&from, v))) => {}
                 _ => break,
             }
             head += 1;
@@ -936,6 +939,10 @@ mod tests {
         assert_eq!((r[0].to.as_str(), r[0].lines[0].as_str()), ("Somebody With A Long Name", "To: everyone who answered last week"));
         let r = rep("Note: not a field\nhello\n");
         assert_eq!(r[0].lines[0], "Note: not a field");
+        // A field line that only says the header again is read too, and
+        // the long one after it still is.
+        let r = rep("To: Somebody With A Long Name\nSubject: A subject far longer than twenty-five\nhello\n");
+        assert_eq!((r[0].subject.as_str(), r[0].lines[0].as_str()), ("A subject far longer than twenty-five", "hello"));
     }
 
     #[test]

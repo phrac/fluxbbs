@@ -320,16 +320,24 @@ impl Link {
 /// address announced with its domain (`23:1/1@sysopnet`) must name the
 /// network's, so two networks sharing a zone and a hub number can't be
 /// taken for each other.
-fn is_hub(s: &str, hub: Addr, domain: Option<&str>) -> bool {
+/// A network without a domain set (`domain` None) still isn't one whose
+/// domain or name another network here has (`others`).
+fn is_hub(s: &str, hub: Addr, domain: Option<&str>, others: &[String]) -> bool {
     s.split_whitespace().any(|w| {
         let Some(a) = Addr::parse(w) else { return false };
         let theirs = w.split_once('@').map(|(_, d)| d.trim().to_ascii_lowercase());
         let same_domain = match (theirs.as_deref(), domain) {
             (Some(t), Some(d)) => t.eq_ignore_ascii_case(d),
+            (Some(t), None) => !others.iter().any(|o| o == t),
             _ => true,
         };
         a.zone == hub.zone && a.net == hub.net && a.node == hub.node && a.point == 0 && same_domain
     })
+}
+
+/// The domains (or names) of the networks here other than `name`.
+fn other_domains(state: &BbsState, name: &str) -> Vec<String> {
+    state.config().ftn.networks().into_iter().filter(|n| n.name != name).map(|n| n.domain()).collect()
 }
 
 /// Equal, taking as long whatever differs (for passwords).
@@ -409,7 +417,7 @@ pub async fn poll(state: Arc<BbsState>, net: FtnNetwork) -> anyhow::Result<Polle
                 tracing::debug!("binkp: {s}");
             }
             Frame::Cmd(M_ADR, s) => {
-                if !is_hub(&s, hub, net.address_domain().as_deref()) {
+                if !is_hub(&s, hub, net.address_domain().as_deref(), &other_domains(&state, &net.name)) {
                     bail!("binkp: {host} is {s}, not {hub}");
                 }
                 break;
@@ -490,8 +498,8 @@ async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketA
             match link.read().await? {
                 Frame::Cmd(M_NUL, s) => tracing::debug!("binkp in: {s}"),
                 Frame::Cmd(M_ADR, s) => {
-                    claimed = nets.iter().filter(|(n, hub)| is_hub(&s, *hub, n.address_domain().as_deref())).cloned().collect();
-                    claims_any_hub = state.config().ftn.all_hubs().iter().filter_map(|h| Addr::parse(h)).any(|h| is_hub(&s, h, None));
+                    claimed = nets.iter().filter(|(n, hub)| is_hub(&s, *hub, n.address_domain().as_deref(), &other_domains(&state, &n.name))).cloned().collect();
+                    claims_any_hub = state.config().ftn.all_hubs().iter().filter_map(|h| Addr::parse(h)).any(|h| is_hub(&s, h, None, &[]));
                 }
                 Frame::Cmd(M_PWD, p) => break Ok(p),
                 Frame::Cmd(M_ERR | M_BSY, s) => break Err(anyhow!("binkp: {peer} said {s}")),
@@ -999,11 +1007,13 @@ mod tests {
         board.await.unwrap();
         assert!(same_secret("CRAM-MD5-ABcd", "cram-md5-abcd") && !same_secret("a", "ab") && !same_secret("ab", "ac"));
         let hub = Addr { zone: 46, net: 1, node: 100, point: 0 };
-        assert!(is_hub("46:1/100@agoranet", hub, Some("agoranet")));
-        assert!(!is_hub("46:1/100.5@agoranet", hub, Some("agoranet")), "a point isn't the hub");
-        assert!(!is_hub("46:1/100@othernet", hub, Some("agoranet")), "the same number on another network isn't");
-        assert!(is_hub("46:1/100", hub, Some("agoranet")), "no domain said: by the number");
-        assert!(is_hub("21:1/100@fsxnet", Addr { zone: 21, net: 1, node: 100, point: 0 }, None), "none set here: by the number");
+        assert!(is_hub("46:1/100@agoranet", hub, Some("agoranet"), &[]));
+        assert!(!is_hub("46:1/100.5@agoranet", hub, Some("agoranet"), &[]), "a point isn't the hub");
+        assert!(!is_hub("46:1/100@othernet", hub, Some("agoranet"), &[]), "the same number on another network isn't");
+        assert!(is_hub("46:1/100", hub, Some("agoranet"), &[]), "no domain said: by the number");
+        let fsx = Addr { zone: 21, net: 1, node: 100, point: 0 };
+        assert!(is_hub("21:1/100@fsxnet", fsx, None, &[]), "none set here: by the number");
+        assert!(!is_hub("21:1/100@othernet", fsx, None, &["othernet".into()]), "none set here, but another network's: not ours");
         let net = crate::config::FtnNetwork { name: "ftn".into(), address: "21:1/999".into(), ..Default::default() };
         assert_eq!(net.address_domain(), None, "a name isn't a domain to hold a hub to");
         let _ = std::fs::remove_dir_all(&dir);

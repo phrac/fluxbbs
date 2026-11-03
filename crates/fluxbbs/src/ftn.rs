@@ -447,9 +447,7 @@ pub fn split_text(text: &[u8]) -> Parts {
     let lines = text_lines(text);
     let named = charset(&lines);
     let cs = named.unwrap_or(Charset::Cp437);
-    // Whether the text has begun, and AREA: was its first line (before
-    // any kludge).
-    let (mut text_begun, mut kludge_seen, mut area_after_kludges) = (false, false, false);
+    let mut first = true;
     for raw in &lines {
         // A LF after the CR isn't text, nor a soft CR (0x8D) in text with
         // no CHRS (in CP437 it's `ì`).
@@ -461,15 +459,14 @@ pub fn split_text(text: &[u8]) -> Parts {
             _ => (false, raw),
         };
         let line = decode_line(&raw, cs);
-        // AREA: leads the text (FTS-0004), exactly so. Some packers put
-        // kludges first; that's taken too, unless the message has netmail's
-        // addressing (below). In another case, or later, it's words.
-        if !kludge && !std::mem::replace(&mut text_begun, true) && let Some(tag) = line.strip_prefix("AREA:") {
+        // AREA: leads the text, exactly so (FTS-0004), as HPT, SBBSecho and
+        // Mystic write and read it; every hub repacks echomail that way.
+        // Anywhere else, or in another case, it's words: netmail that
+        // starts "AREA:..." (INTL or not) is netmail, never a public post.
+        if std::mem::take(&mut first) && !kludge && let Some(tag) = line.strip_prefix("AREA:") {
             p.area = Some(tag.trim().to_string());
-            area_after_kludges = kludge_seen;
             continue;
         }
-        kludge_seen |= kludge;
         if kludge {
             // The name runs to a colon or a space, whichever is first (INTL,
             // FMPT and TOPT have no colon, and INTL's addresses have them).
@@ -484,13 +481,6 @@ pub fn split_text(text: &[u8]) -> Parts {
             continue;
         }
         p.body.push(line);
-    }
-    // An AREA: after kludges in a message addressed as netmail (INTL,
-    // FMPT, TOPT) is netmail's first line, not an echo: as an echo it would
-    // be a public post anyone could make by netmailing us.
-    if area_after_kludges && p.kludges.iter().any(|(k, _)| ["INTL", "FMPT", "TOPT"].iter().any(|n| k.eq_ignore_ascii_case(n))) {
-        let tag = p.area.take().unwrap_or_default();
-        p.body.insert(0, format!("AREA:{tag}"));
     }
     // SEEN-BYs are the lines at the end; one higher up (quoted, say) is
     // text.
@@ -593,10 +583,10 @@ mod tests {
         // Tabs go as spaces, and ì as i (its byte is the soft CR).
         assert_eq!(text_bytes("a\tb"), b"a       b");
         assert_eq!(text_bytes("italiano ì"), b"italiano i");
-        // An exact AREA: leading the text, or after kludges (some packers),
-        // but not in netmail's addressing, nor in another case.
+        // Only an exact AREA: leading the text: after kludges (netmail,
+        // INTL or not), or in another case, it's words.
         assert_eq!(split_text(b"AREA:AGN_TST\r\x01MSGID: 1:2/3 4\rhi\r").area.as_deref(), Some("AGN_TST"));
-        assert_eq!(split_text(b"\x01MSGID: 1:2/3 4\rAREA:AGN_TST\rhi\r").area.as_deref(), Some("AGN_TST"));
+        assert_eq!(split_text(b"\x01MSGID: 46:1/999 1\rAREA:AGN_HUB\rfake\r").area, None, "same-zone netmail, no INTL");
         assert_eq!(split_text(b"area:AGN_TST\rhi\r").area, None);
         let forged = split_text(b"\x01INTL 46:1/115 46:1/999\r\x01MSGID: 46:1/999 1\rAREA:AGN_HUB\rfake news\r");
         assert_eq!(forged.area, None);
