@@ -1772,7 +1772,8 @@ break can't be a writer's own: a short line after one that reached the
 edge, stopping mid-sentence, the next line going on in lower case with
 a first word that would have fitted. Quotes, indented lines, lists,
 tables, color codes, URLs, ANSI and the tearline and origin are never
-joined. The message itself is stored as it came. (On disflux it
+joined. Replying quotes it joined up the same way. The message itself
+is stored as it came. (On disflux it
 changes 11 of some 5,800 echomail messages, all of them broken.)
 
 ### Votes and comments on files

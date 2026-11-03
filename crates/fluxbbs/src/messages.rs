@@ -1580,6 +1580,23 @@ impl Session {
     }
 }
 
+/// `m` as the readers show it, when it's mail from elsewhere that was
+/// wrapped twice ([`unbreak`]): for quoting it the same way. None if
+/// it's fine as it is.
+pub(crate) fn unbroken_message(m: &crate::msgbase::Message) -> Option<crate::msgbase::Message> {
+    if m.from.user_id != 0 {
+        return None;
+    }
+    let body = m.body();
+    let fixed = unbreak(body, 79)?;
+    let mut u = m.clone();
+    let sig = m.lines[body.len()..].to_vec();
+    u.sig_pos = if m.sig_pos > 0 { fixed.len() as u32 + 1 } else { 0 };
+    u.lines = fixed;
+    u.lines.extend(sig);
+    Some(u)
+}
+
 /// New: mail from other boards that was wrapped twice (a web forum
 /// gateway, or an editor, wrapping at one width and something on the way
 /// cutting each line again at 79, a word or two left alone on a line

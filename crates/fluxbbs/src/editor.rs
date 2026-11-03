@@ -981,6 +981,10 @@ impl Session {
     /// `fsEdit`: edit a message full-screen. None if aborted. Node
     /// messages wait until it's done, so they don't land in the text.
     pub async fn edit_message(&mut self, ctx: EditCtx<'_>) -> io::Result<Option<EditResult>> {
+        // New: a reply to mail from elsewhere that was wrapped twice
+        // quotes it as the readers show it, joined up.
+        let unbroken = ctx.reply.and_then(crate::messages::unbroken_message);
+        let ctx = EditCtx { reply: unbroken.as_ref().or(ctx.reply), ..ctx };
         let held = std::mem::replace(&mut self.hold_node_msgs, true);
         // Boxed: the editor's state is too big for a worker's stack.
         let result = Box::pin(self.edit_message_inner(ctx)).await;
@@ -1703,6 +1707,20 @@ mod tests {
                 "> Next paragraph.",
             ]
         );
+        // Mail from elsewhere wrapped twice is quoted joined up, as the
+        // readers show it.
+        let mut m3 = m2.clone();
+        m3.lines = vec![
+            "One or two years later, I switched to an Atari 800 XL with a disk drive,".into(),
+            "followed".into(),
+            "by an Amiga 500. I soon realized, however, that the hardware kept expanding,".into(),
+            "cluttering up my desk.".into(),
+        ];
+        let fixed = crate::messages::unbroken_message(&m3).expect("broken");
+        let q = quote_lines(&fixed, 0, fixed.lines.len() - 1, "");
+        assert!(q.iter().all(|l| l.chars().count() <= WIDTH && l != "> followed"), "{q:?}");
+        m3.from.user_id = 4;
+        assert!(crate::messages::unbroken_message(&m3).is_none(), "our own callers' mail is as they wrote it");
         // The last line of a paragraph, or code, isn't run into.
         m2.lines = vec![format!("{} tail", "word ".repeat(15)), "    indented".into()];
         assert_eq!(quote_lines(&m2, 0, 1, "").len(), 3);
