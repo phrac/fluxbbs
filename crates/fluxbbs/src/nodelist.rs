@@ -77,26 +77,48 @@ impl Nodelist {
     }
 }
 
-/// The newest file in `dir`, read as a nodelist: itself, or the biggest
-/// file in it if it's a ZIP. None if there's none to read.
+/// The newest nodelist in `dir`: the newest file named as one
+/// (`NAME.303`, or packed as `NAME.Z03` or `.zip`; not a `NODEDIFF`) that
+/// reads as one (a `Zone` line and systems under it), itself or the
+/// biggest file in it if it's a ZIP. Anything else in the area (a diff, a
+/// SysOp's note, a resent file that isn't one) is passed over. None if
+/// there's none to read.
 pub fn read_dir(dir: &Path) -> Option<std::sync::Arc<Nodelist>> {
-    let newest: PathBuf = std::fs::read_dir(dir)
+    let mut found: Vec<(std::time::SystemTime, PathBuf)> = std::fs::read_dir(dir)
         .ok()?
         .flatten()
-        .filter(|e| e.path().is_file() && !e.file_name().to_string_lossy().starts_with('.'))
-        .max_by_key(|e| e.metadata().and_then(|m| m.modified()).ok())?
-        .path();
-    let meta = std::fs::metadata(&newest).ok()?;
-    let key = (newest.clone(), meta.len(), meta.modified().ok()?);
-    // Read once a version: a caller's every netmail would read it again.
-    type Cached = Option<((PathBuf, u64, std::time::SystemTime), std::sync::Arc<Nodelist>)>;
-    static CACHE: Mutex<Cached> = Mutex::new(None);
-    if let Some((k, list)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref()
-        && *k == key
+        .filter(|e| e.path().is_file() && named_as_one(&e.file_name().to_string_lossy()))
+        .filter_map(|e| Some((e.metadata().and_then(|m| m.modified()).ok()?, e.path())))
+        .collect();
+    found.sort_by_key(|a| std::cmp::Reverse(a.0));
+    found.into_iter().find_map(|(_, path)| read_file(&path).filter(|l| !l.entries.is_empty()))
+}
+
+/// A nodelist's name: an extension of a day number, or a letter and its
+/// last two digits (packed), or `zip`; and not a nodediff.
+fn named_as_one(name: &str) -> bool {
+    let lower = name.to_ascii_lowercase();
+    let Some((stem, ext)) = lower.rsplit_once('.') else { return false };
+    let e = ext.as_bytes();
+    !stem.is_empty()
+        && !stem.starts_with('.')
+        && !stem.contains("diff")
+        && (ext == "zip" || (e.len() == 3 && e[1..].iter().all(u8::is_ascii_digit) && (e[0].is_ascii_digit() || e[0].is_ascii_alphabetic())))
+}
+
+/// One file read as a nodelist (empty if it isn't one), once a version:
+/// a caller's every netmail would read it again. Each network's is kept.
+fn read_file(path: &Path) -> Option<std::sync::Arc<Nodelist>> {
+    let meta = std::fs::metadata(path).ok()?;
+    let version = (meta.len(), meta.modified().ok()?);
+    type Cached = HashMap<PathBuf, ((u64, std::time::SystemTime), std::sync::Arc<Nodelist>)>;
+    static CACHE: Mutex<Option<Cached>> = Mutex::new(None);
+    if let Some((v, list)) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|c| c.get(path))
+        && *v == version
     {
         return Some(list.clone());
     }
-    let data = std::fs::read(&newest).ok()?;
+    let data = std::fs::read(path).ok()?;
     let text = if data.starts_with(b"PK\x03\x04") {
         let mut z = zip::ZipArchive::new(std::io::Cursor::new(&data)).ok()?;
         let biggest = (0..z.len()).max_by_key(|&i| z.by_index(i).map(|f| f.size()).unwrap_or(0))?;
@@ -111,7 +133,11 @@ pub fn read_dir(dir: &Path) -> Option<std::sync::Arc<Nodelist>> {
     // A line at a time: decoding would turn CR and LF into their glyphs.
     let lines: Vec<String> = text.split(|&b| b == b'\n').map(|l| fluxbbs_term::cp437::decode(l.strip_suffix(b"\r").unwrap_or(l))).collect();
     let list = std::sync::Arc::new(Nodelist::parse(&lines.join("\n")));
-    *CACHE.lock().unwrap_or_else(|e| e.into_inner()) = Some((key, list.clone()));
+    let mut cache = CACHE.lock().unwrap_or_else(|e| e.into_inner());
+    let cache = cache.get_or_insert_with(HashMap::new);
+    // Old versions and files gone: only what's there now is kept.
+    cache.retain(|p, _| p.exists());
+    cache.insert(path.to_path_buf(), (version, list.clone()));
     Some(list)
 }
 
@@ -158,6 +184,24 @@ Region,2,Region_Two,There,Them,-Unpublished-,300\r
         std::fs::write(dir.join("agoranet.z03"), zip.finish().unwrap().into_inner()).unwrap();
         let n = read_dir(&dir).unwrap();
         assert_eq!(n.find(Addr::parse("46:1/100").unwrap()).unwrap().location, "Pewaukee WI");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn passes_over_what_isnt_a_nodelist() {
+        let dir = std::env::temp_dir().join(format!("inq-nodelist-other-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(dir.join("agoranet.303"), AGN).unwrap();
+        // Newer, but a diff, a note, and a day-numbered file that isn't one.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(dir.join("nodediff.310"), "A,999,New,Here,Someone,-Unpublished-,300\r\n").unwrap();
+        std::fs::write(dir.join("README.TXT"), "Zone,9,Readme,Here,Someone,-Unpublished-,300\r\n").unwrap();
+        std::fs::write(dir.join("notes.310"), "nothing to see\r\n").unwrap();
+        let n = read_dir(&dir).unwrap();
+        assert_eq!(n.find(Addr::parse("46:1/100").unwrap()).unwrap().name, "The Pharcyde HUB");
+        assert!(named_as_one("AGORANET.Z03") && named_as_one("nodelist.zip") && named_as_one("FSXNET.A10"));
+        assert!(!named_as_one("NODEDIFF.Z03") && !named_as_one("readme.txt") && !named_as_one(".hidden.303"));
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

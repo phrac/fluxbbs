@@ -200,23 +200,29 @@ impl Session {
     /// answering `reply`'s MSGID if it came as netmail. Said if it can't.
     /// True if it went.
     pub(crate) async fn send_netmail(&mut self, m: &Message, reply: Option<&Message>) -> io::Result<bool> {
-        let sent = (|| -> anyhow::Result<()> {
+        // Off the session's thread: writing it waits for a toss or scan
+        // that's running (`ftntoss::lock`), which a big one makes long.
+        let (state, msg, reply_id, handle) = (self.state.clone(), m.clone(), reply.map(|r| r.id), self.user.handle.clone());
+        let sent = tokio::task::spawn_blocking(move || -> anyhow::Result<()> {
+            let m = &msg;
             let (name, addr, domain) = sender(&m.to).ok_or_else(|| anyhow::anyhow!("{:?} isn't a netmail address", m.to.name))?;
-            let (net, _) = route(&self.state, addr, domain.as_deref()).map_err(|why| anyhow::anyhow!("{why:?}"))?;
-            let answers = match reply {
-                Some(r) => self.state.msgs.ftn_msgid(r.id)?,
+            let (net, _) = route(&state, addr, domain.as_deref()).map_err(|why| anyhow::anyhow!("{why:?}"))?;
+            let answers = match reply_id {
+                Some(r) => state.msgs.ftn_msgid(r)?,
                 None => None,
             };
             // All of it, signature too, as echomail goes.
             let out = crate::ftntoss::Outgoing { from: &m.from.name, to: &name, to_addr: addr, subject: &m.subject, body: &m.lines, reply: answers.as_deref() };
-            let msgid = crate::ftntoss::netmail(&self.state, &net, &out)?;
+            let msgid = crate::ftntoss::netmail(&state, &net, &out)?;
             // Its MSGID kept, for a reply to it to find (it's gone either way).
-            if let Err(e) = self.state.msgs.ftn_record(m.id, &msgid, &m.area, true) {
+            if let Err(e) = state.msgs.ftn_record(m.id, &msgid, &m.area, true) {
                 tracing::error!("netmail {msgid}: recording it: {e:#}");
             }
-            tracing::info!("{}: netmail to {name} at {addr} ({}): {:?}", self.user.handle, net.name, m.subject);
+            tracing::info!("{handle}: netmail to {name} at {addr} ({}): {:?}", net.name, m.subject);
             Ok(())
-        })();
+        })
+        .await
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("{e}")));
         if let Err(e) = &sent {
             tracing::error!("{}: netmail to {} not sent: {e:#}", self.user.handle, m.to.name);
             self.say_line("NetmailFailed").await?;

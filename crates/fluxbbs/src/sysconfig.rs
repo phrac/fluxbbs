@@ -668,6 +668,20 @@ fn more_sections() -> Vec<(char, &'static str, bool, Vec<Setting>)> {
     ]
 }
 
+/// A file area's key changed from `was` to `now`: the file echoes going
+/// to it, and the networks whose nodelist comes to it, follow it. True if
+/// any did.
+pub fn file_area_renamed(ftn: &mut crate::config::Ftn, was: &str, now: &str) -> bool {
+    let mut moved = false;
+    for slot in ftn.file_areas.iter_mut().map(|m| &mut m.area).chain(std::iter::once(&mut ftn.nodelist)).chain(ftn.networks.iter_mut().map(|n| &mut n.nodelist)) {
+        if slot.trim().eq_ignore_ascii_case(was) {
+            *slot = now.to_string();
+            moved = true;
+        }
+    }
+    moved
+}
+
 /// Write the settings that differ between `old` and `new` into the
 /// TOML file at `path`, keeping everything else as it is.
 pub fn save_changes(path: &Path, old: &Config, new: &Config) -> anyhow::Result<()> {
@@ -1282,5 +1296,17 @@ mod tests {
             // Past 18 rows a section goes in two columns.
             assert!(n <= 36, "{title} has too many rows for the screen");
         }
+    }
+
+    #[test]
+    fn a_renamed_file_area_takes_its_echoes_and_nodelists() {
+        let mut ftn: crate::config::Ftn = toml::from_str(
+            "nodelist = \"agnnode\"\n[[filearea]]\ntag = \"AGN_NODE\"\narea = \"AGNNODE\"\n[[network]]\nname = \"other\"\nnodelist = \"AGNNODE\"\n[[network]]\nname = \"third\"\nnodelist = \"SYSNODE\"\n",
+        )
+        .unwrap();
+        assert!(file_area_renamed(&mut ftn, "AGNNODE", "AGNLIST"));
+        assert_eq!((ftn.nodelist.as_str(), ftn.file_areas[0].area.as_str()), ("AGNLIST", "AGNLIST"));
+        assert_eq!((ftn.networks[0].nodelist.as_str(), ftn.networks[1].nodelist.as_str()), ("AGNLIST", "SYSNODE"));
+        assert!(!file_area_renamed(&mut ftn, "NOPE", "X"));
     }
 }

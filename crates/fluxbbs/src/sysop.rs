@@ -970,19 +970,17 @@ impl Session {
                                 // Save now: the records already moved.
                                 areas.areas[idx] = a.clone();
                                 self.save_fareas(areas.clone())?;
-                                // File echoes going to it follow it: after
+                                // File echoes going to it follow it, and
+                                // networks whose nodelist comes to it: after
                                 // the areas are saved, so a config that
                                 // can't be written leaves only this behind.
                                 let old = (*self.state.config()).clone();
-                                if old.ftn.file_areas.iter().any(|m| m.area.eq_ignore_ascii_case(&was)) {
-                                    let mut cfg = old.clone();
-                                    for m in cfg.ftn.file_areas.iter_mut().filter(|m| m.area.eq_ignore_ascii_case(&was)) {
-                                        m.area = v.clone();
-                                    }
+                                let mut cfg = old.clone();
+                                if crate::sysconfig::file_area_renamed(&mut cfg.ftn, &was, &v) {
                                     match crate::sysconfig::save_changes(&self.config_path(), &old, &cfg) {
                                         Ok(()) => self.state.set_config(cfg),
                                         Err(e) => {
-                                            tracing::error!("file echoes to {was} not moved to {v}: {e:#}");
+                                            tracing::error!("file echoes and nodelists in {was} not moved to {v}: {e:#}");
                                             self.cfg_info(&mut f, "Saved, but the file echoes into it couldn't be moved: see the log.");
                                         }
                                     }
