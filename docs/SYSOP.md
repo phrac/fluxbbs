@@ -500,7 +500,7 @@ listener serves the web file lists `/files.txt` and `/files.html`
 | `allow_origin` | a site on another address allowed to fetch it | empty |
 | `show_handles` | show handles (otherwise "a caller") | on |
 | `mask_handles` | only a handle's first two letters, then `░░░░` whatever its length | off |
-| `mask_details` | likewise new files (first 4 letters of the name, 8 of the description) and posts' subjects (12) | off |
+| `mask_details` | likewise new files (first 4 letters of the name, 4 of the description, then a longer tail) and posts' subjects (12) | off |
 | `show_sysop` | list the SysOp among who's online | on |
 | `last_callers`, `new_files`, `new_posts` | how many of each | 10, 10, 5 |
 | `download_url` | the board's address on the web, for download links; blank: none | empty |

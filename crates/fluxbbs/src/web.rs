@@ -345,14 +345,18 @@ fn public(state: &BbsState, expr: &str) -> bool {
 
 /// New: the first `keep` letters and a fixed tail, so the length doesn't show.
 fn masked(text: &str, keep: usize) -> String {
+    masked_tail(text, keep, 4)
+}
+
+fn masked_tail(text: &str, keep: usize, tail: usize) -> String {
     let head: String = text.trim().chars().take(keep).collect();
-    format!("{}\u{2591}\u{2591}\u{2591}\u{2591}", head.trim_end())
+    format!("{}{}", head.trim_end(), "\u{2591}".repeat(tail))
 }
 
 fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
     let cfg = state.config();
     let w = &cfg.web;
-    let detail = |t: &str, keep: usize| if w.mask_details { masked(t, keep) } else { t.to_string() };
+    let detail = |t: &str, keep: usize, tail: usize| if w.mask_details { masked_tail(t, keep, tail) } else { t.to_string() };
     let shown = |h: &str| if !w.show_handles { "a caller".to_string() } else if w.mask_handles { masked(h, 2) } else { h.to_string() };
     let online = state
         .nodes
@@ -385,12 +389,12 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
         .into_iter()
         .take(w.new_files as usize)
         .map(|(area, f)| NewFile {
-            name: detail(&f.name, 4),
+            name: detail(&f.name, 4, 4),
             area,
             size: f.size,
             uploaded: f.uploaded.map(|d| d.to_string()).unwrap_or_default(),
             uploader: shown(&f.uploader),
-            description: detail(&blurb(&f.description), 8),
+            description: detail(&blurb(&f.description), 4, 12),
         })
         .collect();
 
@@ -413,7 +417,7 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
         .filter_map(|m| areas.areas.iter().find(|a| a.file.eq_ignore_ascii_case(&m.area)).map(|a| (a, m)))
         .map(|(a, m)| NewPost {
             area: a.name.clone(),
-            subject: detail(&m.subject, 12),
+            subject: detail(&m.subject, 12, 4),
             // Handles, never real names (a real-name area's `name`).
             from: if m.anonymous { m.from.name } else if a.real_names && !m.from.alias.is_empty() { shown(&m.from.alias) } else { shown(&m.from.name) },
             posted: m.posted.format("%Y-%m-%dT%H:%M:%S").to_string(),
@@ -638,6 +642,7 @@ mod tests {
         assert_eq!(masked("ab", 2).chars().count(), masked("abcdefghij", 2).chars().count());
         assert_eq!(masked("FLUXAD16.ASC", 4), "FLUX\u{2591}\u{2591}\u{2591}\u{2591}");
         assert_eq!(masked("disflux ad, rev 16", 8), "disflux\u{2591}\u{2591}\u{2591}\u{2591}");
+        assert_eq!(masked_tail("disflux ad, rev 16", 4, 12), format!("disf{}", "\u{2591}".repeat(12)));
     }
 
     #[test]
