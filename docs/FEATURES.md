@@ -1353,7 +1353,8 @@ same shelf that day.
   page. The answer is kept for the book, so the next caller who asks
   gets it at once and it costs one AI call a book.
 - **Discuss it further.** From that card, `d` opens a talk about the
-  book on the page: the caller asks, the AI answers from the text
+  book on the page: the caller asks (in up to four rows at the foot of
+  the page, the words wrapping as they type), the AI answers from the text
   (saying when the text doesn't say), up to 12 questions; Enter alone
   goes back to reading. Each question sends the book along, so this one
   isn't kept.

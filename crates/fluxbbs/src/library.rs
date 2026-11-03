@@ -498,6 +498,33 @@ fn paint(out: &mut Vec<u8>, fg: Ink, back: Ink, tc: bool) {
     bg(out, back, tc);
 }
 
+/// Rows the question to the AI may take at the foot of the page.
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
+const ASK_ROWS: usize = 4;
+
+/// Text being typed, wrapped at `width` without losing its spaces (a
+/// word too long for a line is cut), so the cursor goes where the next
+/// character will.
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
+fn wrap_typed(text: &str, width: usize) -> Vec<String> {
+    let mut lines = vec![String::new()];
+    for word in text.split_inclusive(' ') {
+        let cur = lines.last_mut().expect("a line");
+        let (have, add) = (cur.chars().count(), word.trim_end().chars().count());
+        if have > 0 && have + add > width {
+            lines.push(String::new());
+        }
+        for ch in word.chars() {
+            let cur = lines.last_mut().expect("a line");
+            if cur.chars().count() >= width && ch != ' ' {
+                lines.push(String::new());
+            }
+            lines.last_mut().expect("a line").push(ch);
+        }
+    }
+    lines
+}
+
 /// Text in paragraphs (a blank line between), each wrapped to `width`.
 #[cfg_attr(not(feature = "ai"), allow(dead_code))]
 fn paragraphs(text: &str, width: usize) -> Vec<String> {
@@ -1750,8 +1777,7 @@ impl Session {
         let lc = who.to_lowercase();
         // The talk: (the AI's, the words).
         let mut talk: Vec<(bool, String)> = vec![(true, self.lib_text("LibraryDiscussOpen", &[]))];
-        let rows = self.screen.rows().max(8) as usize;
-        let ask_row = rows;
+        let rows = self.screen.rows().max(12) as usize;
         tracing::info!("{}: library: discussing {} with {}", self.user.handle, book.key(), who);
         loop {
             self.discuss_draw(&talk, &lc, rows, tc);
@@ -1762,16 +1788,8 @@ impl Session {
                 self.read_key().await?;
                 return Ok(());
             }
-            // The row cleared to leather, then the question asked on it.
-            let mut out = format!("\x1b[{ask_row};1H\x1b[0m").into_bytes();
-            paint(&mut out, [232, 190, 110], [86, 34, 26], tc);
-            out.extend(std::iter::repeat_n(b' ', 79));
-            out.extend(format!("\x1b[{ask_row};1H").as_bytes());
-            out.extend(fluxbbs_term::cp437::encode(&self.lib_text("LibraryDiscussAsk", &[&lc])));
-            self.screen.write_bytes(&out);
-            self.screen.write_bytes(b"\x1b[?25h");
-            let q = self.read_string(crate::input::ReadOpts::new(80usize.saturating_sub(lc.len() + 32))).await?;
-            self.screen.write_bytes(b"\x1b[?25l");
+            let label = self.lib_text("LibraryDiscussAsk", &[&lc]);
+            let Some(q) = self.read_question(&label, rows, tc).await? else { return Ok(()) };
             let q = crate::editor::strip_colours(&q).trim().to_string();
             if q.is_empty() || self.hangup {
                 return Ok(());
@@ -1797,12 +1815,60 @@ impl Session {
         }
     }
 
+    /// A question for the AI in the `ASK_ROWS` rows at the foot of the
+    /// page, its words wrapping onto the next row as it's typed (the
+    /// label first). Enter sends it; Esc gives up (None).
+    #[cfg(feature = "ai")]
+    async fn read_question(&mut self, label: &str, rows: usize, tc: bool) -> io::Result<Option<String>> {
+        let top = rows + 1 - ASK_ROWS;
+        let mut text = String::new();
+        loop {
+            let lines = wrap_typed(&format!("{label}{text}"), 78);
+            let mut out = Vec::new();
+            for k in 0..ASK_ROWS {
+                out.extend(format!("\x1b[{};1H", top + k).as_bytes());
+                paint(&mut out, [232, 190, 110], [86, 34, 26], tc);
+                let l = lines.get(k).map(String::as_str).unwrap_or("");
+                out.extend(fluxbbs_term::cp437::encode(&format!(" {l:<79}")));
+            }
+            // The cursor after the last character typed.
+            let last = lines.len().clamp(1, ASK_ROWS);
+            let x = lines.get(last - 1).map_or(0, |l| l.chars().count()) + 2;
+            out.extend(format!("\x1b[{};{}H\x1b[?25h", top + last - 1, x.min(80)).as_bytes());
+            self.screen.write_bytes(&out);
+            let key = self.read_key().await?;
+            if self.hangup {
+                return Ok(None);
+            }
+            match key {
+                Key::Enter => break,
+                Key::Esc => {
+                    self.screen.write_bytes(b"\x1b[?25l");
+                    return Ok(None);
+                }
+                Key::Backspace => {
+                    text.pop();
+                }
+                Key::Char(c @ 0x20..=0x7E) => {
+                    // As much as the rows hold.
+                    let more = format!("{label}{text}{}", c as char);
+                    if wrap_typed(&more, 78).len() <= ASK_ROWS {
+                        text.push(c as char);
+                    }
+                }
+                _ => {}
+            }
+        }
+        self.screen.write_bytes(b"\x1b[?25l");
+        Ok(Some(text))
+    }
+
     /// The talk on the page, newest at the bottom, the rows over the
     /// prompt.
     #[cfg(feature = "ai")]
     fn discuss_draw(&mut self, talk: &[(bool, String)], who: &str, rows: usize, tc: bool) {
         const HEAD: usize = 3;
-        let room = rows.saturating_sub(HEAD + 1);
+        let room = rows.saturating_sub(HEAD + ASK_ROWS);
         let mut lines: Vec<(String, Ink)> = Vec::new();
         for (ai, words) in talk {
             if !lines.is_empty() {
@@ -2025,6 +2091,16 @@ mod tests {
         bytes.extend(enc.frame(&cv, 1));
         bytes.extend(b"\x1b[0m\x1b[24;1H");
         std::fs::write(out, bytes).unwrap();
+    }
+
+    #[test]
+    fn typing_wraps_at_words() {
+        let l = wrap_typed("ask penny: why did they call it a blue box and was it really blue", 30);
+        assert!(l.iter().all(|x| x.chars().count() <= 30), "{l:?}");
+        assert_eq!(l.concat(), "ask penny: why did they call it a blue box and was it really blue", "no character lost");
+        assert!(l[1].starts_with("call") || l[1].starts_with("it"), "{l:?}");
+        assert_eq!(wrap_typed("ends in a space ", 40), ["ends in a space "], "the space kept for the cursor");
+        assert_eq!(wrap_typed(&"x".repeat(25), 10).len(), 3);
     }
 
     #[test]
