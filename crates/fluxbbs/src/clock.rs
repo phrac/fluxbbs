@@ -88,7 +88,8 @@ impl Zone {
         };
         let (h, m) = match digits.split_once(':') {
             Some((h, m)) => (h.parse::<i32>().ok()?, m.parse::<i32>().ok()?),
-            None if digits.len() == 4 => (digits[..2].parse().ok()?, digits[2..].parse().ok()?),
+            // (Digits only: "aéb" is four bytes too, and cutting it at 2 panicked.)
+            None if digits.len() == 4 && digits.bytes().all(|b| b.is_ascii_digit()) => (digits[..2].parse().ok()?, digits[2..].parse().ok()?),
             None => (digits.parse().ok()?, 0),
         };
         if h > 14 || m > 59 {
@@ -208,6 +209,12 @@ pub fn convert(at: NaiveDateTime, to: &Zone) -> NaiveDateTime {
 mod tests {
     use super::*;
     use chrono::NaiveDate;
+
+    #[test]
+    fn odd_zones_are_refused_not_a_panic() {
+        assert!(Zone::parse("a\u{e9}b").is_none());
+        assert!(Zone::parse("+0530").is_some());
+    }
 
     #[test]
     fn parses_names_abbreviations_and_offsets() {

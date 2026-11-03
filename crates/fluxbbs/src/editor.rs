@@ -877,6 +877,7 @@ pub fn strip_codes(s: &str) -> String {
 /// typed, which `strip_codes` (for screens' own text) doesn't keep.
 /// The board's own color codes (`|XX`) out, ANSI left in: for echomail,
 /// whose export keeps an ad's colors and spacing (`ftn::text_bytes`).
+#[cfg_attr(not(feature = "ftn"), allow(dead_code))]
 pub fn strip_pipes(s: &str) -> String {
     let c: Vec<char> = s.chars().collect();
     let mut out = String::new();

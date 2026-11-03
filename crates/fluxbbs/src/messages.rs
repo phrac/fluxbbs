@@ -912,7 +912,7 @@ impl Session {
             // Mail from elsewhere: netmail is answered as netmail; from
             // anywhere else there's nobody to answer.
             Some(r) if a.is_email() && r.from.user_id == 0 => {
-                let Some(p) = self.netmail_to(&r.from.name).await? else { return Ok(None) };
+                let Some(p) = self.netmail_reply_to(&r.from).await? else { return Ok(None) };
                 netmail = true;
                 let subj = if r.subject.to_ascii_uppercase().starts_with("RE:") { r.subject.clone() } else { format!("Re: {}", r.subject) };
                 (p, subj)
@@ -947,7 +947,10 @@ impl Session {
                 if name.is_empty() {
                     return Ok(None);
                 }
-                let party = match self.state.users.find(&name, false).map_err(io_err)? {
+                // New: a netmail address is netmail, never a caller who
+                // happens to have that name.
+                let found = if a.is_email() && is_netmail_address(&name) { None } else { self.state.users.find(&name, false).map_err(io_err)? };
+                let party = match found {
                     Some(u) => {
                         if self.private_ok(a) && ask_private {
                             self.say("MsgAskPrivate").await?;
@@ -1115,10 +1118,15 @@ impl Session {
             tracing::error!("saving {}: {e}", self.user.handle);
         }
         if netmail {
+            // Said it's gone only when it has (else why not, and it's kept).
             #[cfg(feature = "ftn")]
-            self.send_netmail(&m, reply).await?;
-            let s = self.strings().fmt("NetmailSent", &[&m.to.name]);
-            self.show_line(&s).await?;
+            let sent = self.send_netmail(&m, reply).await?;
+            #[cfg(not(feature = "ftn"))]
+            let sent = false;
+            if sent {
+                let s = self.strings().fmt("NetmailSent", &[&m.to.name]);
+                self.show_line(&s).await?;
+            }
         } else if a.is_email() {
             tracing::info!("{}: email to {}: {:?}", self.user.handle, m.to.name, m.subject);
             let s = self.strings().fmt("EmailSent", &[&m.to.name]);
@@ -1334,6 +1342,19 @@ impl Session {
     }
 
     // ---- email ----------------------------------------------------------
+
+    /// A reply to netmail: to its sender at the address it came from (the
+    /// origin the tosser kept), not as its name parses.
+    async fn netmail_reply_to(&mut self, from: &Party) -> io::Result<Option<Party>> {
+        #[cfg(feature = "ftn")]
+        if let Some((name, addr)) = crate::netmail::sender(from) {
+            return self.netmail_party_at(&name, addr).await;
+        }
+        #[cfg(not(feature = "ftn"))]
+        let _ = from;
+        self.say_line("EmailUserUnknown").await?;
+        Ok(None)
+    }
 
     /// Email to someone who isn't a caller: netmail if `to` is
     /// `name@zone:net/node` and it can go (said why if not); else "no such
@@ -1600,6 +1621,18 @@ pub(crate) fn unbroken_message(m: &crate::msgbase::Message) -> Option<crate::msg
     Some(u)
 }
 
+/// Is `s` a netmail address (`name@zone:net/node`)? Email to one is
+/// netmail, never a local caller of that name.
+fn is_netmail_address(s: &str) -> bool {
+    #[cfg(feature = "ftn")]
+    return crate::netmail::parse(s).is_some();
+    #[cfg(not(feature = "ftn"))]
+    {
+        let _ = s;
+        false
+    }
+}
+
 /// A line [`unbreak`] and [`flow`] leave as it is: indented (code, art),
 /// ANSI, color codes, a fence, a tearline or origin, a URL, or mostly
 /// not letters (art, a table of figures).
@@ -1663,7 +1696,12 @@ pub(crate) fn flow(lines: &[String], width: usize) -> Vec<String> {
         if chars.len() <= room {
             return (format!("{lead}{text}"), None);
         }
-        let at = chars[..=room].iter().rposition(|&c| c == ' ').filter(|&i| i > 0).unwrap_or(room);
+        // At the last space that fits; a word longer than the line (a URL)
+        // stays whole, to its end.
+        let at = match chars[..=room].iter().rposition(|&c| c == ' ').filter(|&i| i > 0) {
+            Some(i) => i,
+            None => chars.iter().position(|&c| c == ' ').unwrap_or(chars.len()),
+        };
         let fits: String = chars[..at].iter().collect();
         let rest: String = chars[at..].iter().collect::<String>().trim().to_string();
         (format!("{lead}{}", fits.trim_end()), (!rest.is_empty()).then_some(rest))

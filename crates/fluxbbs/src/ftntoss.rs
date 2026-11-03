@@ -64,9 +64,16 @@ pub fn free_name(dir: &Path, name: &str) -> PathBuf {
 }
 
 /// A mail bundle's name: `.mo0` to `.su9` (`.moa`... too), by the day.
+/// Its stem is eight hex digits, as every mailer names them: a file-echo
+/// file called `SONG.MOD` or `CLIP.SUB` waiting for its TIC isn't one.
 fn bundle_name(lower: &str) -> bool {
-    lower.rsplit_once('.').is_some_and(|(_, e)| {
-        e.len() == 3 && ["mo", "tu", "we", "th", "fr", "sa", "su"].contains(&&e[..2]) && e.as_bytes()[2].is_ascii_alphanumeric()
+    lower.rsplit_once('.').is_some_and(|(stem, e)| {
+        let e = e.as_bytes();
+        stem.len() == 8
+            && stem.bytes().all(|c| c.is_ascii_hexdigit())
+            && e.len() == 3
+            && [b"mo", b"tu", b"we", b"th", b"fr", b"sa", b"su"].iter().any(|d| e[..2] == d[..])
+            && e[2].is_ascii_alphanumeric()
     })
 }
 
@@ -363,6 +370,13 @@ fn toss_packet(state: &BbsState, data: &[u8], nets: &[(FtnNetwork, Addr, Addr)],
 }
 
 /// An echo tag as part of a file name.
+/// A held packet's network and echo, from its name: `NET~TAG-time.pkt`,
+/// or `NET~TAG-time-N.pkt` when that was taken (a tag has no `-`).
+fn held_echo(name: &str) -> Option<(&str, &str)> {
+    let (net, rest) = name.split_once('~')?;
+    Some((net, rest.split_once('-')?.0))
+}
+
 fn safe_tag(tag: &str) -> String {
     let s: String = tag.chars().filter(|c| c.is_ascii_alphanumeric() || "_.".contains(*c)).take(40).collect();
     if s.is_empty() { "echo".into() } else { s }
@@ -400,8 +414,7 @@ fn retoss_unknown(state: &BbsState, nets: &[(FtnNetwork, Addr, Addr)], t: &mut T
     let ftn = state.config().ftn.clone();
     for path in files {
         let name = path.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
-        let Some((net, rest)) = name.split_once('~') else { continue };
-        let Some((tag, _)) = rest.rsplit_once('-') else { continue };
+        let Some((net, tag)) = held_echo(&name) else { continue };
         let mapped = ftn.areas_of(net).iter().any(|a| safe_tag(&a.tag.to_ascii_uppercase()) == tag);
         if !name.ends_with(".pkt") || !mapped {
             continue;
@@ -709,6 +722,7 @@ fn scan_net(state: &BbsState, net: &FtnNetwork, me: Addr, hub: Addr) -> anyhow::
                 from,
                 subject: crate::editor::strip_colours(&m.subject),
                 text: ftn::join_text(&parts),
+                raw_fields: None,
             });
             sent.push((m.id, msgid, map.area.clone()));
         }
@@ -786,6 +800,7 @@ pub fn netmail(state: &BbsState, net: &FtnNetwork, out: &Outgoing) -> anyhow::Re
         from: crate::editor::strip_colours(from),
         subject: crate::editor::strip_colours(subject),
         text: ftn::join_text(&parts),
+        raw_fields: None,
     };
     // Netmail goes by way of the hub.
     write_packet(state, &net.name, &Packet { orig: me, dest: hub, password: net.packet_password.clone(), created: now, msgs: vec![m] })?;
@@ -830,6 +845,20 @@ pub fn outbound_files(dir: &Path) -> Vec<PathBuf> {
 mod tests {
     use super::*;
     use crate::config::{Ftn, FtnArea};
+
+    #[test]
+    fn bundles_are_named_as_mailers_name_them() {
+        assert!(bundle_name("9f156a94.mo0") && bundle_name("0000abcd.su9") && bundle_name("0000abcd.fra"));
+        assert!(!bundle_name("song.mod") && !bundle_name("clip.mov") && !bundle_name("film.sub") && !bundle_name("game.sav"), "file-echo files");
+        assert!(!bundle_name("9f156a94.mé0"), "not ASCII: no, and no panic");
+    }
+
+    #[test]
+    fn held_packets_name_their_echo() {
+        assert_eq!(held_echo("agoranet~AGN_NEW-9f156a94.pkt"), Some(("agoranet", "AGN_NEW")));
+        assert_eq!(held_echo("agoranet~AGN_NEW-9f156a94-1.pkt"), Some(("agoranet", "AGN_NEW")), "a second in the same millisecond");
+        assert_eq!(held_echo("stray.pkt"), None);
+    }
 
     fn board() -> (std::sync::Arc<BbsState>, PathBuf) {
         let dir = std::env::temp_dir().join(format!("inq-ftn-{}-{:?}", std::process::id(), std::thread::current().id()));

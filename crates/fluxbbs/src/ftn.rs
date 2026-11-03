@@ -67,6 +67,11 @@ pub struct PackedMsg {
     pub subject: String,
     /// Lines ended by CR, in the packet's character set.
     pub text: Vec<u8>,
+    /// New: To, From and Subject as they came in a packet read here (in the
+    /// text's character set), written back the same when the message is
+    /// kept for later (an echo not mapped yet): decoding them again from
+    /// CP437 would garble a UTF-8 or Latin-1 name for good.
+    pub raw_fields: Option<[Vec<u8>; 3]>,
 }
 
 /// A packet: who it's from and to, its password, and its messages.
@@ -241,6 +246,7 @@ impl Packet {
             let cs = charset(&text_lines(&m.text)).unwrap_or(Charset::Cp437);
             let field = |c: &[u8]| crate::editor::printable(&decode_line(c, cs)).into_owned();
             (m.to, m.from, m.subject) = (field(&to), field(&from), field(&subject));
+            m.raw_fields = Some([to, from, subject]);
             msgs.push(m);
         }
         Ok(Packet { orig, dest, password, created, msgs })
@@ -283,8 +289,11 @@ impl Packet {
             date.resize(20, 0);
             date[19] = 0;
             b.extend_from_slice(&date);
-            for (s, max) in [(&m.to, 35), (&m.from, 35), (&m.subject, 71)] {
-                let mut e = text_bytes(s);
+            for (k, (s, max)) in [(&m.to, 35), (&m.from, 35), (&m.subject, 71)].into_iter().enumerate() {
+                let mut e = match &m.raw_fields {
+                    Some(raw) => raw[k].clone(),
+                    None => text_bytes(s),
+                };
                 e.truncate(max);
                 b.extend_from_slice(&e);
                 b.push(0);
@@ -606,7 +615,12 @@ mod tests {
         };
         let b = p.to_bytes();
         assert_eq!(&b[b.len() - 2..], &[0, 0]);
-        assert_eq!(Packet::parse(&b).unwrap(), p);
+        // (Read back, it keeps its fields' bytes as they came.)
+        let unraw = |mut p: Packet| {
+            p.msgs.iter_mut().for_each(|m| m.raw_fields = None);
+            p
+        };
+        assert_eq!(unraw(Packet::parse(&b).unwrap()), p);
         // A point: net 0xFFFF in the header, the real net from auxNet.
         let mut q = p.clone();
         q.orig.point = 7;
@@ -626,6 +640,12 @@ mod tests {
         // Header fields in the text's character set.
         let parts = Parts { area: Some("X".into()), kludges: vec![("CHRS".into(), "UTF-8 4".into())], body: vec!["hi".into()], ..Default::default() };
         let pkt = Packet { msgs: vec![PackedMsg { from: "Jos\u{e9}".into(), to: "All".into(), subject: "s".into(), text: join_text(&parts), ..Default::default() }], ..Default::default() };
+        // A UTF-8 message read, kept and read again: its names as they were.
+        let mut utf = Packet::parse(&pkt.to_bytes()).unwrap();
+        utf.msgs[0].text = b"\x01CHRS: UTF-8 4\rhi\r".to_vec();
+        utf.msgs[0].raw_fields = Some([b"All".to_vec(), "Jos\u{e9}".as_bytes().to_vec(), "Caf\u{e9} \u{2019}s".as_bytes().to_vec()]);
+        let again = Packet::parse(&Packet::parse(&utf.to_bytes()).unwrap().to_bytes()).unwrap();
+        assert_eq!((again.msgs[0].from.as_str(), again.msgs[0].subject.as_str()), ("Jos\u{e9}", "Caf\u{e9} \u{2019}s"));
         let mut b = pkt.to_bytes();
         let at = b.windows(4).position(|w| w == b"Jos\x82").unwrap();
         b.splice(at + 3..at + 4, [0xc3, 0xa9]);

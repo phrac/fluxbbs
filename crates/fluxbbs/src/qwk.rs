@@ -234,10 +234,26 @@ pub fn parse_rep(data: &[u8]) -> Vec<Reply> {
         while lines.last().is_some_and(String::is_empty) {
             lines.pop();
         }
+        let mut to = crate::editor::printable(&text(&h[21..46])).into_owned();
+        let mut subject = crate::editor::printable(&text(&h[71..96])).into_owned();
+        // New: QWKE's longer fields (MultiMail's), lines at the top of the
+        // text, read as the fields they are rather than posted as words.
+        let mut head = 0;
+        while head < lines.len() && head < 3 {
+            let l = &lines[head];
+            match l.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim())) {
+                Some((k, v)) if k == "to" && !v.is_empty() => to = crate::editor::printable(v).into_owned(),
+                Some((k, v)) if k == "subject" && !v.is_empty() => subject = crate::editor::printable(v).into_owned(),
+                Some((k, _)) if k == "from" => {}
+                _ => break,
+            }
+            head += 1;
+        }
+        lines.drain(..head);
         out.push(Reply {
             conf,
-            to: crate::editor::printable(&text(&h[21..46])).into_owned(),
-            subject: crate::editor::printable(&text(&h[71..96])).into_owned(),
+            to,
+            subject,
             private: matches!(h[0], b'*' | b'+'),
             refer: text(&h[108..116]).parse().unwrap_or(0),
             lines,
@@ -247,17 +263,11 @@ pub fn parse_rep(data: &[u8]) -> Vec<Reply> {
     out
 }
 
-/// Lines longer than the message width, wrapped at spaces.
+/// Lines longer than the message width, wrapped at spaces, what doesn't
+/// fit going on with the next line of its paragraph (quotes keep their
+/// lead; a word too long, a URL, stays whole) rather than left alone.
 fn fit(lines: Vec<String>) -> Vec<String> {
-    let mut out = Vec::new();
-    for l in lines {
-        if l.chars().count() <= WIDTH {
-            out.push(l);
-        } else {
-            out.extend(crate::multinode::wrap(&l, WIDTH));
-        }
-    }
-    out
+    crate::messages::flow(&lines, WIDTH)
 }
 
 /// A stable fingerprint of a REP's replies (FNV-1a), to spot a packet
@@ -893,6 +903,29 @@ mod tests {
         assert_eq!(parse_rep(&blank)[0].conf, 3);
         // A truncated packet stops cleanly.
         assert_eq!(parse_rep(&data[..BLOCK + 10]).len(), 0);
+    }
+
+    #[test]
+    fn multimail_fields_are_fields() {
+        let rep = |body: &str| {
+            let mut data = vec![b' '; BLOCK];
+            let mut h = vec![b' '; BLOCK];
+            h[0] = b' ';
+            h[1..2].copy_from_slice(b"1");
+            h[21..24].copy_from_slice(b"ALL");
+            h[71..76].copy_from_slice(b"Short");
+            let mut text: Vec<u8> = body.bytes().map(|b| if b == b'\n' { EOL } else { b }).collect();
+            text.resize(text.len().div_ceil(BLOCK).max(1) * BLOCK, b' ');
+            h[116..122].copy_from_slice(format!("{:<6}", 1 + text.len() / BLOCK).as_bytes());
+            data.extend(h);
+            data.extend(text);
+            parse_rep(&data)
+        };
+        let r = rep("To: Somebody With A Long Name\nSubject: A subject far longer than twenty-five\nhello\n");
+        assert_eq!((r[0].to.as_str(), r[0].subject.as_str()), ("Somebody With A Long Name", "A subject far longer than twenty-five"));
+        assert_eq!(r[0].lines, ["hello"]);
+        let r = rep("Note: not a field\nhello\n");
+        assert_eq!(r[0].lines[0], "Note: not a field");
     }
 
     #[test]

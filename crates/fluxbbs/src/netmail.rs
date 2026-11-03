@@ -46,6 +46,20 @@ fn fidonet_zone(z: u16) -> bool {
     (1..=6).contains(&z)
 }
 
+/// Who a netmail party is, by name and address: the address kept in its
+/// note (the tosser's sender's origin, or where it was sent), the name
+/// what's before it, so an `@` in the name can't move it.
+pub fn sender(p: &Party) -> Option<(String, Addr)> {
+    match Addr::parse(p.note.trim()) {
+        Some(addr) => {
+            let name = p.name.strip_suffix(&format!("@{}", p.note.trim())).unwrap_or(&p.name);
+            let name = name.rsplit_once('@').filter(|(_, a)| Addr::parse(a).is_some()).map_or(name, |(n, _)| n);
+            (!name.trim().is_empty()).then(|| (name.trim().to_string(), addr))
+        }
+        None => parse(&p.name),
+    }
+}
+
 /// The network `addr` is on, from here, and its nodelist entry.
 pub fn route(state: &crate::BbsState, addr: Addr) -> Result<(FtnNetwork, Entry), Refused> {
     let cfg = state.config();
@@ -91,6 +105,13 @@ impl Session {
     /// as the email's recipient; None (having said why) if it can't go.
     pub(crate) async fn netmail_party(&mut self, to: &str) -> io::Result<Option<Party>> {
         let Some((name, addr)) = parse(to) else { return Ok(None) };
+        self.netmail_party_at(&name, addr).await
+    }
+
+    /// [`Self::netmail_party`] to `name` at `addr` (a name with an `@` in
+    /// it, from a reply to netmail, is taken as it is).
+    pub(crate) async fn netmail_party_at(&mut self, name: &str, addr: Addr) -> io::Result<Option<Party>> {
+        let name = name.to_string();
         if !self.netmail_allowed().await? {
             return Ok(None);
         }
@@ -99,7 +120,10 @@ impl Session {
             Ok((net, e)) => {
                 let line = s.fmt("NetmailTo", &[&name, &addr.to_string(), &e.name, &e.location, &net.name]);
                 self.show_line(&line).await?;
-                Ok(Some(Party { user_id: 0, alias: name.clone(), real_name: name.clone(), name: format!("{name}@{addr}"), note: addr.to_string() }))
+                // Nobody here: "None", as for any party that isn't a
+                // caller, so a caller with that handle or real name doesn't
+                // get the copy kept in email (`mail_for`, `is_me`).
+                Ok(Some(Party { user_id: 0, alias: "None".into(), real_name: "None".into(), name: format!("{name}@{addr}"), note: addr.to_string() }))
             }
             Err(why) => {
                 let line = match why {
@@ -118,9 +142,10 @@ impl Session {
 
     /// Write `m` (just saved in email) out as netmail to its recipient,
     /// answering `reply`'s MSGID if it came as netmail. Said if it can't.
-    pub(crate) async fn send_netmail(&mut self, m: &Message, reply: Option<&Message>) -> io::Result<()> {
+    /// True if it went.
+    pub(crate) async fn send_netmail(&mut self, m: &Message, reply: Option<&Message>) -> io::Result<bool> {
         let sent = (|| -> anyhow::Result<()> {
-            let (name, addr) = parse(&m.to.name).ok_or_else(|| anyhow::anyhow!("{:?} isn't a netmail address", m.to.name))?;
+            let (name, addr) = sender(&m.to).ok_or_else(|| anyhow::anyhow!("{:?} isn't a netmail address", m.to.name))?;
             let (net, _) = route(&self.state, addr).map_err(|why| anyhow::anyhow!("{why:?}"))?;
             let answers = match reply {
                 Some(r) => self.state.msgs.ftn_msgid(r.id)?,
@@ -129,22 +154,34 @@ impl Session {
             // All of it, signature too, as echomail goes.
             let out = crate::ftntoss::Outgoing { from: &m.from.name, to: &name, to_addr: addr, subject: &m.subject, body: &m.lines, reply: answers.as_deref() };
             let msgid = crate::ftntoss::netmail(&self.state, &net, &out)?;
-            // Its MSGID kept, for a reply to it to find.
-            self.state.msgs.ftn_record(m.id, &msgid, &m.area, true)?;
+            // Its MSGID kept, for a reply to it to find (it's gone either way).
+            if let Err(e) = self.state.msgs.ftn_record(m.id, &msgid, &m.area, true) {
+                tracing::error!("netmail {msgid}: recording it: {e:#}");
+            }
             tracing::info!("{}: netmail to {name} at {addr} ({}): {:?}", self.user.handle, net.name, m.subject);
             Ok(())
         })();
-        if let Err(e) = sent {
+        if let Err(e) = &sent {
             tracing::error!("{}: netmail to {} not sent: {e:#}", self.user.handle, m.to.name);
             self.say_line("NetmailFailed").await?;
         }
-        Ok(())
+        Ok(sent.is_ok())
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn senders_with_an_at_in_their_name() {
+        let p = |name: &str, note: &str| Party { user_id: 0, alias: "None".into(), real_name: "None".into(), name: name.into(), note: note.into() };
+        assert_eq!(sender(&p("D@rk Angel@46:1/999", "46:1/999")), Some(("D@rk Angel".into(), Addr::parse("46:1/999").unwrap())));
+        assert_eq!(sender(&p("joe@example.com@1:1/31", "1:1/31")), Some(("joe@example.com".into(), Addr::parse("1:1/31").unwrap())));
+        // A name that looks like another address goes to where it came from.
+        assert_eq!(sender(&p("Nick Boel@46:1/100@46:1/999", "46:1/999")).map(|s| s.1), Addr::parse("46:1/999"));
+        assert_eq!(sender(&p("Nick Boel@46:1/100", "")), Some(("Nick Boel".into(), Addr::parse("46:1/100").unwrap())));
+    }
 
     #[test]
     fn addresses() {

@@ -541,7 +541,8 @@ impl Session {
                 // callers: mail to them mustn't reach someone.
                 let anonymous = crate::editor::strip_codes(self.strings().get("Anonymous"));
                 let reserved = nu.reserved_handles.iter().chain([&anonymous, &"None".to_string(), &"Anonymous".to_string()]).any(|r| r.trim().eq_ignore_ascii_case(h.trim()));
-                if reserved || h.eq_ignore_ascii_case("NEW") || h.eq_ignore_ascii_case("ALL") || h.starts_with(|c: char| c.is_ascii_digit()) || has_codes(&h) {
+                // New: no `@`, which email reads as a netmail address.
+                if reserved || h.eq_ignore_ascii_case("NEW") || h.eq_ignore_ascii_case("ALL") || h.starts_with(|c: char| c.is_ascii_digit()) || has_codes(&h) || h.contains('@') {
                     self.say_line("NuBadAlias").await?;
                 } else if self.name_taken(&h)? {
                     self.say_line("NuDupUser").await?;
@@ -556,7 +557,7 @@ impl Session {
                 self.say("NuName").await?;
                 let n = self.read_string(ReadOpts::new(36).case(Case::Mixed).required()).await?;
                 self.newline();
-                if n.starts_with(|c: char| c.is_ascii_digit()) || has_codes(&n) {
+                if n.starts_with(|c: char| c.is_ascii_digit()) || has_codes(&n) || n.contains('@') {
                     self.say_line("NuBadName").await?;
                 } else if !n.contains(' ') {
                     self.say_line("NuFullName").await?;

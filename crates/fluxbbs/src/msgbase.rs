@@ -171,6 +171,9 @@ const STEPS: &[Step] = &[
     // goes for good `keep_deleted_days` later.
     Step::Column("messages", "deleted_at", "TEXT NOT NULL DEFAULT ''"),
     Step::Column("messages", "deleted_by", "TEXT NOT NULL DEFAULT ''"),
+    // The copy kept of netmail sent from here named the far recipient as
+    // its alias and real name, so a caller of that name got it: nobody's.
+    Step::Sql("UPDATE messages SET to_alias = 'None', to_real = 'None' WHERE to_id = 0 AND to_name LIKE '%@%:%/%' AND to_note LIKE '%:%/%'"),
 ];
 
 const SCHEMA: &str = "
@@ -469,9 +472,21 @@ impl MsgBase {
         // Immediate: `fluxbbs ftn` beside the board writes here too, and
         // both mustn't pick the same number.
         let db = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        // New: numbers aren't used twice in an area either, even after its
+        // newest message is purged: callers' lastreads already cover it, so
+        // a message given its number would never be new to them. Above the
+        // highest number the area has had, and every lastread in it.
+        let high = format!("last_num:{}", m.area.to_ascii_uppercase());
         if m.num == 0 {
-            m.num = db.query_row("SELECT COALESCE(MAX(num), 0) + 1 FROM messages WHERE area = ?1", [&m.area], |r| r.get(0))?;
+            m.num = db.query_row(
+                "SELECT MAX(COALESCE((SELECT MAX(num) FROM messages WHERE area = ?1), 0),
+                            COALESCE((SELECT value FROM ftn_state WHERE key = ?2), 0),
+                            COALESCE((SELECT MAX(num) FROM lastread WHERE area = ?1), 0)) + 1",
+                params![&m.area, &high],
+                |r| r.get(0),
+            )?;
         }
+        db.execute("INSERT INTO ftn_state (key, value) VALUES (?1, ?2) ON CONFLICT (key) DO UPDATE SET value = MAX(value, excluded.value)", params![&high, m.num])?;
         // Row ids are never used twice, even after the newest message is
         // purged: FTN's MSGIDs, mentions and read marks name rows.
         let id: i64 = db.query_row(
@@ -784,10 +799,12 @@ impl MsgBase {
         tx.execute("UPDATE ftn_msgs SET area = ?2 WHERE area = ?1", params![from, to])?;
         tx.execute("UPDATE ftn_replies SET area = ?2 WHERE area = ?1", params![from, to])?;
         tx.execute("UPDATE qwk_confs SET area = ?2 WHERE area = ?1 COLLATE NOCASE", params![from, to])?;
-        let (old, new) = (format!("sent:{}", from.to_ascii_uppercase()), format!("sent:{}", to.to_ascii_uppercase()));
-        if old != new {
-            tx.execute("DELETE FROM ftn_state WHERE key = ?1", [&new])?;
-            tx.execute("UPDATE ftn_state SET key = ?2 WHERE key = ?1", params![old, new])?;
+        for kind in ["sent", "last_num"] {
+            let (old, new) = (format!("{kind}:{}", from.to_ascii_uppercase()), format!("{kind}:{}", to.to_ascii_uppercase()));
+            if old != new {
+                tx.execute("DELETE FROM ftn_state WHERE key = ?1", [&new])?;
+                tx.execute("UPDATE ftn_state SET key = ?2 WHERE key = ?1", params![old, new])?;
+            }
         }
         tx.commit()?;
         Ok(())
@@ -1476,6 +1493,30 @@ mod tests {
             reply_to: 0,
             lines: text.split('\n').map(String::from).collect(),
         }
+    }
+
+    #[test]
+    fn numbers_are_not_used_again() {
+        let mb = MsgBase::open_memory().unwrap();
+        let mut a = msg("GEN", "All", "one");
+        let mut b = msg("GEN", "All", "spam");
+        mb.add(&mut a).unwrap();
+        mb.add(&mut b).unwrap();
+        assert_eq!((a.num, b.num), (1, 2));
+        // The newest is purged: the next isn't #2 again.
+        mb.purge(b.id).unwrap();
+        let mut c = msg("GEN", "All", "next");
+        mb.add(&mut c).unwrap();
+        assert_eq!(c.num, 3);
+        // Nor below a caller's lastread (numbers reused before this).
+        mb.purge(c.id).unwrap();
+        let db = mb.db.lock().unwrap();
+        db.execute("DELETE FROM ftn_state WHERE key = 'last_num:GEN'", []).unwrap();
+        db.execute("INSERT INTO lastread (user_id, area, num) VALUES (7, 'GEN', 5)", []).unwrap();
+        drop(db);
+        let mut d = msg("GEN", "All", "after");
+        mb.add(&mut d).unwrap();
+        assert_eq!(d.num, 6);
     }
 
     #[test]
