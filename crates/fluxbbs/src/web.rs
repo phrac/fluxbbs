@@ -390,7 +390,7 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
             size: f.size,
             uploaded: f.uploaded.map(|d| d.to_string()).unwrap_or_default(),
             uploader: shown(&f.uploader),
-            description: detail(&blurb(&f.description), 16),
+            description: detail(&blurb(&f.description), 8),
         })
         .collect();
 

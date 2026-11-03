@@ -344,7 +344,7 @@ pub struct Web {
     /// length so it doesn't say how long the handle is.
     pub mask_handles: bool,
     /// New: likewise for new files (the name's first 4 letters, the
-    /// description's first 16) and posts' subjects (12).
+    /// description's first 8) and posts' subjects (12).
     pub mask_details: bool,
     /// List the SysOp among who's online.
     pub show_sysop: bool,
