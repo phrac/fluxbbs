@@ -769,7 +769,8 @@ Where the original's behavior was a hazard or no longer fits.
   first caller with it (real names aren't unique).
 - The website feed shows handles, not real names, from real-name areas.
 - The website feed can mask handles (`mask_handles`): the first two
-  letters, then `░░░░` whatever the length.
+  letters, then `░░░░` whatever the length; `mask_details` does the
+  same to new files' names and descriptions and posts' subjects.
 - DOOR.SYS's password line is empty.
 
 ### Whose message is whose

@@ -343,6 +343,9 @@ pub struct Web {
     /// New: show only a handle's first two letters, padded to one
     /// length so it doesn't say how long the handle is.
     pub mask_handles: bool,
+    /// New: likewise for new files (the name's first 4 letters, the
+    /// description's first 16) and posts' subjects (12).
+    pub mask_details: bool,
     /// List the SysOp among who's online.
     pub show_sysop: bool,
     pub last_callers: u8,
@@ -366,6 +369,7 @@ impl Default for Web {
             allow_origin: String::new(),
             show_handles: true,
             mask_handles: false,
+            mask_details: false,
             show_sysop: true,
             last_callers: 10,
             new_files: 10,
