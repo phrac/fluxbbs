@@ -456,7 +456,9 @@ impl Session {
             lines += 1;
         }
         self.set_slot(Slot::TextHi);
-        for line in &m.lines {
+        // New: mail from elsewhere that was wrapped twice, joined up again.
+        let unbroken = if m.from.user_id == 0 { unbreak(&m.lines, 79) } else { None };
+        for line in unbroken.as_ref().unwrap_or(&m.lines) {
             if line.contains('\x1b') {
                 self.screen.write_bytes(&crate::editor::ansi_bytes(line));
                 self.newline();
@@ -1575,5 +1577,119 @@ impl Session {
             self.newline();
         }
         Ok(())
+    }
+}
+
+/// New: mail from other boards that was wrapped twice (a web forum
+/// gateway, or an editor, wrapping at one width and something on the way
+/// cutting each line again at 79, a word or two left alone on a line
+/// before the next), its paragraphs joined up again and wrapped at
+/// `width`, for showing. An orphan is a short line, after one that
+/// reached the edge, that stops mid-sentence (no closing punctuation)
+/// and whose next line carries on in lower case and would have fitted
+/// on it: wrapping once never leaves that. Only prose: quotes, indents,
+/// lists, tables, color codes, URLs, ANSI, the tearline and origin stay
+/// as they are. Checked against every echomail message on disflux: it
+/// changes only the broken ones.
+pub(crate) fn unbreak(lines: &[String], width: usize) -> Option<Vec<String>> {
+    let len = |l: &str| l.chars().count();
+    let first_word = |l: &str| l.split_whitespace().next().map_or(0, |w| w.chars().count());
+    // Lines a paragraph can't be joined across.
+    let fixed = |l: &str| {
+        let t = l.trim_start();
+        let piped = l.as_bytes().windows(3).any(|w| w[0] == b'|' && w[1].is_ascii_digit() && w[2].is_ascii_digit());
+        l.starts_with([' ', '\t'])
+            || l.chars().take(3).any(|c| c == '>')
+            || l.contains('\x1b')
+            || piped
+            || t.contains("   ")
+            || t.starts_with("http")
+            || t.starts_with("---")
+            || t.starts_with("* Origin")
+            || t.starts_with("- ")
+            || t.starts_with("* ")
+            || t.split_once(['.', ')']).is_some_and(|(n, rest)| !n.is_empty() && n.len() <= 2 && n.chars().all(|c| c.is_ascii_digit()) && rest.starts_with(' '))
+    };
+    let orphan = |a: &str, b: &str, c: &str| {
+        len(a) + 10 >= width
+            && len(a) + 1 + first_word(b) > width
+            && len(b) <= 30
+            && !b.ends_with(['.', '!', '?', ':', ')', '"', '\''])
+            && len(b) + 1 + first_word(c) <= width
+            && c.starts_with(|ch: char| ch.is_lowercase())
+    };
+    let prose = |p: &[String]| {
+        let (mut letters, mut all) = (0, 0);
+        for ch in p.iter().flat_map(|l| l.chars()).filter(|c| !c.is_whitespace()) {
+            all += 1;
+            letters += ch.is_alphabetic() as usize;
+        }
+        all > 0 && letters * 10 >= all * 7
+    };
+    let mut out: Vec<String> = Vec::new();
+    let mut changed = false;
+    let mut i = 0;
+    while i < lines.len() {
+        if lines[i].trim().is_empty() || fixed(&lines[i]) {
+            out.push(lines[i].clone());
+            i += 1;
+            continue;
+        }
+        let start = i;
+        while i < lines.len() && !lines[i].trim().is_empty() && !fixed(&lines[i]) {
+            i += 1;
+        }
+        let para = &lines[start..i];
+        let broken = prose(para) && para.windows(3).any(|w| orphan(w[0].trim_end(), w[1].trim_end(), w[2].trim_end()));
+        if broken {
+            changed = true;
+            let words = para.iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ");
+            out.extend(crate::multinode::wrap(&words, width));
+        } else {
+            out.extend(para.iter().cloned());
+        }
+    }
+    changed.then_some(out)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// `UNBREAK_DB=fluxbbs.db cargo test -- --ignored unbreak_on_a_board --nocapture`:
+    /// which mail from elsewhere on a board would be joined up.
+    #[test]
+    #[ignore]
+    fn unbreak_on_a_board() {
+        let Ok(path) = std::env::var("UNBREAK_DB") else { return };
+        let db = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let mut stmt = db.prepare("SELECT id, area, body FROM messages WHERE from_id = 0 AND area <> 'EMAIL'").unwrap();
+        let rows: Vec<(i64, String, String)> = stmt.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?))).unwrap().map(|r| r.unwrap()).collect();
+        let changed: Vec<String> = rows
+            .iter()
+            .filter(|(_, _, b)| unbreak(&b.split('\n').map(String::from).collect::<Vec<_>>(), 79).is_some())
+            .map(|(id, area, _)| format!("{id} {area}"))
+            .collect();
+        println!("{} of {} changed: {}", changed.len(), rows.len(), changed.join(", "));
+    }
+
+    #[test]
+    fn gateway_double_wraps_are_joined_up() {
+        let l = |t: &str| t.lines().map(String::from).collect::<Vec<_>>();
+        let broken = l("One or two years later, I switched to an Atari 800 XL with a disk drive,\nfollowed\nby an Amiga 500. I soon realized, however, that the hardware kept expanding,\ncluttering up my desk. So, in 1989, I bought an Amiga 2000. By 1991--having\nalready\nhad my first experiences with BBS networks.\n\nFor I remain firmly convinced that the output within a community would provide\nbenefits for\neveryone!\n\n> a quote stays\n> as it is\n--- XenFido 1.47.1\n * Origin: Somewhere (23:1/103)");
+        let fixed = unbreak(&broken, 79).expect("broken");
+        assert!(fixed.iter().all(|x| x.chars().count() <= 79));
+        assert!(!fixed.iter().any(|x| x == "followed" || x == "already" || x == "benefits for"), "{fixed:#?}");
+        let words = |v: &[String]| v.iter().flat_map(|x| x.split_whitespace().map(String::from).collect::<Vec<_>>()).collect::<Vec<_>>();
+        assert_eq!(words(&fixed), words(&broken), "no word lost or moved");
+        assert!(fixed.iter().any(|x| x == "> a quote stays") && fixed.iter().any(|x| x.starts_with("--- XenFido")));
+        // Wrapped once, by anyone: left alone. So are lists and short lines.
+        let fine = l("This is an ordinary message wrapped at seventy-nine columns by a proper\neditor, so every line break falls where the next word wouldn't fit on the\nline before it.\n\nThanks,\nBob\n\n- one\n- two");
+        assert_eq!(unbreak(&fine, 79), None);
+        let poem = l("roses are red\nviolets are blue\nthis line is short\nand so is this");
+        assert_eq!(unbreak(&poem, 79), None);
+        // A sentence a line, and a signature in color codes: as written.
+        let lines = l("issue where a squirrel got into the RV in the winter and chewed through a\nwire).\nSo I used Amazon's return policy within 30 days and got all my money back.\nprogress is progress, said someone who was really quite pleased about it all\nthanks\n|08[|07K|08N1GHT|07S|08HAD0W]");
+        assert_eq!(unbreak(&lines, 79), None);
     }
 }

@@ -277,6 +277,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   (the original moved the record anyway, pointing it at nothing), and viewing a record whose
   file is missing says so instead of hanging up.
 - View in the file lister and editor opens pictures and PDFs as the gallery does.
+- Echomail wrapped twice on its way (a gateway's or an editor's: words
+  left alone on a line) is joined up again in the readers.
 - Votes and comments on files, as on posts (`x`: `+`, `-`, `>`): a
   score beside each file, its pushes under its information, hot files
   (`h` on the file menu, `FW votes`); upvotes pay points only on

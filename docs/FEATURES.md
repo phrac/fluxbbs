@@ -1761,6 +1761,20 @@ and as `HOT` from 25.
 - Karma, on a caller's profile, is the votes on their public posts (not
   anonymous ones).
 
+### Mail wrapped twice
+
+Some software wraps a message at one width and something on the way
+(a web forum's gateway, an editor) cuts each line again at 79, leaving
+a word or two alone on a line: `...with a disk drive,` / `followed` /
+`by an Amiga 500...`. The readers join such paragraphs up again and
+wrap them at 79, for mail from other boards only, and only where the
+break can't be a writer's own: a short line after one that reached the
+edge, stopping mid-sentence, the next line going on in lower case with
+a first word that would have fitted. Quotes, indented lines, lists,
+tables, color codes, URLs, ANSI and the tearline and origin are never
+joined. The message itself is stored as it came. (On disflux it
+changes 11 of some 5,800 echomail messages, all of them broken.)
+
 ### Votes and comments on files
 
 Files take pushes too (`filepush.rs`), with the same keys: `x` on a

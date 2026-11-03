@@ -1981,9 +1981,12 @@ impl Session {
         }
         // New: fenced code blocks shaded, and colored when they name their
         // language (not in plain text, which keeps the fences).
-        let lines: Vec<Result<String, crate::markup::Line>> = match (!self.plain()).then(|| crate::markup::message_code_blocks(&m.lines, 79)).flatten() {
+        // New: mail from elsewhere that was wrapped twice, joined up again.
+        let unbroken = if m.from.user_id == 0 { crate::messages::unbreak(&m.lines, 79) } else { None };
+        let body = unbroken.as_ref().unwrap_or(&m.lines);
+        let lines: Vec<Result<String, crate::markup::Line>> = match (!self.plain()).then(|| crate::markup::message_code_blocks(body, 79)).flatten() {
             Some(l) => l,
-            None => m.lines.iter().cloned().map(Ok).collect(),
+            None => body.iter().cloned().map(Ok).collect(),
         };
         for line in &lines {
             let line = match line {
