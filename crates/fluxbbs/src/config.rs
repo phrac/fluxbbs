@@ -340,6 +340,9 @@ pub struct Web {
     pub allow_origin: String,
     /// Show handles (otherwise "a caller").
     pub show_handles: bool,
+    /// New: show only a handle's first two letters, padded to one
+    /// length so it doesn't say how long the handle is.
+    pub mask_handles: bool,
     /// List the SysOp among who's online.
     pub show_sysop: bool,
     pub last_callers: u8,
@@ -362,6 +365,7 @@ impl Default for Web {
             listen: "127.0.0.1:8099".into(),
             allow_origin: String::new(),
             show_handles: true,
+            mask_handles: false,
             show_sysop: true,
             last_callers: 10,
             new_files: 10,

@@ -768,6 +768,8 @@ Where the original's behavior was a hazard or no longer fits.
 - An area's sponsor is matched by handle, or by real name only for the
   first caller with it (real names aren't unique).
 - The website feed shows handles, not real names, from real-name areas.
+- The website feed can mask handles (`mask_handles`): the first two
+  letters, then `░░░░` whatever the length.
 - DOOR.SYS's password line is empty.
 
 ### Whose message is whose

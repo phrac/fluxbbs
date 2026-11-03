@@ -343,10 +343,16 @@ fn public(state: &BbsState, expr: &str) -> bool {
     acs::check(expr, &env)
 }
 
+/// New: the first two letters and a fixed tail, so the length doesn't show.
+fn masked(handle: &str) -> String {
+    let head: String = handle.trim().chars().take(2).collect();
+    format!("{head}\u{2591}\u{2591}\u{2591}\u{2591}")
+}
+
 fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
     let cfg = state.config();
     let w = &cfg.web;
-    let shown = |h: &str| if w.show_handles { h.to_string() } else { "a caller".to_string() };
+    let shown = |h: &str| if !w.show_handles { "a caller".to_string() } else if w.mask_handles { masked(h) } else { h.to_string() };
     let online = state
         .nodes
         .online()
@@ -621,6 +627,14 @@ mod tests {
         // Counted once, however often it's fetched.
         let t = state.links.mint(&state, 1, "phrac", "AGNNODE", "agoranet.z03", "/nonexistent".into());
         assert!(state.links.count_once(&t) && !state.links.count_once(&t));
+    }
+
+    #[test]
+    fn masks_hide_length() {
+        assert_eq!(masked("Randers"), "Ra\u{2591}\u{2591}\u{2591}\u{2591}");
+        assert_eq!(masked("ab"), "ab\u{2591}\u{2591}\u{2591}\u{2591}");
+        assert_eq!(masked("x"), "x\u{2591}\u{2591}\u{2591}\u{2591}");
+        assert_eq!(masked("ab").chars().count(), masked("abcdefghij").chars().count());
     }
 
     #[test]
