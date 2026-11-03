@@ -1070,3 +1070,5 @@ MsgFindPageHelp = "every word is looked for:  \"a phrase\"  -not      tab button
 MsgFindPageCount = "%S1 messages"
 MsgFoundHead = "|U4 Found  |U5%S1 |U4for \"|U6%S2|U4\""
 MsgFoundHelp = "|U1 |U3enter|U1 reads it in its thread, |U3/|U1 finds in the list, |U3esc|U1 goes back"
+NetmailNoDomain = "|U4No network here is called |U5%S1|U4|U5."
+NetmailAmbiguous = "|U5%S1|U4 is on more than one network here (|U5%S2|U4): add |U5@|U4and the network's name to say which|U5."

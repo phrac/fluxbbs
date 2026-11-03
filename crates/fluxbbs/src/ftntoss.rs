@@ -342,7 +342,7 @@ fn toss_packet(state: &BbsState, data: &[u8], nets: &[(FtnNetwork, Addr, Addr)],
                 }
             }
             None => {
-                if let Some(why) = toss_netmail(state, m, &parts, me, pkt.orig, t)? {
+                if let Some(why) = toss_netmail(state, net, m, &parts, me, pkt.orig, t)? {
                     problems.push(why);
                     misrouted.push(m.clone());
                 }
@@ -535,7 +535,8 @@ fn dupe_key(m: &PackedMsg, parts: &Parts) -> String {
 
 /// Toss a netmail; Some(why) if it isn't for us (it's kept for the
 /// SysOp).
-fn toss_netmail(state: &BbsState, m: &PackedMsg, parts: &Parts, me: Addr, pkt_orig: Addr, t: &mut Tossed) -> anyhow::Result<Option<String>> {
+#[allow(clippy::too_many_arguments)]
+fn toss_netmail(state: &BbsState, net: &FtnNetwork, m: &PackedMsg, parts: &Parts, me: Addr, pkt_orig: Addr, t: &mut Tossed) -> anyhow::Result<Option<String>> {
     // Who it's for and from: INTL (zones), FMPT/TOPT (points), else the
     // message header.
     let (mut orig, mut dest) = (Addr { zone: pkt_orig.zone, net: m.orig_net, node: m.orig_node, point: 0 }, Addr { zone: me.zone, net: m.dest_net, node: m.dest_node, point: 0 });
@@ -566,7 +567,9 @@ fn toss_netmail(state: &BbsState, m: &PackedMsg, parts: &Parts, me: Addr, pkt_or
         (None, None) => party(&m.to),
     };
     let mut from = party(&format!("{}@{orig}", m.from));
-    from.note = orig.to_string();
+    // With the network it came on, so a reply goes back by it (another
+    // network may have the same zone).
+    from.note = format!("{orig}@{}", net.domain());
     let mut msg = Message {
         id: 0,
         area: email.clone(),
@@ -1250,5 +1253,18 @@ mod tests {
         let p = ftn.problems().join("\n");
         assert!(p.contains("\"../inbound\" left out") && p.contains("\"fsx\" left out"), "{p}");
         assert!(p.contains("X_GEN") && p.contains("two networks"), "{p}");
+        // Two networks in one zone with one session password: a hub
+        // calling in would be taken for both. The second is left out; so
+        // is a second network with a domain already taken.
+        let pw = |name: &str, addr: &str, hub: &str, pw: &str| crate::config::FtnNetwork { name: name.into(), address: addr.into(), hub: hub.into(), session_password: pw.into(), ..Default::default() };
+        let ftn = Ftn {
+            enabled: true,
+            networks: vec![pw("one", "23:100/14@one", "23:1/1", "SAME"), pw("two", "23:5/2@two", "23:1/1", "same"), pw("three", "23:6/1@one", "23:1/9", "OWN"), pw("four", "23:7/1@four", "23:1/9", "OWN")],
+            ..Ftn::default()
+        };
+        let names: Vec<String> = ftn.networks().into_iter().map(|n| n.name).collect();
+        assert_eq!(names, ["one", "four"]);
+        let p = ftn.problems().join("\n");
+        assert!(p.contains("\"two\" left out") && p.contains("session password") && p.contains("\"three\" left out") && p.contains("domain"), "{p}");
     }
 }

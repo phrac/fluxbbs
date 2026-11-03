@@ -38,6 +38,23 @@ pub enum Refused {
     Down(Addr, String),
     /// One of this board's own addresses.
     Ours,
+    /// New: no network here has that domain.
+    NoDomain(String),
+    /// New: on more than one network here (they share its zone), and
+    /// nothing said which: `@domain` does.
+    Ambiguous(Addr, Vec<String>),
+}
+
+/// The domain an address names (`46:1/100@agoranet`), if it names one.
+pub fn domain_of(addr: &str) -> Option<String> {
+    let (_, d) = addr.trim().split_once('@')?;
+    let d = d.trim().to_ascii_lowercase();
+    (!d.is_empty()).then_some(d)
+}
+
+/// `name@address[@domain]`'s domain.
+pub fn parse_domain(s: &str) -> Option<String> {
+    domain_of(s.split_once('@')?.1)
 }
 
 /// Fidonet's zones (1-6) are one network: a board on it is reached by
@@ -49,19 +66,19 @@ fn fidonet_zone(z: u16) -> bool {
 /// Who a netmail party is, by name and address: the address kept in its
 /// note (the tosser's sender's origin, or where it was sent), the name
 /// what's before it, so an `@` in the name can't move it.
-pub fn sender(p: &Party) -> Option<(String, Addr)> {
+pub fn sender(p: &Party) -> Option<(String, Addr, Option<String>)> {
     match Addr::parse(p.note.trim()) {
         Some(addr) => {
             let name = p.name.strip_suffix(&format!("@{}", p.note.trim())).unwrap_or(&p.name);
             let name = name.rsplit_once('@').filter(|(_, a)| Addr::parse(a).is_some()).map_or(name, |(n, _)| n);
-            (!name.trim().is_empty()).then(|| (name.trim().to_string(), addr))
+            (!name.trim().is_empty()).then(|| (name.trim().to_string(), addr, domain_of(&p.note)))
         }
-        None => parse(&p.name),
+        None => parse(&p.name).map(|(n, a)| (n, a, parse_domain(&p.name))),
     }
 }
 
 /// The network `addr` is on, from here, and its nodelist entry.
-pub fn route(state: &crate::BbsState, addr: Addr) -> Result<(FtnNetwork, Entry), Refused> {
+pub fn route(state: &crate::BbsState, addr: Addr, domain: Option<&str>) -> Result<(FtnNetwork, Entry), Refused> {
     let cfg = state.config();
     if !cfg.ftn.enabled {
         return Err(Refused::Off);
@@ -73,20 +90,56 @@ pub fn route(state: &crate::BbsState, addr: Addr) -> Result<(FtnNetwork, Entry),
     if nets.iter().any(|(_, me)| *me == addr) {
         return Err(Refused::Ours);
     }
-    let Some((net, _)) = nets.iter().find(|(_, me)| me.zone == addr.zone).or_else(|| nets.iter().find(|(_, me)| fidonet_zone(me.zone) && fidonet_zone(addr.zone))) else {
-        return Err(Refused::NoNetwork(addr.zone));
+    // The networks it could be on: the one its domain names; else those
+    // with its zone (Fidonet's zones are one network).
+    let on: Vec<&(FtnNetwork, Addr)> = match domain {
+        Some(d) => {
+            let on: Vec<_> = nets.iter().filter(|(n, _)| n.domain() == d || n.name.eq_ignore_ascii_case(d)).collect();
+            if on.is_empty() {
+                return Err(Refused::NoDomain(d.to_string()));
+            }
+            on
+        }
+        None => {
+            let mut on: Vec<_> = nets.iter().filter(|(_, me)| me.zone == addr.zone).collect();
+            if on.is_empty() {
+                on = nets.iter().filter(|(_, me)| fidonet_zone(me.zone) && fidonet_zone(addr.zone)).collect();
+            }
+            on
+        }
     };
+    if on.is_empty() {
+        return Err(Refused::NoNetwork(addr.zone));
+    }
+    // Each one's word on it, from its nodelist.
     let fa = state.fareas();
-    let list = fa
-        .areas
+    let looked: Vec<(&FtnNetwork, Result<Entry, Refused>)> = on
         .iter()
-        .find(|a| !net.nodelist.trim().is_empty() && a.file.eq_ignore_ascii_case(net.nodelist.trim()))
-        .and_then(|a| crate::nodelist::read_dir(&cfg.resolve(&a.path)));
-    let Some(list) = list else { return Err(Refused::NoNodelist(net.name.clone())) };
-    match list.find(addr) {
-        None => Err(Refused::Unknown(addr, net.name.clone())),
-        Some(e) if e.down() => Err(Refused::Down(addr, net.name.clone())),
-        Some(e) => Ok((net.clone(), e.clone())),
+        .map(|(net, _)| {
+            let list = fa
+                .areas
+                .iter()
+                .find(|a| !net.nodelist.trim().is_empty() && a.file.eq_ignore_ascii_case(net.nodelist.trim()))
+                .and_then(|a| crate::nodelist::read_dir(&cfg.resolve(&a.path)));
+            let r = match list {
+                None => Err(Refused::NoNodelist(net.name.clone())),
+                Some(list) => match list.find(addr) {
+                    None => Err(Refused::Unknown(addr, net.name.clone())),
+                    Some(e) if e.down() => Err(Refused::Down(addr, net.name.clone())),
+                    Some(e) => Ok(e.clone()),
+                },
+            };
+            (net, r)
+        })
+        .collect();
+    // One network: its answer. More (a shared zone, no domain given): the
+    // one that has the node; refused if more than one does.
+    let found: Vec<&(&FtnNetwork, Result<Entry, Refused>)> = looked.iter().filter(|(_, r)| r.is_ok()).collect();
+    match found.as_slice() {
+        [(net, Ok(e))] => Ok(((*net).clone(), e.clone())),
+        // None has it: the first's reason (one network: its own).
+        [] => Err(looked.into_iter().find_map(|(_, r)| r.err()).unwrap_or(Refused::NoNetwork(addr.zone))),
+        many => Err(Refused::Ambiguous(addr, many.iter().map(|(n, _)| n.name.clone()).collect())),
     }
 }
 
@@ -105,25 +158,26 @@ impl Session {
     /// as the email's recipient; None (having said why) if it can't go.
     pub(crate) async fn netmail_party(&mut self, to: &str) -> io::Result<Option<Party>> {
         let Some((name, addr)) = parse(to) else { return Ok(None) };
-        self.netmail_party_at(&name, addr).await
+        self.netmail_party_at(&name, addr, parse_domain(to).as_deref()).await
     }
 
     /// [`Self::netmail_party`] to `name` at `addr` (a name with an `@` in
     /// it, from a reply to netmail, is taken as it is).
-    pub(crate) async fn netmail_party_at(&mut self, name: &str, addr: Addr) -> io::Result<Option<Party>> {
+    pub(crate) async fn netmail_party_at(&mut self, name: &str, addr: Addr, domain: Option<&str>) -> io::Result<Option<Party>> {
         let name = name.to_string();
         if !self.netmail_allowed().await? {
             return Ok(None);
         }
         let s = self.strings();
-        match route(&self.state, addr) {
+        match route(&self.state, addr, domain) {
             Ok((net, e)) => {
                 let line = s.fmt("NetmailTo", &[&name, &addr.to_string(), &e.name, &e.location, &net.name]);
                 self.show_line(&line).await?;
                 // Nobody here: "None", as for any party that isn't a
                 // caller, so a caller with that handle or real name doesn't
                 // get the copy kept in email (`mail_for`, `is_me`).
-                Ok(Some(Party { user_id: 0, alias: "None".into(), real_name: "None".into(), name: format!("{name}@{addr}"), note: addr.to_string() }))
+                // The note names its network too, for sending it by that.
+                Ok(Some(Party { user_id: 0, alias: "None".into(), real_name: "None".into(), name: format!("{name}@{addr}"), note: format!("{addr}@{}", net.domain()) }))
             }
             Err(why) => {
                 let line = match why {
@@ -133,6 +187,8 @@ impl Session {
                     Refused::Unknown(a, n) => s.fmt("NetmailUnknown", &[&a.to_string(), &n]),
                     Refused::Down(a, n) => s.fmt("NetmailDown", &[&a.to_string(), &n]),
                     Refused::Ours => s.get("NetmailOurs").to_string(),
+                    Refused::NoDomain(d) => s.fmt("NetmailNoDomain", &[&d]),
+                    Refused::Ambiguous(a, nets) => s.fmt("NetmailAmbiguous", &[&a.to_string(), &nets.join(", ")]),
                 };
                 self.show_line(&line).await?;
                 Ok(None)
@@ -145,8 +201,8 @@ impl Session {
     /// True if it went.
     pub(crate) async fn send_netmail(&mut self, m: &Message, reply: Option<&Message>) -> io::Result<bool> {
         let sent = (|| -> anyhow::Result<()> {
-            let (name, addr) = sender(&m.to).ok_or_else(|| anyhow::anyhow!("{:?} isn't a netmail address", m.to.name))?;
-            let (net, _) = route(&self.state, addr).map_err(|why| anyhow::anyhow!("{why:?}"))?;
+            let (name, addr, domain) = sender(&m.to).ok_or_else(|| anyhow::anyhow!("{:?} isn't a netmail address", m.to.name))?;
+            let (net, _) = route(&self.state, addr, domain.as_deref()).map_err(|why| anyhow::anyhow!("{why:?}"))?;
             let answers = match reply {
                 Some(r) => self.state.msgs.ftn_msgid(r.id)?,
                 None => None,
@@ -173,14 +229,44 @@ impl Session {
 mod tests {
     use super::*;
 
+    /// Two networks with the same zone, each with its nodelist.
+    #[test]
+    fn a_shared_zone_goes_by_nodelist_or_domain() {
+        let state = board(true);
+        let dir = state.config().root.clone();
+        std::fs::create_dir_all(dir.join("files/other")).unwrap();
+        std::fs::write(
+            dir.join("files/other/othernet.303"),
+            "Zone,46,Othernet,Here,Someone,-Unpublished-,300,CM\r\nHost,1,Net_1,Here,Someone,-Unpublished-,300\r\nHub,100,Other_HUB,Here,Someone,-Unpublished-,300\r\n,200,Only_Here,Here,Someone,-Unpublished-,300\r\n",
+        )
+        .unwrap();
+        let mut cfg = (*state.config()).clone();
+        cfg.ftn.networks.push(crate::config::FtnNetwork { name: "othernet".into(), address: "46:2/5@othernet".into(), hub: "46:1/100".into(), nodelist: "OTHNODE".into(), ..Default::default() });
+        *state.config.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(cfg);
+        let mut fa = (*state.fareas()).clone();
+        let mut other = fa.areas.last().unwrap().clone();
+        (other.file, other.path) = ("OTHNODE".into(), "files/other".into());
+        fa.areas.push(other);
+        *state.fareas.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(fa);
+        let at = |a: &str, d: Option<&str>| route(&state, Addr::parse(a).unwrap(), d);
+        // Only one nodelist has it: that network.
+        assert_eq!(at("46:1/200", None).unwrap().0.name, "othernet");
+        assert_eq!(at("46:1/115", None).unwrap_err(), Refused::Ours);
+        // Both have 46:1/100: which, unsaid, is refused; @domain says.
+        assert!(matches!(at("46:1/100", None), Err(Refused::Ambiguous(_, n)) if n.len() == 2));
+        assert_eq!(at("46:1/100", Some("othernet")).unwrap().0.name, "othernet");
+        assert_eq!(at("46:1/100", Some("agoranet")).unwrap().0.name, "agoranet");
+        assert_eq!(parse_domain("Nick@46:1/100@AgoraNet").as_deref(), Some("agoranet"));
+    }
+
     #[test]
     fn senders_with_an_at_in_their_name() {
         let p = |name: &str, note: &str| Party { user_id: 0, alias: "None".into(), real_name: "None".into(), name: name.into(), note: note.into() };
-        assert_eq!(sender(&p("D@rk Angel@46:1/999", "46:1/999")), Some(("D@rk Angel".into(), Addr::parse("46:1/999").unwrap())));
-        assert_eq!(sender(&p("joe@example.com@1:1/31", "1:1/31")), Some(("joe@example.com".into(), Addr::parse("1:1/31").unwrap())));
+        assert_eq!(sender(&p("D@rk Angel@46:1/999", "46:1/999@agoranet")), Some(("D@rk Angel".into(), Addr::parse("46:1/999").unwrap(), Some("agoranet".into()))));
+        assert_eq!(sender(&p("joe@example.com@1:1/31", "1:1/31")).map(|s| (s.0, s.2)), Some(("joe@example.com".into(), None)));
         // A name that looks like another address goes to where it came from.
         assert_eq!(sender(&p("Nick Boel@46:1/100@46:1/999", "46:1/999")).map(|s| s.1), Addr::parse("46:1/999"));
-        assert_eq!(sender(&p("Nick Boel@46:1/100", "")), Some(("Nick Boel".into(), Addr::parse("46:1/100").unwrap())));
+        assert_eq!(sender(&p("Nick Boel@46:1/100@agoranet", "")), Some(("Nick Boel".into(), Addr::parse("46:1/100").unwrap(), Some("agoranet".into()))));
     }
 
     #[test]
@@ -231,13 +317,15 @@ mod tests {
     #[test]
     fn routes_by_zone_and_nodelist() {
         let state = board(true);
-        let at = |s: &str| route(&state, Addr::parse(s).unwrap());
+        let at = |s: &str| route(&state, Addr::parse(s).unwrap(), None);
         let (net, e) = at("46:1/100").unwrap();
         assert_eq!((net.name.as_str(), e.name.as_str(), e.location.as_str()), ("agoranet", "The Pharcyde HUB", "Pewaukee WI"));
         assert_eq!(at("46:1/999").unwrap_err(), Refused::Unknown(Addr::parse("46:1/999").unwrap(), "agoranet".into()));
         assert!(matches!(at("46:1/116"), Err(Refused::Down(..))));
         assert_eq!(at("46:1/115").unwrap_err(), Refused::Ours);
         assert_eq!(at("21:1/100").unwrap_err(), Refused::NoNetwork(21));
-        assert_eq!(route(&board(false), Addr::parse("46:1/100").unwrap()).unwrap_err(), Refused::NoNodelist("agoranet".into()));
+        assert_eq!(route(&state, Addr::parse("46:1/100").unwrap(), Some("fsxnet")).unwrap_err(), Refused::NoDomain("fsxnet".into()));
+        assert_eq!(route(&state, Addr::parse("46:1/100").unwrap(), Some("agoranet")).unwrap().0.name, "agoranet");
+        assert_eq!(route(&board(false), Addr::parse("46:1/100").unwrap(), None).unwrap_err(), Refused::NoNodelist("agoranet".into()));
     }
 }

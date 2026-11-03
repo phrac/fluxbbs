@@ -277,6 +277,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   (the original moved the record anyway, pointing it at nothing), and viewing a record whose
   file is missing says so instead of hanging up.
 - View in the file lister and editor opens pictures and PDFs as the gallery does.
+- FTN networks that share a zone are kept apart by domain: netmail by
+  `@domain` or the nodelist that has the node, a calling hub by its
+  domain, and two networks on one zone and session password refused.
 - Message search on the same Google-style page as file search: typeahead
   with snippets, did-you-mean, I'm Feeling Lucky, results best first.
 - Echomail is stored as it came and wrapped for the screen in the

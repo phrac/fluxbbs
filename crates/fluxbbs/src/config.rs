@@ -934,7 +934,28 @@ pub struct FtnNetwork {
     pub origin: String,
 }
 
+/// Two networks set up with the same zone and session password.
+fn shares_zone_and_password(a: &FtnNetwork, b: &FtnNetwork) -> bool {
+    let zone = |n: &FtnNetwork| n.address.trim().split(':').next().and_then(|z| z.parse::<u16>().ok());
+    !a.address.trim().is_empty()
+        && !b.address.trim().is_empty()
+        && !a.session_password.is_empty()
+        && a.session_password.eq_ignore_ascii_case(&b.session_password)
+        && zone(a).is_some()
+        && zone(a) == zone(b)
+}
+
 impl FtnNetwork {
+    /// Its domain, as 5D addresses name it (`agoranet` in
+    /// `46:1/115@agoranet`), else its name: how it's told from another
+    /// network that shares its zone.
+    pub fn domain(&self) -> String {
+        match self.address.split_once('@') {
+            Some((_, d)) if !d.trim().is_empty() => d.trim().to_ascii_lowercase(),
+            _ => self.name.trim().to_ascii_lowercase(),
+        }
+    }
+
     /// AreaFix's password: its own, else the session password.
     pub fn areafix_pw(&self) -> &str {
         if self.areafix_password.is_empty() { &self.session_password } else { &self.areafix_password }
@@ -1039,8 +1060,17 @@ impl Ftn {
                 Some(format!("address {:?} isn't an FTN address", n.address))
             } else if !n.address.trim().is_empty() && !ftn_address(&n.hub) {
                 Some(format!("hub {:?} isn't an FTN address", n.hub))
+            } else if let Some(o) = out.iter().filter(|(_, why)| why.is_none()).map(|(o, _)| o).find(|o| shares_zone_and_password(o, &n)) {
+                // New: a hub calling in that proved the password would be
+                // taken for both and handed both outbounds.
+                Some(format!("it shares its zone and session password with {:?}: give one a password of its own", o.name))
             } else {
-                None
+                // Nor two with one domain: it's how they're told apart.
+                out.iter()
+                    .filter(|(_, why)| why.is_none())
+                    .map(|(o, _)| o)
+                    .find(|o| !o.address.trim().is_empty() && !n.address.trim().is_empty() && o.domain() == n.domain())
+                    .map(|o| format!("another network ({:?}) has the domain {:?}", o.name, n.domain()))
             };
             out.push((n, why));
         }

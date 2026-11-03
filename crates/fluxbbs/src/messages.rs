@@ -1347,8 +1347,8 @@ impl Session {
     /// origin the tosser kept), not as its name parses.
     async fn netmail_reply_to(&mut self, from: &Party) -> io::Result<Option<Party>> {
         #[cfg(feature = "ftn")]
-        if let Some((name, addr)) = crate::netmail::sender(from) {
-            return self.netmail_party_at(&name, addr).await;
+        if let Some((name, addr, domain)) = crate::netmail::sender(from) {
+            return self.netmail_party_at(&name, addr, domain.as_deref()).await;
         }
         #[cfg(not(feature = "ftn"))]
         let _ = from;

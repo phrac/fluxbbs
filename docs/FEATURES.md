@@ -2077,6 +2077,25 @@ are taken out.
   control line. Coming in, only the SEEN-BY lines at the end of a
   message count.
 
+### Networks that share a zone
+
+Each network is known by its domain: the `@domain` of its address
+(`23:100/14@sysopnet`), else its name. Two networks may have the same
+zone number (small networks pick theirs), and the board keeps them
+apart:
+
+- Netmail to `name@zone:net/node@domain` goes by that network. Without
+  a domain, a zone two networks share goes by the one whose nodelist
+  has the node; if both do, it's refused, asking for `@domain`.
+- Netmail that comes in remembers the network it came on, so a reply
+  goes back by it.
+- A hub that calls in is matched to its network by its address and, when
+  it says one (binkp mailers do), its domain.
+- Two networks with the same zone and the same session password are
+  refused when the board starts (the second is left out, and the log
+  says why): a hub that proved that password could be taken for both
+  and handed both networks' mail. So are two with the same domain.
+
 ### Netmail and AreaFix
 
 Netmail for the node goes to the named caller's email (else the

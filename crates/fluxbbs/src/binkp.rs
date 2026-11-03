@@ -307,9 +307,20 @@ impl Link {
     }
 }
 
-/// Is `s` (an M_ADR's addresses) the hub? (Not a point of it.)
-fn is_hub(s: &str, hub: Addr) -> bool {
-    s.split_whitespace().filter_map(Addr::parse).any(|a| a.zone == hub.zone && a.net == hub.net && a.node == hub.node && a.point == 0)
+/// Is `s` (an M_ADR's addresses) the hub? (Not a point of it.) New: an
+/// address announced with its domain (`23:1/1@sysopnet`) must name the
+/// network's, so two networks sharing a zone and a hub number can't be
+/// taken for each other.
+fn is_hub(s: &str, hub: Addr, domain: Option<&str>) -> bool {
+    s.split_whitespace().any(|w| {
+        let Some(a) = Addr::parse(w) else { return false };
+        let theirs = w.split_once('@').map(|(_, d)| d.trim().to_ascii_lowercase());
+        let same_domain = match (theirs.as_deref(), domain) {
+            (Some(t), Some(d)) => t.eq_ignore_ascii_case(d),
+            _ => true,
+        };
+        a.zone == hub.zone && a.net == hub.net && a.node == hub.node && a.point == 0 && same_domain
+    })
 }
 
 /// Equal, taking as long whatever differs (for passwords).
@@ -389,7 +400,7 @@ pub async fn poll(state: Arc<BbsState>, net: FtnNetwork) -> anyhow::Result<Polle
                 tracing::debug!("binkp: {s}");
             }
             Frame::Cmd(M_ADR, s) => {
-                if !is_hub(&s, hub) {
+                if !is_hub(&s, hub, Some(&net.domain())) {
                     bail!("binkp: {host} is {s}, not {hub}");
                 }
                 break;
@@ -470,8 +481,8 @@ async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketA
             match link.read().await? {
                 Frame::Cmd(M_NUL, s) => tracing::debug!("binkp in: {s}"),
                 Frame::Cmd(M_ADR, s) => {
-                    claimed = nets.iter().filter(|(_, hub)| is_hub(&s, *hub)).cloned().collect();
-                    claims_any_hub = state.config().ftn.all_hubs().iter().filter_map(|h| Addr::parse(h)).any(|h| is_hub(&s, h));
+                    claimed = nets.iter().filter(|(n, hub)| is_hub(&s, *hub, Some(&n.domain()))).cloned().collect();
+                    claims_any_hub = state.config().ftn.all_hubs().iter().filter_map(|h| Addr::parse(h)).any(|h| is_hub(&s, h, None));
                 }
                 Frame::Cmd(M_PWD, p) => break Ok(p),
                 Frame::Cmd(M_ERR | M_BSY, s) => break Err(anyhow!("binkp: {peer} said {s}")),
@@ -978,8 +989,11 @@ mod tests {
         assert!(refused.contains("password"), "{refused}");
         board.await.unwrap();
         assert!(same_secret("CRAM-MD5-ABcd", "cram-md5-abcd") && !same_secret("a", "ab") && !same_secret("ab", "ac"));
-        assert!(is_hub("46:1/100@agoranet", Addr { zone: 46, net: 1, node: 100, point: 0 }));
-        assert!(!is_hub("46:1/100.5@agoranet", Addr { zone: 46, net: 1, node: 100, point: 0 }), "a point isn't the hub");
+        let hub = Addr { zone: 46, net: 1, node: 100, point: 0 };
+        assert!(is_hub("46:1/100@agoranet", hub, Some("agoranet")));
+        assert!(!is_hub("46:1/100.5@agoranet", hub, Some("agoranet")), "a point isn't the hub");
+        assert!(!is_hub("46:1/100@othernet", hub, Some("agoranet")), "the same number on another network isn't");
+        assert!(is_hub("46:1/100", hub, Some("agoranet")), "no domain said: by the number");
         let _ = std::fs::remove_dir_all(&dir);
     }
 
