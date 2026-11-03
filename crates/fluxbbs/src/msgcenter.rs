@@ -1312,6 +1312,11 @@ impl Session {
     /// message rather than just new ones. What's missing is asked for.
     /// Matches open in the reader, an area at a time.
     pub async fn msg_search(&mut self, param: &str) -> io::Result<()> {
+        // New: the search page, as files have it; its parameters and a
+        // caller without ANSI keep 2.0's questions.
+        if param.trim().is_empty() && !self.plain() {
+            return self.msg_search_page().await;
+        }
         let mut p = param.split(';').map(str::trim);
         let (where_, kind, text, every) = (p.next().unwrap_or(""), p.next().unwrap_or(""), p.next().unwrap_or(""), p.next().unwrap_or(""));
         self.newline();
@@ -1385,6 +1390,95 @@ impl Session {
             self.say_line("MsgSearchNone").await?;
         }
         Ok(())
+    }
+
+    /// New: message search on the search page (`findpage.rs`), until Esc
+    /// there: a board picked opens its threads, a message opens in its
+    /// thread, and Search lists everything the words find.
+    async fn msg_search_page(&mut self) -> io::Result<()> {
+        use crate::findpage::{Choice, Kind};
+        loop {
+            self.node.update(|n| n.activity = "Searching messages".into());
+            let Some(choice) = self.search_page(Kind::Messages).await? else { return Ok(()) };
+            match choice {
+                Choice::Words(words) => self.msg_found(&words).await?,
+                Choice::MsgArea(n) => {
+                    if let Some(a) = self.msg_area(n)
+                        && self.change_area(n).await?
+                    {
+                        self.thread_list(&a).await?;
+                    }
+                }
+                Choice::Message(n, id) => self.read_in_thread(n, id).await?,
+                Choice::Area(_) | Choice::File(..) => {}
+            }
+            if self.hangup {
+                return Ok(());
+            }
+        }
+    }
+
+    /// Read message `id` of area `n` in its thread, from it.
+    async fn read_in_thread(&mut self, n: u32, id: i64) -> io::Result<()> {
+        let Some(a) = self.msg_area(n) else { return Ok(()) };
+        let v = self.area_view(&a)?;
+        let (seq, at) = match threads(&v.msgs).into_iter().find(|t| t.msgs.iter().any(|&(m, _)| m == id)) {
+            Some(t) => {
+                let seq: Vec<i64> = t.msgs.iter().map(|&(m, _)| m).collect();
+                let at = seq.iter().position(|&m| m == id).unwrap_or(0);
+                (seq, at)
+            }
+            None => (vec![id], 0),
+        };
+        self.read_seq(&a, &seq, at).await?;
+        Ok(())
+    }
+
+    /// Everything the words find, best first, in a list with a moving bar;
+    /// Enter reads one in its thread and comes back to the list.
+    async fn msg_found(&mut self, words: &str) -> io::Result<()> {
+        let find = crate::filebase::Find::parse(words);
+        let areas: Vec<AreaRef> = self.readable_areas().into_iter().map(|(_, a)| a).filter(|a| !a.is_email()).collect();
+        let keys: Vec<String> = areas.iter().map(|a| a.key().to_string()).collect();
+        let (mut msgs, total) = self.state.msgs.find_words(&keys, &find, 500, None).map_err(io_err)?;
+        // An ad posted again and again: its best copy only.
+        let mut seen = HashSet::new();
+        msgs.retain(|m| seen.insert((m.subject.to_lowercase(), m.from.name.to_lowercase(), m.area.to_lowercase())));
+        let area_of = |m: &Message| areas.iter().find(|a| a.key().eq_ignore_ascii_case(&m.area)).cloned();
+        let rows: Vec<BarRow> = msgs
+            .iter()
+            .enumerate()
+            .map(|(i, m)| {
+                let name = area_of(m).map(|a| crate::editor::strip_colours(&a.area.name)).unwrap_or_default();
+                let date = self.local(m.posted).format("%m/%d/%y");
+                let subject = crate::editor::strip_colours(&m.subject);
+                let line = format!(" {date}  {}  {}  {}", resize(&subject, 34), resize(&crate::editor::strip_colours(&m.from.name), 14), resize(&name, 14));
+                BarRow { n: i as u32, waves: Default::default(), plain: line }
+            })
+            .collect();
+        if rows.is_empty() {
+            return Ok(());
+        }
+        let labels: Vec<(u32, u32)> = (0..rows.len() as u32).map(|i| (i + 1, i)).collect();
+        let header = self.strings().fmt("MsgFoundHead", &[&crate::files::commas(total as u64), words]);
+        let help = self.strings().get("MsgFoundHelp").to_string();
+        let mut start = 0;
+        loop {
+            let spec = BarSpec { prefix: "MSGFOUND", header: &header, rows: &rows, labels: &labels, start, help: &help, ask: "", can_go_up: false, keys: "" };
+            match self.area_bar(&spec).await? {
+                BarPick::Area(i) => {
+                    let Some(m) = msgs.get(i as usize) else { continue };
+                    start = i as usize;
+                    if let Some(a) = area_of(m) {
+                        self.read_in_thread(a.num, m.id).await?;
+                    }
+                    if self.hangup {
+                        return Ok(());
+                    }
+                }
+                _ => return Ok(()),
+            }
+        }
     }
 
     // ---- the reader -----------------------------------------------------

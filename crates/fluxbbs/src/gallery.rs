@@ -472,6 +472,8 @@ impl Session {
                 Choice::Words(words) => self.gallery_browse(Place::Found(words.clone()), &format!("search: {words}"), mode, speed).await,
                 Choice::Area(n) => self.gallery_browse_from(Place::Areas, "file areas", mode, speed, self.area_start(n), None).await,
                 Choice::File(n, name) => self.gallery_browse_from(Place::Areas, "file areas", mode, speed, self.area_start(n), Some(name)).await,
+                // The file page never offers messages.
+                Choice::MsgArea(_) | Choice::Message(..) => Ok(()),
             };
         }
         let target = match param.trim().to_ascii_lowercase().as_str() {
@@ -758,7 +760,7 @@ impl Session {
                                 focus = Some(name);
                             }
                         }
-                        None => {}
+                        Some(Choice::MsgArea(_) | Choice::Message(..)) | None => {}
                     }
                 }
                 // The next order, keeping the bar on the same piece.

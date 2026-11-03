@@ -143,7 +143,7 @@ pub fn wildcard(pattern: &str, name: &str) -> bool {
 }
 
 /// `text` as a LIKE pattern matching it literally.
-fn escape_like(text: &str) -> String {
+pub(crate) fn escape_like(text: &str) -> String {
     text.replace('\\', "\\\\").replace('%', "\\%").replace('_', "\\_")
 }
 

@@ -277,6 +277,8 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   (the original moved the record anyway, pointing it at nothing), and viewing a record whose
   file is missing says so instead of hanging up.
 - View in the file lister and editor opens pictures and PDFs as the gallery does.
+- Message search on the same Google-style page as file search: typeahead
+  with snippets, did-you-mean, I'm Feeling Lucky, results best first.
 - Echomail wrapped twice on its way (a gateway's or an editor's: words
   left alone on a line) is joined up again in the readers.
 - Votes and comments on files, as on posts (`x`: `+`, `-`, `>`): a

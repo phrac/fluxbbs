@@ -1762,6 +1762,23 @@ and as `HOT` from 25.
 - Karma, on a caller's profile, is the votes on their public posts (not
   anonymous ones).
 
+### Searching messages
+
+Text search (`MO`, `b` on the message menu, `f` in the message center)
+opens the same search page as files: the board's name over a search
+box, boards and messages dropping down as words are typed (a message's
+subject, who wrote it, its board, and a piece of its text round the
+words), Search and I'm Feeling Lucky. Every word is looked for, in the
+subject, who it's from or to, and the text; `"a phrase"` and `-not` work
+as for files. A board picked opens its threads, a message opens in its
+thread; Search lists all it finds (an ad posted again and again, once),
+best first: words in the subject count most, then the author, then the
+text, and an ad's art or a table of figures less than conversation.
+Nothing found offers what may have been meant, from the message base's
+words. Only messages the caller may read are searched, never email or
+private mail. `MO` with its parameters (`A;S;text;A`), and a caller
+without ANSI, get 2.0's questions as before.
+
 ### Mail wrapped twice
 
 Some software wraps a message at one width and something on the way

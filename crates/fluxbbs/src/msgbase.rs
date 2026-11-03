@@ -311,6 +311,63 @@ fn party(r: &Row, p: &str) -> rusqlite::Result<Party> {
     })
 }
 
+/// New: how well a message fits a search, best first: a word in the
+/// subject counts most, then in who wrote it, then each time (up to three)
+/// it's in the text.
+pub fn search_score(find: &crate::filebase::Find, m: &Message) -> u32 {
+    let subject = m.subject.to_lowercase();
+    let from = m.from.name.to_lowercase();
+    let body = m.lines.join("\n").to_lowercase();
+    let s: u32 = find
+        .want
+        .iter()
+        .map(|w| {
+            let mut s = 0;
+            if subject.contains(w.as_str()) {
+                s += 6;
+            }
+            if from.contains(w.as_str()) {
+                s += 4;
+            }
+            s + body.matches(w.as_str()).count().min(3) as u32
+        })
+        .sum();
+    // Words in conversation over the same words in an ad's art or a
+    // table of figures (a hub's statistics).
+    let (mut letters, mut all) = (0usize, 0usize);
+    for c in body.chars().filter(|c| !c.is_whitespace()) {
+        all += 1;
+        letters += c.is_alphabetic() as usize;
+    }
+    if body.contains('\x1b') || (all > 200 && letters * 2 < all) { s / 3 } else { s * 3 }
+}
+
+/// A message's text as plain words for a snippet: ANSI sequences (an
+/// ad's art) and color codes become spaces.
+pub fn plain_text(m: &Message) -> String {
+    let mut out = String::new();
+    let mut esc = false;
+    for c in m.body().join(" ").chars() {
+        match (esc, c) {
+            (false, '\x1b') => {
+                esc = true;
+                out.push(' ');
+            }
+            (true, c) if c.is_ascii_alphabetic() => esc = false,
+            (true, _) => {}
+            (false, c) if c.is_control() => out.push(' '),
+            (false, c) => out.push(c),
+        }
+    }
+    crate::editor::strip_colours(&out)
+}
+
+/// The text of a message a search looks through: subject, who it's from
+/// and to, and the body.
+pub fn search_text(m: &Message) -> String {
+    format!("{}\n{}\n{}\n{}", m.subject, m.from.name, m.to.name, m.lines.join("\n"))
+}
+
 fn from_row(r: &Row) -> rusqlite::Result<Message> {
     let body: String = r.get("body")?;
     Ok(Message {
@@ -455,6 +512,77 @@ impl MsgBase {
     pub fn by_id(&self, id: i64) -> anyhow::Result<Option<Message>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT * FROM messages WHERE id = ?1", [id], from_row).optional()?)
+    }
+    /// New: the public messages in `areas` with every word of `find` (in
+    /// the subject, who from or to, or the text) and none of its left-out
+    /// ones, best first, at most `limit`; and how many there were. With
+    /// `scan`, only that many with the first word are looked at (those
+    /// with it in the subject first), for typeahead.
+    pub fn find_words(&self, areas: &[String], find: &crate::filebase::Find, limit: usize, scan: Option<usize>) -> anyhow::Result<(Vec<Message>, usize)> {
+        if areas.is_empty() || find.is_empty() {
+            return Ok((Vec::new(), 0));
+        }
+        let mut params: Vec<String> = areas.to_vec();
+        let mut conds = Vec::new();
+        for w in &find.want {
+            let like = format!("%{}%", crate::filebase::escape_like(w));
+            for _ in 0..3 {
+                params.push(like.clone());
+            }
+            conds.push("(subject LIKE ? ESCAPE '\\' OR from_name LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')");
+        }
+        let mut sql = format!(
+            "SELECT * FROM messages WHERE NOT deleted AND NOT private AND area IN ({}) AND {}",
+            vec!["?"; areas.len()].join(","),
+            conds.join(" AND ")
+        );
+        if let Some(n) = scan {
+            params.push(format!("%{}%", crate::filebase::escape_like(&find.want[0])));
+            sql.push_str(&format!(" ORDER BY subject LIKE ? ESCAPE '\\' DESC, posted DESC LIMIT {n}"));
+        }
+        let mut rows: Vec<Message> = {
+            let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+            db.prepare(&sql)?.query_map(rusqlite::params_from_iter(params.iter()), from_row)?.collect::<Result<_, _>>()?
+        };
+        rows.retain(|m| find.matches_text(&search_text(m)));
+        let total = rows.len();
+        rows.sort_by_cached_key(|m| (std::cmp::Reverse(search_score(find, m)), std::cmp::Reverse(m.posted)));
+        rows.truncate(limit);
+        Ok((rows, total))
+    }
+
+    /// New: how many public messages `areas` have.
+    pub fn count_public(&self, areas: &[String]) -> anyhow::Result<u64> {
+        if areas.is_empty() {
+            return Ok(0);
+        }
+        let sql = format!("SELECT COUNT(*) FROM messages WHERE NOT deleted AND NOT private AND area IN ({})", vec!["?"; areas.len()].join(","));
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row(&sql, rusqlite::params_from_iter(areas.iter()), |r| r.get::<_, i64>(0))?.max(0) as u64)
+    }
+
+    /// New: the words the public messages in `areas` have (subjects and
+    /// text), and in how many, for "did you mean".
+    pub fn vocabulary(&self, areas: &[String]) -> anyhow::Result<std::collections::HashMap<String, u32>> {
+        let mut words: std::collections::HashMap<String, u32> = Default::default();
+        if areas.is_empty() {
+            return Ok(words);
+        }
+        let sql = format!("SELECT subject, body FROM messages WHERE NOT deleted AND NOT private AND area IN ({})", vec!["?"; areas.len()].join(","));
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare(&sql)?;
+        let mut rows = stmt.query(rusqlite::params_from_iter(areas.iter()))?;
+        let mut seen: std::collections::HashSet<String> = Default::default();
+        while let Some(r) = rows.next()? {
+            let (subject, body): (String, String) = (r.get(0)?, r.get(1)?);
+            seen.clear();
+            for w in subject.split(|c: char| !c.is_alphanumeric()).chain(body.split(|c: char| !c.is_alphanumeric())) {
+                if w.chars().count() >= 3 && w.len() <= 30 && seen.insert(w.to_lowercase()) {
+                    *words.entry(w.to_lowercase()).or_default() += 1;
+                }
+            }
+        }
+        Ok(words)
     }
 
     // ---- read markers (new) ---------------------------------------------
@@ -1348,6 +1476,29 @@ mod tests {
             reply_to: 0,
             lines: text.split('\n').map(String::from).collect(),
         }
+    }
+
+    #[test]
+    fn searching_messages() {
+        let mb = MsgBase::open_memory().unwrap();
+        let mut body = Message { subject: "Old modems".into(), ..msg("GEN", "All", "My first blue box was a kit.") };
+        let mut subject = Message { subject: "Blue box plans".into(), ..msg("GEN", "All", "see subject") };
+        let mut private = Message { private: true, ..msg("GEN", "Bob", "secret blue box") };
+        let mut elsewhere = msg("OTHER", "All", "a blue box here too");
+        let mut not = msg("GEN", "All", "blue box, red box");
+        for m in [&mut body, &mut subject, &mut private, &mut elsewhere, &mut not] {
+            mb.add(m).unwrap();
+        }
+        let areas = vec!["GEN".to_string()];
+        let find = crate::filebase::Find::parse("\"blue box\"");
+        let (found, total) = mb.find_words(&areas, &find, 10, None).unwrap();
+        assert_eq!(total, 3, "private mail and other areas aren't searched");
+        assert_eq!(found[0].id, subject.id, "the subject counts most");
+        let (found, _) = mb.find_words(&areas, &crate::filebase::Find::parse("blue -red"), 10, None).unwrap();
+        assert!(found.iter().all(|m| m.id != not.id));
+        assert_eq!(mb.find_words(&areas, &find, 1, Some(1)).unwrap().0.len(), 1);
+        assert_eq!(mb.count_public(&areas).unwrap(), 3);
+        assert!(mb.vocabulary(&areas).unwrap().contains_key("modems"));
     }
 
     #[test]

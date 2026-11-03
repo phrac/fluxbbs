@@ -1,10 +1,11 @@
-//! New: the file search page (`f` in the file browser, `FW search`): the
-//! board's name big in a search engine's four colors over a search box,
-//! the areas and files the words find dropping down under it as they're
-//! typed, and two buttons, Search and I'm Feeling Lucky (straight to the
-//! best file). A search that finds nothing stays on the page and offers
-//! what the caller may have meant: misspelled words put right from the
-//! words the file base has, or the search less a word.
+//! New: the search page, for files (`f` in the file browser, `FW search`)
+//! and messages (`MO`, text search): the board's name big in a search
+//! engine's four colors over a search box, the areas and files (or
+//! messages) the words find dropping down under it as they're typed, and
+//! two buttons, Search and I'm Feeling Lucky (straight to the best one).
+//! A search that finds nothing stays on the page and offers what the
+//! caller may have meant: misspelled words put right from the words the
+//! file or message base has, or the search less a word.
 
 use std::collections::HashMap;
 use std::io;
@@ -23,6 +24,17 @@ pub enum Choice {
     Area(u32),
     /// Open the area with the bar on this file.
     File(u32, String),
+    /// Open this message area.
+    MsgArea(u32),
+    /// Read this message (area, row id).
+    Message(u32, i64),
+}
+
+/// What the page searches.
+#[derive(Clone, Copy, PartialEq)]
+pub enum Kind {
+    Files,
+    Messages,
 }
 
 /// The logo's colors, letter by letter: blue, red, yellow, blue, green, red.
@@ -66,8 +78,10 @@ enum Focus {
     Lucky,
 }
 
-/// The areas a caller may search: theirs without a password.
+/// The areas a caller may search: theirs without a password (for
+/// messages, the public ones they may read).
 struct Areas {
+    kind: Kind,
     keys: Vec<String>,
     num_of: HashMap<String, u32>,
     /// Name and line about it, to match words against.
@@ -78,15 +92,24 @@ struct Areas {
 }
 
 impl Session {
-    /// The search page: what to look for, or None (Esc, or nothing typed).
+    /// The file search page: what to look for, or None (Esc, or nothing
+    /// typed).
     pub(crate) async fn find_page(&mut self) -> io::Result<Option<Choice>> {
-        let mut areas = self.searchable_areas()?;
+        self.search_page(Kind::Files).await
+    }
+
+    /// The search page for files or messages.
+    pub(crate) async fn search_page(&mut self, kind: Kind) -> io::Result<Option<Choice>> {
+        let mut areas = match kind {
+            Kind::Files => self.searchable_areas()?,
+            Kind::Messages => self.searchable_msg_areas(),
+        };
         let rows = self.screen.rows().max(20);
         // The logo's last row, the box's top row.
         let top = rows / 2 - 1;
         self.screen.set_color(Color::DEFAULT);
         self.clear_screen();
-        self.find_page_frame(top, rows);
+        self.find_page_frame(top, rows, kind);
         let mut text = String::new();
         let mut focus = Focus::Box(None);
         let mut shown: Vec<Suggestion> = Vec::new();
@@ -108,7 +131,7 @@ impl Session {
             }
             // Still stale: keys are waiting, read them before drawing.
             if !stale {
-                drawn = self.find_page_draw(top, &text, &shown, focus, drawn, notice.as_deref());
+                drawn = self.find_page_draw(kind, top, &text, &shown, focus, drawn, notice.as_deref());
                 self.flush().await?;
             }
             let key = self.read_key().await?;
@@ -221,7 +244,26 @@ impl Session {
                 Some((n, name.clone(), format!("{name}\n{about}")))
             })
             .collect();
-        Ok(Areas { keys, num_of, text, vocab: None })
+        Ok(Areas { kind: Kind::Files, keys, num_of, text, vocab: None })
+    }
+
+    /// The message areas a caller may search: those they may read, less
+    /// email (private, and never searched).
+    fn searchable_msg_areas(&self) -> Areas {
+        let areas: Vec<_> = self.readable_areas().into_iter().map(|(_, a)| a).filter(|a| !a.is_email()).collect();
+        Areas {
+            kind: Kind::Messages,
+            keys: areas.iter().map(|a| a.key().to_string()).collect(),
+            num_of: areas.iter().map(|a| (a.key().to_lowercase(), a.num)).collect(),
+            text: areas
+                .iter()
+                .map(|a| {
+                    let name = plain(&a.area.name);
+                    (a.num, name.clone(), format!("{name}\n{}", a.area.about))
+                })
+                .collect(),
+            vocab: None,
+        }
     }
 
     /// The areas whose name or line has the words (two at most), then the
@@ -230,6 +272,9 @@ impl Session {
         let find = Find::parse(text);
         if find.is_empty() {
             return Vec::new();
+        }
+        if areas.kind == Kind::Messages {
+            return self.suggest_messages(areas, &find);
         }
         let fa = self.state.fareas();
         let area_name = |n: u32| fa.get(n).map(|a| plain(&a.name)).unwrap_or_default();
@@ -264,10 +309,50 @@ impl Session {
         out
     }
 
-    /// How many areas and files the words find.
+    /// Messages for the drop-down: the areas whose name or line has the
+    /// words (two at most), then the best messages, each with a piece of
+    /// its text round the words.
+    fn suggest_messages(&self, areas: &Areas, find: &Find) -> Vec<Suggestion> {
+        let area_name = |n: u32| areas.text.iter().find(|(m, _, _)| *m == n).map(|(_, name, _)| name.clone()).unwrap_or_default();
+        let mut out: Vec<Suggestion> = areas
+            .text
+            .iter()
+            .filter(|(_, _, t)| find.matches_text(t))
+            .take(2)
+            .map(|(n, name, _)| Suggestion { label: name.clone(), place: "board".into(), to: Choice::MsgArea(*n), snippet: Vec::new() })
+            .collect();
+        let mut lines = out.len();
+        if let Ok((msgs, _)) = self.state.msgs.find_words(&areas.keys, find, MAX_SUGGEST * 3, Some(SCAN)) {
+            let mut seen: Vec<String> = Vec::new();
+            for m in msgs {
+                let Some(&n) = areas.num_of.get(&m.area.to_lowercase()) else { continue };
+                let subject = plain(&m.subject);
+                let label = format!("{subject} ({})", plain(&m.from.name));
+                // An ad posted again and again: once.
+                if seen.contains(&label) {
+                    continue;
+                }
+                seen.push(label.clone());
+                let snip = snippet(&crate::msgbase::plain_text(&m), &subject, &find.want, SNIPPET_W);
+                let s = Suggestion { label, place: area_name(n), to: Choice::Message(n, m.id), snippet: snip };
+                if lines + s.lines() > MAX_SUGGEST {
+                    break;
+                }
+                lines += s.lines();
+                out.push(s);
+            }
+        }
+        out
+    }
+
+    /// How many areas and files (or messages) the words find.
     fn results(&self, areas: &Areas, find: &Find) -> usize {
         let in_areas = areas.text.iter().filter(|(_, _, t)| find.matches_text(t)).count();
-        in_areas + self.state.files.count_words(&areas.keys, find).unwrap_or(0)
+        in_areas
+            + match areas.kind {
+                Kind::Files => self.state.files.count_words(&areas.keys, find).unwrap_or(0),
+                Kind::Messages => self.state.msgs.find_words(&areas.keys, find, 0, None).map_or(0, |r| r.1),
+            }
     }
 
     /// What a search that found nothing may have meant, each finding
@@ -276,7 +361,10 @@ impl Session {
     fn did_you_mean(&self, areas: &mut Areas, words: &str) -> Vec<Suggestion> {
         let find = Find::parse(words);
         if areas.vocab.is_none() {
-            areas.vocab = Some(self.state.files.vocabulary(&areas.keys).unwrap_or_default());
+            areas.vocab = Some(match areas.kind {
+                Kind::Files => self.state.files.vocabulary(&areas.keys).unwrap_or_default(),
+                Kind::Messages => self.state.msgs.vocabulary(&areas.keys).unwrap_or_default(),
+            });
         }
         let areas = &*areas;
         let vocab = areas.vocab.as_ref().expect("read above");
@@ -338,9 +426,14 @@ impl Session {
         out
     }
 
-    /// I'm Feeling Lucky: the best file the words find.
+    /// I'm Feeling Lucky: the best file (or message) the words find.
     fn lucky(&self, areas: &Areas, words: &str) -> Option<Choice> {
         let find = Find::parse(words);
+        if areas.kind == Kind::Messages {
+            let (msgs, _) = self.state.msgs.find_words(&areas.keys, &find, 1, None).ok()?;
+            let m = msgs.into_iter().next()?;
+            return Some(Choice::Message(*areas.num_of.get(&m.area.to_lowercase())?, m.id));
+        }
         let (files, _) = self.state.files.find_words(&areas.keys, &find, 1).ok()?;
         let f = files.into_iter().next()?;
         let n = *areas.num_of.get(&f.area.to_lowercase())?;
@@ -348,7 +441,7 @@ impl Session {
     }
 
     /// What doesn't change: the logo, the count of files, the help line.
-    fn find_page_frame(&mut self, top: u16, rows: u16) {
+    fn find_page_frame(&mut self, top: u16, rows: u16, kind: Kind) {
         let cfg = self.state.config();
         let fs = &cfg.files;
         let word = if fs.search_logo.trim().is_empty() { cfg.bbs.name.clone() } else { fs.search_logo.trim().to_string() };
@@ -392,8 +485,14 @@ impl Session {
         }
         // Top right, as a search page shows the account: how many files,
         // and the caller's initial.
-        let total = self.file_stats(true).files;
-        let count = self.strings().fmt("FaFindPageFiles", &[&crate::files::commas(total as u64)]);
+        let count = match kind {
+            Kind::Files => self.strings().fmt("FaFindPageFiles", &[&crate::files::commas(self.file_stats(true).files as u64)]),
+            Kind::Messages => {
+                let keys: Vec<String> = self.readable_areas().into_iter().filter(|(_, a)| !a.is_email()).map(|(_, a)| a.key().to_string()).collect();
+                let n = self.state.msgs.count_public(&keys).unwrap_or(0);
+                self.strings().fmt("MsgFindPageCount", &[&crate::files::commas(n)])
+            }
+        };
         let count = plain(&count);
         let initial = self.user.handle.chars().next().unwrap_or('?').to_uppercase().to_string();
         self.screen.goto(80 - 4 - count.chars().count() as u16, 1);
@@ -410,7 +509,7 @@ impl Session {
             self.screen.set_color(Color::new(8, 0));
             self.screen.write_text(&motto);
         }
-        let help = plain(self.strings().get("FaFindPageHelp"));
+        let help = plain(self.strings().get(if kind == Kind::Files { "FaFindPageHelp" } else { "MsgFindPageHelp" }));
         let help: String = help.chars().take(79).collect();
         self.screen.goto((80 - help.chars().count() as u16) / 2 + 1, rows);
         self.screen.set_color(Color::new(8, 0));
@@ -420,7 +519,8 @@ impl Session {
     /// The box, the drop-down or the buttons under it, and the cursor.
     /// `drawn`: how many drop-down lines were up before; returns how many
     /// are now.
-    fn find_page_draw(&mut self, top: u16, text: &str, shown: &[Suggestion], focus: Focus, drawn: usize, notice: Option<&str>) -> usize {
+    #[allow(clippy::too_many_arguments)]
+    fn find_page_draw(&mut self, kind: Kind, top: u16, text: &str, shown: &[Suggestion], focus: Focus, drawn: usize, notice: Option<&str>) -> usize {
         let edge = Color::new(if matches!(focus, Focus::Box(_)) { 7 } else { 8 }, 0);
         let inner = (BOX_W - 2) as usize;
         let line = "\u{2500}".repeat(inner);
@@ -438,7 +538,7 @@ impl Session {
         self.screen.write_str(" \u{00bb} ");
         if text.is_empty() {
             let name = self.state.config().bbs.name.clone();
-            let hint = plain(&self.strings().fmt("FaFindPageHint", &[&name]));
+            let hint = plain(&self.strings().fmt(if kind == Kind::Files { "FaFindPageHint" } else { "MsgFindPageHint" }, &[&name]));
             let hint: String = hint.chars().take(room).collect();
             self.screen.write_text(&format!("{hint:<room$}"));
         } else {
@@ -480,9 +580,9 @@ impl Session {
                 let (fg, bg) = if on { (15, 1) } else { (7, 0) };
                 self.screen.set_color(Color::new(8, bg));
                 let icon = match s.to {
-                    Choice::Area(_) => "\u{25ba}",
+                    Choice::Area(_) | Choice::MsgArea(_) => "\u{25ba}",
                     Choice::Words(_) => "?",
-                    Choice::File(..) => "\u{00bb}",
+                    Choice::File(..) | Choice::Message(..) => "\u{00bb}",
                 };
                 self.screen.write_str(&format!(" {icon} "));
                 self.screen.set_color(Color::new(fg, bg));
