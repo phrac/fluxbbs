@@ -328,11 +328,12 @@ impl Session {
                 let Some(&n) = areas.num_of.get(&m.area.to_lowercase()) else { continue };
                 let subject = plain(&m.subject);
                 let label = format!("{subject} ({})", plain(&m.from.name));
-                // An ad posted again and again: once.
-                if seen.contains(&label) {
+                // An ad posted again and again (the same words): once.
+                let same = format!("{label}\n{}", m.body().join("\n"));
+                if seen.contains(&same) {
                     continue;
                 }
-                seen.push(label.clone());
+                seen.push(same);
                 let snip = snippet(&crate::msgbase::plain_text(&m), &subject, &find.want, SNIPPET_W);
                 let s = Suggestion { label, place: area_name(n), to: Choice::Message(n, m.id), snippet: snip };
                 if lines + s.lines() > MAX_SUGGEST {
@@ -351,7 +352,7 @@ impl Session {
         in_areas
             + match areas.kind {
                 Kind::Files => self.state.files.count_words(&areas.keys, find).unwrap_or(0),
-                Kind::Messages => self.state.msgs.find_words(&areas.keys, find, 0, None).map_or(0, |r| r.1),
+                Kind::Messages => self.state.msgs.count_words(&areas.keys, find).unwrap_or(0),
             }
     }
 

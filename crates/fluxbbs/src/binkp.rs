@@ -185,10 +185,20 @@ enum Out {
 
 /// A connection's two halves: frames to send go through `send` (one
 /// writer, so they go out whole and in order while we read).
+/// The writer task, stopped when its session is dropped (a session cut
+/// off by `SESSION_MAX` mustn't go on sending on its own).
+struct AbortOnDrop(tokio::task::JoinHandle<anyhow::Result<()>>);
+
+impl Drop for AbortOnDrop {
+    fn drop(&mut self) {
+        self.0.abort();
+    }
+}
+
 struct Link {
     rd: tokio::net::tcp::OwnedReadHalf,
     tx: mpsc::UnboundedSender<Out>,
-    writer: tokio::task::JoinHandle<anyhow::Result<()>>,
+    writer: AbortOnDrop,
     /// When a frame last went out (`now_ms`).
     wrote: Arc<AtomicU64>,
     /// Sendings of a file up to this `seq` are stopped (the other side
@@ -243,7 +253,7 @@ impl Link {
             wr.shutdown().await?;
             Ok(())
         });
-        Ok(Link { rd, tx, writer, wrote, cancel, seq: 0 })
+        Ok(Link { rd, tx, writer: AbortOnDrop(writer), wrote, cancel, seq: 0 })
     }
 
     async fn read(&mut self) -> anyhow::Result<Frame> {
@@ -270,14 +280,13 @@ impl Link {
     /// side has stopped reading.
     async fn close(mut self) {
         drop(self.tx);
-        if tokio::time::timeout(Duration::from_secs(60), &mut self.writer).await.is_err() {
-            self.writer.abort();
-        }
+        // (Dropped after, which stops it if it hasn't.)
+        let _ = tokio::time::timeout(Duration::from_secs(60), &mut self.writer.0).await;
     }
 
     /// Close without sending what's left (the session failed).
     fn abort(self) {
-        self.writer.abort();
+        self.writer.0.abort();
     }
 
     /// Close cleanly after a good session, at once after a failed one.
@@ -400,7 +409,7 @@ pub async fn poll(state: Arc<BbsState>, net: FtnNetwork) -> anyhow::Result<Polle
                 tracing::debug!("binkp: {s}");
             }
             Frame::Cmd(M_ADR, s) => {
-                if !is_hub(&s, hub, Some(&net.domain())) {
+                if !is_hub(&s, hub, net.address_domain().as_deref()) {
                     bail!("binkp: {host} is {s}, not {hub}");
                 }
                 break;
@@ -481,7 +490,7 @@ async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketA
             match link.read().await? {
                 Frame::Cmd(M_NUL, s) => tracing::debug!("binkp in: {s}"),
                 Frame::Cmd(M_ADR, s) => {
-                    claimed = nets.iter().filter(|(n, hub)| is_hub(&s, *hub, Some(&n.domain()))).cloned().collect();
+                    claimed = nets.iter().filter(|(n, hub)| is_hub(&s, *hub, n.address_domain().as_deref())).cloned().collect();
                     claims_any_hub = state.config().ftn.all_hubs().iter().filter_map(|h| Addr::parse(h)).any(|h| is_hub(&s, h, None));
                 }
                 Frame::Cmd(M_PWD, p) => break Ok(p),
@@ -994,6 +1003,9 @@ mod tests {
         assert!(!is_hub("46:1/100.5@agoranet", hub, Some("agoranet")), "a point isn't the hub");
         assert!(!is_hub("46:1/100@othernet", hub, Some("agoranet")), "the same number on another network isn't");
         assert!(is_hub("46:1/100", hub, Some("agoranet")), "no domain said: by the number");
+        assert!(is_hub("21:1/100@fsxnet", Addr { zone: 21, net: 1, node: 100, point: 0 }, None), "none set here: by the number");
+        let net = crate::config::FtnNetwork { name: "ftn".into(), address: "21:1/999".into(), ..Default::default() };
+        assert_eq!(net.address_domain(), None, "a name isn't a domain to hold a hub to");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

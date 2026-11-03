@@ -1440,10 +1440,14 @@ impl Session {
         let find = crate::filebase::Find::parse(words);
         let areas: Vec<AreaRef> = self.readable_areas().into_iter().map(|(_, a)| a).filter(|a| !a.is_email()).collect();
         let keys: Vec<String> = areas.iter().map(|a| a.key().to_string()).collect();
-        let (mut msgs, total) = self.state.msgs.find_words(&keys, &find, 500, None).map_err(io_err)?;
-        // An ad posted again and again: its best copy only.
+        // The best of the first 2,000 that have the words (not every one
+        // read out on a big board); the count is all of them.
+        let (mut msgs, _) = self.state.msgs.find_words(&keys, &find, 500, Some(2000)).map_err(io_err)?;
+        let total = self.state.msgs.count_words(&keys, &find).map_err(io_err)?;
+        // An ad posted again and again (the same words): its best copy
+        // only. Replies in a thread, which share a subject, all stay.
         let mut seen = HashSet::new();
-        msgs.retain(|m| seen.insert((m.subject.to_lowercase(), m.from.name.to_lowercase(), m.area.to_lowercase())));
+        msgs.retain(|m| seen.insert((m.subject.to_lowercase(), m.from.name.to_lowercase(), m.area.to_lowercase(), m.body().join("\n"))));
         let area_of = |m: &Message| areas.iter().find(|a| a.key().eq_ignore_ascii_case(&m.area)).cloned();
         let rows: Vec<BarRow> = msgs
             .iter()

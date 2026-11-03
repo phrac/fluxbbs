@@ -1686,6 +1686,13 @@ fn quote_lead(l: &str) -> &str {
 /// quote's lead goes on every piece. Fixed lines ([`fixed_line`], and
 /// everything inside a fence) are left as they are.
 pub(crate) fn flow(lines: &[String], width: usize) -> Vec<String> {
+    flow_to(lines, width, false)
+}
+
+/// [`flow`], and with `hard` nothing wider than `width` at all: a word
+/// longer than the line is cut, and so is a fixed line (the editor's
+/// lines, quotes put into it, mustn't be wider than it).
+pub(crate) fn flow_to(lines: &[String], width: usize, hard: bool) -> Vec<String> {
     let mut out: Vec<String> = Vec::new();
     // Words carried to the next line, with the lead they had.
     let mut carry: Option<(String, String)> = None;
@@ -1697,14 +1704,24 @@ pub(crate) fn flow(lines: &[String], width: usize) -> Vec<String> {
             return (format!("{lead}{text}"), None);
         }
         // At the last space that fits; a word longer than the line (a URL)
-        // stays whole, to its end.
+        // stays whole, to its end (or, hard, is cut).
         let at = match chars[..=room].iter().rposition(|&c| c == ' ').filter(|&i| i > 0) {
             Some(i) => i,
+            None if hard => room,
             None => chars.iter().position(|&c| c == ' ').unwrap_or(chars.len()),
         };
         let fits: String = chars[..at].iter().collect();
         let rest: String = chars[at..].iter().collect::<String>().trim().to_string();
         (format!("{lead}{}", fits.trim_end()), (!rest.is_empty()).then_some(rest))
+    };
+    // A line kept as it is, but (hard) no wider than the width.
+    let keep = |out: &mut Vec<String>, l: &str| {
+        let chars: Vec<char> = l.chars().collect();
+        if !hard || chars.len() <= width {
+            out.push(l.to_string());
+        } else {
+            out.extend(chars.chunks(width.max(1)).map(|c| c.iter().collect::<String>()));
+        }
     };
     let flush = |out: &mut Vec<String>, carry: &mut Option<(String, String)>| {
         while let Some((lead, words)) = carry.take() {
@@ -1717,12 +1734,12 @@ pub(crate) fn flow(lines: &[String], width: usize) -> Vec<String> {
         if l.trim_start().starts_with("```") {
             fenced = !fenced;
             flush(&mut out, &mut carry);
-            out.push(l.clone());
+            keep(&mut out, l);
             continue;
         }
         if fenced || fixed_line(l) || l.trim().is_empty() {
             flush(&mut out, &mut carry);
-            out.push(l.clone());
+            keep(&mut out, l);
             continue;
         }
         let lead = quote_lead(l).to_string();
@@ -1761,6 +1778,8 @@ pub(crate) fn unbreak(lines: &[String], width: usize) -> Option<Vec<String>> {
         fixed_line(l)
             || l.starts_with(' ')
             || l.chars().take(3).any(|c| c == '>')
+            // Columns of a table.
+            || t.contains("   ")
             || t.starts_with("http")
             || t.starts_with("- ")
             || t.starts_with("* ")
@@ -1792,7 +1811,14 @@ pub(crate) fn unbreak(lines: &[String], width: usize) -> Option<Vec<String>> {
             i += 1;
         }
         let para: Vec<&str> = lines[start..i].iter().map(|l| l.trim_end()).collect();
-        if !para.windows(3).any(|w| orphan(w[0], w[1], w[2])) {
+        // Prose only: seven in ten of its characters letters.
+        let (mut letters, mut all) = (0usize, 0usize);
+        for c in para.iter().flat_map(|l| l.chars()).filter(|c| !c.is_whitespace()) {
+            all += 1;
+            letters += c.is_alphabetic() as usize;
+        }
+        let prose = all > 0 && letters * 10 >= all * 7;
+        if !prose || !para.windows(3).any(|w| orphan(w[0], w[1], w[2])) {
             out.extend(lines[start..i].iter().cloned());
             continue;
         }
@@ -1875,6 +1901,9 @@ mod tests {
         // fence is never joined into prose.
         let mixed = l("Everybody is very welcome there, and I hope to see a lot of you over there all\nsoon\nand often!\nThe hobby counts and the forum is free!\n```\nbinkd -C\n```");
         let r = unbreak(&mixed, 79).expect("broken");
+        // A table's rows aren't joined, nor a paragraph of figures.
+        let table = l("Name             City             Node          Notes about the board here\nBob              Dallas           1:2/3         fine\nand more rows of it\n");
+        assert_eq!(unbreak(&table, 79), None);
         assert!(r.contains(&"The hobby counts and the forum is free!".to_string()) && r.contains(&"```".to_string()) && r.contains(&"binkd -C".to_string()), "{r:#?}");
     }
 

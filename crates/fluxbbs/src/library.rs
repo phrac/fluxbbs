@@ -1829,7 +1829,8 @@ impl Session {
                 out.extend(format!("\x1b[{};1H", top + k).as_bytes());
                 paint(&mut out, [232, 190, 110], [86, 34, 26], tc);
                 let l = lines.get(k).map(String::as_str).unwrap_or("");
-                out.extend(fluxbbs_term::cp437::encode(&format!(" {l:<79}")));
+                // 79 wide: the last row's last column would scroll some terminals.
+                out.extend(fluxbbs_term::cp437::encode(&format!(" {l:<78}")));
             }
             // The cursor after the last character typed.
             let last = lines.len().clamp(1, ASK_ROWS);

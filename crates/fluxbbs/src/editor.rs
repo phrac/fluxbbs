@@ -794,69 +794,8 @@ pub fn quote_lines(m: &Message, first: usize, last: usize, head: &str) -> Vec<St
         let plain = strip_colours(l);
         if plain.trim_start().starts_with('>') { format!(">{}", plain.trim_start()) } else { format!("> {plain}") }
     });
-    (!head.is_empty()).then(|| head.to_string()).into_iter().chain(quote_flow(quoted)).collect()
-}
-
-/// Quoted lines too wide for the editor: the words that don't fit start
-/// the paragraph's next line (the same `>`s, not indented), rewrapped
-/// from there, rather than losing the line's end or standing alone.
-fn quote_flow(lines: impl Iterator<Item = String>) -> Vec<String> {
-    let mut out = Vec::new();
-    let mut carry: Option<(String, String)> = None;
-    for mut q in lines {
-        let (lead, text) = quote_split(&q);
-        if let Some((was, words)) = carry.take() {
-            if was == lead && !text.is_empty() && !text.starts_with(char::is_whitespace) {
-                q = format!("{lead}{words} {text}");
-            } else {
-                out.extend(quote_wrap(&format!("{was}{words}")));
-            }
-        }
-        let (fits, over) = quote_cut(&q, lead.len());
-        out.push(fits);
-        carry = over.map(|w| (lead, w));
-    }
-    if let Some((was, words)) = carry {
-        out.extend(quote_wrap(&format!("{was}{words}")));
-    }
-    out
-}
-
-/// A quoted line's `>`s (with the space after them), and its text.
-fn quote_split(q: &str) -> (String, String) {
-    let n = q.chars().take_while(|&c| c == '>').count();
-    let text = &q[n..];
-    (format!("{} ", &q[..n]), text.strip_prefix(' ').unwrap_or(text).to_string())
-}
-
-/// What of `q` fits the width, cut at a space where there is one, and the
-/// words left over.
-fn quote_cut(q: &str, lead: usize) -> (String, Option<String>) {
-    let chars: Vec<char> = q.chars().collect();
-    if chars.len() <= WIDTH {
-        return (q.to_string(), None);
-    }
-    if lead >= WIDTH / 2 {
-        return (chars[..WIDTH].iter().collect(), None);
-    }
-    let cut = chars[lead + 1..=WIDTH].iter().rposition(|&c| c == ' ').map_or(WIDTH, |i| i + lead + 1);
-    let rest: String = chars[cut..].iter().collect::<String>().trim().to_string();
-    (chars[..cut].iter().collect::<String>().trim_end().to_string(), (!rest.is_empty()).then_some(rest))
-}
-
-/// One quoted line over as many as it takes.
-fn quote_wrap(q: &str) -> Vec<String> {
-    let lead = quote_split(q).0;
-    let mut out = Vec::new();
-    let mut q = q.to_string();
-    loop {
-        let (fits, over) = quote_cut(&q, lead.len());
-        out.push(fits);
-        match over {
-            Some(w) => q = format!("{lead}{w}"),
-            None => return out,
-        }
-    }
+    let quoted: Vec<String> = quoted.collect();
+    (!head.is_empty()).then(|| head.to_string()).into_iter().chain(crate::messages::flow_to(&quoted, WIDTH, true)).collect()
 }
 
 /// `NoColor`: remove `|XX` colour codes.

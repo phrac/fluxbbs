@@ -69,6 +69,11 @@ pub fn free_name(dir: &Path, name: &str) -> PathBuf {
 fn bundle_name(lower: &str) -> bool {
     lower.rsplit_once('.').is_some_and(|(stem, e)| {
         let e = e.as_bytes();
+        // A second copy the mailer saved under a free name: `stem-1.mo0`.
+        let stem = match stem.split_once('-') {
+            Some((s, n)) if !n.is_empty() && n.bytes().all(|c| c.is_ascii_digit()) => s,
+            _ => stem,
+        };
         stem.len() == 8
             && stem.bytes().all(|c| c.is_ascii_hexdigit())
             && e.len() == 3
@@ -852,6 +857,8 @@ mod tests {
     #[test]
     fn bundles_are_named_as_mailers_name_them() {
         assert!(bundle_name("9f156a94.mo0") && bundle_name("0000abcd.su9") && bundle_name("0000abcd.fra"));
+        assert!(bundle_name("9f156a94-1.mo0") && bundle_name("9f156a94-12.mo0"), "a second copy, saved under a free name");
+        assert!(!bundle_name("song-1.mod"));
         assert!(!bundle_name("song.mod") && !bundle_name("clip.mov") && !bundle_name("film.sub") && !bundle_name("game.sav"), "file-echo files");
         assert!(!bundle_name("9f156a94.mé0"), "not ASCII: no, and no panic");
     }

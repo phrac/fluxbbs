@@ -2030,10 +2030,13 @@ Messages come in with their kludges read:
 - If the board's side fails (the database busy), the packet stays in
   inbound for the next toss.
 - An empty file (a bundle sent with nothing in it) is removed.
-- `AREA:` counts only as the very first line of the text, exactly so
-  (FTS-0004, as HPT and SBBSecho read it): netmail that starts with one
-  stays netmail, and a line a caller writes that would pass for one (or
-  for SEEN-BY) goes out with a space before it.
+- `AREA:` counts only as the first line of the text, exactly so
+  (FTS-0004), or the first after the kludges (some packers put those
+  first), never in another case. After kludges it doesn't count in a
+  message with netmail's addressing (INTL, FMPT, TOPT): netmail that
+  starts with one stays netmail rather than becoming a public post. A
+  line a caller writes that would pass for one (or for SEEN-BY) goes out
+  with a space before it.
 
 #### The bad directory
 

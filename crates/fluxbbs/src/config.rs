@@ -956,6 +956,12 @@ impl FtnNetwork {
         }
     }
 
+    /// The domain its address names, if it names one (not the name it
+    /// falls back to): what a hub's announced domain is checked against.
+    pub fn address_domain(&self) -> Option<String> {
+        self.address.split_once('@').map(|(_, d)| d.trim().to_ascii_lowercase()).filter(|d| !d.is_empty())
+    }
+
     /// AreaFix's password: its own, else the session password.
     pub fn areafix_pw(&self) -> &str {
         if self.areafix_password.is_empty() { &self.session_password } else { &self.areafix_password }

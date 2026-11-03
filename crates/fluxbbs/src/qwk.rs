@@ -238,13 +238,20 @@ pub fn parse_rep(data: &[u8]) -> Vec<Reply> {
         let mut subject = crate::editor::printable(&text(&h[71..96])).into_owned();
         // New: QWKE's longer fields (MultiMail's), lines at the top of the
         // text, read as the fields they are rather than posted as words.
+        // One is a field only if it carries on the header's own (cut at 25):
+        // a reply that starts "To: everyone who..." is words.
+        let from = text(&h[46..71]);
+        let extends = |short: &str, long: &str| {
+            let (short, long) = (short.trim().to_lowercase(), long.trim().to_lowercase());
+            !short.is_empty() && long.len() > short.len() && long.starts_with(&short)
+        };
         let mut head = 0;
         while head < lines.len() && head < 3 {
             let l = &lines[head];
             match l.split_once(':').map(|(k, v)| (k.trim().to_ascii_lowercase(), v.trim())) {
-                Some((k, v)) if k == "to" && !v.is_empty() => to = crate::editor::printable(v).into_owned(),
-                Some((k, v)) if k == "subject" && !v.is_empty() => subject = crate::editor::printable(v).into_owned(),
-                Some((k, _)) if k == "from" => {}
+                Some((k, v)) if k == "to" && extends(&to, v) => to = crate::editor::printable(v).into_owned(),
+                Some((k, v)) if k == "subject" && extends(&subject, v) => subject = crate::editor::printable(v).into_owned(),
+                Some((k, v)) if k == "from" && extends(&from, v) => {}
                 _ => break,
             }
             head += 1;
@@ -912,8 +919,8 @@ mod tests {
             let mut h = vec![b' '; BLOCK];
             h[0] = b' ';
             h[1..2].copy_from_slice(b"1");
-            h[21..24].copy_from_slice(b"ALL");
-            h[71..76].copy_from_slice(b"Short");
+            h[21..46].copy_from_slice(b"Somebody With A Long Name"[..25].as_ref());
+            h[71..96].copy_from_slice(b"A subject far longer than");
             let mut text: Vec<u8> = body.bytes().map(|b| if b == b'\n' { EOL } else { b }).collect();
             text.resize(text.len().div_ceil(BLOCK).max(1) * BLOCK, b' ');
             h[116..122].copy_from_slice(format!("{:<6}", 1 + text.len() / BLOCK).as_bytes());
@@ -921,9 +928,12 @@ mod tests {
             data.extend(text);
             parse_rep(&data)
         };
-        let r = rep("To: Somebody With A Long Name\nSubject: A subject far longer than twenty-five\nhello\n");
-        assert_eq!((r[0].to.as_str(), r[0].subject.as_str()), ("Somebody With A Long Name", "A subject far longer than twenty-five"));
+        let r = rep("Subject: A subject far longer than twenty-five\nhello\n");
+        assert_eq!(r[0].subject.as_str(), "A subject far longer than twenty-five");
         assert_eq!(r[0].lines, ["hello"]);
+        // Words that only look like a field stay words, and the fields.
+        let r = rep("To: everyone who answered last week\nhello\n");
+        assert_eq!((r[0].to.as_str(), r[0].lines[0].as_str()), ("Somebody With A Long Name", "To: everyone who answered last week"));
         let r = rep("Note: not a field\nhello\n");
         assert_eq!(r[0].lines[0], "Note: not a field");
     }

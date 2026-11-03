@@ -277,6 +277,12 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   (the original moved the record anyway, pointing it at nothing), and viewing a record whose
   file is missing says so instead of hanging up.
 - View in the file lister and editor opens pictures and PDFs as the gallery does.
+- QWK replies from readers that write QWKE's longer To and Subject
+  (MultiMail) keep them.
+- A message number is never used again in an area (one purged at the
+  top no longer leaves the next message looking already read).
+- A binkp session, polled or called in, is cut off after an hour, so one
+  stuck hub can't hold up the other networks.
 - FTN networks that share a zone are kept apart by domain: netmail by
   `@domain` or the nodelist that has the node, a calling hub by its
   domain, and two networks on one zone and session password refused.

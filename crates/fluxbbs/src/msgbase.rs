@@ -174,6 +174,8 @@ const STEPS: &[Step] = &[
     // The copy kept of netmail sent from here named the far recipient as
     // its alias and real name, so a caller of that name got it: nobody's.
     Step::Sql("UPDATE messages SET to_alias = 'None', to_real = 'None' WHERE to_id = 0 AND to_name LIKE '%@%:%/%' AND to_note LIKE '%:%/%'"),
+    // A new message's number looks above every lastread in its area.
+    Step::Sql("CREATE INDEX IF NOT EXISTS lastread_area ON lastread(area, num)"),
 ];
 
 const SCHEMA: &str = "
@@ -365,6 +367,9 @@ pub fn plain_text(m: &Message) -> String {
     crate::editor::strip_colours(&out)
 }
 
+/// A word somewhere a search looks: subject, who from or to, or the text.
+const SEARCH_LIKE: &str = "(subject LIKE ? ESCAPE '\\' OR from_name LIKE ? ESCAPE '\\' OR to_name LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')";
+
 /// The text of a message a search looks through: subject, who it's from
 /// and to, and the body.
 pub fn search_text(m: &Message) -> String {
@@ -541,10 +546,10 @@ impl MsgBase {
         let mut conds = Vec::new();
         for w in &find.want {
             let like = format!("%{}%", crate::filebase::escape_like(w));
-            for _ in 0..3 {
+            for _ in 0..4 {
                 params.push(like.clone());
             }
-            conds.push("(subject LIKE ? ESCAPE '\\' OR from_name LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')");
+            conds.push(SEARCH_LIKE);
         }
         let mut sql = format!(
             "SELECT * FROM messages WHERE NOT deleted AND NOT private AND area IN ({}) AND {}",
@@ -564,6 +569,32 @@ impl MsgBase {
         rows.sort_by_cached_key(|m| (std::cmp::Reverse(search_score(find, m)), std::cmp::Reverse(m.posted)));
         rows.truncate(limit);
         Ok((rows, total))
+    }
+
+    /// New: how many public messages in `areas` [`Self::find_words`] would
+    /// find, counted in SQL (none of them read out).
+    pub fn count_words(&self, areas: &[String], find: &crate::filebase::Find) -> anyhow::Result<usize> {
+        if areas.is_empty() || find.is_empty() {
+            return Ok(0);
+        }
+        let mut params: Vec<String> = areas.to_vec();
+        let mut conds: Vec<String> = Vec::new();
+        for (words, not) in [(&find.want, false), (&find.not, true)] {
+            for w in words {
+                let like = format!("%{}%", crate::filebase::escape_like(w));
+                for _ in 0..4 {
+                    params.push(like.clone());
+                }
+                conds.push(if not { format!("NOT {SEARCH_LIKE}") } else { SEARCH_LIKE.to_string() });
+            }
+        }
+        let sql = format!(
+            "SELECT COUNT(*) FROM messages WHERE NOT deleted AND NOT private AND area IN ({}) AND {}",
+            vec!["?"; areas.len()].join(","),
+            conds.join(" AND ")
+        );
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row(&sql, rusqlite::params_from_iter(params.iter()), |r| r.get::<_, i64>(0))?.max(0) as usize)
     }
 
     /// New: how many public messages `areas` have.
@@ -1539,6 +1570,8 @@ mod tests {
         assert!(found.iter().all(|m| m.id != not.id));
         assert_eq!(mb.find_words(&areas, &find, 1, Some(1)).unwrap().0.len(), 1);
         assert_eq!(mb.count_public(&areas).unwrap(), 3);
+        assert_eq!(mb.count_words(&areas, &find).unwrap(), 3);
+        assert_eq!(mb.count_words(&areas, &crate::filebase::Find::parse("blue -red")).unwrap(), 2);
         assert!(mb.vocabulary(&areas).unwrap().contains_key("modems"));
     }
 
