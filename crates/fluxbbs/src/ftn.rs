@@ -438,7 +438,7 @@ pub fn split_text(text: &[u8]) -> Parts {
     let lines = text_lines(text);
     let named = charset(&lines);
     let cs = named.unwrap_or(Charset::Cp437);
-    let mut text_seen = false;
+    let mut first = true;
     for raw in &lines {
         // A LF after the CR isn't text, nor a soft CR (0x8D) in text with
         // no CHRS (in CP437 it's `ì`).
@@ -450,14 +450,13 @@ pub fn split_text(text: &[u8]) -> Parts {
             _ => (false, raw),
         };
         let line = decode_line(&raw, cs);
-        // AREA: leads (FTS-0004), though some packers put kludges first
-        // or write it in lower case.
-        if !kludge && !text_seen {
-            text_seen = true;
-            if line.get(..5).is_some_and(|h| h.eq_ignore_ascii_case("AREA:")) {
-                p.area = Some(line[5..].trim().to_string());
-                continue;
-            }
+        // AREA: leads the text, exactly so (FTS-0004), as HPT and SBBSecho
+        // take it: anywhere else, or in another case, it's words. (Being
+        // lenient let netmail starting "AREA:..." be tossed as a public
+        // post.)
+        if std::mem::take(&mut first) && !kludge && let Some(tag) = line.strip_prefix("AREA:") {
+            p.area = Some(tag.trim().to_string());
+            continue;
         }
         if kludge {
             // The name runs to a colon or a space, whichever is first (INTL,
@@ -575,9 +574,13 @@ mod tests {
         // Tabs go as spaces, and ì as i (its byte is the soft CR).
         assert_eq!(text_bytes("a\tb"), b"a       b");
         assert_eq!(text_bytes("italiano ì"), b"italiano i");
-        // AREA: in lower case, or after kludges, is still the area.
-        assert_eq!(split_text(b"area:AGN_TST\rhi\r").area.as_deref(), Some("AGN_TST"));
-        assert_eq!(split_text(b"\x01MSGID: 1:2/3 4\rAREA:AGN_TST\rhi\r").area.as_deref(), Some("AGN_TST"));
+        // Only an exact AREA: leading the text: netmail starting with one
+        // after its kludges, or in another case, isn't echomail.
+        assert_eq!(split_text(b"AREA:AGN_TST\r\x01MSGID: 1:2/3 4\rhi\r").area.as_deref(), Some("AGN_TST"));
+        assert_eq!(split_text(b"area:AGN_TST\rhi\r").area, None);
+        let forged = split_text(b"\x01INTL 46:1/115 46:1/999\r\x01MSGID: 46:1/999 1\rAREA:AGN_HUB\rfake news\r");
+        assert_eq!(forged.area, None);
+        assert_eq!(forged.body[0], "AREA:AGN_HUB", "kept as the text it is");
         assert_eq!(split_text(b"hi\rAREA:AGN_TST\r").area, None, "only before the text");
     }
 

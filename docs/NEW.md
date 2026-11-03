@@ -279,8 +279,10 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - View in the file lister and editor opens pictures and PDFs as the gallery does.
 - Message search on the same Google-style page as file search: typeahead
   with snippets, did-you-mean, I'm Feeling Lucky, results best first.
-- Echomail wrapped twice on its way (a gateway's or an editor's: words
-  left alone on a line) is joined up again in the readers.
+- Echomail is stored as it came and wrapped for the screen in the
+  readers, words that don't fit going on with the next line (quotes
+  keep their lead); mail tossed before that, cut at 79, is joined up
+  again.
 - Votes and comments on files, as on posts (`x`: `+`, `-`, `>`): a
   score beside each file, its pushes under its information, hot files
   (`h` on the file menu, `FW votes`); upvotes pay points only on

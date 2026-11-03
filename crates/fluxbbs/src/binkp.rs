@@ -10,7 +10,7 @@ use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
-use anyhow::{Context, anyhow, bail};
+use anyhow::{anyhow, bail};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 use tokio::sync::mpsc;
@@ -37,6 +37,10 @@ const BLOCK: usize = 16 * 1024;
 const IDLE: Duration = Duration::from_secs(300);
 /// Files bigger than this are skipped (left at the other end).
 const MAX_FILE: u64 = 256 << 20;
+/// The longest a session may go on, either way (new): long enough for
+/// the biggest file on a slow link, short of keeping the other networks
+/// waiting for good.
+const SESSION_MAX: Duration = Duration::from_secs(60 * 60);
 
 /// What a poll moved.
 #[derive(Debug, Default, PartialEq)]
@@ -214,7 +218,15 @@ impl Link {
                         if stopped(&name, seq) {
                             continue;
                         }
-                        let body = tokio::fs::read(&path).await.with_context(|| format!("binkp: reading {}", path.display()))?;
+                        // One that can't be read is left out, not the end of
+                        // the session (`exchange` passes over those it sees).
+                        let body = match tokio::fs::read(&path).await {
+                            Ok(b) => b,
+                            Err(e) => {
+                                tracing::warn!("binkp: can't read {}, not sent: {e}", path.display());
+                                continue;
+                            }
+                        };
                         let offset = (offset as usize).min(body.len());
                         wr.write_all(&cmd(M_FILE, &format!("{name} {} {} {offset}", body.len(), mtime(&path)))).await?;
                         for chunk in body[offset..].chunks(BLOCK) {
@@ -585,7 +597,11 @@ pub async fn listen(state: Arc<BbsState>) {
         let state = state.clone();
         tokio::spawn(async move {
             let _ticket = ticket;
-            if let Err(e) = answer(state, stream, peer).await {
+            let r = match tokio::time::timeout(SESSION_MAX, answer(state, stream, peer)).await {
+                Ok(r) => r,
+                Err(_) => Err(anyhow!("the session from {peer} ran past {} minutes and was cut off", SESSION_MAX.as_secs() / 60)),
+            };
+            if let Err(e) = r {
                 tracing::info!("{peer}: {e:#}");
             }
         });
@@ -616,6 +632,12 @@ async fn exchange(link: &mut Link, outbound: &[PathBuf], inbound: &Path) -> anyh
         // GOT, SKIP and GET name a file: two of one name (two networks'
         // outbounds) go in separate sessions.
         if waiting.iter().any(|(n, _)| n == &name) {
+            continue;
+        }
+        // A file the board can't read (left by root, say) is said in the
+        // log and passed over, so what's behind it still goes.
+        if let Err(e) = std::fs::File::open(&p) {
+            tracing::warn!("binkp: can't read {}, left in the outbound: {e}", p.display());
             continue;
         }
         link.send_file(&name, &p, 0)?;
@@ -724,9 +746,10 @@ async fn exchange(link: &mut Link, outbound: &[PathBuf], inbound: &Path) -> anyh
 /// taken gets a number before its extension, so `.pkt` stays `.pkt`.
 fn finish(incoming: &mut Option<(String, u64, String, u64, std::fs::File, PathBuf)>, inbound: &Path, link: &Link, polled: &mut Polled) -> anyhow::Result<()> {
     let Some((name, size, time, _, f, part)) = incoming.take() else { return Ok(()) };
-    // The sender's time, not ours.
-    if let Ok(secs) = time.parse::<u64>() {
-        let _ = f.set_modified(std::time::UNIX_EPOCH + Duration::from_secs(secs));
+    // The sender's time, not ours (one past what a clock holds is
+    // ignored, not a panic).
+    if let Some(at) = file_time(&time) {
+        let _ = f.set_modified(at);
     }
     f.sync_all()?;
     drop(f);
@@ -735,6 +758,11 @@ fn finish(incoming: &mut Option<(String, u64, String, u64, std::fs::File, PathBu
     link.send(cmd(M_GOT, &format!("{name} {size} {time}")))?;
     polled.received.push(name);
     Ok(())
+}
+
+/// An M_FILE's time as a file time: None if it isn't one a clock holds.
+fn file_time(time: &str) -> Option<std::time::SystemTime> {
+    time.parse::<u64>().ok().and_then(|secs| std::time::UNIX_EPOCH.checked_add(Duration::from_secs(secs)))
 }
 
 /// Scan, poll and toss now and then, as `[ftn] poll_minutes` says.
@@ -779,11 +807,14 @@ pub async fn cycle(state: Arc<BbsState>, only: Option<&str>) -> anyhow::Result<(
         // A hub with nowhere to call only calls us.
         None => state.config().ftn.networks().into_iter().filter(|n| !n.hub_host.trim().is_empty()).collect(),
     };
-    // One hub down doesn't hold up the others.
+    // One hub down doesn't hold up the others; nor one that keeps a
+    // session going without end (a byte now and then).
     for net in nets {
         let name = net.name.clone();
-        if let Err(e) = poll(state.clone(), net).await {
-            failed.push(format!("{name}: {e:#}"));
+        match tokio::time::timeout(SESSION_MAX, poll(state.clone(), net)).await {
+            Ok(Ok(_)) => {}
+            Ok(Err(e)) => failed.push(format!("{name}: {e:#}")),
+            Err(_) => failed.push(format!("{name}: the session ran past {} minutes and was cut off", SESSION_MAX.as_secs() / 60)),
         }
     }
     // Toss whatever arrived, even if a session broke off.
@@ -828,6 +859,9 @@ mod tests {
         assert_eq!(with_port("hub.example:24555"), "hub.example:24555");
         assert_eq!(with_port("2001:db8::1"), "[2001:db8::1]:24554");
         assert_eq!(with_port("[2001:db8::1]:24555"), "[2001:db8::1]:24555");
+        // A hub's file time past what a clock holds: no time, no panic.
+        assert!(file_time("18446744073709551615").is_none());
+        assert!(file_time("1762000000").is_some() && file_time("x").is_none());
     }
 
     /// The other side asks for the rest of a file (M_GET, as after a

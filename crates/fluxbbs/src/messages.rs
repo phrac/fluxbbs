@@ -456,9 +456,12 @@ impl Session {
             lines += 1;
         }
         self.set_slot(Slot::TextHi);
-        // New: mail from elsewhere that was wrapped twice, joined up again.
+        // New: lines as they came, wrapped here to the screen, what doesn't
+        // fit going on with the next line (old mail the tosser cut, joined
+        // up first).
         let unbroken = if m.from.user_id == 0 { unbreak(&m.lines, 79) } else { None };
-        for line in unbroken.as_ref().unwrap_or(&m.lines) {
+        let shown = flow(unbroken.as_ref().unwrap_or(&m.lines), 79);
+        for line in &shown {
             if line.contains('\x1b') {
                 self.screen.write_bytes(&crate::editor::ansi_bytes(line));
                 self.newline();
@@ -1597,32 +1600,130 @@ pub(crate) fn unbroken_message(m: &crate::msgbase::Message) -> Option<crate::msg
     Some(u)
 }
 
-/// New: mail from other boards that was wrapped twice (a web forum
-/// gateway, or an editor, wrapping at one width and something on the way
-/// cutting each line again at 79, a word or two left alone on a line
-/// before the next), its paragraphs joined up again and wrapped at
-/// `width`, for showing. An orphan is a short line, after one that
-/// reached the edge, that stops mid-sentence (no closing punctuation)
-/// and whose next line carries on in lower case and would have fitted
-/// on it: wrapping once never leaves that. Only prose: quotes, indents,
-/// lists, tables, color codes, URLs, ANSI, the tearline and origin stay
-/// as they are. Checked against every echomail message on disflux: it
-/// changes only the broken ones.
+/// A line [`unbreak`] and [`flow`] leave as it is: indented (code, art),
+/// ANSI, color codes, a fence, a tearline or origin, a URL, or mostly
+/// not letters (art, a table of figures).
+fn fixed_line(l: &str) -> bool {
+    let t = l.trim_start();
+    let piped = l.as_bytes().windows(3).any(|w| w[0] == b'|' && w[1].is_ascii_digit() && w[2].is_ascii_digit());
+    let (mut letters, mut all) = (0usize, 0usize);
+    for c in t.chars().filter(|c| !c.is_whitespace()) {
+        all += 1;
+        letters += c.is_alphabetic() as usize;
+    }
+    l.starts_with('\t')
+        || l.contains('\x1b')
+        || piped
+        || t.starts_with("```")
+        || t.starts_with("---")
+        || t.starts_with("* Origin")
+        || t.starts_with("SEEN-BY")
+        || (all >= 20 && letters * 2 < all)
+}
+
+/// A quoted line's lead: initials and `>`s with the spaces round them
+/// (` EO> `, `>> `), or "" for an unquoted line.
+fn quote_lead(l: &str) -> &str {
+    let b = l.as_bytes();
+    let mut i = 0;
+    while i < b.len() && i < 2 && b[i] == b' ' {
+        i += 1;
+    }
+    let start = i;
+    while i < b.len() && i - start < 3 && b[i].is_ascii_alphabetic() {
+        i += 1;
+    }
+    let gts = i;
+    while i < b.len() && b[i] == b'>' {
+        i += 1;
+    }
+    if i == gts {
+        return "";
+    }
+    while i < b.len() && b[i] == b' ' {
+        i += 1;
+    }
+    &l[..i]
+}
+
+/// Lines for showing at `width` (new): a line too long is cut at a word,
+/// and what doesn't fit starts the next line of its paragraph (the same
+/// quote, not indented), rewrapped from there, so a sender's longer lines
+/// read as written instead of leaving a word alone on each line. A
+/// quote's lead goes on every piece. Fixed lines ([`fixed_line`], and
+/// everything inside a fence) are left as they are.
+pub(crate) fn flow(lines: &[String], width: usize) -> Vec<String> {
+    let mut out: Vec<String> = Vec::new();
+    // Words carried to the next line, with the lead they had.
+    let mut carry: Option<(String, String)> = None;
+    let mut fenced = false;
+    let cut = |lead: &str, text: &str| -> (String, Option<String>) {
+        let room = width.saturating_sub(lead.chars().count()).max(20);
+        let chars: Vec<char> = text.chars().collect();
+        if chars.len() <= room {
+            return (format!("{lead}{text}"), None);
+        }
+        let at = chars[..=room].iter().rposition(|&c| c == ' ').filter(|&i| i > 0).unwrap_or(room);
+        let fits: String = chars[..at].iter().collect();
+        let rest: String = chars[at..].iter().collect::<String>().trim().to_string();
+        (format!("{lead}{}", fits.trim_end()), (!rest.is_empty()).then_some(rest))
+    };
+    let flush = |out: &mut Vec<String>, carry: &mut Option<(String, String)>| {
+        while let Some((lead, words)) = carry.take() {
+            let (fits, over) = cut(&lead, &words);
+            out.push(fits);
+            *carry = over.map(|w| (lead, w));
+        }
+    };
+    for l in lines {
+        if l.trim_start().starts_with("```") {
+            fenced = !fenced;
+            flush(&mut out, &mut carry);
+            out.push(l.clone());
+            continue;
+        }
+        if fenced || fixed_line(l) || l.trim().is_empty() {
+            flush(&mut out, &mut carry);
+            out.push(l.clone());
+            continue;
+        }
+        let lead = quote_lead(l).to_string();
+        let text = &l[lead.len()..];
+        let mut text = text.to_string();
+        if let Some((was, words)) = carry.take() {
+            // Its paragraph goes on here: the words first.
+            if was == lead && !text.starts_with(char::is_whitespace) {
+                text = format!("{words} {text}");
+            } else {
+                flush(&mut out, &mut Some((was, words)));
+            }
+        }
+        let (fits, over) = cut(&lead, &text);
+        out.push(fits);
+        carry = over.map(|w| (lead, w));
+    }
+    flush(&mut out, &mut carry);
+    out
+}
+
+/// New: mail stored before the tosser kept lines as they came, when it
+/// cut each line over 79 on its own (a sender's 85-column line became 79
+/// and a word alone): those lines joined up again, for [`flow`] to show.
+/// Only paragraphs with such an orphan (a short line, after one that
+/// reached the edge, that stops mid-sentence, the next line carrying on
+/// in lower case with a first word that would have fitted), and in them
+/// only the breaks that were cuts (the next word didn't fit): the
+/// writer's own breaks stay. Quotes, fixed lines and fences are left
+/// alone. None if there's nothing to mend.
 pub(crate) fn unbreak(lines: &[String], width: usize) -> Option<Vec<String>> {
     let len = |l: &str| l.chars().count();
     let first_word = |l: &str| l.split_whitespace().next().map_or(0, |w| w.chars().count());
-    // Lines a paragraph can't be joined across.
     let fixed = |l: &str| {
         let t = l.trim_start();
-        let piped = l.as_bytes().windows(3).any(|w| w[0] == b'|' && w[1].is_ascii_digit() && w[2].is_ascii_digit());
-        l.starts_with([' ', '\t'])
+        fixed_line(l)
+            || l.starts_with(' ')
             || l.chars().take(3).any(|c| c == '>')
-            || l.contains('\x1b')
-            || piped
-            || t.contains("   ")
             || t.starts_with("http")
-            || t.starts_with("---")
-            || t.starts_with("* Origin")
             || t.starts_with("- ")
             || t.starts_with("* ")
             || t.split_once(['.', ')']).is_some_and(|(n, rest)| !n.is_empty() && n.len() <= 2 && n.chars().all(|c| c.is_ascii_digit()) && rest.starts_with(' '))
@@ -1635,36 +1736,41 @@ pub(crate) fn unbreak(lines: &[String], width: usize) -> Option<Vec<String>> {
             && len(b) + 1 + first_word(c) <= width
             && c.starts_with(|ch: char| ch.is_lowercase())
     };
-    let prose = |p: &[String]| {
-        let (mut letters, mut all) = (0, 0);
-        for ch in p.iter().flat_map(|l| l.chars()).filter(|c| !c.is_whitespace()) {
-            all += 1;
-            letters += ch.is_alphabetic() as usize;
-        }
-        all > 0 && letters * 10 >= all * 7
-    };
     let mut out: Vec<String> = Vec::new();
     let mut changed = false;
+    let mut fenced = false;
     let mut i = 0;
     while i < lines.len() {
-        if lines[i].trim().is_empty() || fixed(&lines[i]) {
+        if lines[i].trim_start().starts_with("```") {
+            fenced = !fenced;
+        }
+        if fenced || lines[i].trim().is_empty() || fixed(&lines[i]) || lines[i].trim_start().starts_with("```") {
             out.push(lines[i].clone());
             i += 1;
             continue;
         }
         let start = i;
-        while i < lines.len() && !lines[i].trim().is_empty() && !fixed(&lines[i]) {
+        while i < lines.len() && !lines[i].trim().is_empty() && !fixed(&lines[i]) && !lines[i].trim_start().starts_with("```") {
             i += 1;
         }
-        let para = &lines[start..i];
-        let broken = prose(para) && para.windows(3).any(|w| orphan(w[0].trim_end(), w[1].trim_end(), w[2].trim_end()));
-        if broken {
-            changed = true;
-            let words = para.iter().map(|l| l.trim()).collect::<Vec<_>>().join(" ");
-            out.extend(crate::multinode::wrap(&words, width));
-        } else {
-            out.extend(para.iter().cloned());
+        let para: Vec<&str> = lines[start..i].iter().map(|l| l.trim_end()).collect();
+        if !para.windows(3).any(|w| orphan(w[0], w[1], w[2])) {
+            out.extend(lines[start..i].iter().cloned());
+            continue;
         }
+        changed = true;
+        // Join where the tosser cut: the next word wouldn't have fitted.
+        let mut cur = para[0].to_string();
+        for w in para.windows(2) {
+            if len(w[0]) + 1 + first_word(w[1]) > width {
+                cur.push(' ');
+                cur.push_str(w[1].trim_start());
+            } else {
+                out.push(std::mem::take(&mut cur));
+                cur = w[1].to_string();
+            }
+        }
+        out.push(cur);
     }
     changed.then_some(out)
 }
@@ -1694,7 +1800,12 @@ mod tests {
     fn gateway_double_wraps_are_joined_up() {
         let l = |t: &str| t.lines().map(String::from).collect::<Vec<_>>();
         let broken = l("One or two years later, I switched to an Atari 800 XL with a disk drive,\nfollowed\nby an Amiga 500. I soon realized, however, that the hardware kept expanding,\ncluttering up my desk. So, in 1989, I bought an Amiga 2000. By 1991--having\nalready\nhad my first experiences with BBS networks.\n\nFor I remain firmly convinced that the output within a community would provide\nbenefits for\neveryone!\n\n> a quote stays\n> as it is\n--- XenFido 1.47.1\n * Origin: Somewhere (23:1/103)");
-        let fixed = unbreak(&broken, 79).expect("broken");
+        let restored = unbreak(&broken, 79).expect("broken");
+        // The sender's lines again: the tosser's cuts undone, their own
+        // breaks kept.
+        assert!(restored.contains(&"One or two years later, I switched to an Atari 800 XL with a disk drive, followed".to_string()), "{restored:#?}");
+        assert!(restored.iter().any(|x| x.starts_with("by an Amiga 500.")));
+        let fixed = flow(&restored, 79);
         assert!(fixed.iter().all(|x| x.chars().count() <= 79));
         assert!(!fixed.iter().any(|x| x == "followed" || x == "already" || x == "benefits for"), "{fixed:#?}");
         let words = |v: &[String]| v.iter().flat_map(|x| x.split_whitespace().map(String::from).collect::<Vec<_>>()).collect::<Vec<_>>();
@@ -1708,5 +1819,29 @@ mod tests {
         // A sentence a line, and a signature in color codes: as written.
         let lines = l("issue where a squirrel got into the RV in the winter and chewed through a\nwire).\nSo I used Amazon's return policy within 30 days and got all my money back.\nprogress is progress, said someone who was really quite pleased about it all\nthanks\n|08[|07K|08N1GHT|07S|08HAD0W]");
         assert_eq!(unbreak(&lines, 79), None);
+        // A break the writer made, in a broken paragraph, stays; and a
+        // fence is never joined into prose.
+        let mixed = l("Everybody is very welcome there, and I hope to see a lot of you over there all\nsoon\nand often!\nThe hobby counts and the forum is free!\n```\nbinkd -C\n```");
+        let r = unbreak(&mixed, 79).expect("broken");
+        assert!(r.contains(&"The hobby counts and the forum is free!".to_string()) && r.contains(&"```".to_string()) && r.contains(&"binkd -C".to_string()), "{r:#?}");
+    }
+
+    #[test]
+    fn long_lines_flow_into_their_paragraph() {
+        let l = |t: &str| t.lines().map(String::from).collect::<Vec<_>>();
+        // A sender's 85-column lines: what doesn't fit goes on with the
+        // next line, not alone.
+        let came = l(&format!("{} followed\nby an Amiga 500, and then more.\n\nnext", "word ".repeat(15).trim_end()));
+        let shown = flow(&came, 79);
+        assert!(shown.iter().all(|x| x.chars().count() <= 79), "{shown:#?}");
+        assert!(shown.iter().any(|x| x.starts_with("followed by an Amiga")), "{shown:#?}");
+        assert_eq!(shown.last().map(String::as_str), Some("next"));
+        // A long quote keeps its lead on every piece.
+        let q = l(&format!(" EO> {}", "quoted words here ".repeat(6).trim_end()));
+        let shown = flow(&q, 79);
+        assert!(shown.len() == 2 && shown.iter().all(|x| x.starts_with(" EO> ")), "{shown:#?}");
+        // Art, fences and the tearline as they are.
+        let art = vec!["▄▄▄▀▀▀".repeat(14), "```".into(), "x ".repeat(50), "```".into()];
+        assert_eq!(flow(&art, 79), art);
     }
 }

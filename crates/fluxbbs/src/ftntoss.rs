@@ -442,20 +442,6 @@ fn tzutc_minutes(s: &str) -> Option<i64> {
     (h <= 14 && m < 60).then_some(sign * (h * 60 + m))
 }
 
-/// Lines as a reader sees them: long ones word-wrapped to 79 (not ANSI
-/// ones, whose escapes would be cut).
-fn wrapped(body: &[String]) -> Vec<String> {
-    let mut out = Vec::new();
-    for l in body {
-        if l.chars().count() <= 79 || l.contains('\x1b') {
-            out.push(l.clone());
-        } else {
-            out.extend(crate::multinode::wrap(l, 79));
-        }
-    }
-    out
-}
-
 /// Where the tear line is, as `sig_pos` counts (1-based, 0: none): the
 /// tear and origin lines then count as the signature, left out of quotes.
 fn tear_pos(lines: &[String]) -> u32 {
@@ -507,7 +493,7 @@ fn toss_echo(state: &BbsState, areas: &[FtnArea], tag: &str, m: &PackedMsg, part
         sig_pos: 0,
         tag: 0,
         reply_to: parent.unwrap_or(0),
-        lines: wrapped(&parts.body),
+        lines: parts.body.clone(),
     };
     msg.sig_pos = tear_pos(&msg.lines);
     state.msgs.add_ftn(&mut msg, Some(&msgid))?;
@@ -583,7 +569,7 @@ fn toss_netmail(state: &BbsState, m: &PackedMsg, parts: &Parts, me: Addr, pkt_or
         sig_pos: 0,
         tag: 0,
         reply_to: 0,
-        lines: wrapped(&parts.body),
+        lines: parts.body.clone(),
     };
     msg.sig_pos = tear_pos(&msg.lines);
     state.msgs.add_ftn(&mut msg, Some(&msgid))?;
@@ -620,6 +606,10 @@ fn origin_line(state: &BbsState, net: &FtnNetwork, me: Addr) -> String {
 /// SEEN-BY, which the packet writer handles), changed as other tossers
 /// do so readers don't take it for the real one.
 fn defused(l: &str) -> String {
+    // A line other tossers would read as a control line, kept as words.
+    if l.starts_with("AREA:") || l.starts_with("SEEN-BY:") {
+        return format!(" {l}");
+    }
     if l == "---" || l.starts_with("--- ") {
         format!("-+-{}", &l[3..])
     } else if let Some(rest) = l.strip_prefix(" * Origin:") {
@@ -692,7 +682,9 @@ fn scan_net(state: &BbsState, net: &FtnNetwork, me: Addr, hub: Addr) -> anyhow::
             kludges.push(("PID".into(), format!("fluxbbs {}", env!("CARGO_PKG_VERSION"))));
             kludges.push(("TZUTC".into(), tzutc(m.posted)));
             kludges.push(("CHRS".into(), "CP437 2".into()));
-            let mut body: Vec<String> = m.lines.iter().map(|l| defused(&crate::editor::strip_colours(l))).collect();
+            // The board's color codes don't travel; ANSI does (an ad's
+            // colors and spacing, `ftn::text_bytes`).
+            let mut body: Vec<String> = m.lines.iter().map(|l| defused(&crate::editor::strip_pipes(l))).collect();
             if body.last().is_some_and(|l| !l.trim().is_empty()) {
                 body.push(String::new());
             }
@@ -775,7 +767,7 @@ pub fn netmail(state: &BbsState, net: &FtnNetwork, out: &Outgoing) -> anyhow::Re
     kludges.push(("CHRS".into(), "CP437 2".into()));
     // As echomail goes: no colour codes, nothing that passes for a
     // control line.
-    let mut lines: Vec<String> = body.iter().map(|l| defused(&crate::editor::strip_colours(l))).collect();
+    let mut lines: Vec<String> = body.iter().map(|l| defused(&crate::editor::strip_pipes(l))).collect();
     if lines.last().is_some_and(|l| !l.trim().is_empty()) {
         lines.push(String::new());
     }
@@ -1012,13 +1004,16 @@ mod tests {
         // History isn't sent on the first scan; a hello written while the
         // echo was being set up is.
         post("old", 30, vec!["old"]);
-        post("hello", 0, vec!["hi all", "--- not my tear", " * Origin: not mine (1:2/3)"]);
+        post("hello", 0, vec!["hi all", "--- not my tear", " * Origin: not mine (1:2/3)", "AREA:FAKE", "|15ad: \x1b[1;35m█\x1b[10C█ flux/bbs"]);
         assert_eq!(scan(&state).unwrap(), 1);
         let files = outbound_files(&outbound);
         let out = Packet::parse(&std::fs::read(&files[0]).unwrap()).unwrap();
         assert_eq!(out.msgs[0].subject, "hello");
         let body = ftn::split_text(&out.msgs[0].text).body;
         assert!(body.contains(&"-+- not my tear".to_string()) && body.contains(&" + Origin: not mine (1:2/3)".to_string()), "{body:?}");
+        assert!(body.contains(&" AREA:FAKE".to_string()), "a line that passes for a control line, defused: {body:?}");
+        // An ANSI ad's colors and spacing go out; the board's own codes don't.
+        assert!(body.contains(&"ad: \x1b[1;35m█\x1b[10C█ flux/bbs".to_string()), "{body:?}");
         std::fs::remove_file(&files[0]).unwrap();
         // Deleted when scanned, restored after: it still goes.
         let gone = post("second thoughts", 0, vec!["x"]);
@@ -1064,7 +1059,7 @@ mod tests {
         assert_eq!(msgs[1].reply_to, msgs[0].id);
         assert_eq!(msgs[0].replies, 1);
         assert_eq!(msgs[0].from.note, "21:1/5");
-        assert!(msgs[1].lines.iter().all(|l| l.chars().count() <= 79));
+        assert!(msgs[1].lines.iter().any(|l| l.chars().count() > 79), "a long line kept as it came, for the readers to wrap");
         let mail = state.msgs.all("EMAIL").unwrap();
         assert_eq!((mail[0].to.name.as_str(), mail[0].from.name.as_str()), ("SysOp", "AreaFix@21:1/100"));
 

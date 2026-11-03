@@ -2077,7 +2077,8 @@ impl Session {
         // language (not in plain text, which keeps the fences).
         // New: mail from elsewhere that was wrapped twice, joined up again.
         let unbroken = if m.from.user_id == 0 { crate::messages::unbreak(&m.lines, 79) } else { None };
-        let body = unbroken.as_ref().unwrap_or(&m.lines);
+        let shown = crate::messages::flow(unbroken.as_ref().unwrap_or(&m.lines), 79);
+        let body = &shown;
         let lines: Vec<Result<String, crate::markup::Line>> = match (!self.plain()).then(|| crate::markup::message_code_blocks(body, 79)).flatten() {
             Some(l) => l,
             None => body.iter().cloned().map(Ok).collect(),

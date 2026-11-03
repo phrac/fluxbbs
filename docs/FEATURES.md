@@ -1779,20 +1779,25 @@ words. Only messages the caller may read are searched, never email or
 private mail. `MO` with its parameters (`A;S;text;A`), and a caller
 without ANSI, get 2.0's questions as before.
 
-### Mail wrapped twice
+### Long lines
 
-Some software wraps a message at one width and something on the way
-(a web forum's gateway, an editor) cuts each line again at 79, leaving
-a word or two alone on a line: `...with a disk drive,` / `followed` /
-`by an Amiga 500...`. The readers join such paragraphs up again and
-wrap them at 79, for mail from other boards only, and only where the
-break can't be a writer's own: a short line after one that reached the
-edge, stopping mid-sentence, the next line going on in lower case with
-a first word that would have fitted. Quotes, indented lines, lists,
-tables, color codes, URLs, ANSI and the tearline and origin are never
-joined. Replying quotes it joined up the same way. The message itself
-is stored as it came. (On disflux it
-changes 11 of some 5,800 echomail messages, all of them broken.)
+Echomail is stored as it came, lines of any length. The readers wrap
+a line too long for the screen at a word, and what doesn't fit starts
+the next line of its paragraph (the same quote, not indented), so a
+sender's 85-column lines read as they wrote them rather than leaving a
+word alone on every other line. A quote's initials and `>`s go on every
+piece. Lines inside a ``` fence, ANSI, art and tables (mostly not
+letters), color codes and the tearline and origin are shown as they
+are. Replying quotes the same way.
+
+Mail tossed before 3 Nov 2026 was stored cut: the tosser cut each line
+over 79 on its own. For that mail from other boards, the readers (and
+quotes) join the cuts up again first: only in paragraphs where a cut
+left a word alone (a short line after one at the edge, stopping
+mid-sentence, the next going on in lower case with a first word that
+would have fitted), and only at the cuts (where the next word wouldn't
+have fitted); the writer's own breaks, quotes, lists, URLs and fences
+stay as they are.
 
 ### Votes and comments on files
 
@@ -2001,7 +2006,7 @@ Messages come in with their kludges read:
 | CHRS | UTF-8, Latin-1, CP1252 or CP437, for the names and subject too |
 | TZUTC | times shown in the board's zone |
 
-- Long lines are wrapped.
+- Lines are kept as they came; the readers wrap them ([long lines](#long-lines)).
 - The sender's address (from the origin line) becomes their note.
 - The tear and origin lines count as the signature, so quotes leave
   them out.
@@ -2025,7 +2030,10 @@ Messages come in with their kludges read:
 - If the board's side fails (the database busy), the packet stays in
   inbound for the next toss.
 - An empty file (a bundle sent with nothing in it) is removed.
-- `AREA:` is found in lower case too, and after kludge lines.
+- `AREA:` counts only as the very first line of the text, exactly so
+  (FTS-0004, as HPT and SBBSecho read it): netmail that starts with one
+  stays netmail, and a line a caller writes that would pass for one (or
+  for SEEN-BY) goes out with a space before it.
 
 #### The bad directory
 

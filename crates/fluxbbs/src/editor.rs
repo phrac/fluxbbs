@@ -875,6 +875,28 @@ pub fn strip_codes(s: &str) -> String {
 /// Text a caller wrote, plain: its `|XX` colour codes and escape
 /// sequences go, and everything else (`@12:30`, `{10}`, `%`) stays as
 /// typed, which `strip_codes` (for screens' own text) doesn't keep.
+/// The board's own color codes (`|XX`) out, ANSI left in: for echomail,
+/// whose export keeps an ad's colors and spacing (`ftn::text_bytes`).
+pub fn strip_pipes(s: &str) -> String {
+    let c: Vec<char> = s.chars().collect();
+    let mut out = String::new();
+    let mut i = 0;
+    while i < c.len() {
+        if c[i] == '|'
+            && i + 2 < c.len()
+            && c[i + 1].is_ascii()
+            && c[i + 2].is_ascii()
+            && fluxbbs_term::Control::parse([c[i + 1] as u8, c[i + 2] as u8]).is_some_and(|k| k.is_colour())
+        {
+            i += 3;
+            continue;
+        }
+        out.push(c[i]);
+        i += 1;
+    }
+    out
+}
+
 pub fn strip_colours(s: &str) -> String {
     let c: Vec<char> = s.chars().collect();
     let mut out = String::new();
