@@ -1834,6 +1834,20 @@ mod tests {
         println!("{} of {} changed: {}", changed.len(), rows.len(), changed.join(", "));
     }
 
+    /// `UNBREAK_DB=fluxbbs.db SHOW_ID=5906 cargo test -- --ignored show_a_message --nocapture`:
+    /// a message as the readers show it.
+    #[test]
+    #[ignore]
+    fn show_a_message() {
+        let (Ok(path), Ok(id)) = (std::env::var("UNBREAK_DB"), std::env::var("SHOW_ID")) else { return };
+        let db = rusqlite::Connection::open_with_flags(path, rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY).unwrap();
+        let body: String = db.query_row("SELECT body FROM messages WHERE id = ?1", [id.parse::<i64>().unwrap()], |r| r.get(0)).unwrap();
+        let lines: Vec<String> = body.split('\n').map(String::from).collect();
+        for l in flow(unbreak(&lines, 79).as_ref().unwrap_or(&lines), 79) {
+            println!("|{l}");
+        }
+    }
+
     #[test]
     fn gateway_double_wraps_are_joined_up() {
         let l = |t: &str| t.lines().map(String::from).collect::<Vec<_>>();
