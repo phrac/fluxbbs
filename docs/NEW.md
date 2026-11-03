@@ -292,6 +292,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   readers, words that don't fit going on with the next line (quotes
   keep their lead); mail tossed before that, cut at 79, is joined up
   again.
+- The casino keeps chips won on your stack from table to table; the
+  players club's cashier cashes them in (what's left is paid the next
+  day).
 - Votes and comments on files, as on posts (`x`: `+`, `-`, `>`): a
   score beside each file, its pushes under its information, hot files
   (`h` on the file menu, `FW votes`); upvotes pay points only on

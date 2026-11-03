@@ -1098,13 +1098,14 @@ the tables are drawn in half-block pixels, and plain-text callers get a
 line at a time.
 
 **Chips.** The tables play for chips, and the house gives each caller
-a free stack a day (`daily_chips`, 100 to start). When you leave a
-table up, the winnings are paid in file points (a point per
+a free stack a day (`daily_chips`, 100 to start). Chips you win stay on
+your stack from table to table all day. The cashier at the players club
+(`c`) cashes in what's over the day's stack: file points (a point per
 `chips_per_point` chips, 2 to start) and minutes on today's time (a
-minute per `chips_per_minute`, 5). Your stack then goes back to the
-day's. Down, what's left is all you have till tomorrow, so nobody loses
-anything real. Winnings left at a table when the day ends are paid the
-next time you come in. Bets run from `min_bet` to `max_bet` (5 to 50).
+minute per `chips_per_minute`, 5), and your stack goes back to the
+day's. Winnings not cashed in when the day ends are paid the next time
+you come in. Down, what's left is all you have till tomorrow, so nobody
+loses anything real. Bets run from `min_bet` to `max_bet` (5 to 50).
 
 ### Video poker
 

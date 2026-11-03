@@ -876,6 +876,12 @@ impl Session {
                 Key::Esc => break,
                 Key::Char(c @ b'1'..=b'3') => (c - b'1') as usize,
                 k if k.upper() == Some('Q') => break,
+                // New: the cashier, for chips won.
+                k if k.upper() == Some('C') => {
+                    let said = self.cashier(cfg, purse);
+                    self.stage_line(MSG_ROW, &painted(&said, [255, 215, 110]), st.truecolor);
+                    continue;
+                }
                 _ => continue,
             };
             let (name, bit, need) = comps(cfg)[pick];
@@ -956,6 +962,12 @@ impl Session {
             self.show(self.strings().get("ClubPlainPrompt").to_string().as_str()).await?;
             let s = self.read_string(crate::input::ReadOpts::new(4)).await?;
             self.newline();
+            if s.trim().eq_ignore_ascii_case("c") {
+                let said = self.cashier(cfg, purse);
+                self.write(&said);
+                self.newline();
+                continue;
+            }
             let Some(pick) = s.trim().parse::<usize>().ok().filter(|n| (1..=3).contains(n)).map(|n| n - 1) else { return Ok(()) };
             let (name, bit, need) = comps(cfg)[pick];
             let line = if purse.comps & bit != 0 {

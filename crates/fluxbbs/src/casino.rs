@@ -5,9 +5,12 @@
 //! (`pixels`), a message line under it and a status line at the bottom.
 //!
 //! The tables play for chips: a free stack a day (`[casino]
-//! daily_chips`). Leaving a table up pays the winnings in file points and
-//! minutes and puts the stack back to the day's; down, the rest of the
-//! stack is all there is till tomorrow. Nobody loses anything real.
+//! daily_chips`). Chips won stay on the stack from table to table (new:
+//! they were paid out on leaving each one) until the players club's
+//! cashier cashes what's over the day's stack in for file points and
+//! minutes; whatever's left over at midnight is paid the next day. Down,
+//! the rest of the stack is all there is till tomorrow. Nobody loses
+//! anything real.
 
 use std::io;
 use std::sync::OnceLock;
@@ -103,6 +106,17 @@ impl Session {
         self.casino_pay(prize);
         tracing::info!("{}: casino: cashed out {up} chips (+{} min, +{} points)", self.user.handle, prize.minutes, prize.points);
         Some(prize)
+    }
+
+    /// The cashier (the players club's `c`): what's over the day's stack
+    /// paid in file points and minutes. Returns what to say.
+    pub(crate) fn cashier(&mut self, cfg: &Casino, p: &mut Purse) -> String {
+        let up = p.chips.saturating_sub(cfg.daily_chips);
+        let s = match self.cash_out(cfg, p) {
+            Some(prize) => self.strings().fmt("ClubCashed", &[&up.to_string(), &self.winnings_text(prize)]),
+            None => self.strings().fmt("ClubNothingToCash", &[&cfg.daily_chips.to_string()]),
+        };
+        crate::editor::strip_colours(&fluxbbs_term::codes::unlit(&s))
     }
 
     /// Play outside the tables (a slot pull) counted toward comps.
@@ -497,17 +511,19 @@ impl Session {
             _ => "Craps",
         };
         self.record_play(title, begun);
-        let up = purse.chips.saturating_sub(cfg.daily_chips);
-        let said = match self.cash_out(cfg, &mut purse) {
-            Some(p) => {
-                let s = self.strings().fmt("CasinoCashOut", &[&up.to_string(), &self.winnings_text(p)]);
+        // Chips won stay on the stack (the cashier, at the players club,
+        // cashes them in).
+        self.purse_save(&purse);
+        let said = match purse.chips.cmp(&before) {
+            std::cmp::Ordering::Greater => {
+                let s = self.strings().fmt("CasinoUp", &[&(purse.chips - before).to_string(), &purse.chips.to_string()]);
                 Some(painted(&crate::editor::strip_colours(&s), [255, 215, 110]))
             }
-            None if purse.chips < before => {
+            std::cmp::Ordering::Less => {
                 let s = self.strings().fmt("CasinoDown", &[&(before - purse.chips).to_string(), &purse.chips.to_string()]);
                 Some(painted(&crate::editor::strip_colours(&s), [200, 170, 210]))
             }
-            None => None,
+            std::cmp::Ordering::Equal => None,
         };
         if self.plain()
             && let Some(s) = &said {
