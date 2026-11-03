@@ -36,13 +36,13 @@ pub fn score_label(score: Option<i32>) -> String {
     }
 }
 
-/// Each message's heat: its pushes since `HOT_HOURS` ago, votes one
-/// each way and comments a half, fading with age.
-pub fn heats(recent: &[(i64, i8, NaiveDateTime)], now: NaiveDateTime) -> HashMap<i64, f64> {
+/// Each message's (or file's) heat: its pushes since `hours` ago, votes
+/// one each way and comments a half, fading with age.
+pub fn heats<K: std::hash::Hash + Eq + Copy>(recent: &[(K, i8, NaiveDateTime)], now: NaiveDateTime, hours: i64) -> HashMap<K, f64> {
     let mut h = HashMap::new();
     for &(id, kind, at) in recent {
         let age = (now - at).num_minutes() as f64 / 60.0;
-        let fade = (1.0 - age / HOT_HOURS as f64).clamp(0.0, 1.0);
+        let fade = (1.0 - age / hours as f64).clamp(0.0, 1.0);
         let w = match kind {
             1 => 1.0,
             -1 => -1.0,
@@ -64,19 +64,48 @@ impl Session {
         if pushes.is_empty() {
             return Vec::new();
         }
-        let score: i32 = pushes.iter().map(|p| p.kind as i32).sum();
+        let rows: Vec<(i8, &str, &str, NaiveDateTime)> = pushes.iter().map(|p| (p.kind, p.handle.as_str(), p.text.as_str(), p.at)).collect();
+        let mut out = vec![String::new()];
+        out.extend(self.push_rows(&rows));
+        out
+    }
+
+    /// Pushes as lines (kind, handle, text, when): a rule with their
+    /// score, then each. Posts' and files' alike.
+    pub(crate) fn push_rows(&self, pushes: &[(i8, &str, &str, NaiveDateTime)]) -> Vec<String> {
+        let score: i32 = pushes.iter().map(|p| p.0 as i32).sum();
         let s = self.strings();
-        let mut out = vec![String::new(), s.fmt("PushHead", &[&score_label(Some(score))])];
-        for p in &pushes {
-            let name = match p.kind {
+        let mut out = vec![s.fmt("PushHead", &[&score_label(Some(score))])];
+        for &(kind, handle, text, at) in pushes {
+            let name = match kind {
                 1 => "PushUp",
                 -1 => "PushDown",
                 _ => "PushComment",
             };
-            let when = self.local(p.at).format("%m/%d %H:%M").to_string();
-            out.push(s.fmt(name, &[&lit(&resize(&p.handle, 12)), &lit(&resize(&p.text, PUSH_WIDTH)), &when]));
+            let when = self.local(at).format("%m/%d %H:%M").to_string();
+            out.push(s.fmt(name, &[&lit(&resize(handle, 12)), &lit(&resize(text, PUSH_WIDTH)), &when]));
         }
         out
+    }
+
+    /// Whose pushes to take off, asked on the bottom line: one of
+    /// `voters` (id, handle), or None (and a word if nobody matched).
+    pub(crate) async fn ask_whose_pushes(&mut self, voters: &[(u32, &str)]) -> io::Result<Option<u32>> {
+        self.bar_line();
+        self.say("PushRemoveWho").await?;
+        let mut opts = ReadOpts::new(36);
+        opts.complete_users = true;
+        let who = self.read_string(opts).await?;
+        if who.trim().is_empty() {
+            return Ok(None);
+        }
+        match voters.iter().find(|(_, h)| h.eq_ignore_ascii_case(who.trim())) {
+            Some(&(uid, _)) => Ok(Some(uid)),
+            None => {
+                self.bar_note("PushRemoveNone").await?;
+                Ok(None)
+            }
+        }
     }
 
     /// The reader's bottom line, cleared for a prompt.
@@ -143,7 +172,8 @@ impl Session {
         }
         let now = crate::clock::now().naive_local();
         if let Some(last) = self.state.msgs.last_push_at(self.user.id).map_err(io_err)?
-            && (now - last).num_seconds() < PUSH_GAP
+            // (Not when the clocks went back since: that's no hurry.)
+            && (0..PUSH_GAP).contains(&(now - last).num_seconds())
         {
             return self.bar_note("PushTooFast").await;
         }
@@ -200,20 +230,11 @@ impl Session {
 
     /// A sponsor's `d` at the push prompt: take one caller's pushes off.
     async fn push_remove(&mut self, m: &Message) -> io::Result<bool> {
-        self.bar_line();
-        self.say("PushRemoveWho").await?;
-        let mut opts = ReadOpts::new(36);
-        opts.complete_users = true;
-        let who = self.read_string(opts).await?;
-        if who.trim().is_empty() {
-            return Ok(false);
-        }
         let pushes = self.state.msgs.pushes(m.id).map_err(io_err)?;
-        let Some(uid) = pushes.iter().find(|p| p.handle.eq_ignore_ascii_case(who.trim())).map(|p| p.user_id) else {
-            return self.bar_note("PushRemoveNone").await;
-        };
+        let voters: Vec<(u32, &str)> = pushes.iter().map(|p| (p.user_id, p.handle.as_str())).collect();
+        let Some(uid) = self.ask_whose_pushes(&voters).await? else { return Ok(false) };
         let n = self.state.msgs.remove_pushes(m.id, uid).map_err(io_err)?;
-        tracing::info!("{}: took {n} pushes by {} off message {}", self.user.handle, who.trim(), m.num);
+        tracing::info!("{}: took {n} pushes by user {uid} off message {}", self.user.handle, m.num);
         Ok(n > 0)
     }
 
@@ -240,7 +261,7 @@ mod tests {
         assert_eq!(score_label(Some(-2)), "X2");
         let now = chrono::NaiveDate::from_ymd_opt(2026, 10, 23).unwrap().and_hms_opt(12, 0, 0).unwrap();
         let h = |n: i64| now - chrono::Duration::hours(n);
-        let heat = heats(&[(1, 1, h(0)), (1, 0, h(0)), (2, 1, h(24)), (3, -1, h(0)), (4, 1, h(60))], now);
+        let heat = heats(&[(1, 1, h(0)), (1, 0, h(0)), (2, 1, h(24)), (3, -1, h(0)), (4, 1, h(60))], now, HOT_HOURS);
         assert_eq!(heat[&1], 1.5);
         assert_eq!(heat[&2], 0.5);
         assert_eq!(heat[&3], -1.0);

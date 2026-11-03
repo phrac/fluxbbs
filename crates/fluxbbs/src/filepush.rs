@@ -4,19 +4,18 @@
 //! A downvote is how callers flag a file with bad information in it. A
 //! file's score shows beside it in the lists and its pushes under its
 //! information, and the hot files (`FW votes`) are those pushed most
-//! lately. An upvote pays points only to a caller who uploaded the file
-//! through the board, never on imported files. Pushes stay here: TIC, FTN
-//! and QWK never carry them.
+//! lately. Pushes hang on the file's record (its id), so they follow it
+//! through renames and moves. An upvote pays points only to a caller who
+//! uploaded the file through the board, never on imported files. Pushes
+//! stay here: TIC, FTN and QWK never carry them.
 
-use std::collections::HashMap;
 use std::io;
 
 use chrono::NaiveDateTime;
-use fluxbbs_term::codes::{lit, resize};
 
 use crate::filebase::{FilePush, FileRec, FileScore};
 use crate::input::{Key, ReadOpts};
-use crate::pushes::{PUSH_GAP, PUSH_WIDTH, score_label};
+use crate::pushes::{PUSH_GAP, PUSH_WIDTH, heats};
 use crate::session::Session;
 
 fn io_err(e: anyhow::Error) -> io::Error {
@@ -26,23 +25,8 @@ fn io_err(e: anyhow::Error) -> io::Error {
 /// How far back the hot files look, and how many there are.
 const HOT_HOURS: i64 = 72;
 pub const HOT_FILES: usize = 40;
-
-/// Each file's heat: its pushes since `HOT_HOURS` ago, votes one each way
-/// and comments a half, fading with age. Keyed `area/name`, lower case.
-pub fn file_heats(recent: &[(String, String, i8, NaiveDateTime)], now: NaiveDateTime) -> HashMap<String, f64> {
-    let mut h = HashMap::new();
-    for (area, name, kind, at) in recent {
-        let age = (now - *at).num_minutes() as f64 / 60.0;
-        let fade = (1.0 - age / HOT_HOURS as f64).clamp(0.0, 1.0);
-        let w = match kind {
-            1 => 1.0,
-            -1 => -1.0,
-            _ => 0.5,
-        };
-        *h.entry(format!("{}/{}", area.to_lowercase(), name.to_lowercase())).or_insert(0.0) += w * fade;
-    }
-    h
-}
+/// The pushes a file's information shows (the latest).
+const SHOWN: usize = 8;
 
 impl Session {
     /// The caller can see the file's area, so may push it.
@@ -53,43 +37,64 @@ impl Session {
 
     /// Is the file the caller's own upload?
     fn own_file(&self, f: &FileRec) -> bool {
-        match self.state.files.caller_upload(&f.area, &f.name) {
+        match self.state.files.caller_upload(f.id) {
             Ok(Some(uid)) => uid == self.user.id,
             _ => f.uploader.eq_ignore_ascii_case(&self.user.handle) && !f.uploader.eq_ignore_ascii_case(&self.state.config().bbs.sysop_alias),
         }
     }
 
-    /// A file's pushes in sum.
+    /// A file's votes in sum.
     pub(crate) fn file_score(&self, f: &FileRec) -> FileScore {
-        self.state.files.file_scores(&f.area).ok().and_then(|m| m.get(&f.name.to_lowercase()).copied()).unwrap_or_default()
+        self.state.files.file_score(f.id).unwrap_or_default()
     }
 
-    /// The lines about a file's pushes: a rule with its score, then each.
+    /// The pushes on a file as lines for its information: a rule with
+    /// its score, then the latest few, and how many earlier.
     pub(crate) fn file_push_lines(&self, f: &FileRec) -> Vec<String> {
-        let pushes = self.state.files.file_pushes(&f.area, &f.name).unwrap_or_default();
+        let pushes = self.state.files.file_pushes(f.id).unwrap_or_default();
         if pushes.is_empty() {
             return Vec::new();
         }
-        let score: i32 = pushes.iter().map(|p| p.kind as i32).sum();
-        let s = self.strings();
-        let mut out = vec![s.fmt("PushHead", &[&score_label(Some(score))])];
-        for p in &pushes {
-            let name = match p.kind {
-                1 => "PushUp",
-                -1 => "PushDown",
-                _ => "PushComment",
-            };
-            let when = self.local(p.at).format("%m/%d %H:%M").to_string();
-            out.push(s.fmt(name, &[&lit(&resize(&p.handle, 12)), &lit(&resize(&p.text, PUSH_WIDTH)), &when]));
+        let rows: Vec<(i8, &str, &str, NaiveDateTime)> = pushes.iter().map(|p| (p.kind, p.handle.as_str(), p.text.as_str(), p.at)).collect();
+        let mut out = self.push_rows(&rows);
+        // The score is all of them; the lines, the latest.
+        let earlier = out.len().saturating_sub(1 + SHOWN);
+        if earlier > 0 {
+            out.drain(1..1 + earlier);
+            out.insert(1, self.strings().fmt("FilePushEarlier", &[&earlier.to_string()]));
         }
         out
+    }
+
+    /// The pushes on a file as plain rows for a card: the sign, who,
+    /// what, and when, the latest `most`.
+    #[cfg_attr(not(feature = "library"), allow(dead_code))]
+    pub(crate) fn file_push_plain(&self, f: &FileRec, most: usize) -> (FileScore, Vec<String>) {
+        let pushes = self.state.files.file_pushes(f.id).unwrap_or_default();
+        let rows = pushes
+            .iter()
+            .rev()
+            .take(most)
+            .rev()
+            .map(|p| {
+                let sign = match p.kind {
+                    1 => '+',
+                    -1 => '-',
+                    _ => '>',
+                };
+                let who: String = p.handle.chars().take(12).collect();
+                let text: String = p.text.chars().take(PUSH_WIDTH).collect();
+                format!("{sign} {who:<12} {text:<w$} {}", self.local(p.at).format("%m/%d"), w = PUSH_WIDTH)
+            })
+            .collect();
+        (self.file_score(f), rows)
     }
 
     /// `x` on a file: vote it up or down, or comment on it, on the bottom
     /// line; a co-SysOp can take a caller's pushes off. True if anything
     /// changed.
     pub(crate) async fn file_push_prompt(&mut self, f: &FileRec) -> io::Result<bool> {
-        if !self.may_push_file(f) {
+        if f.id == 0 || !self.may_push_file(f) {
             return self.bar_note("PushNotHere").await;
         }
         let moderator = self.is_cosysop();
@@ -107,7 +112,8 @@ impl Session {
         }
         let now = crate::clock::now().naive_local();
         if let Some(last) = self.state.files.last_file_push_at(self.user.id).map_err(io_err)?
-            && (now - last).num_seconds() < PUSH_GAP
+            // (Not when the clocks went back since: that's no hurry.)
+            && (0..PUSH_GAP).contains(&(now - last).num_seconds())
         {
             return self.bar_note("PushTooFast").await;
         }
@@ -123,7 +129,7 @@ impl Session {
         if kind == 0 && text.is_empty() {
             return Ok(false);
         }
-        let p = FilePush { id: 0, area: f.area.clone(), name: f.name.clone(), user_id: self.user.id, handle: self.user.handle.clone(), kind, text, at: now };
+        let p = FilePush { id: 0, file_id: f.id, user_id: self.user.id, handle: self.user.handle.clone(), kind, text, at: now };
         self.state.files.add_file_push(&p).map_err(io_err)?;
         tracing::info!("{}: pushed file {}/{} ({kind})", self.user.handle, f.area, f.name);
         if kind == 1 {
@@ -134,45 +140,35 @@ impl Session {
 
     /// A co-SysOp's `d`: take one caller's pushes off a file.
     async fn file_push_remove(&mut self, f: &FileRec) -> io::Result<bool> {
-        self.bar_line();
-        self.say("PushRemoveWho").await?;
-        let mut opts = ReadOpts::new(36);
-        opts.complete_users = true;
-        let who = self.read_string(opts).await?;
-        if who.trim().is_empty() {
-            return Ok(false);
-        }
-        let pushes = self.state.files.file_pushes(&f.area, &f.name).map_err(io_err)?;
-        let Some(uid) = pushes.iter().find(|p| p.handle.eq_ignore_ascii_case(who.trim())).map(|p| p.user_id) else {
-            return self.bar_note("PushRemoveNone").await;
-        };
-        let n = self.state.files.remove_file_pushes(&f.area, &f.name, uid).map_err(io_err)?;
-        tracing::info!("{}: took {n} pushes by {} off {}/{}", self.user.handle, who.trim(), f.area, f.name);
+        let pushes = self.state.files.file_pushes(f.id).map_err(io_err)?;
+        let voters: Vec<(u32, &str)> = pushes.iter().map(|p| (p.user_id, p.handle.as_str())).collect();
+        let Some(uid) = self.ask_whose_pushes(&voters).await? else { return Ok(false) };
+        let n = self.state.files.remove_file_pushes(f.id, uid).map_err(io_err)?;
+        tracing::info!("{}: took {n} pushes by user {uid} off {}/{}", self.user.handle, f.area, f.name);
         Ok(n > 0)
     }
 
     /// The hot files the caller can see: the most pushed lately, then
-    /// (if that's few) the best scored ever.
+    /// (if that's few) the best scored ever. With the area each is in.
     pub(crate) fn hot_files(&self, n: usize) -> io::Result<Vec<(u32, FileRec)>> {
         let now = crate::clock::now().naive_local();
         let recent = self.state.files.file_pushes_since(now - chrono::Duration::hours(HOT_HOURS)).map_err(io_err)?;
-        let heats = file_heats(&recent, now);
-        let mut keys: Vec<(String, f64)> = heats.into_iter().filter(|(_, h)| *h > 0.0).collect();
-        keys.sort_by(|a, b| b.1.total_cmp(&a.1));
-        let mut wanted: Vec<(String, String)> = keys.into_iter().filter_map(|(k, _)| k.split_once('/').map(|(a, b)| (a.to_string(), b.to_string()))).collect();
-        for (a, name, _) in self.state.files.top_scored_files(n * 2).map_err(io_err)? {
-            let k = (a.to_lowercase(), name.to_lowercase());
-            if !wanted.contains(&k) {
-                wanted.push(k);
+        let mut hot: Vec<(i64, f64)> = heats(&recent, now, HOT_HOURS).into_iter().filter(|(_, h)| *h > 0.0).collect();
+        hot.sort_by(|a, b| b.1.total_cmp(&a.1));
+        let mut ids: Vec<i64> = hot.into_iter().map(|(id, _)| id).collect();
+        for id in self.state.files.top_scored_files(n * 2).map_err(io_err)? {
+            if !ids.contains(&id) {
+                ids.push(id);
             }
         }
         let fa = self.state.fareas();
-        let visible: HashMap<String, u32> = self.visible_fareas().iter().filter_map(|&(n, _)| fa.get(n).filter(|a| a.password.is_empty()).map(|a| (a.file.to_lowercase(), n))).collect();
+        let visible: std::collections::HashMap<String, u32> =
+            self.visible_fareas().iter().filter_map(|&(n, _)| fa.get(n).filter(|a| a.password.is_empty()).map(|a| (a.file.to_lowercase(), n))).collect();
         let mut out = Vec::new();
-        for (area, name) in wanted {
-            let Some(&num) = visible.get(&area) else { continue };
-            if let Ok(Some(f)) = self.state.files.find(&area, &name)
+        for id in ids {
+            if let Ok(Some(f)) = self.state.files.by_id(id)
                 && f.valid
+                && let Some(&num) = visible.get(&f.area.to_lowercase())
             {
                 out.push((num, f));
             }
@@ -181,26 +177,5 @@ impl Session {
             }
         }
         Ok(out)
-    }
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn heat_fades_and_votes_count_both_ways() {
-        let now = chrono::NaiveDate::from_ymd_opt(2026, 11, 3).unwrap().and_hms_opt(12, 0, 0).unwrap();
-        let ago = |h| now - chrono::Duration::hours(h);
-        let recent = vec![
-            ("A".to_string(), "x.txt".to_string(), 1, ago(1)),
-            ("A".to_string(), "X.TXT".to_string(), 0, ago(2)),
-            ("A".to_string(), "y.txt".to_string(), -1, ago(1)),
-            ("B".to_string(), "z.txt".to_string(), 1, ago(HOT_HOURS + 1)),
-        ];
-        let h = file_heats(&recent, now);
-        assert!(h["a/x.txt"] > 1.0, "a vote and a comment, either case");
-        assert!(h["a/y.txt"] < 0.0);
-        assert_eq!(h["b/z.txt"], 0.0, "too old to count");
     }
 }

@@ -648,7 +648,7 @@ mod tests {
 
         // A caller's upload of the same name, and a mask that could match
         // everything, take nothing of a caller's.
-        let mut mine = crate::filebase::FileRec { area: "AGNNODE".into(), num: 0, name: "MINE.ZIP".into(), size: 4, date: None, uploader: "phrac".into(), uploaded: None, downloads: 0, points: 0, valid: true, description: vec![] };
+        let mut mine = crate::filebase::FileRec { id: 0, area: "AGNNODE".into(), num: 0, name: "MINE.ZIP".into(), size: 4, date: None, uploader: "phrac".into(), uploaded: None, downloads: 0, points: 0, valid: true, description: vec![] };
         std::fs::write(area.join("MINE.ZIP"), b"mine").unwrap();
         state.files.add(&mut mine).unwrap();
         send(&inbound, "c1.tic", "AGN_NODE", "MINE.ZIP", b"theirs", "", "TICPW");

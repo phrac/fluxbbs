@@ -803,6 +803,7 @@ pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, downloa
 fn record(area: &str, name: &str, meta: &std::fs::Metadata, kb_pt: u64, desc: &[String]) -> FileRec {
     let date = meta.modified().ok().map(|t| crate::clock::from_utc(chrono::DateTime::<chrono::Utc>::from(t).naive_utc()).date());
     FileRec {
+        id: 0,
         area: area.to_string(),
         num: 0,
         name: name.to_string(),
@@ -1092,7 +1093,7 @@ Stories and novels.
         std::fs::remove_file(tmp.join("fileareas.toml")).unwrap();
         std::fs::create_dir_all(tmp.join("files/newarea")).unwrap();
         std::fs::write(tmp.join("files/newarea/lost.txt"), "the board's own").unwrap();
-        let mut own = FileRec { area: "NEWAREA".into(), num: 0, name: "lost.txt".into(), size: 15, date: None, uploader: "phrac".into(), uploaded: None, downloads: 0, points: 0, valid: true, description: vec![] };
+        let mut own = FileRec { id: 0, area: "NEWAREA".into(), num: 0, name: "lost.txt".into(), size: 15, date: None, uploader: "phrac".into(), uploaded: None, downloads: 0, points: 0, valid: true, description: vec![] };
         fb.add(&mut own).unwrap();
         import(&tmp.join("fluxbbs.toml"), None, None, None, None, None, &[("Anarchy".into(), "newarea".into())]).unwrap();
         let fa = FileAreas::load(&tmp.join("fileareas.toml")).unwrap();

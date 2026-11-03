@@ -1119,7 +1119,7 @@ impl Session {
     fn heat_now(&self) -> io::Result<HashMap<i64, f64>> {
         let now = crate::clock::now().naive_local();
         let recent = self.state.msgs.recent_pushes(now - chrono::Duration::hours(HOT_HOURS)).map_err(io_err)?;
-        Ok(heats(&recent, now))
+        Ok(heats(&recent, now, HOT_HOURS))
     }
 
     /// The Hot list (new): threads being pushed lately in every area the

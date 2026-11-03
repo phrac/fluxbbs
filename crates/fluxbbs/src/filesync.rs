@@ -200,6 +200,7 @@ mod tests {
 
     fn rec(area: &str, name: &str, size: u64, desc: &str) -> FileRec {
         FileRec {
+            id: 0,
             area: area.into(),
             num: 0,
             name: name.into(),

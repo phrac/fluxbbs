@@ -1146,7 +1146,7 @@ impl Session {
                 self.write(&f.points.to_string());
             }
             if let Some(x) = l.desc_x {
-                let score = scores.get(&f.name.to_lowercase()).copied().unwrap_or_default();
+                let score = scores.get(&f.id).copied().unwrap_or_default();
                 let label = score.label();
                 for (i, d) in desc.iter().take(lines - used_name).enumerate() {
                     self.screen.goto(x, y + i as u16);
@@ -1373,7 +1373,7 @@ impl Session {
                 }),
             };
             let Some(choice) = choice else { continue };
-            if m.off.get(m.pos) == Some(&true) {
+            if paged.is_none() && m.off.get(m.pos) == Some(&true) {
                 continue;
             }
             let selected = bar.map(|b| files[rows[b].idx].clone());
@@ -2085,6 +2085,7 @@ impl Session {
                 let _ = std::fs::remove_file(&path);
             }
             let mut rec = FileRec {
+                id: 0,
                 area: a.area.file.clone(),
                 num: 0,
                 name: name.clone(),
@@ -2099,7 +2100,7 @@ impl Session {
             };
             self.state.files.add(&mut rec).map_err(io_err)?;
             // New: the caller's own upload, for upvotes to pay them.
-            if let Err(e) = self.state.files.mark_caller_upload(&rec.area, &rec.name, self.user.id) {
+            if let Err(e) = self.state.files.mark_caller_upload(rec.id, self.user.id) {
                 tracing::error!("marking {}'s upload: {e}", self.user.handle);
             }
             // New: a file that came without a description gets one from the AI.
@@ -2198,6 +2199,7 @@ pub fn local_record(area: &str, path: &Path, uploader: &str, desc_files: &[Strin
         description = zip_contents(path);
     }
     Ok(FileRec {
+        id: 0,
         area: area.to_string(),
         num: 0,
         name,

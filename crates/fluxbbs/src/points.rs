@@ -248,7 +248,7 @@ impl Session {
         if !self.points_on() || cfg.upvote == 0 {
             return;
         }
-        let Ok(Some(uid)) = self.state.files.caller_upload(&f.area, &f.name) else { return };
+        let Ok(Some(uid)) = self.state.files.caller_upload(f.id) else { return };
         if uid == self.user.id {
             return;
         }
@@ -256,7 +256,8 @@ impl Session {
         if author.deleted || is_bot(&author) {
             return;
         }
-        let on = format!("file:{}/{}", f.area, f.name);
+        // By the record, which a rename or move doesn't change.
+        let on = format!("file:{}", f.id);
         let e = entry("upvote", (self.user.id, &self.user.handle), (author.id, &author.handle), cfg.upvote, &on, &f.name);
         match self.state.sys.add_points_capped(&e, cap(cfg.upvote_daily), today(), true) {
             Ok(0) => {}

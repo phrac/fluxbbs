@@ -1775,15 +1775,16 @@ under the bar in the file lister and in the file browser and gallery
   the prompt says so ("what's wrong with it?").
 - The score shows before a file's description in the lister and
   browser (`+4`, `X2`, `HOT`), and its pushes under its information
-  (`I`), after the description.
+  (`I`), after the description: the latest eight, and how many earlier.
 - An upvote pays file points ([points](#points)) the same as on a post,
   but only to a caller who uploaded the file through the board. Imported
   files (the textfiles archive, `add-files`, file echoes) pay no one.
 - **Hot files** (`h` on the file menu, `FW votes`): the files pushed
   most in the last three days, votes one each way and comments a half,
   fading with age, then the best scored ever.
-- Renaming or moving a file takes its pushes with it; deleting it takes
-  them away. They stay on this board: TIC, FTN and QWK don't carry them.
+- Pushes belong to the file's record, so renaming or moving it (or
+  sorting the area) keeps them; deleting it takes them away. An upvote
+  pays once per voter and file, renamed or not. They stay on this board: TIC, FTN and QWK don't carry them.
 
 ### File links
 

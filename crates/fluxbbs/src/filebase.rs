@@ -12,6 +12,9 @@ use crate::fileareas::SortBy;
 
 #[derive(Debug, Clone)]
 pub struct FileRec {
+    /// New: the record's id in the database (0 until it's added): steady
+    /// through renames, moves and renumbering, so pushes hang on it.
+    pub id: i64,
     pub area: String,
     /// Position in the area, from 1.
     pub num: u32,
@@ -66,14 +69,23 @@ const STEPS: &[crate::sysdata::Step] = &[
         "CREATE TABLE IF NOT EXISTS file_uploads (area TEXT NOT NULL COLLATE NOCASE, name TEXT NOT NULL COLLATE NOCASE, \
          user_id INTEGER NOT NULL, PRIMARY KEY (area, name))",
     ),
+    // Keyed by the file's record instead (names aren't unique in an
+    // area, and renames and moves had to carry them); the tables above
+    // never held anything on a released board.
+    crate::sysdata::Step::Sql(
+        "DROP TABLE IF EXISTS file_pushes; DROP TABLE IF EXISTS file_uploads; \
+         CREATE TABLE file_pushes (id INTEGER PRIMARY KEY, file_id INTEGER NOT NULL, user_id INTEGER NOT NULL, \
+         handle TEXT NOT NULL, kind INTEGER NOT NULL, text TEXT NOT NULL, at TEXT NOT NULL); \
+         CREATE INDEX file_pushes_file ON file_pushes(file_id); \
+         CREATE TABLE file_uploads (file_id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL);",
+    ),
 ];
 
-/// New: a file's pushes in sum.
+/// New: a file's votes in sum.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct FileScore {
     pub score: i32,
     pub votes: u32,
-    pub comments: u32,
 }
 
 impl FileScore {
@@ -87,8 +99,7 @@ impl FileScore {
 #[derive(Debug, Clone, PartialEq)]
 pub struct FilePush {
     pub id: i64,
-    pub area: String,
-    pub name: String,
+    pub file_id: i64,
     pub user_id: u32,
     pub handle: String,
     pub kind: i8,
@@ -99,6 +110,7 @@ pub struct FilePush {
 fn from_row(r: &Row) -> rusqlite::Result<FileRec> {
     let desc: String = r.get("description")?;
     Ok(FileRec {
+        id: r.get("id")?,
         area: r.get("area")?,
         num: r.get("num")?,
         name: r.get("name")?,
@@ -476,6 +488,7 @@ impl FileBase {
                 f.valid, f.description.join("\n")
             ],
         )?;
+        f.id = db.last_insert_rowid();
         Ok(())
     }
 
@@ -496,6 +509,7 @@ impl FileBase {
                     f.valid, f.description.join("\n")
                 ],
             )?;
+            f.id = tx.last_insert_rowid();
         }
         tx.commit()?;
         Ok(())
@@ -503,11 +517,16 @@ impl FileBase {
 
     pub fn update(&self, f: &FileRec) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        // Renamed: its pushes and upload go with it.
-        let old: Option<String> = db.query_row("SELECT name FROM files WHERE area = ?1 AND num = ?2", params![f.area, f.num], |r| r.get(0)).optional()?;
-        if let Some(old) = old.filter(|o| *o != f.name) {
-            db.execute("UPDATE file_pushes SET name = ?3 WHERE area = ?1 AND name = ?2", params![f.area, old, f.name])?;
-            db.execute("UPDATE OR IGNORE file_uploads SET name = ?3 WHERE area = ?1 AND name = ?2", params![f.area, old, f.name])?;
+        // New: by its id when it has one, which a renumbering since it
+        // was read doesn't change.
+        if f.id != 0 {
+            db.execute(
+                "UPDATE files SET name = ?2, size = ?3, date = ?4, uploader = ?5, uploaded = ?6,
+                    downloads = ?7, points = ?8, valid = ?9, description = ?10
+                 WHERE id = ?1",
+                params![f.id, f.name, f.size as i64, f.date, f.uploader, f.uploaded, f.downloads, f.points, f.valid, f.description.join("\n")],
+            )?;
+            return Ok(());
         }
         db.execute(
             "UPDATE files SET name = ?3, size = ?4, date = ?5, uploader = ?6, uploaded = ?7,
@@ -524,18 +543,12 @@ impl FileBase {
     /// Remove a file's record and close the gap in the numbering; its
     /// pushes go too.
     pub fn remove(&self, area: &str, num: u32) -> anyhow::Result<()> {
-        self.remove_record(area, num, true)
-    }
-
-    fn remove_record(&self, area: &str, num: u32, forget: bool) -> anyhow::Result<()> {
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
-        if forget {
-            let name: Option<String> = tx.query_row("SELECT name FROM files WHERE area = ?1 AND num = ?2", params![area, num], |r| r.get(0)).optional()?;
-            if let Some(name) = name {
-                tx.execute("DELETE FROM file_pushes WHERE area = ?1 AND name = ?2", params![area, name])?;
-                tx.execute("DELETE FROM file_uploads WHERE area = ?1 AND name = ?2", params![area, name])?;
-            }
+        let id: Option<i64> = tx.query_row("SELECT id FROM files WHERE area = ?1 AND num = ?2", params![area, num], |r| r.get(0)).optional()?;
+        if let Some(id) = id {
+            tx.execute("DELETE FROM file_pushes WHERE file_id = ?1", [id])?;
+            tx.execute("DELETE FROM file_uploads WHERE file_id = ?1", [id])?;
         }
         tx.execute("DELETE FROM files WHERE area = ?1 AND num = ?2", params![area, num])?;
         // Two steps so UNIQUE (area, num) holds after each statement.
@@ -564,17 +577,20 @@ impl FileBase {
 
     /// Move a file's record to the end of another area.
     pub fn move_to(&self, area: &str, num: u32, to: &str) -> anyhow::Result<u32> {
-        let Some(mut f) = self.get(area, num)? else { anyhow::bail!("no file {num} in {area}") };
-        {
-            let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-            db.execute("UPDATE file_pushes SET area = ?3 WHERE area = ?1 AND name = ?2", params![area, f.name, to])?;
-            db.execute("UPDATE OR IGNORE file_uploads SET area = ?3 WHERE area = ?1 AND name = ?2", params![area, f.name, to])?;
-        }
-        self.remove_record(area, num, false)?;
-        f.area = to.to_string();
-        f.num = 0;
-        self.add(&mut f)?;
-        Ok(f.num)
+        // The record itself moves (new: it was taken out and added
+        // again), so it keeps its id, and its pushes stay with it.
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let Some(id) = tx.query_row("SELECT id FROM files WHERE area = ?1 AND num = ?2", params![area, num], |r| r.get::<_, i64>(0)).optional()? else {
+            anyhow::bail!("no file {num} in {area}")
+        };
+        let new: u32 = tx.query_row("SELECT COALESCE(MAX(num), 0) + 1 FROM files WHERE area = ?1", [to], |r| r.get(0))?;
+        tx.execute("UPDATE files SET area = ?2, num = ?3 WHERE id = ?1", params![id, to, new])?;
+        // Close the gap it left, in two steps as `remove` does.
+        tx.execute("UPDATE files SET num = -(num - 1) WHERE area = ?1 AND num > ?2", params![area, num])?;
+        tx.execute("UPDATE files SET num = -num WHERE area = ?1 AND num < 0", [area])?;
+        tx.commit()?;
+        Ok(new)
     }
 
     /// An area's storage key changed.
@@ -582,8 +598,6 @@ impl FileBase {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("UPDATE files SET area = ?2 WHERE area = ?1", params![from, to])?;
         db.execute("UPDATE area_info SET area = ?2 WHERE area = ?1", params![from, to])?;
-        db.execute("UPDATE file_pushes SET area = ?2 WHERE area = ?1", params![from, to])?;
-        db.execute("UPDATE OR IGNORE file_uploads SET area = ?2 WHERE area = ?1", params![from, to])?;
         Ok(())
     }
 
@@ -591,20 +605,26 @@ impl FileBase {
     pub fn delete_area(&self, area: &str) -> anyhow::Result<u32> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute("DELETE FROM area_info WHERE area = ?1", [area])?;
-        db.execute("DELETE FROM file_pushes WHERE area = ?1", [area])?;
-        db.execute("DELETE FROM file_uploads WHERE area = ?1", [area])?;
+        db.execute("DELETE FROM file_pushes WHERE file_id IN (SELECT id FROM files WHERE area = ?1)", [area])?;
+        db.execute("DELETE FROM file_uploads WHERE file_id IN (SELECT id FROM files WHERE area = ?1)", [area])?;
         Ok(db.execute("DELETE FROM files WHERE area = ?1", [area])? as u32)
     }
 
     // ---- pushes on files (new) -------------------------------------------
 
-    /// A file's pushes, oldest first.
-    pub fn file_pushes(&self, area: &str, name: &str) -> anyhow::Result<Vec<FilePush>> {
+    /// A file's record by its id.
+    pub fn by_id(&self, id: i64) -> anyhow::Result<Option<FileRec>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stmt = db.prepare("SELECT id, area, name, user_id, handle, kind, text, at FROM file_pushes WHERE area = ?1 AND name = ?2 ORDER BY id")?;
+        Ok(db.query_row("SELECT * FROM files WHERE id = ?1", [id], from_row).optional()?)
+    }
+
+    /// A file's pushes, oldest first.
+    pub fn file_pushes(&self, file_id: i64) -> anyhow::Result<Vec<FilePush>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT id, file_id, user_id, handle, kind, text, at FROM file_pushes WHERE file_id = ?1 ORDER BY id")?;
         let rows = stmt
-            .query_map(params![area, name], |r| {
-                Ok(FilePush { id: r.get(0)?, area: r.get(1)?, name: r.get(2)?, user_id: r.get(3)?, handle: r.get(4)?, kind: r.get(5)?, text: r.get(6)?, at: r.get(7)? })
+            .query_map([file_id], |r| {
+                Ok(FilePush { id: r.get(0)?, file_id: r.get(1)?, user_id: r.get(2)?, handle: r.get(3)?, kind: r.get(4)?, text: r.get(5)?, at: r.get(6)? })
             })?
             .collect::<Result<_, _>>()?;
         Ok(rows)
@@ -615,20 +635,20 @@ impl FileBase {
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         if p.kind != 0 {
-            tx.execute("DELETE FROM file_pushes WHERE area = ?1 AND name = ?2 AND user_id = ?3 AND kind <> 0", params![p.area, p.name, p.user_id])?;
+            tx.execute("DELETE FROM file_pushes WHERE file_id = ?1 AND user_id = ?2 AND kind <> 0", params![p.file_id, p.user_id])?;
         }
         tx.execute(
-            "INSERT INTO file_pushes (area, name, user_id, handle, kind, text, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-            params![p.area, p.name, p.user_id, p.handle, p.kind, p.text, p.at],
+            "INSERT INTO file_pushes (file_id, user_id, handle, kind, text, at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+            params![p.file_id, p.user_id, p.handle, p.kind, p.text, p.at],
         )?;
         tx.commit()?;
         Ok(())
     }
 
     /// Take a caller's pushes off a file (a co-SysOp's clean-up).
-    pub fn remove_file_pushes(&self, area: &str, name: &str, user_id: u32) -> anyhow::Result<usize> {
+    pub fn remove_file_pushes(&self, file_id: i64, user_id: u32) -> anyhow::Result<usize> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        Ok(db.execute("DELETE FROM file_pushes WHERE area = ?1 AND name = ?2 AND user_id = ?3", params![area, name, user_id])?)
+        Ok(db.execute("DELETE FROM file_pushes WHERE file_id = ?1 AND user_id = ?2", params![file_id, user_id])?)
     }
 
     /// When a caller last pushed a file.
@@ -637,50 +657,54 @@ impl FileBase {
         Ok(db.query_row("SELECT MAX(at) FROM file_pushes WHERE user_id = ?1", [user_id], |r| r.get(0))?)
     }
 
-    /// Each pushed file in an area, by its name in lower case: its score
-    /// (ups less downs), how many votes and how many comments.
-    pub fn file_scores(&self, area: &str) -> anyhow::Result<HashMap<String, FileScore>> {
+    /// The voted files in an area: their scores (ups less downs) and how
+    /// many votes, by file id.
+    pub fn file_scores(&self, area: &str) -> anyhow::Result<HashMap<i64, FileScore>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let mut stmt = db.prepare(
-            "SELECT name, SUM(kind), SUM(kind <> 0), SUM(kind = 0) FROM file_pushes WHERE area = ?1 GROUP BY name COLLATE NOCASE",
+            "SELECT p.file_id, SUM(p.kind), SUM(p.kind <> 0) FROM file_pushes p JOIN files f ON f.id = p.file_id \
+             WHERE f.area = ?1 GROUP BY p.file_id HAVING SUM(p.kind <> 0) > 0",
         )?;
-        let rows = stmt
-            .query_map([area], |r| Ok((r.get::<_, String>(0)?.to_lowercase(), FileScore { score: r.get(1)?, votes: r.get(2)?, comments: r.get(3)? })))?
-            .collect::<Result<_, _>>()?;
+        let rows = stmt.query_map([area], |r| Ok((r.get(0)?, FileScore { score: r.get(1)?, votes: r.get(2)? })))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
-    /// Pushes since `since`: (area, name, kind, when), for the hot list.
-    pub fn file_pushes_since(&self, since: chrono::NaiveDateTime) -> anyhow::Result<Vec<(String, String, i8, chrono::NaiveDateTime)>> {
+    /// One file's votes in sum.
+    pub fn file_score(&self, file_id: i64) -> anyhow::Result<FileScore> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stmt = db.prepare("SELECT area, name, kind, at FROM file_pushes WHERE at >= ?1")?;
-        let rows = stmt.query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?)))?.collect::<Result<_, _>>()?;
+        Ok(db.query_row("SELECT COALESCE(SUM(kind), 0), COALESCE(SUM(kind <> 0), 0) FROM file_pushes WHERE file_id = ?1", [file_id], |r| {
+            Ok(FileScore { score: r.get(0)?, votes: r.get(1)? })
+        })?)
+    }
+
+    /// Pushes since `since`: (file id, kind, when), for the hot list.
+    pub fn file_pushes_since(&self, since: chrono::NaiveDateTime) -> anyhow::Result<Vec<(i64, i8, chrono::NaiveDateTime)>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT file_id, kind, at FROM file_pushes WHERE at >= ?1")?;
+        let rows = stmt.query_map([since], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
-    /// The best scored files ever: (area, name, score), at most `n`.
-    pub fn top_scored_files(&self, n: usize) -> anyhow::Result<Vec<(String, String, i32)>> {
+    /// The best scored files ever: their ids, at most `n`.
+    pub fn top_scored_files(&self, n: usize) -> anyhow::Result<Vec<i64>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let mut stmt = db.prepare(
-            "SELECT area, name, SUM(kind) AS s FROM file_pushes GROUP BY area, name COLLATE NOCASE HAVING s > 0 ORDER BY s DESC, MAX(at) DESC LIMIT ?1",
-        )?;
-        let rows = stmt.query_map([n as i64], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))?.collect::<Result<_, _>>()?;
+        let mut stmt = db.prepare("SELECT file_id, SUM(kind) AS s FROM file_pushes GROUP BY file_id HAVING s > 0 ORDER BY s DESC, MAX(at) DESC LIMIT ?1")?;
+        let rows = stmt.query_map([n as i64], |r| r.get(0))?.collect::<Result<_, _>>()?;
         Ok(rows)
     }
 
     /// A file a caller uploaded through the board (not an import).
-    pub fn mark_caller_upload(&self, area: &str, name: &str, user_id: u32) -> anyhow::Result<()> {
+    pub fn mark_caller_upload(&self, file_id: i64, user_id: u32) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        db.execute("INSERT OR REPLACE INTO file_uploads (area, name, user_id) VALUES (?1, ?2, ?3)", params![area, name, user_id])?;
+        db.execute("INSERT OR REPLACE INTO file_uploads (file_id, user_id) VALUES (?1, ?2)", params![file_id, user_id])?;
         Ok(())
     }
 
     /// Who uploaded a file through the board, if a caller did.
-    pub fn caller_upload(&self, area: &str, name: &str) -> anyhow::Result<Option<u32>> {
+    pub fn caller_upload(&self, file_id: i64) -> anyhow::Result<Option<u32>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        Ok(db.query_row("SELECT user_id FROM file_uploads WHERE area = ?1 AND name = ?2", params![area, name], |r| r.get(0)).optional()?)
+        Ok(db.query_row("SELECT user_id FROM file_uploads WHERE file_id = ?1", [file_id], |r| r.get(0)).optional()?)
     }
-
     /// New: the line about an area, empty if it has none.
     pub fn area_about(&self, area: &str) -> anyhow::Result<String> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
@@ -819,6 +843,7 @@ mod tests {
 
     fn rec(area: &str, name: &str) -> FileRec {
         FileRec {
+            id: 0,
             area: area.into(),
             num: 0,
             name: name.into(),
@@ -831,6 +856,48 @@ mod tests {
             valid: true,
             description: vec!["A file".into(), "second line".into()],
         }
+    }
+
+    #[test]
+    fn pushes_stay_with_their_file() {
+        let fb = FileBase::open_memory().unwrap();
+        let mut a = rec("A", "one.txt");
+        let mut b = rec("A", "two.txt");
+        let mut same = rec("B", "two.txt");
+        fb.add(&mut a).unwrap();
+        fb.add(&mut b).unwrap();
+        fb.add(&mut same).unwrap();
+        let at = NaiveDate::from_ymd_opt(2026, 11, 3).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        let push = |file_id, user_id, kind| FilePush { id: 0, file_id, user_id, handle: format!("u{user_id}"), kind, text: String::new(), at };
+        fb.add_file_push(&push(b.id, 1, 1)).unwrap();
+        fb.add_file_push(&push(b.id, 1, -1)).unwrap();
+        fb.add_file_push(&push(b.id, 2, 1)).unwrap();
+        fb.add_file_push(&push(b.id, 2, 0)).unwrap();
+        fb.mark_caller_upload(b.id, 9).unwrap();
+        // A vote replaces the caller's last; a comment doesn't count.
+        assert_eq!(fb.file_score(b.id).unwrap(), FileScore { score: 0, votes: 2 });
+        // Moved to B, beside a file of the same name: its own still.
+        let num = fb.move_to("A", b.num, "B").unwrap();
+        let moved = fb.get("B", num).unwrap().unwrap();
+        assert_eq!(moved.id, b.id);
+        assert_eq!(fb.file_pushes(b.id).unwrap().len(), 3);
+        assert!(fb.file_pushes(same.id).unwrap().is_empty());
+        assert_eq!(fb.caller_upload(b.id).unwrap(), Some(9));
+        // Taking out the one before it renumbers, and an update by id
+        // still finds it.
+        fb.remove("B", same.num).unwrap();
+        let mut now = fb.by_id(b.id).unwrap().unwrap();
+        assert_eq!(now.num, 1);
+        now.description = vec!["renamed".into()];
+        now.name = "three.txt".into();
+        fb.update(&now).unwrap();
+        assert_eq!(fb.by_id(b.id).unwrap().unwrap().name, "three.txt");
+        assert_eq!(fb.file_scores("B").unwrap().get(&b.id).map(|s| s.votes), Some(2));
+        // Deleted: its pushes and upload go with it.
+        fb.remove("B", 1).unwrap();
+        assert!(fb.file_pushes(b.id).unwrap().is_empty());
+        assert_eq!(fb.caller_upload(b.id).unwrap(), None);
+        assert_eq!(fb.get("A", 1).unwrap().unwrap().id, a.id, "A closed up behind the move");
     }
 
     #[test]

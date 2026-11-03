@@ -483,14 +483,19 @@ async fn summarize(state: &BbsState, book: &Book, text: &str) -> anyhow::Result<
     Ok(paras.join("\n\n"))
 }
 
-/// Text and background colors.
-fn paint(out: &mut Vec<u8>, fg: Ink, bg: Ink, tc: bool) {
-    ink(out, fg, tc);
+/// A background color.
+fn bg(out: &mut Vec<u8>, c: Ink, tc: bool) {
     if tc {
-        out.extend(format!("\x1b[48;2;{};{};{}m", bg[0], bg[1], bg[2]).as_bytes());
+        out.extend(format!("\x1b[48;2;{};{};{}m", c[0], c[1], c[2]).as_bytes());
     } else {
-        out.extend(format!("\x1b[48;5;{}m", crate::picture::xterm256(bg)).as_bytes());
+        out.extend(format!("\x1b[48;5;{}m", crate::picture::xterm256(c)).as_bytes());
     }
+}
+
+/// Text and background colors.
+fn paint(out: &mut Vec<u8>, fg: Ink, back: Ink, tc: bool) {
+    ink(out, fg, tc);
+    bg(out, back, tc);
 }
 
 /// Text in paragraphs (a blank line between), each wrapped to `width`.
@@ -1527,13 +1532,6 @@ impl Session {
     #[cfg_attr(not(feature = "ai"), allow(unused_variables))]
     async fn book_reader(&mut self, book: &Book, title: &str, grid: &[Vec<crate::pager::Cell>], start: usize) -> io::Result<crate::pager::Paged> {
         let tc = self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8;
-        let bg = |out: &mut Vec<u8>, c: Ink| {
-            if tc {
-                out.extend(format!("\x1b[48;2;{};{};{}m", c[0], c[1], c[2]).as_bytes());
-            } else {
-                out.extend(format!("\x1b[48;5;{}m", crate::picture::xterm256(c)).as_bytes());
-            }
-        };
         const PAPER: Ink = [38, 28, 20];
         const PRINT: Ink = [236, 220, 188];
         const LEATHER: Ink = [86, 34, 26];
@@ -1575,7 +1573,7 @@ impl Session {
                 // the title tooled in gilt between rules; a fringe of
                 // leather over the paper.
                 out.extend(b"\x1b[1;1H\x1b[0m");
-                bg(&mut out, [60, 22, 16]);
+                bg(&mut out, [60, 22, 16], tc);
                 let page = format!("page {} of {}", (top / height + 1).min(pages), pages);
                 let left = format!("  \u{2666} the reading room \u{00B7} {}", place.to_lowercase());
                 let left: String = left.chars().take(78 - page.len() - 2).collect();
@@ -1587,7 +1585,7 @@ impl Session {
                 out.extend(page.as_bytes());
                 out.extend(b"  ");
                 out.extend(b"\x1b[2;1H");
-                bg(&mut out, LEATHER);
+                bg(&mut out, LEATHER, tc);
                 let t: String = title.chars().take(62).collect();
                 let n = t.chars().count();
                 let side = (80 - n - 4) / 2;
@@ -1602,7 +1600,7 @@ impl Session {
                 out.push(0xC6);
                 out.extend(std::iter::repeat_n(0xCD, 80 - side - n - 4));
                 out.extend(b"\x1b[3;1H");
-                bg(&mut out, PAPER);
+                bg(&mut out, PAPER, tc);
                 ink(&mut out, LEATHER, tc);
                 // The leather's lower edge, and the ribbon hanging from it.
                 out.extend(std::iter::repeat_n(0xDF, 72));
@@ -1612,7 +1610,7 @@ impl Session {
                 out.extend(std::iter::repeat_n(0xDF, 7));
                 for k in 0..height {
                     out.extend(format!("\x1b[{};1H", k + 1 + HEAD).as_bytes());
-                    bg(&mut out, PAPER);
+                    bg(&mut out, PAPER, tc);
                     ink(&mut out, PRINT, tc);
                     let mut text = vec![b' '; margin];
                     if let Some(row) = grid.get(top + k) {
@@ -1624,7 +1622,7 @@ impl Session {
                 }
                 // The band under it: a ribbon as long as the way in, the keys.
                 out.extend(format!("\x1b[{rows};1H").as_bytes());
-                bg(&mut out, LEATHER);
+                bg(&mut out, LEATHER, tc);
                 let done = ((top + height).min(total) as f32 / total.max(1) as f32 * 16.0).round() as usize;
                 ink(&mut out, [200, 40, 50], tc);
                 out.extend(b"  ");
@@ -1633,8 +1631,8 @@ impl Session {
                 out.extend(std::iter::repeat_n(0xB0, 16 - done));
                 ink(&mut out, GILT, tc);
                 let keys = match &asker {
-                    Some(who) => format!("   pgup/pgdn  x vote  c comments  a ask {}  q close", who.to_lowercase()),
-                    None => "   pgup/pgdn turn  x vote  c comments  q close".to_string(),
+                    Some(who) => self.lib_text("LibraryReaderKeys", &[&who.to_lowercase()]),
+                    None => self.lib_text("LibraryReaderKeysPlain", &[]),
                 };
                 let keys: String = keys.chars().take(80 - 18).collect();
                 out.extend(fluxbbs_term::cp437::encode(&keys));
@@ -1659,7 +1657,9 @@ impl Session {
                     // New: votes and comments on the book.
                     Some('X') => {
                         if let Ok(Some(f)) = self.state.files.find(&book.area, &book.name) {
+                            self.screen.write_bytes(b"\x1b[?25h");
                             self.file_push_prompt(&f).await?;
+                            self.screen.write_bytes(b"\x1b[?25l");
                         }
                         drawn = None;
                         top
@@ -1670,7 +1670,9 @@ impl Session {
                         if self.read_key().await?.upper() == Some('X')
                             && let Some(f) = f
                         {
+                            self.screen.write_bytes(b"\x1b[?25h");
                             self.file_push_prompt(&f).await?;
+                            self.screen.write_bytes(b"\x1b[?25l");
                         }
                         drawn = None;
                         top
@@ -1702,7 +1704,8 @@ impl Session {
         let text = match kept {
             Some(t) => Ok(t),
             None => {
-                self.reader_card(&format!("{} is reading it...", who.to_lowercase()), &[], "", tc);
+                let head = self.lib_text("LibraryAiReading", &[&who.to_lowercase()]);
+                self.reader_card(&head, &[], "", tc);
                 self.flush().await?;
                 let body = book_text(grid, 24_000);
                 let asked = tokio::time::timeout(Duration::from_secs(120), summarize(&self.state, book, &body)).await;
@@ -1722,14 +1725,15 @@ impl Session {
             Ok(t) => t,
             Err(e) => {
                 tracing::warn!("library: no summary of {}: {e}", book.key());
-                self.reader_card(&format!("{} couldn't get through it just now", who.to_lowercase()), &[], "any key goes back to the page", tc);
+                let (head, foot) = (self.lib_text("LibraryAiFailed", &[&who.to_lowercase()]), self.lib_text("LibraryCardBack", &[]));
+                self.reader_card(&head, &[], &foot, tc);
                 self.read_key().await?;
                 return Ok(());
             }
         };
-        let mut lines = paragraphs(&summary, 70);
-        lines.truncate(16);
-        self.reader_card(&format!("{} says", who.to_lowercase()), &lines, "d discuss it further   any other key goes back to the page", tc);
+        let lines = paragraphs(&summary, 70);
+        let (head, foot) = (self.lib_text("LibraryAiSays", &[&who.to_lowercase()]), self.lib_text("LibraryCardDiscuss", &[]));
+        self.reader_card(&head, &lines, &foot, tc);
         if self.read_key().await?.upper() == Some('D') {
             self.discuss(book, grid, &summary, who, tc).await?;
         }
@@ -1745,7 +1749,7 @@ impl Session {
         let body = book_text(grid, 16_000);
         let lc = who.to_lowercase();
         // The talk: (the AI's, the words).
-        let mut talk: Vec<(bool, String)> = vec![(true, "ask me anything about it.".into())];
+        let mut talk: Vec<(bool, String)> = vec![(true, self.lib_text("LibraryDiscussOpen", &[]))];
         let rows = self.screen.rows().max(8) as usize;
         let ask_row = rows;
         tracing::info!("{}: library: discussing {} with {}", self.user.handle, book.key(), who);
@@ -1753,7 +1757,8 @@ impl Session {
             self.discuss_draw(&talk, &lc, rows, tc);
             let asked = talk.iter().filter(|(ai, _)| !ai).count();
             if asked >= ASK_MOST {
-                self.reader_card(&format!("{lc} has to get back to the shelves"), &[], "any key goes back to the page", tc);
+                let (head, foot) = (self.lib_text("LibraryDiscussDone", &[&lc]), self.lib_text("LibraryCardBack", &[]));
+                self.reader_card(&head, &[], &foot, tc);
                 self.read_key().await?;
                 return Ok(());
             }
@@ -1762,7 +1767,7 @@ impl Session {
             paint(&mut out, [232, 190, 110], [86, 34, 26], tc);
             out.extend(std::iter::repeat_n(b' ', 79));
             out.extend(format!("\x1b[{ask_row};1H").as_bytes());
-            out.extend(fluxbbs_term::cp437::encode(&format!(" ask {lc} (enter alone goes back): ")));
+            out.extend(fluxbbs_term::cp437::encode(&self.lib_text("LibraryDiscussAsk", &[&lc])));
             self.screen.write_bytes(&out);
             self.screen.write_bytes(b"\x1b[?25h");
             let q = self.read_string(crate::input::ReadOpts::new(80usize.saturating_sub(lc.len() + 32))).await?;
@@ -1782,9 +1787,9 @@ impl Session {
                 Ok(Ok(a)) => a,
                 Ok(Err(e)) => {
                     tracing::warn!("library: discussing {}: {e:#}", book.key());
-                    "sorry, i lost my place there. ask me again?".into()
+                    self.lib_text("LibraryDiscussLost", &[])
                 }
-                Err(_) => "sorry, that one took me too long. ask me again?".into(),
+                Err(_) => self.lib_text("LibraryDiscussSlow", &[]),
             };
             if let Some(last) = talk.last_mut() {
                 last.1 = said;
@@ -1807,7 +1812,7 @@ impl Session {
                 lines.push((format!("  {who}:"), [232, 190, 110]));
                 lines.extend(paragraphs(words, 74).into_iter().map(|l| (format!("    {l}"), [236, 220, 188])));
             } else {
-                lines.push(("  you:".into(), [200, 120, 90]));
+                lines.push((format!("  {}", self.lib_text("LibraryDiscussYou", &[])), [200, 120, 90]));
                 lines.extend(crate::multinode::wrap(words, 74).into_iter().map(|l| (format!("    {l}"), [214, 196, 160])));
             }
         }
@@ -1839,6 +1844,17 @@ impl Session {
         const CARD: Ink = [236, 222, 186];
         const WIDTH: usize = 74;
         let (col, top) = (4usize, 5usize);
+        // Kept to the screen: the lines it has room for, the last marked
+        // if more were cut.
+        let fixed = 4 + if foot.is_empty() { 0 } else { 2 };
+        let room = (self.screen.rows() as usize + 1).saturating_sub(top + fixed);
+        let mut lines = lines.to_vec();
+        if lines.len() > room {
+            lines.truncate(room.max(1));
+            if let Some(last) = lines.last_mut() {
+                *last = format!("{}...", last.chars().take(66).collect::<String>().trim_end());
+            }
+        }
         let mut rows: Vec<(String, Ink)> = vec![(String::new(), [60, 40, 25]), (head.to_string(), [140, 30, 30]), (String::new(), [60, 40, 25])];
         rows.extend(lines.iter().map(|l| (l.clone(), [60, 40, 25])));
         if !foot.is_empty() {
@@ -1857,18 +1873,26 @@ impl Session {
         self.screen.write_bytes(&out);
     }
 
-    /// `c` in the reader: the book's votes and comments on a card.
+    /// `c` in the reader: the book's votes and comments on a card, the
+    /// latest that fit.
     fn comments_card(&mut self, f: Option<&FileRec>, tc: bool) {
-        let lines: Vec<String> = f.map(|f| self.file_push_lines(f)).unwrap_or_default().iter().map(|l| crate::editor::strip_colours(l)).collect();
-        if lines.is_empty() {
-            self.reader_card("no votes or comments yet", &[], "x votes or comments   any key goes back to the page", tc);
-        } else {
-            let mut lines = lines;
-            let head = lines.remove(0).replace('─', "").trim().to_string();
-            let n = lines.len();
-            let shown: Vec<String> = lines.into_iter().skip(n.saturating_sub(14)).collect();
-            self.reader_card(&head, &shown, "x votes or comments   any key goes back to the page", tc);
+        let room = (self.screen.rows() as usize).saturating_sub(10);
+        let foot = self.lib_text("LibraryCardComments", &[]);
+        match f.map(|f| self.file_push_plain(f, room)) {
+            Some((score, rows)) if !rows.is_empty() => {
+                let head = self.lib_text("LibraryComments", &[&crate::pushes::score_label(Some(score.score))]);
+                self.reader_card(&head, &rows, &foot, tc);
+            }
+            _ => {
+                let head = self.lib_text("LibraryNoComments", &[]);
+                self.reader_card(&head, &[], &foot, tc);
+            }
         }
+    }
+
+    /// A string as plain text, for drawing in the room's own colors.
+    fn lib_text(&self, name: &str, args: &[&str]) -> String {
+        crate::editor::strip_colours(&fluxbbs_term::codes::unlit(&self.strings().fmt(name, args)))
     }
 
     async fn library_plain(&mut self, shelf: &Shelf) -> io::Result<()> {

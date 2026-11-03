@@ -147,6 +147,9 @@ has the details.
   networks, with FileFix
 - [Download links](docs/FILES.md#web-links) over HTTPS, for files too
   big for Zmodem
+- [Votes and comments on files](docs/FEATURES.md#votes-and-comments-on-files),
+  as on posts: a score beside each file, downvotes to flag bad info,
+  hot files, and points for callers whose uploads are voted up
 - [Upload screening](docs/FILES.md#screening-uploads), and AI-written
   descriptions for uploads that came without one
 - The [art gallery](docs/FILES.md#art-gallery): ANSI playback at modem

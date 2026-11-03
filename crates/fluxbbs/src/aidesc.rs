@@ -577,6 +577,7 @@ mod tests {
 
     fn rec(name: &str, desc: &[&str]) -> FileRec {
         FileRec {
+            id: 0,
             area: "A".into(),
             num: 1,
             name: name.into(),

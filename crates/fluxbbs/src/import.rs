@@ -388,6 +388,7 @@ pub fn run(src: &Path, dest: &Path, force: bool) -> anyhow::Result<()> {
         let files = LegacyFile::parse_file(&buf)?;
         for (i, f) in files.iter().enumerate() {
             let mut rec = FileRec {
+                id: 0,
                 area: area.file.clone(),
                 num: i as u32 + 1,
                 name: f.filename.clone(),

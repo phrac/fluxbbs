@@ -1204,7 +1204,7 @@ impl Session {
             }
         };
         // New: a file's score before what it is.
-        let title = match record(item).and_then(|(_, f)| scores.get(&format!("{}/{}", f.area.to_lowercase(), f.name.to_lowercase()))) {
+        let title = match record(item).and_then(|(_, f)| scores.get(&f.id)) {
             Some(sc) if sc.votes > 0 => format!("{} {title}", sc.label()),
             _ => title,
         };
@@ -1691,8 +1691,8 @@ fn file_item(n: u32, f: FileRec, path: PathBuf, mode: Mode) -> Option<Item> {
     }
 }
 
-/// The pushed files among `items`: their sums, by `area/name` in lower case.
-type Scores = HashMap<String, crate::filebase::FileScore>;
+/// The voted files among `items`: their sums, by file id.
+type Scores = HashMap<i64, crate::filebase::FileScore>;
 
 fn item_scores(state: &crate::BbsState, items: &[Item]) -> Scores {
     let mut areas: Vec<String> = items.iter().filter_map(record).map(|(_, f)| f.area.to_lowercase()).collect();
@@ -1700,9 +1700,7 @@ fn item_scores(state: &crate::BbsState, items: &[Item]) -> Scores {
     areas.dedup();
     let mut out = HashMap::new();
     for a in areas {
-        for (name, sc) in state.files.file_scores(&a).unwrap_or_default() {
-            out.insert(format!("{a}/{name}"), sc);
-        }
+        out.extend(state.files.file_scores(&a).unwrap_or_default());
     }
     out
 }
