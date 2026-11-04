@@ -382,7 +382,7 @@ impl Session {
             }
             Err(e) => {
                 tracing::warn!("{}: tarot: {e}", self.user.handle);
-                let s = self.strings().fmt("AiError", &[&e.to_string()]);
+                let s = self.ai_error(&e);
                 self.show_line(&s).await?;
                 self.prompt_key().await?;
                 Ok(None)

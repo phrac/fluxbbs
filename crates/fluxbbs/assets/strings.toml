@@ -1102,3 +1102,6 @@ FsVimHelp14 = "|U1 in insert: |U3^W ^U ^T ^D ^Y ^E|U1, |U3^O|U1 one command, |U3
 FsVimHelp15 = "|U3 :|U1 and enter alone: the editor's menu (title, quote, anonymous, link a file)"
 FsVimHelp16 = "|U1 not here: block visual, folds, windows, sentences, |U3:set|U1, |U3\\( \\) \\||U1 in patterns"
 FsVimFull = "|U1the message is full: that would make it too long"
+AiWhyReach = "it couldn't be reached"
+AiWhySlow = "it took too long"
+AiWhyStatus = "it answered with an error (%S1)"

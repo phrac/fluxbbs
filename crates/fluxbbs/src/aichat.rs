@@ -30,6 +30,37 @@ fn io_err(e: impl std::fmt::Display) -> io::Error {
     io::Error::other(e.to_string())
 }
 
+/// Why the AI didn't answer, as the caller is told it: a string's name
+/// and the HTTP status if there was one. Never the error itself, which
+/// names the server (the log has it whole).
+fn ai_why(e: &str) -> (&'static str, String) {
+    let head = e.split(':').next().unwrap_or("");
+    if head.len() >= 3 && head.as_bytes()[..3].iter().all(u8::is_ascii_digit) {
+        ("AiWhyStatus", head[..3].to_string())
+    } else if e.contains("timed out") || e.contains("timeout") {
+        ("AiWhySlow", String::new())
+    } else {
+        ("AiWhyReach", String::new())
+    }
+}
+
+impl Session {
+    /// New: `AiError` for the caller ([`ai_why`]).
+    pub(crate) fn ai_error(&self, e: &dyn std::fmt::Display) -> String {
+        let (name, code) = ai_why(&e.to_string());
+        let why = self.strings().fmt(name, &[&code]);
+        self.strings().fmt("AiError", &[&why])
+    }
+}
+
+#[cfg(test)]
+#[test]
+fn callers_never_see_the_servers_address() {
+    assert_eq!(ai_why("error sending request for url (http://vega:8080/v1/chat/completions)"), ("AiWhyReach", String::new()));
+    assert_eq!(ai_why("503 Service Unavailable: model http://vega:8080 loading"), ("AiWhyStatus", "503".into()));
+    assert_eq!(ai_why("operation timed out"), ("AiWhySlow", String::new()));
+}
+
 /// Decode `%XX` and `+` in a URL query value.
 fn url_decode(s: &str) -> String {
     let hex = |c: u8| (c as char).to_digit(16).map(|d| d as u8);
@@ -471,7 +502,7 @@ impl Session {
             if let Err(e) = replied {
                 if e.kind() == io::ErrorKind::Other {
                     self.ai_nl().await?;
-                    let s = self.strings().fmt("AiError", &[&e.to_string()]);
+                    let s = self.ai_error(&e);
                     self.ai_line(&s).await?;
                     tracing::warn!("{}: ai chat: {e}", self.user.handle);
                 } else {
