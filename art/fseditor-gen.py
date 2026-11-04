@@ -1,8 +1,8 @@
 import os
 # The full-screen message editor, in the main menu's pink. Run from text/:
 #     python3 -I ../art/fseditor-gen.py
-# writes FSEDITOR.ANS (the frame) and FSHELP.ANS (its help, /? in the
-# editor). The frame: a rule, the header box (to, subject, date, time,
+# writes FSEDITOR.ANS (the frame), FSVIM.ANS (the same with vim's keys,
+# for callers with vim keys) and FSHELP.ANS (its help, /? in the editor). The frame: a rule, the header box (to, subject, date, time,
 # anonymous, autosig), the text between ~TL (quote color) and ~BL (text
 # color) with the status line ~SL on the last row, then the command bar
 # (~CM, and line, column and insert at ~LN ~CN ~IN) and the keys.
@@ -37,8 +37,9 @@ def rule(title,right=''):
     return s
 def label(t): return BR+t[0]+RD+t[1:]
 
-def editor():
+def editor(vim=False):
     tip=GR+'esc or '+WH+'/'+GR+' on a blank line for the menu'
+    if vim: tip=WH+':'+GR+' and enter for the menu'
     s=E+'0m'+E+'2J'+at(1,1)+rule('message editor',tip)
     s+=at(2,1)+RD+'┌'+hline(77)+RD+'┐'
     for r in (3,4): s+=at(r,1)+DG+'│'+at(r,79)+DG+'│'
@@ -64,6 +65,7 @@ def editor():
         s+=p[0]; col+=p[1]
         if len(p)==3: col+=p[2]; s+=at(21,col)
     keys=[('s','save'),('a','abort'),('q','quote'),('t','title'),('l','link'),('n','anon'),('u','sig'),('?','help')]
+    if vim: keys=[('i','type'),('esc','normal'),(':wq','save'),(':q!','abort'),('u','undo'),(':help','keys')]
     s+=at(22,1)+'   '+(DG+' · ').join(BR+k+DG+'/'+GR+w for k,w in keys)
     s+=at(23,1)+E+'0m'
     return s
@@ -103,5 +105,5 @@ def helpscreen():
     s+=at(23,1)+E+'0m'
     return s
 
-for name,body in (('FSEDITOR.ANS',editor()),('FSHELP.ANS',helpscreen())):
+for name,body in (('FSEDITOR.ANS',editor()),('FSVIM.ANS',editor(True)),('FSHELP.ANS',helpscreen())):
     open(os.path.join(os.getcwd(),name),'wb').write(body.encode('cp437'))

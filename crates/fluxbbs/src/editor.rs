@@ -836,7 +836,10 @@ impl Session {
     async fn fs_draw(&mut self, ctx: &EditCtx<'_>, d: &Draft) -> io::Result<View> {
         self.screen.set_color(Color::DEFAULT);
         self.clear_screen();
-        let header = self.show_file_with("FSEDITOR", &Waves::new()).await?;
+        // New: with vim keys, FSVIM (the frame with vim's keys) if the
+        // board has it.
+        let vim = self.user.editor_keys == "vim" && self.find_text_file("FSVIM").is_some();
+        let header = self.show_file_with(if vim { "FSVIM" } else { "FSEDITOR" }, &Waves::new()).await?;
         let rows = self.screen.rows();
         let mut v = View {
             top: 4,

@@ -469,7 +469,9 @@ Older screens' `~PN` shows the telnet address.
 ### Message editor
 
 `FSEDITOR`, the full-screen editor's frame. Each value is written at
-its marker, in the marker's color.
+its marker, in the marker's color. `FSVIM`, if there is one, is the
+frame for callers with vim keys (its key line names vim's, not the
+menu's); it has the same markers.
 
 | Marker | Is |
 |---|---|
