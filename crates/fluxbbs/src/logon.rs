@@ -64,9 +64,18 @@ impl Session {
             None => false,
         };
         if !keyed {
-            if !self.bot_check().await? {
-                self.record_failure("failed the bot check");
-                return self.flush().await;
+            // New: hanging up at the bot check counts as failing it, so a
+            // bot that calls, sees it and drops is banned too.
+            match self.bot_check().await {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.record_failure("failed the bot check");
+                    return self.flush().await;
+                }
+                Err(e) => {
+                    self.record_failure("hung up at the bot check");
+                    return Err(e);
+                }
             }
             self.logon_init().await?;
             if !self.telnet_ok().await? {
