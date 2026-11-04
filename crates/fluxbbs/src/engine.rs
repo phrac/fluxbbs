@@ -773,6 +773,23 @@ impl Session {
         let mut allowed = false;
         self.menu.done = false;
         let number = keys.chars().all(|c| c.is_ascii_digit());
+        let hit = |c: &crate::menu::Command| (c.keys.eq_ignore_ascii_case(keys) || (number && c.keys == "#")) && !c.dark;
+        // New: where each caller went, a line per key, before it runs (a
+        // door or a chat would otherwise be logged as it ended).
+        let ran: Vec<(String, String)> = commands
+            .iter()
+            .filter(|c| hit(c) && self.acs(&c.acs))
+            .filter_map(|c| logged_command(&c.command, if c.keys == "#" { keys } else { &c.param }).map(|l| (l, crate::editor::strip_codes(&c.desc))))
+            .collect();
+        if !ran.is_empty() {
+            // The description when the commands share one (a menu's start
+            // runs several, each with its own).
+            let mut descs: Vec<&str> = ran.iter().map(|r| r.1.trim()).filter(|d| !d.is_empty()).collect();
+            descs.dedup();
+            let desc = if let [d] = descs[..] { format!(" ({d})") } else { String::new() };
+            let cmds: Vec<&str> = ran.iter().map(|r| r.0.as_str()).collect();
+            tracing::info!("{}: {} {keys}{desc}: {}", self.user.handle, self.menu.current, cmds.join(", "));
+        }
         for c in &commands {
             let by_number = number && c.keys == "#";
             if (!c.keys.eq_ignore_ascii_case(keys) && !by_number) || c.dark {
@@ -885,9 +902,29 @@ impl Session {
     }
 }
 
+/// A menu command as the log shows it, or None for display alone (screens,
+/// lines, pauses, cursor moves) and the `?` codes, whose parameters can be
+/// a menu's password.
+fn logged_command(code: &str, param: &str) -> Option<String> {
+    let code = code.to_uppercase();
+    if code.starts_with(['|', '?']) || matches!(code.as_str(), "-C" | "-D" | "-E" | "-F" | "-K" | "-L" | "-P" | "-R" | "-Z" | "-<" | "->" | "-W") {
+        return None;
+    }
+    let param = param.trim();
+    Some(if param.is_empty() { code } else { format!("{code} {}", squish(param, 30)) })
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_log_keeps_what_a_key_did() {
+        assert_eq!(logged_command("mr", "").as_deref(), Some("MR"));
+        assert_eq!(logged_command("-^", " MESSAGE").as_deref(), Some("-^ MESSAGE"));
+        assert_eq!(logged_command("-F", "MAIN"), None);
+        assert_eq!(logged_command("?S", "secret"), None);
+    }
 
     #[test]
     fn an_option_is_as_wide_as_its_letters() {

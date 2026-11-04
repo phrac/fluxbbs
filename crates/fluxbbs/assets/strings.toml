@@ -1075,3 +1075,4 @@ NetmailAmbiguous = "|U5%S1|U4 is on more than one network here (|U5%S2|U4): add 
 CasinoUp = "you're up %S1 chips, %S2 on your stack. the players club's cashier cashes them in."
 ClubCashed = "the cashier counts %S1 chips over your stack: %S2"
 ClubNothingToCash = "nothing to cash in: the first %S1 chips are the house's."
+MsgReaderHelp11 = "|U3 tab|U1  skip the quote: on to what the reply says"

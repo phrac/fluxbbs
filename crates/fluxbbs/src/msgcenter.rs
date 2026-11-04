@@ -1596,6 +1596,13 @@ impl Session {
                 Key::PgUp => scroll = scroll.saturating_sub(height),
                 Key::Home => scroll = 0,
                 Key::End => scroll = last_scroll,
+                // New: Tab skips the next quote to what the reply says
+                // (slrn's).
+                Key::Tab => {
+                    if let Some(j) = past_quote(&lines, scroll) {
+                        scroll = j.min(last_scroll);
+                    }
+                }
                 // Space, Enter and PgDn page through a message, then on.
                 Key::PgDn | Key::Enter | Key::Char(b' ') if scroll < last_scroll => scroll = (scroll + height).min(last_scroll),
                 Key::PgDn | Key::Enter | Key::Char(b' ') | Key::Right => match next(i) {
@@ -2125,6 +2132,15 @@ impl Session {
     }
 }
 
+/// The first line of the reader's lines (`reader_lines`) after the next quote (and
+/// the blank lines in and after it) from `from`, if there's one.
+fn past_quote(lines: &[String], from: usize) -> Option<usize> {
+    let quote = |l: &String| l.starts_with("|U1");
+    let start = from + lines.get(from..)?.iter().position(quote)?;
+    let end = start + lines[start..].iter().position(|l| !quote(l) && !l.trim().is_empty())?;
+    Some(end)
+}
+
 /// A line of the post list, PTT's order: number, score, date, author,
 /// replies, then the title with `*` before it if anything's new.
 fn post_line(mark: &str, num: &str, score: &str, day: &str, author: &str, replies: &str, title: &str) -> String {
@@ -2296,6 +2312,16 @@ mod tests {
         assert!(mb.pinned("GEN").unwrap().is_empty());
         mb.delete_area("OTHER").unwrap();
         assert!(mb.pinned("OTHER").unwrap().is_empty());
+    }
+
+    #[test]
+    fn tab_skips_a_quote() {
+        let l: Vec<String> = ["Ed wrote:", "|U1> one|U3", "", "|U1> two|U3", "", "mine", "|U1>> more|U3", "and mine"].map(String::from).into();
+        assert_eq!(super::past_quote(&l, 0), Some(5));
+        assert_eq!(super::past_quote(&l, 5), Some(7));
+        assert_eq!(super::past_quote(&l, 7), None);
+        // A quote at the end: nothing to skip to.
+        assert_eq!(super::past_quote(&l[..7], 5), None);
     }
 
     #[test]

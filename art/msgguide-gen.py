@@ -74,6 +74,7 @@ else:
      keys(('v','the thread as a tree'),('m','requests: mark filled')),
      keys(('g','files it links to'),('x','vote')),
      keys(('f','about the author'),('q','leave the boards')),
+     keys(('tab','skip the quote'),('w','full reply')),
      head('votes'),
      keys(('x then +','vote up'),('x then -','vote down')),
      bottom()]

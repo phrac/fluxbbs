@@ -254,6 +254,7 @@ impl Session {
             }
         }
         self.user.cur_file_area = n;
+        tracing::info!("{}: changed to file area {}", self.user.handle, a.area.name);
         Ok(true)
     }
 

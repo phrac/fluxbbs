@@ -420,6 +420,11 @@ All in [FEATURES](FEATURES.md#message-center).
   end. ([FEATURES](FEATURES.md#quoting))
 - The reader can have the board's prompt bar (MSGRBAR).
 - The thread tree (`v`) shows each message's comments under it.
+- Tab in the reader skips the next quote, on to what the reply says
+  (slrn's).
+- The log has a line for every menu key a caller presses (the menu,
+  the key, its description, the commands it ran; not screens or
+  prompts) and for changing file area, as for message areas.
 - Multinode chat says how it works on the way in, and shows its
   commands at the bottom without a NODECHAT screen.
 - A SysOp's `edit` in a file list (and in search results) opens the
