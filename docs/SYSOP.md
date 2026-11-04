@@ -280,8 +280,8 @@ terminal emulator, sees only noise.
 | Setting | What | Default |
 |---|---|---|
 | `challenge` | ask every caller to pass the check | on |
-| `challenge_seconds` | time allowed | 30 |
-| `challenge_tries` | goes allowed | 3 |
+| `challenge_seconds` | time allowed, for all the goes together | 120 |
+| `challenge_tries` | goes allowed | 6 |
 | `challenge_visual` | "Picture check"; off goes back to pressing keys written out, drawn out of order with cursor moves | on |
 | `challenge_keys` | how many keys, for the key-press check | 3 |
 
@@ -297,7 +297,9 @@ The prompts are strings (`BotCheck...`), editable with `*E`.
 | `max_per_minute` | new connections from one address a minute | 6 |
 | `fail_limit` | failed bot checks or passwords before a ban | 3 |
 | `ban_minutes` | first ban; each later ban doubles, up to a day | 15 |
-| `prelogin_idle_seconds` | time an idle caller gets to log in | 60 |
+| `permanent_after` | the ban that makes this many is for good, until lifted (`*G`, `fluxbbs unban`); 0 never | 5 |
+| `permanent_knocks` | connections refused during a ban that make it for good (a bot calling back); 0 never | 20 |
+| `prelogin_idle_seconds` | time an idle caller gets to log in (never less than the bot check's time) | 60 |
 | `allow` | addresses never limited or challenged | none |
 | `deny` | addresses always refused | none |
 

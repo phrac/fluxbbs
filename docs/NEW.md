@@ -89,6 +89,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   minute.
 - Bans for repeated failures: doubling, up to a day, kept across
   restarts. `fluxbbs unban` lifts them from the shell.
+- Bans for good: the fifth ban for an address (`permanent_after`), or
+  a ban it keeps calling back into (20 refused connections,
+  `permanent_knocks`: a bot), lasts until the SysOp lifts it.
 - Allow and deny lists (addresses, prefixes, ranges).
 - A pre-login idle limit.
 - A security log. SysOps hear at logon about failures since their last

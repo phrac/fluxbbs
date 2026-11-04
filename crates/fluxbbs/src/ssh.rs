@@ -52,9 +52,32 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     };
     let listen = state.config().ssh.listen.clone();
     tracing::info!("ssh listening on {listen}");
-    let mut server = SshServer { state };
-    server.run_on_address(Arc::new(config), listen.as_str()).await.context("ssh server")?;
-    Ok(())
+    let listener = tokio::net::TcpListener::bind(&listen).await.with_context(|| format!("ssh on {listen}"))?;
+    let config = Arc::new(config);
+    let mut server = SshServer { state: state.clone() };
+    // russh's `run_on_socket`, but banned and denied addresses are
+    // dropped as telnet drops them: before the handshake, without a word.
+    loop {
+        let (sock, peer) = listener.accept().await.context("ssh server")?;
+        if let Some(why) = crate::logon::turned_away(&state, peer) {
+            tracing::info!("{peer}: ssh refused: {why}");
+            drop(sock);
+            continue;
+        }
+        let _ = sock.set_nodelay(true);
+        let handler = server.new_client(Some(peer));
+        let config = config.clone();
+        tokio::spawn(async move {
+            match russh::server::run_stream(config, sock, handler).await {
+                Ok(session) => {
+                    if let Err(e) = session.await {
+                        tracing::debug!("{peer}: ssh: {e:#}");
+                    }
+                }
+                Err(e) => tracing::debug!("{peer}: ssh setup: {e:#}"),
+            }
+        });
+    }
 }
 
 /// russh's modern defaults, plus (if `legacy`) the older algorithms that
@@ -133,6 +156,8 @@ fn dims(cols: u32, rows: u32) -> (u16, u16) {
 impl Connection {
     /// Every login is accepted (the BBS asks for its own), except from
     /// addresses that are banned or denied.
+    /// (Banned when it connected, it was dropped then; this is for a ban
+    /// that began since.)
     fn auth(&self) -> Auth {
         let blocked = self.peer.and_then(|p| self.state.guard.blocked(&self.state.config().security, p.ip()));
         match blocked {

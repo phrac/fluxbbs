@@ -82,7 +82,8 @@ still there as an option. See [SYSOP.md](SYSOP.md).
 #### Limits and bans
 
 - Connection limits per address.
-- Bans for repeated failures, doubling each time, up to a day.
+- Bans for repeated failures, doubling each time, up to a day; the
+  fifth, or one a bot keeps calling back into, is for good.
 - Allow and deny lists.
 - A short idle limit before login.
 

@@ -192,7 +192,10 @@ impl Session {
     pub(crate) fn idle_limit(&self) -> u64 {
         let cfg = self.state.config();
         if !self.logged_in {
-            cfg.security.prelogin_idle_seconds
+            // Not shorter than the bot check gives: a caller studying
+            // the picture isn't idle.
+            let check = if cfg.security.challenge { cfg.security.challenge_seconds as u64 } else { 0 };
+            cfg.security.prelogin_idle_seconds.max(check)
         } else if !cfg.bbs.idle_exempt_acs.trim().is_empty() && self.acs(&cfg.bbs.idle_exempt_acs) {
             0
         } else {

@@ -136,6 +136,12 @@ pub struct Security {
     /// First ban length; each later ban for the same address doubles it
     /// (up to a day).
     pub ban_minutes: u32,
+    /// New: the ban that makes this many is for good, until the SysOp
+    /// lifts it (`*G`, `fluxbbs unban`); 0: never.
+    pub permanent_after: u32,
+    /// New: connections refused during a ban that make it for good (a
+    /// bot calling back every few seconds); 0: never.
+    pub permanent_knocks: u32,
     /// Idle limit before logging in (after, `bbs.inactivity_seconds`).
     pub prelogin_idle_seconds: u64,
     /// Addresses never limited or challenged, and ones always refused:
@@ -149,13 +155,15 @@ impl Default for Security {
         Self {
             challenge: true,
             challenge_keys: 3,
-            challenge_seconds: 30,
-            challenge_tries: 3,
+            challenge_seconds: 120,
+            challenge_tries: 6,
             challenge_visual: true,
             max_per_ip: 2,
             max_per_minute: 6,
             fail_limit: 3,
             ban_minutes: 15,
+            permanent_after: 5,
+            permanent_knocks: 20,
             prelogin_idle_seconds: 60,
             allow: Vec::new(),
             deny: Vec::new(),

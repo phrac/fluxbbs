@@ -317,6 +317,8 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('J', "Allow list", 50, "Never limited or checked: addresses, prefixes (10.0.) or ranges (/24).", List(|c| &mut c.security.allow)),
             set('K', "Deny list", 50, "Always refused: addresses, prefixes or ranges.", List(|c| &mut c.security.deny)),
             set('L', "Picture check", 3, "Bot check as three big characters drawn in color (BOTCHECK screen)? Else keys written out.", Bool(|c| &mut c.security.challenge_visual)),
+            set('M', "Ban for good at", 3, "The ban that makes this many for one address is for good, until lifted in *G (0 = never).", Num(|c| c.security.permanent_after as u64, |c, v| c.security.permanent_after = v as u32, 0, 100)),
+            set('N', "Knocks for good", 3, "Connections refused during a ban that make it for good: a bot calling back (0 = never).", Num(|c| c.security.permanent_knocks as u64, |c, v| c.security.permanent_knocks = v as u32, 0, 1000)),
         ]),
         ("Art Gallery", false, vec![
             set('A', "Gallery folder", 40, "Folder of art (relative to the config); ZIP packs in it open as folders.", Path(|c| &mut c.gallery.path)),

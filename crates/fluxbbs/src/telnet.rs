@@ -304,7 +304,7 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     loop {
         let (sock, peer) = listener.accept().await?;
         // Banned and denied addresses are dropped before any negotiation.
-        if let Some(why) = state.guard.blocked(&state.config().security, peer.ip()) {
+        if let Some(why) = crate::logon::turned_away(&state, peer) {
             tracing::info!("{peer}: telnet refused: {why}");
             drop(sock);
             continue;

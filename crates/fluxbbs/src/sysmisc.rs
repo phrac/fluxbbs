@@ -437,7 +437,8 @@ impl Session {
             self.show_line("|U1 (nobody)").await?;
         }
         for (ip, left) in &bans {
-            let line = format!("|U1 {} |U3{}m", resize(&ip.to_string(), 40), left.as_secs().div_ceil(60));
+            let left = if crate::guard::permanent(*left) { "for good".to_string() } else { format!("{}m", left.as_secs().div_ceil(60)) };
+            let line = format!("|U1 {} |U3{left}", resize(&ip.to_string(), 40));
             self.show_line(&line).await?;
         }
         self.newline();

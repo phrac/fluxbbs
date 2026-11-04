@@ -22,11 +22,21 @@ impl std::fmt::Display for Refusal {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             Refusal::Denied => write!(f, "on the deny list"),
+            Refusal::Banned(left) if permanent(*left) => write!(f, "banned for good"),
             Refusal::Banned(left) => write!(f, "banned for {}m more", left.as_secs().div_ceil(60)),
             Refusal::TooMany => write!(f, "too many connections at once"),
             Refusal::TooFast => write!(f, "connecting too often"),
         }
     }
+}
+
+/// How long a ban for good lasts: a century, so it's kept and loaded
+/// as any other ban is.
+pub const PERMANENT: Duration = Duration::from_secs(100 * 365 * 24 * 3600);
+
+/// Is a ban (or what's left of one) for good?
+pub fn permanent(left: Duration) -> bool {
+    left > Duration::from_secs(10 * 365 * 24 * 3600)
 }
 
 #[derive(Default)]
@@ -37,6 +47,8 @@ struct PerIp {
     banned_until: Option<Instant>,
     /// How many times it's been banned: each ban lasts twice the last.
     strikes: u32,
+    /// Connections refused during the ban it's under.
+    knocks: u32,
 }
 
 #[derive(Default)]
@@ -140,6 +152,25 @@ impl Guard {
         (until > now).then(|| Refusal::Banned(until - now))
     }
 
+    /// [`Self::blocked`], for a connection being turned away: one that
+    /// keeps calling back while banned is a bot, and its `permanent_knocks`th
+    /// try makes the ban for good (new). True with it when this one did.
+    pub fn knock(&self, cfg: &Security, ip: IpAddr) -> Option<(Refusal, bool)> {
+        let why = self.blocked(cfg, ip)?;
+        let Refusal::Banned(left) = why else { return Some((why, false)) };
+        if permanent(left) || cfg.permanent_knocks == 0 {
+            return Some((why, false));
+        }
+        let mut ips = self.ips.lock().unwrap_or_else(|e| e.into_inner());
+        let Some(e) = ips.get_mut(&ip) else { return Some((why, false)) };
+        e.knocks += 1;
+        if e.knocks < cfg.permanent_knocks {
+            return Some((why, false));
+        }
+        e.banned_until = Some(Instant::now() + PERMANENT);
+        Some((Refusal::Banned(PERMANENT), true))
+    }
+
     /// Let a connection in, or say why not. The returned ticket counts it
     /// as active until dropped.
     pub fn admit(self: &Arc<Self>, cfg: &Security, ip: IpAddr) -> Result<Ticket, Refusal> {
@@ -180,8 +211,14 @@ impl Guard {
         }
         e.failures = 0;
         let minutes = (cfg.ban_minutes.max(1) as u64) << e.strikes.min(7);
-        let len = Duration::from_secs(minutes.min(24 * 60) * 60);
+        // New: the `permanent_after`th ban is for good.
+        let len = if cfg.permanent_after > 0 && e.strikes + 1 >= cfg.permanent_after {
+            PERMANENT
+        } else {
+            Duration::from_secs(minutes.min(24 * 60) * 60)
+        };
         e.strikes += 1;
+        e.knocks = 0;
         e.banned_until = Some(Instant::now() + len);
         Some(len)
     }
@@ -289,6 +326,50 @@ mod tests {
         g.ips.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&x).unwrap().banned_until = None;
         g.failure(&c, x);
         assert_eq!(g.failure(&c, x), Some(Duration::from_secs(30 * 60)), "second ban is twice as long");
+    }
+
+    #[test]
+    fn calling_back_while_banned_is_for_good() {
+        let g = Guard::new();
+        let c = Security { permanent_knocks: 3, ..cfg() };
+        let x = ip("9.9.9.7");
+        assert!(g.knock(&c, x).is_none(), "not banned: let in");
+        g.failure(&c, x);
+        g.failure(&c, x);
+        assert_eq!(g.knock(&c, x).map(|(_, now)| now), Some(false));
+        assert_eq!(g.knock(&c, x).map(|(_, now)| now), Some(false));
+        let (why, now) = g.knock(&c, x).unwrap();
+        assert!(now && why.to_string() == "banned for good");
+        assert_eq!(g.knock(&c, x).map(|(_, now)| now), Some(false), "said once");
+        let off = Security { permanent_knocks: 0, ..cfg() };
+        let y = ip("9.9.9.6");
+        g.failure(&off, y);
+        g.failure(&off, y);
+        assert!((0..20).all(|_| g.knock(&off, y).is_some_and(|(r, now)| !now && r.to_string().ends_with("m more"))));
+    }
+
+    #[test]
+    fn the_fifth_ban_is_for_good() {
+        let g = Guard::new();
+        let c = Security { permanent_after: 5, ..cfg() };
+        let x = ip("9.9.9.8");
+        let mut lens = Vec::new();
+        for _ in 0..5 {
+            g.failure(&c, x);
+            lens.push(g.failure(&c, x).unwrap());
+            g.ips.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&x).unwrap().banned_until = None;
+        }
+        assert_eq!(lens[3], Duration::from_secs(120 * 60));
+        assert!(lens[..4].iter().all(|l| !permanent(*l)) && lens[4] == PERMANENT);
+        assert_eq!(Refusal::Banned(PERMANENT).to_string(), "banned for good");
+        // Off: they go on doubling.
+        let off = Security { permanent_after: 0, ..cfg() };
+        g.failure(&off, x);
+        assert_eq!(g.failure(&off, x), Some(Duration::from_secs(480 * 60)));
+        // Loaded back after a restart, it still is.
+        let h = Guard::new();
+        h.load([(x, Some(PERMANENT - Duration::from_secs(5)), 5)]);
+        assert_eq!(h.blocked(&c, x).map(|r| r.to_string()).as_deref(), Some("banned for good"));
     }
 
     #[test]

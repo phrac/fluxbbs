@@ -24,9 +24,9 @@ pub(crate) fn record_failure(state: &crate::BbsState, addr: std::net::SocketAddr
     log(what);
     match state.guard.failure(&state.config().security, addr.ip()) {
         Some(len) => {
-            let minutes = len.as_secs() / 60;
-            tracing::warn!("{ip}: banned for {minutes} minutes");
-            log(&format!("banned for {minutes} minutes"));
+            let said = if crate::guard::permanent(len) { "banned for good".to_string() } else { format!("banned for {} minutes", len.as_secs() / 60) };
+            tracing::warn!("{ip}: {said}");
+            log(&said);
             let until = crate::clock::now().naive_local() + chrono::Duration::from_std(len).unwrap_or_default();
             if let Err(e) = state.sys.set_ban(&ip, until, state.guard.strikes(addr.ip())) {
                 tracing::error!("recording ban: {e}");
@@ -35,6 +35,24 @@ pub(crate) fn record_failure(state: &crate::BbsState, addr: std::net::SocketAddr
         }
         None => false,
     }
+}
+
+/// Is a new connection from `addr` to be turned away (banned or
+/// denied)? A ban its calling back made for good is logged and kept.
+pub(crate) fn turned_away(state: &crate::BbsState, addr: std::net::SocketAddr) -> Option<crate::guard::Refusal> {
+    let (why, for_good) = state.guard.knock(&state.config().security, addr.ip())?;
+    if for_good {
+        let ip = addr.ip().to_string();
+        tracing::warn!("{ip}: kept calling while banned: banned for good");
+        if let Err(e) = state.sys.log_security(&ip, "kept calling while banned: banned for good") {
+            tracing::error!("security log: {e}");
+        }
+        let until = crate::clock::now().naive_local() + chrono::Duration::from_std(crate::guard::PERMANENT).unwrap_or_default();
+        if let Err(e) = state.sys.set_ban(&ip, until, state.guard.strikes(addr.ip())) {
+            tracing::error!("recording ban: {e}");
+        }
+    }
+    Some(why)
 }
 
 impl Session {
