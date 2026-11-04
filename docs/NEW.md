@@ -381,8 +381,9 @@ All in [FEATURES](FEATURES.md#message-center).
   post on one of your boards is announced wherever you are.
   ([FEATURES](FEATURES.md#live-updates))
 - Vim keys in the full-screen editor, for callers who ask for them (user
-  config `Z`): `dd`, `3dd`, `u`, `o`, `:wq`, `:q!`, `ZZ` and the rest.
-  ([FEATURES](FEATURES.md#vim-keys))
+  config `Z`): vim's modes (normal first), operators with motions and
+  text objects, visual mode, registers, `.`, macros, searches and an ex
+  line with `:s`. ([FEATURES](FEATURES.md#vim-keys))
 - `MX newest`, `hot`, `dig`, `mouth`, `loud`, `unread`: straight to a
   message, an area or what's new, for the menu's stats.
 

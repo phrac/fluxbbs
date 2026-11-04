@@ -481,7 +481,7 @@ its marker, in the marker's color.
 | `~BL` | the text's last row; its color is the typed text's |
 | `~SL` | the row for prompts and hints (else the first text row) |
 | `~CM` | where the command key is typed (else a prompt asks) |
-| `~LN` / `~CN` / `~IN` | line, column, insert mode (`On`/`Off`; `nor` in vim's normal mode) |
+| `~LN` / `~CN` / `~IN` | line, column, insert mode (`On`/`Off`; with vim keys `nor`, `ins`, `rep` or `vis`) |
 
 ### Chat
 

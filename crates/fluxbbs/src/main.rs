@@ -95,6 +95,7 @@ mod multinode;
 mod msgbase;
 mod msgcenter;
 mod editor;
+mod vim;
 #[cfg(feature = "email")]
 mod emailver;
 mod extras;

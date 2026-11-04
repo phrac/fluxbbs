@@ -224,6 +224,9 @@ pub struct Session {
     /// New: the last `read_string` with `esc_cancels` ended with Esc (its
     /// empty answer isn't an Enter).
     pub(crate) escaped: bool,
+    /// New: the vim editor is reading keys, so `ESC O` and a byte that
+    /// isn't a cursor key's is Esc and `O` typed quickly (`escape_sequence`).
+    pub(crate) split_esc_o: bool,
     /// The context the AI conversation has used, for the bar (`AiContext`).
     #[cfg(feature = "ai")]
     pub(crate) ai_ctx: String,
@@ -478,6 +481,7 @@ impl Session {
             ai_style: None,
             note: None,
             escaped: false,
+            split_esc_o: false,
             #[cfg(feature = "ai")]
             ai_ctx: String::new(),
             #[cfg(feature = "ai")]

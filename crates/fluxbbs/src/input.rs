@@ -421,6 +421,30 @@ impl Session {
             self.input.push_front(intro);
             return Ok(Some(Key::Esc));
         }
+        // New: in the vim editor, ESC O is a key (SS3) only with a cursor
+        // key's letter after it; else it's Esc and `O` typed quickly (vim's
+        // open-a-line-above). Elsewhere SS3 keys are read as before.
+        if intro == b'O' && self.split_esc_o {
+            let Some(b) = self.next_byte(Wait::Brief).await? else {
+                self.input.push_front(b'O');
+                return Ok(Some(Key::Esc));
+            };
+            return Ok(Some(match b {
+                b'A' => Key::Up,
+                b'B' => Key::Down,
+                b'C' => Key::Right,
+                b'D' => Key::Left,
+                b'H' => Key::Home,
+                b'F' => Key::End,
+                // F1 to F4: swallowed, as before.
+                b'P'..=b'S' => return Ok(None),
+                _ => {
+                    self.input.push_front(b);
+                    self.input.push_front(b'O');
+                    Key::Esc
+                }
+            }));
+        }
         let mut params = Vec::new();
         loop {
             let Some(b) = self.next_byte(Wait::Brief).await? else { return Ok(Some(Key::Esc)) };

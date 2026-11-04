@@ -256,28 +256,49 @@ online sees it without doing anything:
 #### Vim keys
 
 A caller who sets "editor keys" to vim in their configuration (`UC`,
-field `Z`; `i` on disflux's screen) gets vim's two modes in the
-full-screen editor. It opens in normal mode, and the insert flag (`~IN`)
-shows `nor` there:
+field `Z`; `i` on disflux's screen) gets vim in the full-screen editor
+(`vim.rs`). Like vim, it opens in normal mode, and Esc there stays
+there. The insert flag (`~IN`) shows the mode (`nor`, `ins`, `rep`,
+`vis`), and when the screen's prompt row isn't one of the text's, it
+says `-- INSERT --`, `-- VISUAL --`, `recording @q` as vim does.
 
-- `h` `j` `k` `l` (and the arrows), `w` `b`, `0` `^` `$`, `gg` `G`
-  (`5G` for line 5);
-- `dd` deletes the line (`3dd` three: the quickest way to drop quoted
-  lines you're not answering), `yy` copies it, `p` and `P` put them
-  below or above, `x`, `dw`, `d$` and `D` delete characters, `J` joins
-  lines, `u` undoes;
-- `cw` (or `ce`), `c$` (or `C`) and `cc` change the word, the rest of
-  the line or the whole line: it goes, and you're typing in its place;
-- `i` `a` `I` `A` `o` `O` start typing, and Esc goes back to normal
-  mode;
-- `:` is the command line: `:w`, `:wq` or `:x` save (posting is
+- **Modes:** `i a I A o O gi gI` insert, `R` replace (Backspace puts back
+  what was there), `v` and `V` visual (characters, lines; `o` swaps
+  ends, `gv` selects again), Esc back to normal.
+- **Moves:** `h j k l` (and the arrows), `w b e ge W B E gE`, `0 ^ $ g_
+  |`, `gg G` (`5G`), `{ }`, `%`, `f t F T ; ,`, `H M L`, `+ - _ Enter`,
+  Ctrl-D/U/F/B, Ctrl-E/Y, marks (`ma`, `'a`, `` `a ``, `''`), `/ ? n N *
+  #` (vim's patterns, less groups and `\|`).
+- **Operators** `d c y > < g~ gu gU` with any move or a text object
+  (`iw aw iW aW i" a" i' a' i( a( ib i[ i{ iB i< ip ap`), doubled for
+  lines (`dd 3dd yy >> gUU`): `dap` drops a quoted paragraph whole. The
+  odd cases are vim's: `cw` is `ce`, `dw` on a line's last word stops
+  there, and `d}` from a line's start takes whole lines.
+- **Small commands:** `x X s S r D C Y J gJ ~ p P`, Ctrl-A/Ctrl-X add to
+  a number, `u` and Ctrl-R undo and redo, `.` repeats the last change
+  (with a new count if one's typed), `q` and `@` record and play macros.
+- **Registers:** `"a` to `"z` (`"A` adds), `"0` the last yank, `"1` to
+  `"9` the last deletes of lines, `"-` small ones, `"_` none.
+- **Insert mode:** Ctrl-W, Ctrl-U, Ctrl-T/Ctrl-D (shift), Ctrl-Y/Ctrl-E
+  (the character above or below), Ctrl-R and a register, Ctrl-O for one
+  normal-mode command; Tab still completes an `@handle`.
+- **The command line** (`:`), with ranges (`.`, `$`, `%`, `12`, `'a`,
+  `'<,'>`, `+N`, `-N`): `:w`, `:wq`, `:x` and `ZZ` save (posting is
   saving and leaving at once), `:q` asks before throwing the message
-  away and `:q!` doesn't, `:12` goes to line 12, and `:` with Enter
-  alone opens the editor's own commands (title, quote, anonymous...).
-  `ZZ` saves too.
+  away, `:q!` and `ZQ` don't; `:12` goes to line 12; `:s/old/new/gi`,
+  `:&`, `:d`, `:y`, `:>`, `:<`, `:j`, `:m`, `:t`, `:u`, `:red`, `:noh`,
+  `:help` (the keys, the `FsVimHelp` strings); `:` with Enter alone
+  opens the editor's own commands (title, quote, anonymous, a file
+  link).
 
-Counts work before any of them. Ctrl-X still saves in either mode, and
-the arrows, PgUp/PgDn and the Ctrl keys work as always.
+Not here: block visual, folds, windows, sentences, `:set`. A shift is 4
+columns (the editor's Tab), and a line never passes the editor's 79: an
+edit that would make one longer wraps it, as typing does, and `J` won't
+join lines that wouldn't fit. An edit that would take a message past its
+200 lines is undone ("the message is full"). The plain editor's control
+keys are vim's here: Ctrl-X subtracts from a number, it doesn't save. A
+macro or `.` stops at a command that fails (a `j` on the last line), as
+in vim, and at 50,000 keys, so `qq@qq` can't run for ever.
 
 #### Attachments
 

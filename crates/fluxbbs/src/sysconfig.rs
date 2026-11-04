@@ -548,7 +548,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('A', "Chips a day", 6, "The free stack each caller gets a day at the casino tables.", Num(|c| c.casino.daily_chips as u64, |c, v| c.casino.daily_chips = v as u32, 1, 1_000_000)),
             set('B', "Smallest bet", 6, "The table minimum, in chips.", Num(|c| c.casino.min_bet as u64, |c, v| c.casino.min_bet = v as u32, 1, 1_000_000)),
             set('C', "Biggest bet", 6, "The table maximum, in chips.", Num(|c| c.casino.max_bet as u64, |c, v| c.casino.max_bet = v as u32, 1, 1_000_000)),
-            set('D', "Chips a point", 6, "Leaving a table up pays a file point per this many chips won (0 = none).", Num(|c| c.casino.chips_per_point as u64, |c, v| c.casino.chips_per_point = v as u32, 0, 1_000_000)),
+            set('D', "Chips a point", 6, "The cashier (the players club's c) pays a file point per this many chips over the day's stack (0 = none).", Num(|c| c.casino.chips_per_point as u64, |c, v| c.casino.chips_per_point = v as u32, 0, 1_000_000)),
             set('E', "Chips a minute", 6, "...and a minute on today's time per this many (0 = none).", Num(|c| c.casino.chips_per_minute as u64, |c, v| c.casino.chips_per_minute = v as u32, 0, 1_000_000)),
             set('F', "Decks", 2, "Decks in the blackjack shoe.", Num(|c| c.casino.decks as u64, |c, v| c.casino.decks = v as u32, 1, 8)),
             set('G', "Hit soft 17", 3, "Does the blackjack dealer hit a soft 17?", Bool(|c| &mut c.casino.hit_soft_17)),
