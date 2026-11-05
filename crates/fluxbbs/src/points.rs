@@ -45,7 +45,7 @@ fn cap(n: u32) -> u32 {
     if n == 0 { u32::MAX } else { n }
 }
 
-fn entry(kind: &str, from: (u32, &str), to: (u32, &str), amount: u32, on: &str, note: &str) -> PointsEntry {
+pub(crate) fn entry(kind: &str, from: (u32, &str), to: (u32, &str), amount: u32, on: &str, note: &str) -> PointsEntry {
     PointsEntry {
         at: now(),
         kind: kind.into(),
@@ -700,7 +700,7 @@ impl Session {
     }
 
     /// What a ledger entry was for, in words.
-    fn ledger_what(&self, e: &PointsEntry) -> String {
+    pub(crate) fn ledger_what(&self, e: &PointsEntry) -> String {
         let s = self.strings();
         let mine = e.to_id == self.user.id;
         match e.kind.as_str() {
@@ -708,6 +708,7 @@ impl Session {
             "door" => s.fmt("PointsDoor", &[&e.on, &e.note]),
             "doorwin" => s.fmt("PointsDoorWin", &[&e.on]),
             "doorspend" => s.fmt("PointsDoorSpend", &[&e.on]),
+            "casino" => s.fmt("PointsCasino", &[&e.note]),
             "tip" if mine => s.fmt("PointsTipFrom", &[&e.from]),
             "tip" => s.fmt("PointsTipTo", &[&e.to]),
             "ticket" => s.fmt("PointsTickets", &[&e.note]),

@@ -79,7 +79,7 @@ impl Session {
         }
         if !day.is_empty() && chips > cfg.daily_chips {
             let p = winnings(cfg, chips - cfg.daily_chips);
-            self.casino_pay(p);
+            self.casino_pay(p, chips - cfg.daily_chips);
         }
         let p = Purse { chips: cfg.daily_chips, ..Default::default() };
         self.purse_save(&p);
@@ -103,7 +103,7 @@ impl Session {
         p.paid.minutes += prize.minutes;
         p.paid.points += prize.points;
         self.purse_save(p);
-        self.casino_pay(prize);
+        self.casino_pay(prize, up);
         tracing::info!("{}: casino: cashed out {up} chips (+{} min, +{} points)", self.user.handle, prize.minutes, prize.points);
         Some(prize)
     }
@@ -127,7 +127,9 @@ impl Session {
         self.purse_save(&p);
     }
 
-    fn casino_pay(&mut self, p: Prize) {
+    /// Winnings paid for `chips` cashed. New: the points go in the ledger
+    /// too, so they show in "got today" and the history.
+    fn casino_pay(&mut self, p: Prize, chips: u32) {
         if p.minutes == 0 && p.points == 0 {
             return;
         }
@@ -135,6 +137,12 @@ impl Session {
         self.user.file_points = self.user.file_points.saturating_add(p.points);
         if let Err(e) = self.save_own_user() {
             tracing::error!("casino: paying {}: {e}", self.user.handle);
+        }
+        if p.points > 0 {
+            let e = crate::points::entry("casino", (0, ""), (self.user.id, &self.user.handle), p.points, "", &chips.to_string());
+            if let Err(e) = self.state.sys.add_points(&e) {
+                tracing::error!("casino: recording {}'s points: {e}", self.user.handle);
+            }
         }
     }
 }
@@ -572,5 +580,26 @@ impl Session {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn cashing_out_goes_in_the_ledger() {
+        let state = crate::tests::state();
+        let mut u = crate::user::User { handle: "phrac".into(), ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        let mut s = Session::for_test(state, u);
+        let cfg = Casino::default();
+        let mut p = Purse { chips: cfg.daily_chips + 50, ..Default::default() };
+        let prize = s.cash_out(&cfg, &mut p).unwrap();
+        assert!(prize.points > 0);
+        assert_eq!(s.user.file_points, prize.points);
+        let got = s.state.sys.points_recent(s.user.id, 5).unwrap();
+        assert_eq!(got.iter().map(|e| (e.kind.as_str(), e.amount, e.note.as_str())).collect::<Vec<_>>(), [("casino", prize.points, "50")]);
+        assert_eq!(fluxbbs_term::codes::unlit(&s.ledger_what(&got[0])), "cashed 50 chips at the casino");
     }
 }
