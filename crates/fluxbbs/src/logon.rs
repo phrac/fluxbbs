@@ -562,8 +562,14 @@ impl Session {
         if !real_names {
             loop {
                 self.say("NuHandle").await?;
-                let h = self.read_string(ReadOpts::new(36).case(case).required()).await?;
+                let h = self.read_string(ReadOpts::new(36).case(case)).await?;
                 self.newline();
+                // New: Enter alone leaves the application, back to the
+                // prelogon menu.
+                if h.trim().is_empty() {
+                    tracing::info!("new user application left at the alias");
+                    return Ok(());
+                }
                 // And the names the board gives parties that aren't
                 // callers: mail to them mustn't reach someone.
                 let anonymous = crate::editor::strip_codes(self.strings().get("Anonymous"));
@@ -582,8 +588,14 @@ impl Session {
         if real_names || nu.ask_real_name {
             loop {
                 self.say("NuName").await?;
-                let n = self.read_string(ReadOpts::new(36).case(Case::Mixed).required()).await?;
+                let opts = ReadOpts::new(36).case(Case::Mixed);
+                let n = self.read_string(if real_names { opts } else { opts.required() }).await?;
                 self.newline();
+                // New: likewise when the real name is the first question.
+                if n.trim().is_empty() {
+                    tracing::info!("new user application left at the name");
+                    return Ok(());
+                }
                 if n.starts_with(|c: char| c.is_ascii_digit()) || has_codes(&n) || n.contains('@') {
                     self.say_line("NuBadName").await?;
                 } else if !n.contains(' ') {

@@ -185,7 +185,7 @@ delay = 6.0
     seconds, as on an old tube.
   - `flash`: the whole area goes dark and comes back, all at once,
     every `every` seconds, lit `amount` of the time (half to start):
-    a warning sign (TELNET.FX).
+    a warning sign.
   - `wave`: a glint rippled into bands. `drips`: a bright drop runs
     down each column, the columns a little apart. `sparkle`: cells
     flash here and there for a few seconds. `breathe`: the whole area

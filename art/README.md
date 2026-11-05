@@ -49,6 +49,7 @@ these. disflux's is an example of all of them.
 | `PRELOGON_LINES` | the lines under the prelogon's logo |
 | `TELNET_SSH` | `host:port` the TELNET screen tells telnet callers to call back on |
 | `ABOUT` | the about screen (h on the main menu) |
+| `APPLY`, `APPLY_LOGO` | the screen before the new-user application, as `ABOUT`, and the word over it in a TheDraw font: `('dsflxapp', 'BODYCNTX.TDF', 'Body Count P')` |
 | `WELCOME_ART` | a piece of art in the board's `art/` to show first among the welcome screen's logos |
 | `WELCOME_WHATS`, `WELCOME_ARCHIVE` | the welcome's line of what's here, and what the file archive is |
 | `KEEP` | screens `make.py` leaves alone (a hand-drawn `STOCK.ANS`, say) |

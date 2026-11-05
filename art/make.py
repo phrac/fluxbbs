@@ -19,6 +19,7 @@ REPO = os.path.dirname(HERE)
 SCREENS = [
     ('ABOUT.ANS', ['about-gen.py']),
     ('AICHAT.ANS', ['aichat-gen.py']),
+    ('APPLY.ANS', ['apply-gen.py']),
     ('BOTCHECK.ANS', ['botcheck-gen.py']),
     (None, ['fseditor-gen.py']),
     ('GALLERY.ANS', ['gallery-gen.py']),

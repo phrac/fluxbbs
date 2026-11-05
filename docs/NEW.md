@@ -105,6 +105,11 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   enforced at login if wanted.
 - Sign-up limits per address and per day.
 - Reserved handles.
+- Enter alone at the application's first question (the alias, or the
+  real name on a real-names board) leaves it, back to the prelogon menu.
+- `APPLY` says what the application asks, how new callers get access,
+  the rules and how passwords are kept (`art/apply-gen.py`), not the
+  stock placeholder.
 - Never-validated accounts purged after a set time.
 - A caller's session saves only what it changed in their record. A
   SysOp's edits (level, flags, daily time) stay while they're online.

@@ -3,9 +3,8 @@ before the login. WARNING in the prelogon's own TheDraw font, in red,
 then a box saying telnet is unencrypted and how to call back over SSH,
 and the question the board waits on (Y goes on, N hangs up).
 
-It also writes TELNET.FX beside it: the word flashing while the board
-waits (blink in a screen file means iCE's bright backgrounds here, so
-the flashing is the board's).
+The warning doesn't flash: a TELNET.FX left beside it from before is
+removed.
 
 The SSH address in it is the board's art/local.py's TELNET_SSH if it has
 one, else [mrc] info_ssh, else the host in [web] download_url with the
@@ -96,11 +95,10 @@ def main():
     # cursor left after the prompt.
     out = out.removesuffix(b'|PK')
     sys.stdout.buffer.write(out)
-    fx = ['# TELNET.ANS: WARNING flashing while the board waits for Y or N',
-          '# (fluxbbs [[effect]]). Made by art/telnet-gen.py; change that, not this.', '',
-          '[[effect]]', 'kind = "flash"', 'rows = [%d, %d]' % (pre.LOGO_ROW, pre.LOGO_ROW + pre.LOGO_ROWS - 1),
-          'cols = [1, 80]', 'every = 1.0', 'delay = 0.0', 'amount = 0.6']
-    open(os.path.join(os.getcwd(), 'TELNET.FX'), 'w').write('\n'.join(fx) + '\n')
+    # No flashing: the warning holds still (an old TELNET.FX goes).
+    fx = os.path.join(os.getcwd(), 'TELNET.FX')
+    if os.path.exists(fx):
+        os.remove(fx)
 
 
 if __name__ == '__main__':
