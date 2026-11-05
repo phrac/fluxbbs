@@ -330,6 +330,7 @@ impl Session {
             if let Err(e) = self.save_own_user() {
                 tracing::error!("slots: paying {}: {e}", self.user.handle);
             }
+            crate::points::record(&self.state, "slots", (self.user.id, &self.user.handle), p.points, "", tier_name(w));
             tracing::info!("{}: slots: {} (+{} min, +{} points)", self.user.handle, tier_name(w), p.minutes, p.points);
             if w == Tier::Jackpot {
                 let when = crate::clock::now().naive_local().format("%Y-%m-%d %H:%M");

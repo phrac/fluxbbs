@@ -2113,6 +2113,7 @@ impl Session {
                 if use_points && pct > 0 {
                     let award = (rec.points as u64 * pct / 100) as u32;
                     self.user.file_points += award;
+                    crate::points::record(&self.state, "upload", (self.user.id, &self.user.handle), award, &a.area.name, &name);
                     let s = self.strings().fmt("s269", &[&award.to_string()]);
                     self.upload_note(&s).await?;
                 }

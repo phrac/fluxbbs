@@ -540,6 +540,7 @@ impl Session {
             if let Err(e) = self.save_own_user() {
                 tracing::error!("carrier: paying {}: {e}", self.user.handle);
             }
+            crate::points::record(&self.state, "carrier", (self.user.id, &self.user.handle), points, "", &haul.to_string());
         }
         Prize { minutes, points }
     }

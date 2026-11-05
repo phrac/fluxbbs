@@ -938,6 +938,7 @@ impl Session {
             }
             _ => {
                 self.user.file_points = self.user.file_points.saturating_add(cfg.show_points);
+                crate::points::record(&self.state, "show", (self.user.id, &self.user.handle), cfg.show_points, "", "");
                 ("ClubShow", cfg.show_points)
             }
         };

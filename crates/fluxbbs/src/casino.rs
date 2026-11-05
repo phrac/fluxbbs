@@ -138,12 +138,7 @@ impl Session {
         if let Err(e) = self.save_own_user() {
             tracing::error!("casino: paying {}: {e}", self.user.handle);
         }
-        if p.points > 0 {
-            let e = crate::points::entry("casino", (0, ""), (self.user.id, &self.user.handle), p.points, "", &chips.to_string());
-            if let Err(e) = self.state.sys.add_points(&e) {
-                tracing::error!("casino: recording {}'s points: {e}", self.user.handle);
-            }
-        }
+        crate::points::record(&self.state, "casino", (self.user.id, &self.user.handle), p.points, "", &chips.to_string());
     }
 }
 

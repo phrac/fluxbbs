@@ -1943,6 +1943,7 @@ impl Session {
             let mut paid = u.clone();
             paid.file_points = paid.file_points.saturating_add(pts);
             self.save_other_user(&u, &paid).map_err(io_err)?;
+            crate::points::record(&self.state, "fill", (u.id, &u.handle), pts, &a.area.name, &root.num.to_string());
         }
         tracing::info!("{}: {pts} points to {} for request {} in {}", self.user.handle, u.handle, root.num, a.area.name);
         Ok(())

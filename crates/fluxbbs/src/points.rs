@@ -45,7 +45,7 @@ fn cap(n: u32) -> u32 {
     if n == 0 { u32::MAX } else { n }
 }
 
-pub(crate) fn entry(kind: &str, from: (u32, &str), to: (u32, &str), amount: u32, on: &str, note: &str) -> PointsEntry {
+fn entry(kind: &str, from: (u32, &str), to: (u32, &str), amount: u32, on: &str, note: &str) -> PointsEntry {
     PointsEntry {
         at: now(),
         kind: kind.into(),
@@ -56,6 +56,17 @@ pub(crate) fn entry(kind: &str, from: (u32, &str), to: (u32, &str), amount: u32,
         amount,
         on: on.into(),
         note: note.into(),
+    }
+}
+
+/// New: a ledger line for points paid outside the ledger (the games,
+/// uploads, requests), so they show in "got today" and the history.
+pub(crate) fn record(state: &BbsState, kind: &str, to: (u32, &str), amount: u32, on: &str, note: &str) {
+    if amount == 0 {
+        return;
+    }
+    if let Err(e) = state.sys.add_points(&entry(kind, (0, ""), to, amount, on, note)) {
+        tracing::error!("points: recording {kind} for {}: {e}", to.1);
     }
 }
 
@@ -709,6 +720,11 @@ impl Session {
             "doorwin" => s.fmt("PointsDoorWin", &[&e.on]),
             "doorspend" => s.fmt("PointsDoorSpend", &[&e.on]),
             "casino" => s.fmt("PointsCasino", &[&e.note]),
+            "slots" => s.fmt("PointsSlots", &[&e.note]),
+            "carrier" => s.fmt("PointsCarrier", &[&e.note]),
+            "show" => s.fmt("PointsShow", &[]),
+            "upload" => s.fmt("PointsUpload", &[&e.note, &e.on]),
+            "fill" => s.fmt("PointsFill", &[&e.note, &e.on]),
             "tip" if mine => s.fmt("PointsTipFrom", &[&e.from]),
             "tip" => s.fmt("PointsTipTo", &[&e.to]),
             "ticket" => s.fmt("PointsTickets", &[&e.note]),
@@ -785,6 +801,18 @@ mod tests {
         // All of it in the ledger, as the caller sees it.
         let kinds: Vec<(String, u32)> = s.state.sys.points_recent(s.user.id, 10).unwrap().into_iter().map(|e| (e.kind, e.amount)).collect();
         assert_eq!(kinds, [("doorwin".to_string(), 10), ("doorwin".into(), 40), ("doorspend".into(), 70), ("doorspend".into(), 30)]);
+    }
+
+    #[test]
+    fn points_paid_outside_go_in_the_ledger() {
+        let s = in_a_door();
+        let me = (s.user.id, s.user.handle.as_str());
+        record(&s.state, "slots", me, 10, "", "three cherries");
+        record(&s.state, "upload", me, 0, "MISC", "nothing.zip");
+        record(&s.state, "fill", me, 5, "REQUESTS", "12");
+        let got: Vec<String> = s.state.sys.points_recent(s.user.id, 5).unwrap().iter().map(|e| fluxbbs_term::codes::unlit(&s.ledger_what(e))).collect();
+        assert_eq!(got, ["filled request #12 in REQUESTS", "three cherries at the slots"]);
+        assert_eq!(s.state.sys.points_got_since(s.user.id, today()).unwrap(), 15);
     }
 
     #[test]
