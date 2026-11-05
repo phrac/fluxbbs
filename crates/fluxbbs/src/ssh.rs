@@ -270,25 +270,58 @@ impl russh::server::Handler for Connection {
         _: &[(Pty, u32)],
         session: &mut Session,
     ) -> Result<(), Self::Error> {
-        self.term = term.to_string();
+        if !term.is_empty() {
+            self.term = term.to_string();
+        }
         self.size = dims(cols, rows);
         session.channel_success(channel)?;
         Ok(())
     }
 
+    // Every channel request a client wants a reply to gets one (success or
+    // failure); clients on libssh2 and DeuceSSH (SyncTERM 2) ask for one on
+    // `env` and wait for it. Russh only sends the reply when one was asked for.
+    async fn env_request(&mut self, channel: ChannelId, name: &str, value: &str, session: &mut Session) -> Result<(), Self::Error> {
+        if name == "TERM" && !value.is_empty() {
+            if self.term.is_empty() {
+                self.term = value.to_string();
+            }
+            session.channel_success(channel)?;
+        } else {
+            session.channel_failure(channel)?;
+        }
+        Ok(())
+    }
+
+    async fn x11_request(&mut self, channel: ChannelId, _: bool, _: &str, _: &str, _: u32, session: &mut Session) -> Result<(), Self::Error> {
+        session.channel_failure(channel)?;
+        Ok(())
+    }
+
+    async fn exec_request(&mut self, channel: ChannelId, _: &[u8], session: &mut Session) -> Result<(), Self::Error> {
+        session.channel_failure(channel)?;
+        Ok(())
+    }
+
+    async fn subsystem_request(&mut self, channel: ChannelId, _: &str, session: &mut Session) -> Result<(), Self::Error> {
+        session.channel_failure(channel)?;
+        Ok(())
+    }
+
     async fn window_change_request(
         &mut self,
-        _: ChannelId,
+        channel: ChannelId,
         cols: u32,
         rows: u32,
         _: u32,
         _: u32,
-        _: &mut Session,
+        session: &mut Session,
     ) -> Result<(), Self::Error> {
         self.size = dims(cols, rows);
         if let Some(tx) = &self.resize {
             let _ = tx.send(self.size);
         }
+        session.channel_success(channel)?;
         Ok(())
     }
 
