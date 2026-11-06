@@ -50,6 +50,10 @@ impl Session {
                 }
                 self.flush().await?;
                 self.read_key().await?;
+                // The next step (fast logon's question) writes where the
+                // cursor is: not over this screen.
+                self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                self.clear_screen();
             }
             None => {
                 for s in &said[..3] {
