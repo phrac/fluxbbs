@@ -1,4 +1,6 @@
-"""Render a CP437 ANSI file (ANSI.SYS semantics, 80 columns) to a PNG."""
+"""Render a CP437 ANSI file (ANSI.SYS semantics, 80 columns) to a PNG.
+Sixel pictures (`ESC P ... q ... ESC \\`) are drawn where the cursor was,
+a sixel pixel to a pixel of an 8x16 cell, as SyncTERM shows them."""
 import re, sys
 from PIL import Image, ImageDraw, ImageFont
 
@@ -18,6 +20,40 @@ def xterm256(n):
 def rgb_of(c):
     return c if isinstance(c, tuple) else PAL[c]
 
+def sixel(body):
+    """A sixel string's picture (RGBA; pixels it leaves unset are clear)."""
+    m = re.match(rb'"(\d+);(\d+);(\d+);(\d+)', body)
+    w, h = (int(m[3]), int(m[4])) if m else (0, 0)
+    if m: body = body[m.end():]
+    pix = {}
+    pal, cur, x, band, i = {}, 0, 0, 0, 0
+    while i < len(body):
+        c = body[i]
+        if c == 0x23:
+            m = re.match(rb'#(\d+)(?:;(\d+);(\d+);(\d+);(\d+))?', body[i:])
+            cur = int(m[1])
+            if m[2]: pal[cur] = tuple(round(int(v) * 255 / 100) for v in m.group(3, 4, 5))
+            i += m.end(); continue
+        if c == 0x24: x = 0; i += 1; continue
+        if c == 0x2d: x = 0; band += 6; i += 1; continue
+        rep = 1
+        if c == 0x21:
+            m = re.match(rb'!(\d+)', body[i:]); rep = int(m[1]); i += m.end(); c = body[i]
+        v = c - 0x3f
+        if 0 <= v < 64:
+            for _ in range(rep):
+                for b in range(6):
+                    if v >> b & 1: pix[(x, band + b)] = pal.get(cur, (255, 255, 255))
+                x += 1
+        i += 1
+    w = w or max([p[0] for p in pix] + [0]) + 1
+    h = h or max([p[1] for p in pix] + [0]) + 1
+    img = Image.new('RGBA', (w, h), (0, 0, 0, 0))
+    px = img.load()
+    for (x, y), col in pix.items():
+        if x < w and y < h: px[x, y] = col + (255,)
+    return img
+
 def render(data, rows_max=60):
     data = data.split(b'\x1a')[0]
     grid = {}
@@ -31,9 +67,17 @@ def render(data, rows_max=60):
             return scroll - 1
         return y
     x = y = 0; fg, bg, bold, blink = 7, 0, False, False; saved = (0, 0)
+    pics = []
     i = 0
     while i < len(data):
         b = data[i]
+        if b == 0x1b and i + 1 < len(data) and data[i+1] == ord('P'):
+            end = data.find(b'\x1b\\', i)
+            end = len(data) if end < 0 else end
+            q = data.find(b'q', i, end)
+            if q >= 0 and re.fullmatch(rb'[0-9;]*', data[i+2:q]):
+                pics.append((x, y, sixel(data[q+1:end])))
+            i = end + 2; continue
         if b == 0x1b and i + 1 < len(data) and data[i+1] == ord('['):
             m = re.match(rb'\x1b\[([0-9;?]*)([A-Za-z])', data[i:])
             if not m: i += 1; continue
@@ -68,7 +112,7 @@ def render(data, rows_max=60):
             elif f == b'B': y = min(y + n, scroll - 1) if scroll else y + n
             elif f == b'C': x = min(79, x + n)
             elif f == b'D': x = max(0, x - n)
-            elif f == b'J': grid.clear(); x = y = 0
+            elif f == b'J': grid.clear(); pics.clear(); x = y = 0
             elif f == b'K':
                 for cx in range(x, 80): grid.pop((cx, y), None)
             elif f == b's': saved = (x, y)
@@ -109,6 +153,8 @@ def render(data, rows_max=60):
             g = bytes([ch]).decode('cp437')
             if 0 < ch < 32: g = '☺☻♥♦♣♠•◘○◙♂♀♪♫☼►◄↕‼¶§▬↨↑↓→←∟↔▲▼'[ch-1]
             d.text((x0, y0 + 1), g, font=FONT, fill=col)
+    for px0, py0, pic in pics:
+        img.paste(pic, (px0 * W, py0 * H), pic)
     img = img.resize((img.width * 2, img.height * 2), Image.NEAREST)
     return img
 

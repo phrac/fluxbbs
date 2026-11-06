@@ -144,10 +144,16 @@ def solve(wrong=False):
         send(b'\x1b' if k == 'ESC' else k.encode())
         time.sleep(0.15)
 
-keys = {'\\r': '\r', '\\e': '\x1b', '\\t': '\t', '\\x15': '\x15', '{RIGHT}': '\x1b[C', '{LEFT}': '\x1b[D', '{UP}': '\x1b[A', '{DOWN}': '\x1b[B'}
+keys = {'\\r': '\r', '\\e': '\x1b', '\\t': '\t', '\\x15': '\x15', '{RIGHT}': '\x1b[C', '{LEFT}': '\x1b[D', '{UP}': '\x1b[A', '{DOWN}': '\x1b[B', '{HOME}': '\x1b[H', '{END}': '\x1b[F', '{PGUP}': '\x1b[5~', '{PGDN}': '\x1b[6~'}
 cmark = 0
 for step in steps:
     pat, _, out = step.partition('=>')
+    # wait:N reads for N seconds (an animation settling), then sends.
+    if pat.startswith('wait:'):
+        pump(float(pat[5:]))
+        for k, v in keys.items(): out = out.replace(k, v)
+        if out: send(out.encode('cp437').replace(b'\r', b'\r\x00'))
+        continue
     optional = pat.startswith('opt:')
     pat = pat.removeprefix('opt:')
     long = pat.startswith('long:')

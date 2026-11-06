@@ -190,7 +190,21 @@ waits 45s, `@solve` passes the bot check (the picture one through
 `tools/botsolve.py`, which reads the font from `challenge.rs`), `!cmd` runs a program on the connection (e.g. `rz`/`sz` for
 Zmodem), and keys understand `\r`, `\e`, `{UP}`/`{DOWN}`/`{LEFT}`/`{RIGHT}`,
 `\!` for a literal `!`. `RAW_OUT=file` saves the raw output;
-`tools/ansi2png.py` renders it to check layouts.
+`tools/ansi2png.py` renders it to check layouts (sixels included;
+`SCROLL=25`, and `ANSI_FONT=` a monospace TTF such as DejaVu Sans Mono).
+`drive_telnet.py` also takes `wait:N=>keys` (read N seconds, for an
+animation to settle), `{HOME}`/`{END}`/`{PGUP}`/`{PGDN}`, and with `DA=1`
+answers as SyncTERM; `DA_FEATURES='4;6'` adds sixels.
+
+README screenshots come from a copy of disflux in the scratchpad: the
+board directory copied without `files/` (a symlink to the live one, read
+only), the database copied with SQLite's backup, `../inq/iniquity`
+linked to this repo, and its config on local ports with `[ftn]`,
+`[email]` and `[bbslink]` off, every `hub_host` blanked, MRC pointed at
+`tools/fake_mrc.py` and `events.toml` emptied, so the copy never talks
+to the real networks as disflux. Leave out screens that show the
+SysOp's own details (the weather's location) or areas callers below
+level 100 can't see.
 
 Things that trip tests up:
 - The bot check and per-address limits apply to localhost too: at most 6
