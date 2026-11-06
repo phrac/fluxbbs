@@ -341,10 +341,201 @@ fn seven(u: f32, v: f32) -> Option<Rgb> {
     Some(c)
 }
 
+// ---- the underground symbols (`[casino] theme = "underground"`) ------------
+
+/// Their names, in the same places as the fruit.
+pub const UG_NAMES: [&str; SYMBOLS] = ["skull", "floppy", "virus", "bomb", "crossbones", "0day", "seven"];
+pub const UG_INK: [[u8; 3]; SYMBOLS] = [[235, 235, 245], [90, 140, 255], [90, 255, 120], [200, 200, 215], [240, 230, 200], [90, 255, 120], [255, 50, 200]];
+
+pub fn names(ug: bool) -> &'static [&'static str; SYMBOLS] {
+    if ug { &UG_NAMES } else { &NAMES }
+}
+
+pub fn ink(ug: bool, sym: usize) -> [u8; 3] {
+    if ug { UG_INK[sym] } else { INK[sym] }
+}
+
+/// A rounded box's distance (negative inside).
+fn rbox(u: f32, v: f32, x0: f32, y0: f32, x1: f32, y1: f32, r: f32) -> f32 {
+    let qx = (x0 + r - u).max(u - (x1 - r));
+    let qy = (y0 + r - v).max(v - (y1 - r));
+    (qx.max(0.0).powi(2) + qy.max(0.0).powi(2)).sqrt() + qx.max(qy).min(0.0) - r
+}
+
+fn bone_white(nx: f32, ny: f32) -> Rgb {
+    mix(rgb(255, 252, 240), rgb(150, 140, 120), smooth(-0.6, 1.0, 0.6 * nx + 0.8 * ny))
+}
+
+fn skull(u: f32, v: f32) -> Option<Rgb> {
+    let dark = rgb(20, 10, 25);
+    // The eyes and nose first: holes.
+    for ex in [6.6, 13.4] {
+        if ((u - ex) / 2.3).powi(2) + ((v - 8.4) / 2.4).powi(2) < 1.0 {
+            return Some(mix(dark, rgb(255, 40, 90), 0.25 * smooth(1.0, 0.0, ((u - ex).powi(2) + (v - 8.4).powi(2)).sqrt() / 2.0)));
+        }
+    }
+    if v > 10.6 && v < 12.6 && (u - 10.0).abs() < (v - 10.6) * 0.6 {
+        return Some(dark);
+    }
+    let head = ((u - 10.0) / 8.4).powi(2) + ((v - 8.0) / 7.4).powi(2);
+    let jaw = rbox(u, v, 5.2, 11.0, 14.8, 17.6, 1.6);
+    if head > 1.0 && jaw > 0.0 {
+        return None;
+    }
+    // Teeth: the gaps between them.
+    if v > 14.2 && jaw < 0.0 && [7.6, 10.0, 12.4].iter().any(|&x| (u - x).abs() < 0.45) {
+        return Some(dark);
+    }
+    let edge = if head <= 1.0 { (1.0 - head.sqrt()) * 7.0 } else { -jaw };
+    let c = bone_white((u - 10.0) / 8.0, (v - 9.0) / 9.0);
+    Some(if edge < 0.7 { mix(scale(c, 0.35), c, edge / 0.7 * 0.6) } else { c })
+}
+
+fn floppy(u: f32, v: f32) -> Option<Rgb> {
+    // The body, its top right corner cut.
+    let body = rbox(u, v, 1.5, 0.6, 18.5, 17.4, 0.8);
+    if body > 0.0 || u + (0.6 - v) > 15.8 + 0.6 {
+        return None;
+    }
+    let edge = -body;
+    // The shutter, with its window.
+    if (5.4..14.6).contains(&u) && v < 6.8 {
+        if (10.8..13.0).contains(&u) && (1.8..5.6).contains(&v) {
+            return Some(rgb(25, 25, 35));
+        }
+        return Some(mix(rgb(230, 232, 240), rgb(120, 125, 140), (u - 5.4) / 9.2));
+    }
+    // The label, a pink stripe over lines.
+    if (3.6..16.4).contains(&u) && (8.6..16.6).contains(&v) {
+        if v < 10.2 {
+            return Some(rgb(255, 60, 190));
+        }
+        if [12.0, 13.9, 15.6].iter().any(|&y| (v - y).abs() < 0.3) {
+            return Some(rgb(150, 150, 170));
+        }
+        return Some(rgb(245, 245, 238));
+    }
+    let c = mix(rgb(70, 110, 255), rgb(20, 35, 130), smooth(0.0, 18.0, v + 0.4 * u));
+    Some(if edge < 0.6 { scale(c, 0.5) } else { c })
+}
+
+fn virus(u: f32, v: f32) -> Option<Rgb> {
+    // Spikes out of the ball, each with a pink knob.
+    for k in 0..8 {
+        let a = k as f32 * PI / 4.0 + PI / 8.0;
+        let tip = (10.0 + 7.6 * a.cos(), 9.0 + 7.0 * a.sin());
+        if ((u - tip.0).powi(2) + (v - tip.1).powi(2)).sqrt() < 1.35 {
+            return ball(u, v, tip.0, tip.1, 1.35, 1.35, rgb(255, 70, 200), rgb(110, 0, 70), 0.7, 12.0);
+        }
+        let (d, _) = seg((u, v), (10.0, 9.0), tip);
+        if d < 0.55 {
+            return Some(rgb(60, 170, 70));
+        }
+    }
+    let b = ball(u, v, 10.0, 9.0, 5.6, 5.4, rgb(110, 255, 120), rgb(10, 70, 25), 0.6, 14.0)?;
+    // Blotches on it.
+    let spot = [(8.0, 7.6), (12.3, 10.4), (9.2, 11.6)].iter().any(|&(x, y)| (u - x).powi(2) + (v - y).powi(2) < 1.0);
+    Some(if spot { scale(b, 0.6) } else { b })
+}
+
+fn bomb(u: f32, v: f32) -> Option<Rgb> {
+    // The spark at the end of the fuse.
+    let sp = ((u - 17.4).powi(2) + (v - 1.6).powi(2)).sqrt();
+    let rays = (((v - 1.6).atan2(u - 17.4)) * 4.0).cos().abs();
+    if sp < 0.9 + 1.4 * rays.powi(4) {
+        return Some(mix(rgb(255, 255, 200), rgb(255, 120, 20), sp / 2.3));
+    }
+    if curve((u, v), (14.2, 4.6), (15.4, 1.2), (17.0, 2.0)) < 0.5 {
+        return Some(rgb(170, 120, 60));
+    }
+    // The cap.
+    if rbox(u, v, 12.0, 3.8, 15.4, 6.6, 0.4) < 0.0 && ((u - 9.0) / 7.0).powi(2) + ((v - 10.6) / 6.8).powi(2) > 0.86 {
+        return Some(mix(rgb(190, 190, 205), rgb(80, 80, 95), (u - 12.0) / 3.4));
+    }
+    ball(u, v, 9.0, 10.6, 7.0, 6.8, rgb(90, 90, 110), rgb(8, 8, 14), 0.9, 18.0)
+}
+
+fn crossbones(u: f32, v: f32) -> Option<Rgb> {
+    // Two bones crossed, each a shaft with two knobs at each end.
+    let mut best: Option<(f32, Rgb)> = None;
+    let bones: [((f32, f32), (f32, f32)); 2] = [((3.4, 3.4), (16.6, 14.6)), ((16.6, 3.4), (3.4, 14.6))];
+    for (a, b) in bones {
+        let (len, n) = ((b.0 - a.0).hypot(b.1 - a.1), (a.1 - b.1, b.0 - a.0));
+        let (nx, ny) = (n.0 / len, n.1 / len);
+        let (d, _) = seg((u, v), a, b);
+        let mut hit = if d < 1.05 { Some(1.05 - d) } else { None };
+        for end in [a, b] {
+            for s in [-1.0, 1.0] {
+                let (kx, ky) = (end.0 + s * nx * 1.15, end.1 + s * ny * 1.15);
+                let r = ((u - kx).powi(2) + (v - ky).powi(2)).sqrt();
+                if r < 1.45 {
+                    hit = Some(hit.unwrap_or(0.0).max(1.45 - r));
+                }
+            }
+        }
+        if let Some(e) = hit {
+            let c = bone_white((u - 10.0) / 8.0, (v - 9.0) / 8.0);
+            let c = if e < 0.45 { mix(scale(c, 0.35), c, e / 0.45) } else { c };
+            if best.is_none_or(|(be, _)| e > be) {
+                best = Some((e, c));
+            }
+        }
+    }
+    best.map(|b| b.1)
+}
+
+/// "0DAY", three by five.
+const DAY_FONT: [[u8; 5]; 4] = [
+    [0b111, 0b101, 0b101, 0b101, 0b111],
+    [0b110, 0b101, 0b101, 0b101, 0b110],
+    [0b010, 0b101, 0b111, 0b101, 0b101],
+    [0b101, 0b101, 0b010, 0b010, 0b010],
+];
+
+fn oday(u: f32, v: f32) -> Option<Rgb> {
+    let d = rbox(u, v, 0.2, 1.8, 19.8, 16.2, 1.4);
+    if d > 0.0 {
+        return None;
+    }
+    if d > -1.0 {
+        // A neon green tube round the plate.
+        return Some(mix(rgb(200, 255, 210), rgb(40, 200, 90), (d + 1.0).abs()));
+    }
+    // Four letters, a pixel a stroke, twice as tall, a pixel apart.
+    let (x, y) = ((u - 2.0).floor() as i32, ((v - 4.0) / 2.0).floor() as i32);
+    if x >= 0 && (0..5).contains(&y) && x < 15 && x % 4 != 3 && DAY_FONT[(x / 4) as usize][y as usize] >> (2 - x % 4) & 1 == 1 {
+        return Some(mix(rgb(255, 255, 255), rgb(120, 255, 150), (v - 4.0) / 10.0));
+    }
+    Some(mix(rgb(6, 14, 10), rgb(30, 50, 40), smooth(8.0, 4.0, v) * 0.6))
+}
+
+/// The 7 as a pink neon tube on black.
+fn neon_seven(u: f32, v: f32) -> Option<Rgb> {
+    let d = seven_shape(u, v);
+    if d >= 1.9 {
+        return None;
+    }
+    if d >= 0.6 {
+        return Some(mix(rgb(120, 10, 90), rgb(20, 0, 20), (d - 0.6) / 1.3));
+    }
+    let core = smooth(-1.4, 0.4, d);
+    Some(mix(rgb(255, 230, 250), rgb(255, 40, 190), core))
+}
+
 fn art(sym: usize) -> &'static Art {
+    &arts(false)[sym]
+}
+
+fn ug_art(sym: usize) -> &'static Art {
+    &arts(true)[sym]
+}
+
+fn arts(ug: bool) -> &'static Vec<Art> {
     static ARTS: OnceLock<Vec<Art>> = OnceLock::new();
-    &ARTS.get_or_init(|| {
-        let shapes: [fn(f32, f32) -> Option<Rgb>; SYMBOLS] = [cherry, lemon, orange, plum, bell, bar, seven];
+    static UG: OnceLock<Vec<Art>> = OnceLock::new();
+    (if ug { &UG } else { &ARTS }).get_or_init(|| {
+        let shapes: [fn(f32, f32) -> Option<Rgb>; SYMBOLS] =
+            if ug { [skull, floppy, virus, bomb, crossbones, oday, neon_seven] } else { [cherry, lemon, orange, plum, bell, bar, seven] };
         shapes
             .iter()
             .map(|f| {
@@ -368,13 +559,13 @@ fn art(sym: usize) -> &'static Art {
                 Art { px }
             })
             .collect()
-    })[sym]
+    })
 }
 
 /// The art at column `x`, `v` pixels down (premultiplied), blended
 /// between texel rows.
-fn art_at(sym: usize, x: usize, v: f32) -> [f32; 4] {
-    let a = art(sym);
+fn art_at(sym: usize, x: usize, v: f32, ug: bool) -> [f32; 4] {
+    let a = if ug { ug_art(sym) } else { art(sym) };
     let t = (v * TEX_H as f32 / ART_H - 0.5).clamp(0.0, TEX_H as f32 - 1.0);
     let (i, f) = (t.floor() as usize, t.fract());
     let (p, q) = (a.px[i * ART_W + x], a.px[(i + 1).min(TEX_H - 1) * ART_W + x]);
@@ -406,6 +597,8 @@ pub struct Scene {
     /// The payline's brightness, 0 to 1.
     pub payline: f32,
     pub coins: Vec<Coin>,
+    /// The underground look (`casinoug`).
+    pub ug: bool,
 }
 
 #[derive(Clone, Copy)]
@@ -444,20 +637,28 @@ fn in_window(x: usize, y: usize) -> Option<usize> {
 }
 
 /// The cabinet's face and bezel: everything but the reels and lights.
-fn backdrop() -> &'static Vec<Rgb> {
+fn backdrop(ug: bool) -> &'static Vec<Rgb> {
     static BACK: OnceLock<Vec<Rgb>> = OnceLock::new();
-    BACK.get_or_init(|| {
+    static UG: OnceLock<Vec<Rgb>> = OnceLock::new();
+    // The underground's: a black face, gunmetal for chrome, the windows
+    // edged in acid green neon, a cyan cast.
+    let (face, chrome, cast, rim, jewel) = if ug {
+        ((rgb(14, 12, 22), rgb(4, 4, 8)), rgb(70, 74, 90), rgb(40, 230, 255), Some(rgb(90, 255, 120)), (rgb(160, 255, 180), rgb(40, 200, 90)))
+    } else {
+        ((rgb(46, 10, 48), rgb(14, 3, 20)), rgb(200, 196, 220), rgb(255, 120, 220), None, (rgb(255, 160, 160), rgb(230, 20, 40)))
+    };
+    (if ug { &UG } else { &BACK }).get_or_init(|| {
         let mut px = vec![[0.0; 3]; W * H];
         for y in 0..H {
             for x in 0..W {
                 let t = y as f32 / H as f32;
                 // A deep plum face.
-                let mut c = mix(rgb(46, 10, 48), rgb(14, 3, 20), t);
+                let mut c = mix(face.0, face.1, t);
                 let (bx0, bx1, by0, by1) = (2, W - 3, 2, H - 3);
                 if (bx0..=bx1).contains(&x) && (by0..=by1).contains(&y) {
                     // Chrome: a bright band of sky up top, dark below.
                     let sky = 0.55 + 0.45 * (-((y as f32 - 9.0) / 7.0).powi(2)).exp() - 0.25 * t;
-                    let mut m = scale(rgb(200, 196, 220), sky);
+                    let mut m = scale(chrome, sky);
                     // Bevels: lit on the top and left edges of the plate,
                     // dark on the bottom and right.
                     if y == by0 || x == bx0 {
@@ -471,7 +672,11 @@ fn backdrop() -> &'static Vec<Rgb> {
                         let (xi, yi) = (x as i32, y as i32);
                         let (top, bottom) = (WIN_Y as i32 - 1, (WIN_Y + WIN_H) as i32);
                         if (l..=r).contains(&xi) && (top..=bottom).contains(&yi) {
-                            if yi == top || xi == l {
+                            if let Some(neon) = rim {
+                                if yi == top || xi == l || yi == bottom || xi == r {
+                                    m = neon;
+                                }
+                            } else if yi == top || xi == l {
                                 m = scale(m, 0.5);
                             } else if yi == bottom || xi == r {
                                 m = mix(m, rgb(255, 255, 255), 0.4);
@@ -479,7 +684,7 @@ fn backdrop() -> &'static Vec<Rgb> {
                         }
                     }
                     // A pink cast from the face round it.
-                    c = mix(m, rgb(255, 120, 220), 0.08);
+                    c = mix(m, cast, 0.08);
                 }
                 px[y * W + x] = c;
             }
@@ -489,7 +694,7 @@ fn backdrop() -> &'static Vec<Rgb> {
             let y = 19 + i;
             for k in 0..w {
                 let shade = if i < 3 { 1.0 } else { 0.7 };
-                let c = scale(if k == 0 && i == 2 { rgb(255, 160, 160) } else { rgb(230, 20, 40) }, shade);
+                let c = scale(if k == 0 && i == 2 { jewel.0 } else { jewel.1 }, shade);
                 px[y * W + dx + k] = c;
                 px[y * W + W - 1 - dx - k] = c;
             }
@@ -500,20 +705,25 @@ fn backdrop() -> &'static Vec<Rgb> {
 
 /// The machine, as the scene has it.
 pub fn draw(cv: &mut Canvas, s: &Scene) {
-    cv.px.clone_from(backdrop());
+    cv.px.clone_from(backdrop(s.ug));
     for (i, r) in s.reels.iter().enumerate() {
         reel(cv, i, r, s);
     }
     bulbs(cv, s);
     for c in &s.coins {
-        coin(cv, c);
+        if s.ug {
+            floppy_coin(cv, c);
+        } else {
+            coin(cv, c);
+        }
     }
 }
 
 fn reel(cv: &mut Canvas, i: usize, r: &ReelView, s: &Scene) {
     let radius = WIN_H as f32 / 2.0 / VIEW.sin();
     let strip = &STRIPS[i];
-    let ivory = mix(rgb(247, 241, 224), rgb(255, 215, 120), r.glow);
+    // The underground's reels are black glass, glowing green on a win.
+    let ivory = if s.ug { mix(rgb(20, 22, 30), rgb(30, 110, 60), r.glow) } else { mix(rgb(247, 241, 224), rgb(255, 215, 120), r.glow) };
     // Motion blur: what the reel passes in a 25th of a second.
     let blur = r.speed / 25.0;
     let taps = ((blur.abs() / 1.5).ceil() as usize).clamp(1, 10);
@@ -522,7 +732,7 @@ fn reel(cv: &mut Canvas, i: usize, r: &ReelView, s: &Scene) {
         let theta = (yc / radius).clamp(-1.0, 1.0).asin();
         // Lit from above the window, falling off round the reel.
         let light = 0.16 + 0.95 * (theta + 0.12).cos().max(0.0).powf(2.2);
-        let shine = 0.12 * (-((yc + 9.0) / 2.6).powi(2)).exp();
+        let shine = if s.ug { 0.035 } else { 0.12 } * (-((yc + 9.0) / 2.6).powi(2)).exp();
         for x in 0..WIN_W {
             let mut acc = [0.0f32; 3];
             let n = taps * 2;
@@ -537,7 +747,7 @@ fn reel(cv: &mut Canvas, i: usize, r: &ReelView, s: &Scene) {
                 let within = q - slot * PITCH + PITCH / 2.0 - (PITCH - ART_H) / 2.0;
                 let ax = x as i32 - ((WIN_W - ART_W) / 2) as i32;
                 let c = if (0.0..ART_H).contains(&within) && (0..ART_W as i32).contains(&ax) {
-                    let a = art_at(sym, ax as usize, within);
+                    let a = art_at(sym, ax as usize, within, s.ug);
                     add([a[0], a[1], a[2]], ivory, 1.0 - a[3])
                 } else {
                     ivory
@@ -552,7 +762,7 @@ fn reel(cv: &mut Canvas, i: usize, r: &ReelView, s: &Scene) {
             // A streak of reflection on the glass, and the glint.
             let d = x as f32 + 0.55 * y as f32;
             if (25.0..27.5).contains(&d) {
-                c = mix(c, rgb(255, 255, 255), 0.09);
+                c = mix(c, rgb(255, 255, 255), if s.ug { 0.03 } else { 0.09 });
             }
             if s.glint >= 0.0 {
                 let g = (d + WIN_X[i] as f32 - s.glint).abs();
@@ -560,7 +770,7 @@ fn reel(cv: &mut Canvas, i: usize, r: &ReelView, s: &Scene) {
             }
             // The payline, a red line on the glass.
             if (y == WIN_H / 2 - 1 || y == WIN_H / 2) && s.payline > 0.0 {
-                c = mix(c, rgb(255, 30, 50), 0.45 * s.payline);
+                c = mix(c, if s.ug { rgb(255, 50, 200) } else { rgb(255, 30, 50) }, 0.45 * s.payline);
             }
             cv.px[(WIN_Y + y) * W + WIN_X[i] + x] = c;
         }
@@ -591,11 +801,19 @@ fn bulbs(cv: &mut Canvas, s: &Scene) {
                     }
                     let d = ((x as f32 - bx as f32 - 0.5).powi(2) + (y as f32 - by as f32 - 0.5).powi(2)).sqrt();
                     let p = &mut cv.px[y * W + x];
-                    *p = mix(*p, rgb(255, 180, 80), 0.8 * (-(d / 1.3).powi(2)).exp());
+                    let glow = if s.ug { if n % 2 == 0 { rgb(40, 230, 255) } else { rgb(255, 50, 200) } } else { rgb(255, 180, 80) };
+                    *p = mix(*p, glow, 0.8 * (-(d / 1.3).powi(2)).exp());
                 }
             }
         }
         for (k, (dx, dy)) in [(0, 0), (1, 0), (0, 1), (1, 1)].into_iter().enumerate() {
+            if s.ug {
+                // Neon dots, cyan and pink by turns.
+                let hue = if n % 2 == 0 { rgb(40, 230, 255) } else { rgb(255, 50, 200) };
+                let c = if on { mix(hue, rgb(255, 255, 255), if k == 0 { 0.6 } else { 0.15 }) } else { scale(hue, 0.18) };
+                cv.px[(by + dy) * W + bx + dx] = c;
+                continue;
+            }
             let c = match (on, k) {
                 (true, 0) => rgb(255, 255, 240),
                 (true, 3) => rgb(255, 190, 80),
@@ -630,6 +848,32 @@ pub(crate) fn coin(cv: &mut Canvas, c: &Coin) {
             if c.spin.cos().abs() < 0.25 {
                 col = mix(rgb(230, 170, 40), rgb(140, 85, 5), dy * 0.5 + 0.5);
             }
+            cv.px[y as usize * W + x as usize] = col;
+        }
+    }
+}
+
+/// The underground's coins: floppies, turning as they fall.
+fn floppy_coin(cv: &mut Canvas, c: &Coin) {
+    let half = 3.0 * c.spin.cos().abs() + 0.3;
+    for y in (c.y - 3.0).floor() as i32..=(c.y + 3.0).ceil() as i32 {
+        for x in (c.x - half).floor() as i32..=(c.x + half).ceil() as i32 {
+            if !(0..W as i32).contains(&x) || !(0..H as i32).contains(&y) {
+                continue;
+            }
+            let (u, v) = ((x as f32 + 0.5 - c.x) / half, y as f32 + 0.5 - c.y);
+            if u.abs() > 1.0 || v.abs() > 3.0 {
+                continue;
+            }
+            let col = if c.spin.cos() < 0.0 {
+                rgb(30, 50, 160)
+            } else if v < -1.0 && u.abs() < 0.5 {
+                rgb(200, 205, 215)
+            } else if v > 0.3 && u.abs() < 0.75 {
+                rgb(240, 240, 235)
+            } else {
+                rgb(60, 100, 255)
+            };
             cv.px[y as usize * W + x as usize] = col;
         }
     }
@@ -694,6 +938,7 @@ mod tests {
                 glint: -1.0,
                 payline: 0.3,
                 coins: vec![],
+                ug: false,
             }),
             ("bars", Scene {
                 reels: [ReelView { pos: pos_of(3), ..Default::default() }, ReelView { pos: pos_of(0), ..Default::default() }, ReelView { pos: pos_of(2), ..Default::default() }],
@@ -701,6 +946,7 @@ mod tests {
                 glint: -1.0,
                 payline: 0.0,
                 coins: vec![],
+                ug: false,
             }),
             ("between", Scene {
                 reels: [ReelView { pos: pos_of(3) + 9.0, ..Default::default() }, ReelView { pos: pos_of(4) - 6.0, ..Default::default() }, ReelView { pos: pos_of(11), ..Default::default() }],
@@ -708,6 +954,7 @@ mod tests {
                 glint: 30.0,
                 payline: 0.3,
                 coins: vec![],
+                ug: false,
             }),
             ("spinning", Scene {
                 reels: [ReelView { pos: 100.0, speed: 770.0, ..Default::default() }, ReelView { pos: 210.0, speed: 300.0, ..Default::default() }, ReelView { pos: pos_of(2), speed: 60.0, ..Default::default() }],
@@ -715,6 +962,7 @@ mod tests {
                 glint: -1.0,
                 payline: 0.3,
                 coins: vec![],
+                ug: false,
             }),
             ("jackpot", Scene {
                 reels: [ReelView { pos: pos_of(0), glow: 0.8, ..Default::default() }, ReelView { pos: pos_of(3), glow: 0.8, ..Default::default() }, ReelView { pos: pos_of(6), glow: 0.8, ..Default::default() }],
@@ -722,8 +970,11 @@ mod tests {
                 glint: -1.0,
                 payline: 1.0,
                 coins: (0..12).map(|i| Coin { x: 6.0 + i as f32 * 6.3, y: 6.0 + (i * 7 % 30) as f32, vx: 0.0, vy: 0.0, spin: i as f32 * 0.7 }).collect(),
+                ug: false,
             }),
         ];
+        let ug: Vec<(String, Scene)> = shots.iter().map(|(n, s)| (format!("ug-{n}"), Scene { ug: true, ..s.clone() })).collect();
+        let shots: Vec<(String, Scene)> = shots.into_iter().map(|(n, s)| (n.to_string(), s)).chain(ug).collect();
         for (name, scene) in shots {
             let mut cv = Canvas::new(W, H);
             draw(&mut cv, &scene);

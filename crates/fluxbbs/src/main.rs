@@ -38,6 +38,8 @@ mod casino;
 #[cfg(feature = "casino")]
 mod casinobar;
 #[cfg(feature = "casino")]
+mod casinoug;
+#[cfg(feature = "casino")]
 mod craps;
 #[cfg(feature = "casino")]
 mod lottery;

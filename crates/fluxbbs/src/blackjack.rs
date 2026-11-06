@@ -446,15 +446,23 @@ pub fn draw_pile(cv: &mut Canvas, amount: u32, cx: f32, by: f32) {
 }
 
 /// The felt, the arc printed on it, the betting circle and the shoe.
-fn table() -> &'static Vec<Rgb> {
+fn table(ug: bool) -> &'static Vec<Rgb> {
     static TABLE: OnceLock<Vec<Rgb>> = OnceLock::new();
-    TABLE.get_or_init(|| {
+    static UG: OnceLock<Vec<Rgb>> = OnceLock::new();
+    // The underground's: purple felt, the arc a cyan tube, the circle
+    // pink, a black shoe edged in green, the skull printed on the felt.
+    let (felt, paint, circle) = if ug {
+        ((rgb(70, 26, 110), rgb(12, 4, 24)), rgb(40, 230, 255), rgb(255, 50, 200))
+    } else {
+        ((rgb(34, 128, 68), rgb(6, 40, 22)), rgb(220, 185, 90), rgb(230, 230, 220))
+    };
+    (if ug { &UG } else { &TABLE }).get_or_init(|| {
         let mut cv = Canvas::new(W, H);
         for y in 0..H as i32 {
             for x in 0..W as i32 {
                 // A lamp over the middle of the table.
                 let d = (((x as f32 - 42.0) / 46.0).powi(2) + ((y as f32 - 24.0) / 30.0).powi(2)).sqrt();
-                let mut c = mix(rgb(34, 128, 68), rgb(6, 40, 22), smooth(0.2, 1.15, d));
+                let mut c = mix(felt.0, felt.1, smooth(0.2, 1.15, d));
                 c = scale(c, 0.96 + 0.08 * hash(x, y));
                 cv.set(x, y, c);
             }
@@ -463,19 +471,27 @@ fn table() -> &'static Vec<Rgb> {
         for x in 0..W as i32 {
             let u = (x as f32 - 42.0) / 50.0;
             let y = 2.0 + 19.0 * (1.0 - u * u).max(0.0).sqrt();
-            cv.blend(x, y.round() as i32, rgb(220, 185, 90), 0.55);
+            cv.blend(x, y.round() as i32, paint, if ug { 0.85 } else { 0.55 });
+            if ug {
+                cv.blend(x, y.round() as i32 - 1, paint, 0.15);
+                cv.blend(x, y.round() as i32 + 1, paint, 0.15);
+            }
+        }
+        if ug {
+            crate::casinoug::felt_logo(&mut cv, 42.0, 30.0, 2, 0.12);
         }
         // The betting circle.
         for a in 0..96 {
             let t = a as f32 / 96.0 * 2.0 * PI;
-            cv.blend((8.0 + 6.5 * t.cos()).round() as i32, (36.0 + 4.0 * t.sin()).round() as i32, rgb(230, 230, 220), 0.6);
+            cv.blend((8.0 + 6.5 * t.cos()).round() as i32, (36.0 + 4.0 * t.sin()).round() as i32, circle, if ug { 0.85 } else { 0.6 });
         }
         // The shoe: a dark wooden box, the next card's back at its mouth.
         for y in 1..13 {
             for x in 67..80 {
                 let front = x < 70 + (y - 1) / 3;
-                let wood = mix(rgb(70, 30, 25), rgb(30, 10, 10), (y - 1) as f32 / 12.0);
-                cv.set(x, y, if front { scale(wood, 1.35) } else { wood });
+                let wood = if ug { mix(rgb(30, 32, 40), rgb(8, 8, 12), (y - 1) as f32 / 12.0) } else { mix(rgb(70, 30, 25), rgb(30, 10, 10), (y - 1) as f32 / 12.0) };
+                let edge = ug && (x == 67 || y == 1 || x == 70 + (y - 1) / 3);
+                cv.set(x, y, if edge { rgb(90, 255, 120) } else if front { scale(wood, 1.35) } else { wood });
             }
         }
         for y in 3..11 {
@@ -483,7 +499,7 @@ fn table() -> &'static Vec<Rgb> {
                 cv.set(x, y, if (x + y) % 3 == 0 { rgb(220, 120, 130) } else { rgb(165, 20, 35) });
             }
         }
-        cv.rect(67, 13, 13, 1, rgb(0, 20, 8));
+        cv.rect(67, 13, 13, 1, if ug { rgb(6, 2, 12) } else { rgb(0, 20, 8) });
         cv.px
     })
 }
@@ -536,6 +552,8 @@ struct Table {
     bets: Vec<u32>,
     /// The hand being played.
     turn: Option<usize>,
+    /// The underground look (`casinoug`).
+    ug: bool,
 }
 
 impl Table {
@@ -596,13 +614,13 @@ impl Table {
     }
 
     fn draw(&self, cv: &mut Canvas, t: f32, purse: u32) {
-        cv.px.clone_from(table());
+        cv.px.clone_from(table(self.ug));
         cv.clear_labels();
         for p in self.piles.iter().filter(|p| t < p.gone) {
             let k = ease((t - p.t0) / p.dur);
             draw_pile(cv, p.amount, p.from.0 + (p.to.0 - p.from.0) * k, p.from.1 + (p.to.1 - p.from.1) * k);
         }
-        let back = card_image(None);
+        let back = if self.ug { crate::casinoug::green_back(card_image(None)) } else { card_image(None) };
         let mut draw = |p: &Placed| {
             let k = ease((t - p.t0) / p.dur);
             let (x, y) = (p.from.0 + (p.to.0 - p.from.0) * k, p.from.1 + (p.to.1 - p.from.1) * k);
@@ -625,7 +643,7 @@ impl Table {
                 draw(p);
             }
         }
-        let gold = rgb(235, 200, 110);
+        let gold = if self.ug { rgb(40, 230, 255) } else { rgb(235, 200, 110) };
         cv.label(30, 10, "BLACKJACK PAYS 3 TO 2", gold, None);
         // Totals of what's showing.
         let shown: Vec<Card> = self.dealer.iter().filter(|p| t >= p.face_at).map(|p| p.card).collect();
@@ -716,7 +734,7 @@ impl Session {
     async fn blackjack_table(&mut self, cfg: &Casino, purse: &mut Purse, st: &mut Stage) -> io::Result<()> {
         let mut shoe = Shoe::new(cfg.decks);
         let mut bet = cfg.min_bet.max(10.min(cfg.max_bet));
-        let mut tb = Table::default();
+        let mut tb = Table { ug: crate::casinoug::on(cfg), ..Default::default() };
         let hello = painted(&crate::editor::strip_colours(self.strings().get("BjHello")), [235, 200, 110]);
         self.stage_line(MSG_ROW, &hello, st.truecolor);
         loop {
@@ -750,7 +768,7 @@ impl Session {
                         p.dur = 0.35;
                     }
                     self.bj_settle(st, &tb, purse.chips).await?;
-                    tb = Table::default();
+                    tb = Table { ug: tb.ug, ..Default::default() };
                     if shoe.cards.len() < shoe.cut {
                         shoe = Shoe::new(cfg.decks);
                         let s = painted(&crate::editor::strip_colours(self.strings().get("BjShuffle")), [200, 200, 220]);
@@ -1068,6 +1086,24 @@ mod tests {
 
     fn c(rank: u8) -> Card {
         Card { rank, suit: 0 }
+    }
+
+    /// `ROOMS_OUT=dir cargo test --features full -- --ignored blackjack::tests::pictures`
+    /// writes the table in each look, for `tools/ansi2png.py`.
+    #[test]
+    #[ignore]
+    fn pictures() {
+        let Ok(dir) = std::env::var("ROOMS_OUT") else { return };
+        for (name, ug) in [("bj-classic", false), ("bj-underground", true)] {
+            let tb = Table { ug, ..Default::default() };
+            let mut cv = Canvas::new(W, H);
+            tb.draw(&mut cv, 1.0, 100);
+            blit_card(&mut cv, &card_image(Some(Card { rank: 1, suit: 0 })), 30.0, 2.0, 1.0, 0.0);
+            blit_card(&mut cv, &card_image(None), 42.0, 2.0, 1.0, 0.0);
+            blit_card(&mut cv, &card_image(Some(Card { rank: 13, suit: 1 })), 34.0, 24.0, 1.0, 0.0);
+            draw_pile(&mut cv, 25, 8.0, 38.0);
+            crate::casinoug::write_picture(&cv, &format!("{dir}/{name}.ans"));
+        }
     }
 
     #[test]

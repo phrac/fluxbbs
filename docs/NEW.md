@@ -471,7 +471,9 @@ All in [FEATURES](FEATURES.md#message-center).
   move to whoever won them; red dice tumble and bounce off the back
   wall. The tables play for a free stack of chips a day, and winnings
   pay out in file points and minutes. A free slot pull on the first
-  call of the day is a logon sequence step.
+  call of the day is a logon sequence step. A second look,
+  `underground` (`[casino] theme`): neon, skulls and crossbones,
+  floppies and viruses, the slot machine's fruit with them.
   ([FEATURES](FEATURES.md#casino))
 - Points around the board (`!P`): up votes pay a post's author, doors
   pay by the minute, callers tip each other (`$` in the reader), and a

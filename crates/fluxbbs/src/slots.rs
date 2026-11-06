@@ -26,7 +26,7 @@ use crate::config::{Prize, Slots};
 use crate::input::Key;
 use crate::session::Session;
 use crate::slotart::{
-    BAR, BELL, CHERRY, CIRCLE, Coin, INK, LEMON, NAMES, ORANGE, PLUM, ReelView, SEVEN, STOPS, STRIPS, Scene, W, bulb_spots, pos_of,
+    BAR, BELL, CHERRY, CIRCLE, Coin, LEMON, ORANGE, PLUM, ReelView, SEVEN, STOPS, STRIPS, Scene, W, bulb_spots, pos_of,
 };
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -55,8 +55,27 @@ const TIERS: [(Tier, &str, u32); 9] = [
     (Tier::OneCherry, "a cherry", 30),
 ];
 
-fn tier_name(t: Tier) -> &'static str {
-    TIERS.iter().find(|x| x.0 == t).map_or("", |x| x.1)
+/// The same lines in the underground look (`casinoug`).
+const UG_TIER_NAMES: [&str; 9] =
+    ["7 7 7", "0DAY 0DAY 0DAY", "three crossbones", "three bombs", "three viruses", "three floppies", "three skulls", "two skulls", "a skull"];
+
+fn tier_name(t: Tier, ug: bool) -> &'static str {
+    let i = TIERS.iter().position(|x| x.0 == t).unwrap_or(0);
+    if ug { UG_TIER_NAMES[i] } else { TIERS[i].1 }
+}
+
+/// A line's color, from its symbol's.
+fn tier_ink(t: Tier, ug: bool) -> [u8; 3] {
+    let sym = match t {
+        Tier::Jackpot => SEVEN,
+        Tier::Bars => BAR,
+        Tier::Bells => BELL,
+        Tier::Plums => PLUM,
+        Tier::Oranges => ORANGE,
+        Tier::Lemons => LEMON,
+        _ => CHERRY,
+    };
+    crate::slotart::ink(ug, sym)
 }
 
 fn prize(cfg: &Slots, t: Tier) -> Prize {
@@ -300,6 +319,11 @@ impl Session {
         }
     }
 
+    /// The casino's underground look?
+    fn slots_ug(&self) -> bool {
+        crate::casinoug::on(&self.state.config().casino)
+    }
+
     fn pulls_left(&self, cfg: &Slots) -> Option<u32> {
         (cfg.pulls_per_day > 0).then(|| cfg.pulls_per_day.saturating_sub(self.slots_today().pulls))
     }
@@ -330,8 +354,8 @@ impl Session {
             if let Err(e) = self.save_own_user() {
                 tracing::error!("slots: paying {}: {e}", self.user.handle);
             }
-            crate::points::record(&self.state, "slots", (self.user.id, &self.user.handle), p.points, "", tier_name(w));
-            tracing::info!("{}: slots: {} (+{} min, +{} points)", self.user.handle, tier_name(w), p.minutes, p.points);
+            crate::points::record(&self.state, "slots", (self.user.id, &self.user.handle), p.points, "", tier_name(w, self.slots_ug()));
+            tracing::info!("{}: slots: {} (+{} min, +{} points)", self.user.handle, tier_name(w, self.slots_ug()), p.minutes, p.points);
             if w == Tier::Jackpot {
                 let when = crate::clock::now().naive_local().format("%Y-%m-%d %H:%M");
                 let _ = self.state.sys.script_set("slots", "jackpot", Some(&format!("{when} {}", self.user.handle)));
@@ -375,7 +399,7 @@ impl Session {
             return self.say_line("SlotsFreeMore").await;
         }
         let st = self.stage_open();
-        let mut game = Game::new(st);
+        let mut game = Game::new(st, self.slots_ug());
         let result = self.slots_free_show(cfg, &mut game, &pull).await;
         self.stage_close();
         result
@@ -433,9 +457,10 @@ impl Session {
 
     /// "[ cherry | lemon | cherry ]  a cherry: +2 min", for plain text.
     fn slots_result_text(&self, cfg: &Slots, pull: &Pull) -> String {
-        let syms: Vec<&str> = (0..3).map(|i| NAMES[STRIPS[i][pull.stops[i]]]).collect();
+        let ug = self.slots_ug();
+        let syms: Vec<&str> = (0..3).map(|i| crate::slotart::names(ug)[STRIPS[i][pull.stops[i]]]).collect();
         let result = match pull.win {
-            Some(w) => format!("{}: {}", tier_name(w), self.prize_text(prize(cfg, w))),
+            Some(w) => format!("{}: {}", tier_name(w, ug), self.prize_text(prize(cfg, w))),
             None => crate::editor::strip_colours(self.strings().get(if pull.near { "SlotsNear" } else { "SlotsLose" })),
         };
         format!("[ {} | {} | {} ]  {result}", syms[0], syms[1], syms[2])
@@ -447,7 +472,7 @@ impl Session {
             return self.slots_plain(cfg).await;
         }
         let st = self.stage_open();
-        let mut game = Game::new(st);
+        let mut game = Game::new(st, self.slots_ug());
         let ticker = self.slots_ticker(cfg);
         let result = self.slots_loop(cfg, &mut game, &ticker).await;
         self.stage_close();
@@ -614,7 +639,7 @@ impl Session {
             return Ok(line);
         };
         let p = prize(cfg, win);
-        let name = tier_name(win).to_uppercase();
+        let name = tier_name(win, self.slots_ug()).to_uppercase();
         let text = if win == Tier::Jackpot {
             format!("*** J A C K P O T ***   {name}   {}", self.prize_text(p))
         } else {
@@ -760,17 +785,11 @@ impl Session {
     /// What each line pays, round and round under the reels.
     fn slots_ticker(&self, cfg: &Slots) -> Vec<(char, Rgb)> {
         let dim = [150, 120, 170];
+        let ug = self.slots_ug();
         let mut t = Vec::new();
-        for (tier, name, _) in TIERS {
-            let ink = match tier {
-                Tier::Jackpot => INK[SEVEN],
-                Tier::Bars => INK[BAR],
-                Tier::Bells => INK[BELL],
-                Tier::Plums => INK[PLUM],
-                Tier::Oranges => INK[ORANGE],
-                Tier::Lemons => INK[LEMON],
-                _ => INK[CHERRY],
-            };
+        for (tier, _, _) in TIERS {
+            let ink = tier_ink(tier, ug);
+            let name = tier_name(tier, ug);
             t.extend(painted(name, ink));
             t.extend(painted("  ", dim));
             t.extend(painted(&self.prize_text(prize(cfg, tier)), [255, 215, 110]));
@@ -799,16 +818,10 @@ impl Session {
         let head = self.strings().get("SlotsPaysHead").to_string();
         lines.push((painted(&crate::editor::strip_colours(&head), [255, 255, 255]), 0));
         lines.push((Vec::new(), 0));
-        for (tier, name, _) in TIERS {
-            let ink = match tier {
-                Tier::Jackpot => INK[SEVEN],
-                Tier::Bars => INK[BAR],
-                Tier::Bells => INK[BELL],
-                Tier::Plums => INK[PLUM],
-                Tier::Oranges => INK[ORANGE],
-                Tier::Lemons => INK[LEMON],
-                _ => INK[CHERRY],
-            };
+        let ug = self.slots_ug();
+        for (tier, _, _) in TIERS {
+            let ink = tier_ink(tier, ug);
+            let name = tier_name(tier, ug);
             let what = match tier {
                 Tier::TwoCherries => format!("{name} (reels 1, 2)"),
                 Tier::OneCherry => format!("{name} (reel 1)"),
@@ -865,7 +878,9 @@ impl Session {
                     self.newline();
                 }
                 "P" => {
-                    for (tier, name, _) in TIERS {
+                    let ug = self.slots_ug();
+                    for (tier, _, _) in TIERS {
+                        let name = tier_name(tier, ug);
                         self.write(&format!("  {name:<16} {}", self.prize_text(prize(cfg, tier))));
                         self.newline();
                     }
@@ -884,9 +899,9 @@ struct Game {
 }
 
 impl Game {
-    fn new(st: Stage) -> Game {
+    fn new(st: Stage, ug: bool) -> Game {
         let mut rng = rand::rng();
-        let mut scene = Scene { bulbs: vec![false; bulb_spots().len()], glint: -1.0, ..Default::default() };
+        let mut scene = Scene { bulbs: vec![false; bulb_spots().len()], glint: -1.0, ug, ..Default::default() };
         for r in &mut scene.reels {
             r.pos = pos_of(rng.random_range(0..STOPS));
         }

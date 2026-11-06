@@ -562,6 +562,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('O', "Carrier dials a night", 4, "Carrier Lost (AP): dials a caller has a night (0 = no limit).", Num(|c| c.carrier.dials_per_day as u64, |c, v| c.carrier.dials_per_day = v as u32, 0, 9999)),
             set('P', "Carrier bytes a point", 6, "Carrier Lost: bytes fenced per file point (and minute) when a caller cashes out.", Num(|c| c.carrier.bytes_per_point as u64, |c, v| c.carrier.bytes_per_point = v as u32, 1, 1_000_000)),
             set('Q', "Carrier gear cost", 6, "Carrier Lost: bytes a gear upgrade costs, times the level it goes to.", Num(|c| c.carrier.gear_cost as u64, |c, v| c.carrier.gear_cost = v as u32, 0, 1_000_000)),
+            set('R', "Casino look", 11, "How the casino looks: classic (red carpet, green felt) or underground (neon, skulls, floppies, viruses).", Choice(|c| usize::from(c.casino.theme.eq_ignore_ascii_case("underground")), |c, i| c.casino.theme = ["classic", "underground"][i].into(), &["classic", "underground"])),
         ]),
         // New: what's on. Off, a part refuses its commands and leaves menus.
         ("Features", false, vec![

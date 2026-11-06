@@ -215,8 +215,8 @@ fn sign_pixels() -> &'static Vec<(i32, i32, usize)> {
     })
 }
 
-fn draw_lobby(cv: &mut Canvas, t: f32, pick: usize) {
-    cv.px.clone_from(&lobby_room().px);
+fn draw_lobby(cv: &mut Canvas, t: f32, pick: usize, ug: bool) {
+    cv.px.clone_from(&if ug { crate::casinoug::lobby_room() } else { lobby_room() }.px);
     cv.clear_labels();
     // The spotlight on the game picked.
     let cx = GAMES[pick].2;
@@ -226,10 +226,48 @@ fn draw_lobby(cv: &mut Canvas, t: f32, pick: usize) {
             let d = ((x as f32 - cx).abs() - spread).max(0.0);
             let k = (1.0 - d / 3.0).clamp(0.0, 1.0) * if y < 33 { 0.13 } else { 0.25 };
             if k > 0.0 {
-                cv.blend(x, y, rgb(255, 230, 190), k);
+                cv.blend(x, y, if ug { rgb(190, 255, 230) } else { rgb(255, 230, 190) }, k);
             }
         }
     }
+    if ug {
+        crate::casinoug::draw_lobby(cv, t, sign_pixels());
+    } else {
+        draw_lobby_sign(cv, t);
+    }
+    if ug {
+        crate::casinoug::slot_machine(cv, GAMES[1].2, t);
+        crate::casinoug::poker_machine(cv, GAMES[2].2, t);
+    } else {
+        draw_slot_machine(cv, GAMES[1].2, t);
+        draw_poker_machine(cv, GAMES[2].2, t);
+    }
+    draw_bj_table(cv, GAMES[3].2, ug);
+    draw_wheel_table(cv, GAMES[4].2, t, ug);
+    draw_dice_table(cv, GAMES[5].2, ug);
+    for (i, &(key, name, x)) in GAMES.iter().enumerate() {
+        let s = format!("{} {name}", key.to_ascii_lowercase());
+        let (fg, bg) = match (i == pick, ug) {
+            (true, true) => {
+                let (fg, bg) = crate::casinoug::pick_colors();
+                (fg, Some(bg))
+            }
+            (true, false) => (rgb(255, 255, 255), Some(rgb(150, 40, 120))),
+            (false, true) => (crate::casinoug::label_color(), None),
+            (false, false) => (rgb(170, 140, 170), None),
+        };
+        // The bar and the club are through doors at the bottom.
+        let (col, row) = match name {
+            "bar" => (1, 21),
+            "players club" => (W - s.len() - 3, 21),
+            _ => ((x as usize).saturating_sub(s.len() / 2 + 1), 20),
+        };
+        cv.label(col, row, &format!(" {s} "), fg, bg);
+    }
+}
+
+/// The classic sign: pink tubes and the bulbs chasing under them.
+fn draw_lobby_sign(cv: &mut Canvas, t: f32) {
     // The sign: pink tubes with a glow, its S flickering now and then.
     let flicker = {
         let beat = (t * 7.0) as i32;
@@ -264,31 +302,23 @@ fn draw_lobby(cv: &mut Canvas, t: f32, pick: usize) {
             cv.blend(x, 19, rgb(255, 200, 100), 0.35);
         }
     }
-    draw_slot_machine(cv, GAMES[1].2, t);
-    draw_poker_machine(cv, GAMES[2].2, t);
-    draw_bj_table(cv, GAMES[3].2);
-    draw_wheel_table(cv, GAMES[4].2, t);
-    draw_dice_table(cv, GAMES[5].2);
-    for (i, &(key, name, x)) in GAMES.iter().enumerate() {
-        let s = format!("{} {name}", key.to_ascii_lowercase());
-        let (fg, bg) = if i == pick { (rgb(255, 255, 255), Some(rgb(150, 40, 120))) } else { (rgb(170, 140, 170), None) };
-        // The bar and the club are through doors at the bottom.
-        let (col, row) = match name {
-            "bar" => (1, 21),
-            "players club" => (W - s.len() - 3, 21),
-            _ => ((x as usize).saturating_sub(s.len() / 2 + 1), 20),
-        };
-        cv.label(col, row, &format!(" {s} "), fg, bg);
-    }
 }
 
 /// A little roulette wheel, turning, the ball going round it.
-fn draw_wheel_table(cv: &mut Canvas, cx: f32, t: f32) {
+fn draw_wheel_table(cv: &mut Canvas, cx: f32, t: f32, ug: bool) {
     for y in 26..40 {
         for x in (cx - 11.0) as i32..=(cx + 11.0) as i32 {
             let (u, v) = ((x as f32 - cx) / 11.0, (y as f32 - 33.0) / 6.0);
-            if u * u + v * v <= 1.0 {
-                cv.set(x, y, mix(rgb(35, 130, 70), rgb(12, 60, 30), smooth(0.0, 1.0, u * u + v * v)));
+            let d = u * u + v * v;
+            if d <= 1.0 {
+                let k = if !ug {
+                    mix(rgb(35, 130, 70), rgb(12, 60, 30), smooth(0.0, 1.0, d))
+                } else if d > 0.86 {
+                    crate::casinoug::rail(0.0)
+                } else {
+                    crate::casinoug::felt(d)
+                };
+                cv.set(x, y, k);
             }
         }
     }
@@ -385,7 +415,7 @@ fn draw_poker_machine(cv: &mut Canvas, cx: f32, t: f32) {
 }
 
 /// A half-moon of felt with two cards on it: blackjack.
-fn draw_bj_table(cv: &mut Canvas, cx: f32) {
+fn draw_bj_table(cv: &mut Canvas, cx: f32, ug: bool) {
     for y in 32..40 {
         for x in (cx - 14.0) as i32..=(cx + 14.0) as i32 {
             let u = (x as f32 - cx) / 14.0;
@@ -393,7 +423,13 @@ fn draw_bj_table(cv: &mut Canvas, cx: f32) {
             let d = u * u + v * v;
             if d <= 1.0 {
                 let rail = d > 0.78;
-                cv.set(x, y, if rail { mix(rgb(120, 60, 25), rgb(60, 25, 10), v) } else { mix(rgb(35, 130, 70), rgb(15, 70, 35), v) });
+                let k = match (rail, ug) {
+                    (true, false) => mix(rgb(120, 60, 25), rgb(60, 25, 10), v),
+                    (false, false) => mix(rgb(35, 130, 70), rgb(15, 70, 35), v),
+                    (true, true) => crate::casinoug::rail(v),
+                    (false, true) => crate::casinoug::felt(v),
+                };
+                cv.set(x, y, k);
             }
         }
     }
@@ -404,12 +440,20 @@ fn draw_bj_table(cv: &mut Canvas, cx: f32) {
 }
 
 /// Two red dice on felt, showing seven.
-fn draw_dice_table(cv: &mut Canvas, cx: f32) {
+fn draw_dice_table(cv: &mut Canvas, cx: f32, ug: bool) {
     for y in 30..40 {
         for x in (cx - 10.0) as i32..=(cx + 10.0) as i32 {
             let (u, v) = ((x as f32 - cx) / 10.0, (y as f32 - 35.0) / 5.0);
-            if u * u + v * v <= 1.0 {
-                cv.set(x, y, mix(rgb(35, 130, 70), rgb(12, 60, 30), smooth(0.0, 1.0, u * u + v * v)));
+            let d = u * u + v * v;
+            if d <= 1.0 {
+                let k = if !ug {
+                    mix(rgb(35, 130, 70), rgb(12, 60, 30), smooth(0.0, 1.0, d))
+                } else if d > 0.84 {
+                    crate::casinoug::rail(0.0)
+                } else {
+                    crate::casinoug::felt(d)
+                };
+                cv.set(x, y, k);
             }
         }
     }
@@ -444,7 +488,7 @@ impl Session {
             let since = Instant::now();
             let go = loop {
                 let t = st.t();
-                draw_lobby(&mut st.cv, t, pick);
+                draw_lobby(&mut st.cv, t, pick, crate::casinoug::on(&cfg));
                 self.stage_show(&mut st, true).await?;
                 self.flush().await?;
                 if !self.key_waiting().await? {
@@ -581,6 +625,23 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `LOBBY_OUT=lobby.ans LOBBY_THEME=underground cargo test --features full -- --ignored casino::tests::lobby`
+    /// draws the lobby (a frame at `LOBBY_T` seconds) for `tools/ansi2png.py`.
+    #[test]
+    #[ignore]
+    fn lobby() {
+        let Ok(out) = std::env::var("LOBBY_OUT") else { return };
+        let t: f32 = std::env::var("LOBBY_T").ok().and_then(|t| t.parse().ok()).unwrap_or(1.0);
+        let ug = std::env::var("LOBBY_THEME").is_ok_and(|v| v == "underground");
+        let mut cv = Canvas::new(W, H);
+        draw_lobby(&mut cv, t, 1, ug);
+        let mut enc = crate::pixels::Encoder::new(true, W, H);
+        let mut bytes = b"\x1b[2J".to_vec();
+        bytes.extend(enc.frame(&cv, 1));
+        bytes.extend(b"\x1b[0m\x1b[24;1H");
+        std::fs::write(out, bytes).unwrap();
+    }
 
     #[test]
     fn cashing_out_goes_in_the_ledger() {

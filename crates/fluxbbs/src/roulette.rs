@@ -154,25 +154,29 @@ fn spot_at(gx: i32, gy: i32) -> Bet {
 }
 
 /// The felt and the layout printed on it.
-fn felt() -> &'static Canvas {
+/// The table, in the classic look or the underground's (purple felt,
+/// the layout lined in cyan neon, an acid green zero).
+fn felt(ug: bool) -> &'static Canvas {
     static FELT: OnceLock<Canvas> = OnceLock::new();
-    FELT.get_or_init(|| {
+    static UG: OnceLock<Canvas> = OnceLock::new();
+    (if ug { &UG } else { &FELT }).get_or_init(|| {
         let mut cv = Canvas::new(W, H);
+        let (near, far) = if ug { (rgb(70, 26, 110), rgb(12, 4, 24)) } else { (rgb(32, 125, 66), rgb(6, 40, 22)) };
         for y in 0..H as i32 {
             for x in 0..W as i32 {
                 let d = (((x as f32 - 40.0) / 50.0).powi(2) + ((y as f32 - 26.0) / 30.0).powi(2)).sqrt();
-                let c = mix(rgb(32, 125, 66), rgb(6, 40, 22), smooth(0.2, 1.2, d));
+                let c = mix(near, far, smooth(0.2, 1.2, d));
                 cv.set(x, y, scale(c, 0.96 + 0.08 * hash(x, y)));
             }
         }
-        let gold = rgb(220, 185, 95);
+        let gold = if ug { rgb(40, 230, 255) } else { rgb(220, 185, 95) };
         let mut spots: Vec<Bet> = (0..=36).map(Bet::Number).collect();
         spots.extend([Bet::Column(0), Bet::Column(1), Bet::Column(2), Bet::Dozen(0), Bet::Dozen(1), Bet::Dozen(2)]);
         spots.extend([Bet::Low, Bet::Even, Bet::Red, Bet::Black, Bet::Odd, Bet::High]);
         for b in spots {
             let (x, y, w, h) = spot_box(b);
             let fill = match b {
-                Bet::Number(0) => Some(rgb(25, 130, 65)),
+                Bet::Number(0) => Some(if ug { rgb(40, 200, 90) } else { rgb(25, 130, 65) }),
                 Bet::Number(n) if red(n) => Some(rgb(180, 22, 34)),
                 Bet::Number(_) => Some(rgb(28, 26, 32)),
                 Bet::Red => Some(rgb(180, 22, 34)),
@@ -241,7 +245,7 @@ fn pocket_angle(i: usize) -> f32 {
     (i as f32 + 0.5) / 37.0 * 2.0 * PI
 }
 
-fn wheel_color(u: f32, v: f32, turn: f32) -> Option<Rgb> {
+fn wheel_color(u: f32, v: f32, turn: f32, ug: bool) -> Option<Rgb> {
     let r = (u * u + v * v).sqrt();
     if r > 1.0 {
         return None;
@@ -249,7 +253,15 @@ fn wheel_color(u: f32, v: f32, turn: f32) -> Option<Rgb> {
     let a = v.atan2(u);
     // Light from above the table: the far side of the bowl catches it.
     let lit = 1.0 - 0.25 * v;
-    let c = if r > 0.93 {
+    let c = if r > 0.93 && ug {
+        mix(rgb(40, 230, 255), rgb(10, 60, 80), (r - 0.93) / 0.07) // a neon rim
+    } else if r > 0.8 && ug {
+        let shine = (-((a + 1.9).rem_euclid(2.0 * PI) - PI).powi(2) * 2.0).exp();
+        mix(rgb(16, 16, 22), rgb(120, 120, 140), 0.5 * shine)
+    } else if r > 0.17 && r <= 0.5 && ug {
+        let arm = (2.0 * (a - turn)).sin().abs() < 0.12 && r < 0.42;
+        if arm { rgb(90, 255, 120) } else { mix(rgb(70, 72, 86), rgb(30, 30, 40), r / 0.5) }
+    } else if r > 0.93 {
         mix(rgb(150, 85, 40), rgb(70, 32, 12), (r - 0.93) / 0.07) // the rim
     } else if r > 0.8 {
         // The track, polished: a shine along the far side.
@@ -264,6 +276,7 @@ fn wheel_color(u: f32, v: f32, turn: f32) -> Option<Rgb> {
             rgb(150, 150, 160) // a fret
         } else {
             match WHEEL[i] {
+                0 if ug => rgb(40, 220, 100),
                 0 => rgb(25, 150, 70),
                 n if red(n) => rgb(200, 25, 35),
                 _ => rgb(25, 22, 28),
@@ -283,7 +296,7 @@ fn wheel_color(u: f32, v: f32, turn: f32) -> Option<Rgb> {
 
 /// The wheel, turned `turn`, and the ball at `ball` (an angle round the
 /// wheel and how far out, 0 to 1), if it's on.
-pub fn draw_wheel(cv: &mut Canvas, w: Wheel, turn: f32, ball: Option<(f32, f32)>) {
+pub fn draw_wheel(cv: &mut Canvas, w: Wheel, turn: f32, ball: Option<(f32, f32)>, ug: bool) {
     // Its shadow on the felt first.
     for y in (w.cy - w.ry - 1.0) as i32..=(w.cy + w.ry + 2.0) as i32 {
         for x in (w.cx - w.rx - 1.0) as i32..=(w.cx + w.rx + 2.0) as i32 {
@@ -300,7 +313,7 @@ pub fn draw_wheel(cv: &mut Canvas, w: Wheel, turn: f32, ball: Option<(f32, f32)>
             for j in 0..2 {
                 for i in 0..2 {
                     let (u, v) = ((x as f32 + 0.25 + i as f32 * 0.5 - w.cx) / w.rx, (y as f32 + 0.25 + j as f32 * 0.5 - w.cy) / w.ry);
-                    if let Some(c) = wheel_color(u, v, turn) {
+                    if let Some(c) = wheel_color(u, v, turn, ug) {
                         acc = [acc[0] + c[0], acc[1] + c[1], acc[2] + c[2]];
                         n += 1.0;
                     }
@@ -388,6 +401,8 @@ impl Spin {
 // ---- the table on screen -----------------------------------------------------
 
 struct Table {
+    /// The underground look (`casinoug`).
+    ug: bool,
     bets: Vec<(Bet, u32)>,
     cursor: (i32, i32),
     turn: f32,
@@ -404,9 +419,10 @@ impl Table {
     }
 
     fn draw(&self, cv: &mut Canvas, t: f32) {
-        cv.px.clone_from(&felt().px);
+        let (chip, hi) = if self.ug { (rgb(255, 50, 200), rgb(90, 255, 120)) } else { (rgb(240, 200, 80), rgb(255, 220, 120)) };
+        cv.px.clone_from(&felt(self.ug).px);
         cv.clear_labels();
-        draw_wheel(cv, TABLE_WHEEL, self.turn, self.ball);
+        draw_wheel(cv, TABLE_WHEEL, self.turn, self.ball, self.ug);
         // The number up, on the turret.
         if let (Some(n), None) = (self.lit, self.ball.filter(|_| false)) {
             let bg = match n {
@@ -427,13 +443,13 @@ impl Table {
             if won {
                 for yy in y + 1..y + h {
                     for xx in x + 1..x + w {
-                        cv.blend(xx, yy, rgb(255, 220, 120), 0.35 + 0.3 * pulse);
+                        cv.blend(xx, yy, hi, 0.35 + 0.3 * pulse);
                     }
                 }
             }
             if b == cur {
                 // The cursor: a bright frame.
-                let c = mix(rgb(255, 255, 255), rgb(255, 210, 90), pulse);
+                let c = mix(rgb(255, 255, 255), hi, pulse);
                 for xx in x..=x + w {
                     cv.set(xx, y, c);
                     cv.set(xx, y + h, c);
@@ -451,7 +467,7 @@ impl Table {
                 Bet::Number(0) => {
                     cv.label(col + 1, row + 2, "0", fg, None);
                     if staked > 0 {
-                        cv.label(col, row + 4, &format!("{staked:<3}"), rgb(20, 20, 20), Some(rgb(240, 200, 80)));
+                        cv.label(col, row + 4, &format!("{staked:<3}"), rgb(20, 20, 20), Some(chip));
                     }
                 }
                 Bet::Number(_) | Bet::Column(_) => {
@@ -460,7 +476,7 @@ impl Table {
                     let under = cv.get(x + 2, y + 2);
                     cv.label(col, row + 1, &label, fg, under);
                     if staked > 0 {
-                        cv.label(col, row, &format!("{staked:<3}"), rgb(20, 20, 20), Some(rgb(240, 200, 80)));
+                        cv.label(col, row, &format!("{staked:<3}"), rgb(20, 20, 20), Some(chip));
                     }
                 }
                 _ => {
@@ -471,7 +487,7 @@ impl Table {
                     cv.label(col + pad, row, &text, fg, under);
                     if staked > 0 {
                         let s = staked.to_string();
-                        cv.label(col + pad + text.chars().count() - s.len(), row, &s, rgb(20, 20, 20), Some(rgb(240, 200, 80)));
+                        cv.label(col + pad + text.chars().count() - s.len(), row, &s, rgb(20, 20, 20), Some(chip));
                     }
                 }
             }
@@ -529,7 +545,7 @@ impl Session {
     }
 
     async fn roulette_table(&mut self, cfg: &Casino, purse: &mut Purse, st: &mut Stage) -> io::Result<()> {
-        let mut tb = Table { bets: Vec::new(), cursor: (7, 4), turn: 0.4, ball: None, history: Vec::new(), lit: None };
+        let mut tb = Table { ug: crate::casinoug::on(cfg), bets: Vec::new(), cursor: (7, 4), turn: 0.4, ball: None, history: Vec::new(), lit: None };
         let mut unit = cfg.min_bet;
         let hello = painted(&crate::editor::strip_colours(self.strings().get("RouletteHello")), [235, 200, 110]);
         self.stage_line(MSG_ROW, &hello, st.truecolor);
@@ -723,6 +739,19 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ROOMS_OUT=dir cargo test --features full -- --ignored roulette::tests::pictures`
+    #[test]
+    #[ignore]
+    fn pictures() {
+        let Ok(dir) = std::env::var("ROOMS_OUT") else { return };
+        for (name, ug) in [("roulette-classic", false), ("roulette-underground", true)] {
+            let tb = Table { ug, bets: vec![(Bet::Red, 10), (Bet::Number(17), 5)], cursor: (7, 4), turn: 0.4, ball: Some((1.0, 0.86)), history: vec![17, 0, 32], lit: Some(17) };
+            let mut cv = Canvas::new(W, H);
+            tb.draw(&mut cv, 1.0);
+            crate::casinoug::write_picture(&cv, &format!("{dir}/{name}.ans"));
+        }
+    }
 
     #[test]
     fn bets_pay_as_the_table_says() {

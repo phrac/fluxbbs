@@ -1129,6 +1129,15 @@ day's. Winnings not cashed in when the day ends are paid the next time
 you come in. Down, what's left is all you have till tomorrow, so nobody
 loses anything real. Bets run from `min_bet` to `max_bet` (5 to 50).
 
+**The look.** `theme` (`*C`, Casino and Carrier Lost, R) is `classic`
+(red carpet, green felt, gold and wood) or `underground`: a circuit
+board for a wall and a neon grid for a floor, the sign in acid green
+between neon skulls and crossbones, purple felt under cyan neon rails,
+a green CRT for video poker, a dive bar of neon bottles, and on the
+slot machine skulls, floppies, viruses, bombs, crossbones and 0DAY
+bars where the fruit and bells were (the same odds and pays, the lines
+named for them: "three skulls" pays as three cherries did).
+
 ### Video poker
 
 - **The machine.** A blue screen in a cabinet: the pay table across the

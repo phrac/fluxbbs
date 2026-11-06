@@ -183,13 +183,30 @@ fn draw_glass(cv: &mut Canvas, d: &Drink, cx: f32, foot: i32, level: f32, t: f32
 
 /// The room behind the bar: paneling, the mirror, the shelves of
 /// bottles, the counter and the stools.
-fn bar_room() -> &'static Canvas {
+/// The bar without what moves. The underground's (`casinoug`): a black
+/// wall of circuitry, neon bottles on shelves edged in green, a black
+/// glass counter with a pink tube along it, a cyan rail.
+fn bar_room(ug: bool) -> &'static Canvas {
     static ROOM: OnceLock<Canvas> = OnceLock::new();
-    ROOM.get_or_init(|| {
+    static UG: OnceLock<Canvas> = OnceLock::new();
+    (if ug { &UG } else { &ROOM }).get_or_init(|| {
         let mut cv = Canvas::new(W, H);
         for y in 0..H as i32 {
             for x in 0..W as i32 {
-                let c = if y < 30 {
+                let c = if ug && y < 30 {
+                    let mut c = crate::casinoug::lobby_room().get(x, y).unwrap_or([0.0; 3]);
+                    if (9..23).contains(&y) {
+                        let streak = (((x + y) as f32) * 0.25).sin() * 0.5 + 0.5;
+                        c = mix(rgb(6, 8, 14), rgb(20, 40, 60), 0.2 + 0.25 * streak * (1.0 - (y - 9) as f32 / 14.0));
+                    }
+                    c
+                } else if ug && y < 33 {
+                    if y == 30 { rgb(255, 50, 200) } else { mix(rgb(30, 30, 40), rgb(10, 10, 14), (y - 30) as f32 / 3.0) }
+                } else if ug {
+                    let panel = (x % 10 == 0) || y == 34 || y == 42;
+                    let c = mix(rgb(20, 18, 30), rgb(6, 5, 10), (y - 33) as f32 / 11.0);
+                    if panel { mix(c, rgb(255, 50, 200), 0.15) } else { c }
+                } else if y < 30 {
                     // Dark wood planks, the mirror behind the bottles.
                     let plank = mix(rgb(70, 36, 20), rgb(45, 22, 12), hash(x / 4, 0));
                     let grain = 0.92 + 0.12 * hash(x, y / 3);
@@ -219,13 +236,13 @@ fn bar_room() -> &'static Canvas {
         }
         // Brass foot rail.
         for x in 0..W as i32 {
-            cv.set(x, 40, rgb(210, 170, 70));
+            cv.set(x, 40, if ug { rgb(40, 230, 255) } else { rgb(210, 170, 70) });
         }
         // Shelves and bottles.
         for shelf in [15, 22] {
             for x in 2..W as i32 - 2 {
-                cv.set(x, shelf, rgb(150, 95, 50));
-                cv.set(x, shelf + 1, rgb(60, 30, 15));
+                cv.set(x, shelf, if ug { rgb(90, 255, 120) } else { rgb(150, 95, 50) });
+                cv.set(x, shelf + 1, if ug { rgb(10, 40, 20) } else { rgb(60, 30, 15) });
             }
             let mut x = 3;
             let mut k = shelf;
@@ -234,7 +251,11 @@ fn bar_room() -> &'static Canvas {
                     x = 49;
                     continue;
                 }
-                let colors = [rgb(40, 120, 50), rgb(170, 90, 20), rgb(180, 210, 220), rgb(150, 20, 30), rgb(40, 60, 150), rgb(220, 190, 80)];
+                let colors = if ug {
+                    [rgb(90, 255, 120), rgb(255, 50, 200), rgb(40, 230, 255), rgb(170, 80, 255), rgb(255, 220, 60), rgb(255, 90, 60)]
+                } else {
+                    [rgb(40, 120, 50), rgb(170, 90, 20), rgb(180, 210, 220), rgb(150, 20, 30), rgb(40, 60, 150), rgb(220, 190, 80)]
+                };
                 let c = colors[(hash(x, k) * 6.0) as usize % 6];
                 let tall = 4 + (hash(x, k + 1) * 3.0) as i32;
                 let wide = 2 + (hash(x, k + 2) * 2.0) as i32;
@@ -265,9 +286,9 @@ fn bar_room() -> &'static Canvas {
                 cv.set(sx, y, rgb(180, 180, 190));
             }
             for dx in -3i32..=3 {
-                cv.set(sx + dx, 35, rgb(170, 25, 40));
+                cv.set(sx + dx, 35, if ug { rgb(150, 20, 110) } else { rgb(170, 25, 40) });
                 if dx.abs() < 3 {
-                    cv.set(sx + dx, 34, rgb(210, 50, 60));
+                    cv.set(sx + dx, 34, if ug { rgb(255, 50, 200) } else { rgb(210, 50, 60) });
                 }
             }
         }
@@ -290,11 +311,25 @@ struct Bar {
     smoke: Option<f32>,
     /// Drinks today: the room sways after a few.
     drinks: u32,
+    /// The underground look (`casinoug`).
+    ug: bool,
 }
 
 fn draw_bar(cv: &mut Canvas, t: f32, bar: &Bar, names: &[String]) {
-    cv.px.clone_from(&bar_room().px);
+    cv.px.clone_from(&bar_room(bar.ug).px);
     cv.clear_labels();
+    if bar.ug {
+        // The skull and crossbones on the front of the bar, a virus
+        // beside it, a floppy left on the counter.
+        crate::casinoug::jolly(cv, 34, 33, if hash((t * 5.0) as i32, 9) < 0.06 { 0.3 } else { 1.0 }, false);
+        crate::casinoug::virus(cv, 55, 34, 0.5 + 0.5 * (t * 4.0).sin());
+        crate::casinoug::floppy(cv, 21, 23, rgb(40, 70, 210), 1.0);
+    }
+    let (tube, haze, off) = if bar.ug {
+        ((rgb(255, 120, 225), rgb(255, 235, 250)), rgb(255, 50, 200), rgb(90, 20, 70))
+    } else {
+        ((rgb(120, 235, 255), rgb(235, 255, 255)), rgb(80, 220, 255), rgb(30, 70, 90))
+    };
     // The neon sign.
     let flick = hash((t * 6.0) as i32, 3) < 0.05;
     let x0 = (W as i32 - crate::pixels::text_width("BAR")) / 2;
@@ -305,7 +340,7 @@ fn draw_bar(cv: &mut Canvas, t: f32, bar: &Bar, names: &[String]) {
         for x in 0..W as i32 {
             if lit(x, y) && !flick {
                 for (dx, dy) in [(-1, 0), (1, 0), (0, -1), (0, 1), (-1, -1), (1, 1), (-1, 1), (1, -1)] {
-                    cv.blend(x + dx, y + dy + 1, rgb(80, 220, 255), 0.18);
+                    cv.blend(x + dx, y + dy + 1, haze, 0.18);
                 }
             }
         }
@@ -313,7 +348,7 @@ fn draw_bar(cv: &mut Canvas, t: f32, bar: &Bar, names: &[String]) {
     for y in 0..7 {
         for x in 0..W as i32 {
             if lit(x, y) {
-                let c = if flick { rgb(30, 70, 90) } else { mix(rgb(120, 235, 255), rgb(235, 255, 255), 0.4 + 0.2 * (t * 2.0).sin()) };
+                let c = if flick { off } else { mix(tube.0, tube.1, 0.4 + 0.2 * (t * 2.0).sin()) };
                 cv.set(x, y + 1, c);
             }
         }
@@ -322,10 +357,12 @@ fn draw_bar(cv: &mut Canvas, t: f32, bar: &Bar, names: &[String]) {
     for y in 1..13 {
         for x in 2..25 {
             let frame = x == 2 || x == 24 || y == 1 || y == 12;
-            cv.set(x, y, if frame { rgb(120, 70, 30) } else { mix(rgb(35, 40, 38), rgb(25, 28, 27), hash(x, y)) });
+            // The underground's menu is a terminal's screen.
+            let (wood, slate) = if bar.ug { (rgb(60, 62, 76), (rgb(4, 22, 8), rgb(2, 14, 5))) } else { (rgb(120, 70, 30), (rgb(35, 40, 38), rgb(25, 28, 27))) };
+            cv.set(x, y, if frame { wood } else { mix(slate.0, slate.1, hash(x, y)) });
         }
     }
-    cv.label(4, 1, "on the house", rgb(250, 230, 150), None);
+    cv.label(4, 1, "on the house", if bar.ug { rgb(90, 255, 120) } else { rgb(250, 230, 150) }, None);
     for (i, n) in names.iter().enumerate().take(4) {
         cv.label(3, 2 + i, &format!("{} {n}", i + 1), rgb(230, 230, 220), None);
     }
@@ -450,13 +487,23 @@ const HOST: [&str; 18] = [
     "...vvvvvvv...",
 ];
 
-fn club_room() -> &'static Canvas {
+/// The players club without what moves. The underground's: a black
+/// wall of circuitry between pink neon rails, a black glass desk edged in
+/// cyan, its name in acid green.
+fn club_room(ug: bool) -> &'static Canvas {
     static ROOM: OnceLock<Canvas> = OnceLock::new();
-    ROOM.get_or_init(|| {
+    static UG: OnceLock<Canvas> = OnceLock::new();
+    (if ug { &UG } else { &ROOM }).get_or_init(|| {
         let mut cv = Canvas::new(W, H);
         for y in 0..H as i32 {
             for x in 0..W as i32 {
-                let c = if y < 30 {
+                let c = if ug && y < 30 {
+                    let c = crate::casinoug::lobby_room().get(x, y).unwrap_or([0.0; 3]);
+                    if y == 11 || y == 29 { rgb(255, 50, 200) } else { c }
+                } else if ug {
+                    let c = mix(rgb(24, 24, 34), rgb(6, 6, 10), (y - 30) as f32 / 14.0);
+                    if y == 30 { rgb(40, 230, 255) } else { c }
+                } else if y < 30 {
                     // Blue velvet, a gold rail.
                     let fold = 0.85 + 0.15 * ((x as f32) * 0.8).sin();
                     let c = scale(mix(rgb(30, 35, 95), rgb(12, 14, 45), y as f32 / 30.0), fold);
@@ -471,20 +518,21 @@ fn club_room() -> &'static Canvas {
             }
         }
         let x0 = (W as i32 - crate::pixels::text_width("PLAYERS CLUB")) / 2;
-        cv.print(x0, 2, "PLAYERS CLUB", 1, |u, v| mix(rgb(255, 240, 170), rgb(200, 140, 40), v * 0.8 + u * 0.1));
+        let (hi, lo) = if ug { (rgb(220, 255, 225), rgb(60, 230, 110)) } else { (rgb(255, 240, 170), rgb(200, 140, 40)) };
+        cv.print(x0, 2, "PLAYERS CLUB", 1, |u, v| mix(hi, lo, v * 0.8 + u * 0.1));
         // The rope and its posts.
         for px in [3, 76] {
             for y in 20..30 {
-                cv.set(px, y, rgb(220, 180, 80));
+                cv.set(px, y, if ug { rgb(40, 230, 255) } else { rgb(220, 180, 80) });
             }
-            cv.set(px, 19, rgb(255, 230, 140));
+            cv.set(px, 19, if ug { rgb(200, 250, 255) } else { rgb(255, 230, 140) });
         }
         for x in 3..77 {
             if (12..68).contains(&x) {
                 continue;
             }
             let sag = if x < 40 { ((x - 3) as f32 / 9.0 * PI).sin() } else { ((x - 68) as f32 / 8.0 * PI).sin() };
-            cv.set(x, 21 + (sag * 3.0) as i32, rgb(170, 20, 40));
+            cv.set(x, 21 + (sag * 3.0) as i32, if ug { rgb(255, 50, 200) } else { rgb(170, 20, 40) });
         }
         cv.clear_labels();
         cv
@@ -497,11 +545,12 @@ fn comps(cfg: &Casino) -> [(&'static str, u8, u32); 3] {
 }
 
 fn draw_club(cv: &mut Canvas, t: f32, cfg: &Casino, purse: &Purse) {
-    cv.px.clone_from(&club_room().px);
+    let ug = crate::casinoug::on(cfg);
+    cv.px.clone_from(&club_room(ug).px);
     cv.clear_labels();
     let blink = (t % 5.0) < 0.15;
-    figure(cv, &HOST, 34, 12, rgb(20, 20, 30), rgb(225, 180, 60), blink);
-    let gold = rgb(255, 225, 140);
+    figure(cv, &HOST, 34, 12, rgb(20, 20, 30), if ug { rgb(255, 50, 200) } else { rgb(225, 180, 60) }, blink);
+    let gold = if ug { rgb(90, 255, 120) } else { rgb(255, 225, 140) };
     cv.label(2, 7, &format!("played today: {} chips", purse.played), rgb(230, 230, 240), None);
     cv.label(52, 7, "drinks: always comped", rgb(230, 230, 240), None);
     for (i, (name, bit, need)) in comps(cfg).into_iter().enumerate() {
@@ -515,9 +564,10 @@ fn draw_club(cv: &mut Canvas, t: f32, cfg: &Casino, purse: &Purse) {
             (false, true) => ("ready!".to_string(), rgb(120, 255, 140)),
             (false, false) => (format!("{}/{need}", purse.played), rgb(200, 200, 210)),
         };
-        let panel = Some(rgb(18, 20, 55));
+        let panel = Some(if ug { rgb(8, 8, 14) } else { rgb(18, 20, 55) });
         cv.label(3, row, &format!(" {} {name:<20}", i + 1), gold, panel);
-        cv.label(26, row, &bar, if ready { rgb(120, 230, 130) } else { rgb(200, 170, 90) }, panel);
+        let (done, going) = if ug { (rgb(90, 255, 120), rgb(255, 50, 200)) } else { (rgb(120, 230, 130), rgb(200, 170, 90)) };
+        cv.label(26, row, &bar, if ready { done } else { going }, panel);
         cv.label(46, row, &format!("  {state:<12}"), color, panel);
     }
 }
@@ -735,7 +785,7 @@ impl Session {
         }
         let names: Vec<String> = DRINKS.iter().map(|d| d.name.to_string()).collect();
         let mut st = self.stage_open();
-        let mut bar = Bar { drinks: purse.drinks, ..Default::default() };
+        let mut bar = Bar { drinks: purse.drinks, ug: crate::casinoug::on(cfg), ..Default::default() };
         self.say_line_on(&st, "BarHello", &[], [120, 230, 255]);
         let keys = self.strings().get("BarKeys").to_string();
         self.place_status(&st, purse, &keys);
@@ -998,7 +1048,7 @@ mod tests {
         let mut shots: Vec<(String, Canvas)> = Vec::new();
         for (i, drinks) in [(0usize, 1u32), (3, 1), (4, 5)] {
             let mut cv = Canvas::new(W, H);
-            draw_bar(&mut cv, 9.0, &Bar { drink: Some((i, 5.0)), smoke: Some(3.0), drinks }, &names);
+            draw_bar(&mut cv, 9.0, &Bar { drink: Some((i, 5.0)), smoke: Some(3.0), drinks, ug: false }, &names);
             shots.push((format!("bar{i}"), cv));
         }
         for (name, f) in [("buffet", draw_buffet as fn(&mut Canvas, f32)), ("suite", draw_suite), ("show", draw_show)] {
@@ -1009,6 +1059,13 @@ mod tests {
         let mut cv = Canvas::new(W, H);
         draw_club(&mut cv, 1.0, &Casino::default(), &Purse { played: 260, comps: 0, ..Default::default() });
         shots.push(("club".into(), cv));
+        let ug = Casino { theme: "underground".into(), ..Default::default() };
+        let mut cv = Canvas::new(W, H);
+        draw_club(&mut cv, 1.0, &ug, &Purse { played: 260, comps: 0, ..Default::default() });
+        shots.push(("ug-club".into(), cv));
+        let mut cv = Canvas::new(W, H);
+        draw_bar(&mut cv, 9.0, &Bar { drink: Some((0, 5.0)), smoke: Some(3.0), drinks: 1, ug: true }, &names);
+        shots.push(("ug-bar".into(), cv));
         for (name, cv) in shots {
             let mut out = b"\x1b[2J".to_vec();
             out.extend(crate::pixels::Encoder::new(true, W, H).frame(&cv, 1));

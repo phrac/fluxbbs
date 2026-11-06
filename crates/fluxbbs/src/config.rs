@@ -579,6 +579,9 @@ pub struct Casino {
     pub suite_chips: u32,
     pub comp_show: u32,
     pub show_points: u32,
+    /// New: how it looks: "classic" (red carpet and green felt), or
+    /// "underground" (neon, skulls and crossbones, floppies, viruses).
+    pub theme: String,
 }
 
 impl Default for Casino {
@@ -598,6 +601,7 @@ impl Default for Casino {
             suite_chips: 50,
             comp_show: 800,
             show_points: 25,
+            theme: "classic".into(),
         }
     }
 }

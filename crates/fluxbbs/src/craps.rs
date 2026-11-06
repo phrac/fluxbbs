@@ -123,19 +123,23 @@ fn box_x(point: u8) -> i32 {
 }
 
 /// The table: felt, rails, the wall, and the layout printed on it.
-fn layout() -> &'static Canvas {
+/// The layout, in the classic look or the underground's (purple felt,
+/// lines of cyan neon, a black wall with green diamonds).
+fn layout(ug: bool) -> &'static Canvas {
     static LAYOUT: OnceLock<Canvas> = OnceLock::new();
-    LAYOUT.get_or_init(|| {
+    static UG: OnceLock<Canvas> = OnceLock::new();
+    (if ug { &UG } else { &LAYOUT }).get_or_init(|| {
         let mut cv = Canvas::new(W, H);
+        let (near, far) = if ug { (rgb(70, 26, 110), rgb(12, 4, 24)) } else { (rgb(30, 122, 62), rgb(6, 42, 22)) };
         for y in 0..H as i32 {
             for x in 0..W as i32 {
                 let d = (((x as f32 - 38.0) / 48.0).powi(2) + ((y as f32 - 22.0) / 28.0).powi(2)).sqrt();
-                let mut c = mix(rgb(30, 122, 62), rgb(6, 42, 22), smooth(0.25, 1.2, d));
+                let mut c = mix(near, far, smooth(0.25, 1.2, d));
                 c = scale(c, 0.96 + 0.08 * hash(x, y));
                 cv.set(x, y, c);
             }
         }
-        let white = rgb(235, 235, 225);
+        let white = if ug { rgb(40, 230, 255) } else { rgb(235, 235, 225) };
         let line = |cv: &mut Canvas, x0: i32, y0: i32, x1: i32, y1: i32| {
             for x in x0..=x1 {
                 cv.blend(x, y0, white, 0.8);
@@ -152,7 +156,8 @@ fn layout() -> &'static Canvas {
             line(&mut cv, x, 2, x + BOX_W, 12);
             let label = p.to_string();
             let tw = crate::pixels::text_width(&label);
-            cv.print(x + (BOX_W + 1 - tw) / 2, 4, &label, 1, |_, v| mix(rgb(255, 235, 120), rgb(235, 170, 40), v));
+            let (top, bottom) = if ug { (rgb(255, 150, 230), rgb(255, 40, 190)) } else { (rgb(255, 235, 120), rgb(235, 170, 40)) };
+            cv.print(x + (BOX_W + 1 - tw) / 2, 4, &label, 1, |_, v| mix(top, bottom, v));
         }
         // Come, field, don't pass, pass line: their words go on as text.
         line(&mut cv, BOX_X0, 12, BOX_X0 + 6 * BOX_W, 20);
@@ -163,14 +168,19 @@ fn layout() -> &'static Canvas {
         for y in 0..H as i32 {
             for x in WALL as i32..W as i32 {
                 let k = ((x - WALL as i32) + y).rem_euclid(4).min((y - (x - WALL as i32)).rem_euclid(4));
-                let c = if x == WALL as i32 { rgb(60, 25, 20) } else { mix(rgb(70, 60, 70), rgb(150, 140, 155), k as f32 / 3.0) };
+                let c = match (x == WALL as i32, ug) {
+                    (true, true) => rgb(90, 255, 120),
+                    (true, false) => rgb(60, 25, 20),
+                    (false, true) => mix(rgb(10, 12, 16), rgb(30, 110, 60), k as f32 / 3.0),
+                    (false, false) => mix(rgb(70, 60, 70), rgb(150, 140, 155), k as f32 / 3.0),
+                };
                 cv.set(x, y, c);
             }
         }
         // The rail along the near and far sides.
         for x in 0..W as i32 {
-            cv.set(x, 0, rgb(95, 45, 20));
-            cv.set(x, 1, rgb(60, 25, 12));
+            cv.set(x, 0, if ug { rgb(40, 230, 255) } else { rgb(95, 45, 20) });
+            cv.set(x, 1, if ug { rgb(10, 70, 90) } else { rgb(60, 25, 12) });
         }
         cv.clear_labels();
         cv
@@ -179,9 +189,9 @@ fn layout() -> &'static Canvas {
 
 /// The labels printed on the layout, in text (the field's numbers,
 /// don't pass), put back each frame.
-fn layout_labels(cv: &mut Canvas) {
-    let gold = rgb(255, 235, 120);
-    cv.label(36, 8, "C  O  M  E", rgb(240, 60, 60), None);
+fn layout_labels(cv: &mut Canvas, ug: bool) {
+    let gold = if ug { rgb(90, 255, 120) } else { rgb(255, 235, 120) };
+    cv.label(36, 8, "C  O  M  E", if ug { rgb(255, 50, 200) } else { rgb(240, 60, 60) }, None);
     cv.label(22, 11, "F I E L D", gold, None);
     cv.label(36, 11, "2  3  4  9  10  11  12", gold, None);
     cv.label(36, 13, "2 pays double, 12 triple", rgb(220, 220, 210), None);
@@ -316,6 +326,8 @@ fn ease(t: f32) -> f32 {
 
 #[derive(Default)]
 struct Table {
+    /// The underground look (`casinoug`).
+    ug: bool,
     dice: Vec<Die>,
     piles: Vec<Pile>,
     point: Option<u8>,
@@ -323,9 +335,9 @@ struct Table {
 
 impl Table {
     fn draw(&self, cv: &mut Canvas, t: f32, bets: &Bets) {
-        cv.px.clone_from(&layout().px);
+        cv.px.clone_from(&layout(self.ug).px);
         cv.clear_labels();
-        layout_labels(cv);
+        layout_labels(cv, self.ug);
         draw_puck(cv, self.point);
         // Bets riding, then chips on the move.
         for (amount, spot) in [(bets.pass, PASS_SPOT), (bets.dont, DONT_SPOT), (bets.odds, ODDS_SPOT), (bets.field, FIELD_SPOT)] {
@@ -494,7 +506,7 @@ impl Session {
     }
 
     async fn craps_table(&mut self, cfg: &Casino, purse: &mut Purse, st: &mut Stage) -> io::Result<()> {
-        let mut tb = Table::default();
+        let mut tb = Table { ug: crate::casinoug::on(cfg), ..Default::default() };
         let mut bets = Bets::default();
         let mut unit = cfg.min_bet;
         let hello = painted(&crate::editor::strip_colours(self.strings().get("CrapsHello")), [235, 200, 110]);
@@ -753,6 +765,21 @@ pub(crate) fn next_unit(unit: u32, cfg: &Casino, up: bool) -> u32 {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ROOMS_OUT=dir cargo test --features full -- --ignored craps::tests::pictures`
+    #[test]
+    #[ignore]
+    fn pictures() {
+        let Ok(dir) = std::env::var("ROOMS_OUT") else { return };
+        for (name, ug) in [("craps-classic", false), ("craps-underground", true)] {
+            let tb = Table { ug, point: Some(6), ..Default::default() };
+            let mut cv = Canvas::new(W, H);
+            tb.draw(&mut cv, 1.0, &Bets { pass: 10, field: 5, ..Default::default() });
+            draw_die(&mut cv, 50.0, 26.0, 0.0, 0.3, 4, 9.0);
+            draw_die(&mut cv, 60.0, 30.0, 0.0, -0.2, 2, 9.0);
+            crate::casinoug::write_picture(&cv, &format!("{dir}/{name}.ans"));
+        }
+    }
 
     fn b(pass: u32, dont: u32, odds: u32, field: u32) -> Bets {
         Bets { pass, dont, odds, field }

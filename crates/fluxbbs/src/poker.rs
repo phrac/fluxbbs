@@ -123,6 +123,12 @@ fn image(c: Option<Card>) -> &'static [Option<Rgb>] {
     &all[c.map_or(52, |c| c.suit as usize * 13 + c.rank as usize - 1)]
 }
 
+/// The underground's card back: green.
+fn green_back() -> &'static [Option<Rgb>] {
+    static BACK: OnceLock<Vec<Option<Rgb>>> = OnceLock::new();
+    BACK.get_or_init(|| crate::casinoug::green_back(card_image(None)))
+}
+
 /// A card's place on the screen: what it showed, what it shows now, and
 /// when it began turning from one to the other.
 #[derive(Clone, Copy)]
@@ -140,11 +146,13 @@ struct Machine {
     win: Option<(Hand, f32)>,
     /// The caller is picking cards to hold.
     holding: bool,
+    /// The underground look (`casinoug`): a green CRT.
+    ug: bool,
 }
 
 impl Machine {
-    fn new() -> Machine {
-        Machine { slots: [Slot { from: None, to: None, t0: -1.0 }; 5], held: [false; 5], coins: 1, win: None, holding: false }
+    fn new(ug: bool) -> Machine {
+        Machine { slots: [Slot { from: None, to: None, t0: -1.0 }; 5], held: [false; 5], coins: 1, win: None, holding: false, ug }
     }
 
     /// Turn card `k` over to `card`, starting at `t0`.
@@ -169,7 +177,12 @@ impl Machine {
         for y in 0..H as i32 {
             for x in 0..W as i32 {
                 let c = if !(1..W as i32 - 1).contains(&x) || y == H as i32 - 1 {
-                    rgb(95, 95, 110)
+                    if self.ug { rgb(50, 52, 64) } else { rgb(95, 95, 110) }
+                } else if self.ug {
+                    // A green screen, its scan lines showing.
+                    let edge = ((x as f32 - 40.0) / 40.0).powi(2) * 0.35;
+                    let scan = if y % 2 == 0 { 1.0 } else { 0.7 };
+                    scale(mix(rgb(6, 40, 16), rgb(2, 12, 5), y as f32 / H as f32), (1.0 - edge) * scan)
                 } else {
                     let edge = ((x as f32 - 40.0) / 40.0).powi(2) * 0.25;
                     scale(mix(rgb(10, 18, 135), rgb(4, 8, 70), y as f32 / H as f32), 1.0 - edge)
@@ -179,7 +192,11 @@ impl Machine {
         }
         cv.clear_labels();
         // The pay table: the coins' column lit, the line that paid flashing.
-        let (yellow, white, red, navy) = (rgb(255, 215, 60), rgb(255, 255, 255), rgb(150, 20, 30), rgb(4, 8, 70));
+        let (yellow, white, red, navy) = if self.ug {
+            (rgb(90, 255, 120), rgb(255, 255, 255), rgb(200, 30, 150), rgb(2, 12, 5))
+        } else {
+            (rgb(255, 215, 60), rgb(255, 255, 255), rgb(150, 20, 30), rgb(4, 8, 70))
+        };
         let flash = self.win.is_some_and(|(_, t0)| ((t - t0) * 4.0) as i32 % 2 == 0);
         let lit_col = PAY_COL + (self.coins as usize - 1) * 9;
         cv.label(NAME_COL, 0, "JACKS OR BETTER", white, None);
@@ -202,7 +219,11 @@ impl Machine {
             let s = self.slots[k];
             let p = ((t - s.t0) / FLIP).clamp(0.0, 1.0);
             let (card, wide) = if p < 0.5 { (s.from, 1.0 - 2.0 * p) } else { (s.to, 2.0 * p - 1.0) };
-            blit_card(cv, image(card), (CARD_X0 + k as i32 * CARD_STEP) as f32, CARD_Y as f32, wide, 0.0);
+            let img = match (card, self.ug) {
+                (None, true) => green_back(),
+                _ => image(card),
+            };
+            blit_card(cv, img, (CARD_X0 + k as i32 * CARD_STEP) as f32, CARD_Y as f32, wide, 0.0);
             if self.held[k] {
                 cv.label((CARD_X0 + k as i32 * CARD_STEP) as usize + 6, (CARD_Y + CARD_H) as usize / 2, " HELD ", white, Some(red));
             }
@@ -281,7 +302,7 @@ impl Session {
 
     async fn poker_machine(&mut self, cfg: &Casino, purse: &mut Purse, st: &mut Stage) -> io::Result<()> {
         let coin = cfg.min_bet.max(1);
-        let mut m = Machine::new();
+        let mut m = Machine::new(crate::casinoug::on(cfg));
         self.poker_say(st, "PokerHello", &[], [150, 200, 255]);
         loop {
             if purse.chips < coin {
@@ -445,6 +466,24 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// `ROOMS_OUT=dir cargo test --features full -- --ignored poker::tests::pictures`
+    #[test]
+    #[ignore]
+    fn pictures() {
+        let Ok(dir) = std::env::var("ROOMS_OUT") else { return };
+        for (name, ug) in [("poker-classic", false), ("poker-underground", true)] {
+            let mut m = Machine::new(ug);
+            for (k, c) in h("As Ks Qs 2d 7c").iter().enumerate().take(4) {
+                m.turn(k, *c, -5.0);
+            }
+            m.held[0] = true;
+            m.win = Some((Hand::JacksOrBetter, 0.0));
+            let mut cv = Canvas::new(W, H);
+            m.draw(&mut cv, 1.0);
+            crate::casinoug::write_picture(&cv, &format!("{dir}/{name}.ans"));
+        }
+    }
 
     fn h(s: &str) -> [Card; 5] {
         let one = |w: &str| {
