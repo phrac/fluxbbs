@@ -61,8 +61,11 @@ def feed(data):
         o = bytes(out)
         for _ in range(o.count(b'\x1b[c')):
             send(b'\x1b[=67;84;101;114;109;1;316c')
+        # DA_FEATURES=4;6 adds pixel operations (sixels).
         for _ in range(o.count(b'\x1b[<c')):
-            send(b'\x1b[<0;6c')
+            send(b'\x1b[<0;' + os.environ.get('DA_FEATURES', '6').encode() + b'c')
+        for _ in range(o.count(b'\x1b[=3n')):
+            send(b'\x1b[=3;16;8n')
         for _ in range(o.count(b'\x1b[6n')):
             send(b'\x1b[1;1R')
     return bytes(out)

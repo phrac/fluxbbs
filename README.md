@@ -154,7 +154,8 @@ has the details.
   descriptions for uploads that came without one
 - The [art gallery](docs/FILES.md#art-gallery): ANSI playback at modem
   speed, animated GIFs, pictures and [PDFs](docs/FILES.md#pdfs) drawn in
-  the terminal, packs opened in place
+  the terminal (half-blocks, or [sixels](docs/FILES.md#pictures) for
+  callers who want them), packs opened in place
 - The [textfiles.com archive](docs/FILES.md#the-textfilescom-archive) as
   file areas, with the site's tree and descriptions (`fluxbbs textfiles`)
 

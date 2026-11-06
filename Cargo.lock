@@ -764,6 +764,7 @@ dependencies = [
  "argon2",
  "chrono",
  "chrono-tz",
+ "color_quant",
  "flate2",
  "fluxbbs-dos",
  "fluxbbs-term",

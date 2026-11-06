@@ -102,6 +102,9 @@ pub struct User {
     /// New: a file's whole description popping up in the file browser
     /// when the bar rests on it; off until they turn it on.
     pub file_popups: bool,
+    /// New: pictures in sixel graphics rather than half-blocks; off
+    /// until they turn it on.
+    pub sixel: bool,
     /// New: `plain` for plain text (no ANSI), `ansi`, or blank: plain for
     /// bots (flag B).
     pub text_mode: String,
@@ -212,6 +215,7 @@ impl Default for User {
             ai_profile: String::new(),
             ai_memory: false,
             file_popups: false,
+            sixel: false,
             text_mode: String::new(),
             code_bg: String::new(),
             code_theme: String::new(),
@@ -328,6 +332,7 @@ impl User {
                 ai_profile,
                 ai_memory,
                 file_popups,
+                sixel,
                 text_mode,
                 code_bg,
                 code_theme,
@@ -425,6 +430,7 @@ impl User {
                 ai_profile,
                 ai_memory,
                 file_popups,
+                sixel,
                 text_mode,
                 code_bg,
                 code_theme,

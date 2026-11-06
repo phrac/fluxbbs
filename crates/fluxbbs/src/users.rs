@@ -98,7 +98,8 @@ CREATE TABLE IF NOT EXISTS users (
     mail_verified TEXT NOT NULL DEFAULT '',
     editor_keys   TEXT NOT NULL DEFAULT '',
     ai_memory     INTEGER NOT NULL DEFAULT 0,
-    file_popups   INTEGER NOT NULL DEFAULT 0
+    file_popups   INTEGER NOT NULL DEFAULT 0,
+    sixel         INTEGER NOT NULL DEFAULT 0
 );
 -- New: a SysOp's private notes on a caller, dated, for SysOps only.
 CREATE TABLE IF NOT EXISTS user_notes (
@@ -123,7 +124,7 @@ const COLUMNS: &[&str] = &[
     "cur_msg_area", "cur_file_area", "conf_msg", "conf_file", "autosig", "vote_yes", "vote_no",
     "file_scan", "theme", "last_rep", "bank_time", "bank_kb", "bank_time_in", "bank_time_out",
     "bank_kb_in", "bank_kb_out", "ssh_keys", "plan", "ssh_user", "time_zone", "thread_sort", "last_call_at", "area_sort",
-    "fav_boards", "profile_header", "show_real_name", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate", "saver", "mail_address", "mail_verified", "editor_keys", "ai_memory", "file_popups",
+    "fav_boards", "profile_header", "show_real_name", "ai_profile", "text_mode", "code_bg", "code_theme", "md_theme", "animate", "saver", "mail_address", "mail_verified", "editor_keys", "ai_memory", "file_popups", "sixel",
 ];
 
 fn write(db: &Connection, u: &User) -> anyhow::Result<()> {
@@ -171,6 +172,7 @@ const STEPS: &[Step] = &[
     Step::Column("users", "ai_memory", "INTEGER NOT NULL DEFAULT 0"),
     Step::Sql("UPDATE users SET ai_profile = ''"),
     Step::Column("users", "file_popups", "INTEGER NOT NULL DEFAULT 0"),
+    Step::Column("users", "sixel", "INTEGER NOT NULL DEFAULT 0"),
 ];
 
 fn palette_to_text(p: &Palette) -> String {
@@ -277,6 +279,7 @@ fn from_row(r: &Row) -> rusqlite::Result<User> {
         editor_keys: r.get("editor_keys")?,
         ai_memory: r.get("ai_memory")?,
         file_popups: r.get("file_popups")?,
+        sixel: r.get("sixel")?,
     })
 }
 
@@ -327,6 +330,7 @@ fn bind(u: &User) -> Vec<Box<dyn rusqlite::ToSql + '_>> {
         Box::new(u.editor_keys.clone()),
         Box::new(u.ai_memory),
         Box::new(u.file_popups),
+        Box::new(u.sixel),
     ]
 }
 

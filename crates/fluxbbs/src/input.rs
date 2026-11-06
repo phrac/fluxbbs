@@ -806,7 +806,7 @@ pub fn text_char(c: u8) -> Option<char> {
 }
 
 /// Cursor reports (`ESC[24;80R`), device attributes (`ESC[=...c`,
-/// `ESC[?...c`, `ESC[>...c`, `ESC[<...c`) and status strings (`ESC P 1
+/// `ESC[?...c`, `ESC[>...c`, `ESC[<...c`), cell sizes and status strings (`ESC P 1
 /// $ r ... ESC \`) out of what the caller sent: the keys, the reports
 /// counted, an unfinished one held back, and the answers.
 fn strip_cursor_reports(buf: &[u8], hold: bool) -> (Vec<u8>, u32, Vec<u8>, Vec<Vec<u8>>) {
@@ -846,6 +846,17 @@ fn strip_cursor_reports(buf: &[u8], hold: bool) -> (Vec<u8>, u32, Vec<u8>, Vec<V
             }
             if lead == 1 && buf.get(end) == Some(&b'c') {
                 da.push(buf[i + 2..end].to_vec());
+                i = end + 1;
+                continue;
+            }
+            // New: a character cell's size in pixels, CTerm's
+            // (`ESC[=3;16;8n`) or xterm's (`ESC[6;16;8t`), kept with its
+            // final letter.
+            let body_of = &buf[i + 2..end];
+            if (lead == 1 && buf.get(end) == Some(&b'n') && body_of.starts_with(b"=3;"))
+                || (lead == 0 && buf.get(end) == Some(&b't') && body_of.starts_with(b"6;"))
+            {
+                da.push(buf[i + 2..=end].to_vec());
                 i = end + 1;
                 continue;
             }
@@ -954,6 +965,9 @@ mod tests {
         assert_eq!((keys, n, tail), (b"x".to_vec(), 1, Vec::new()));
         assert_eq!(da, vec![b"=73;99;121;84;101;114;109;4;0;0".to_vec(), b"<0;1;6".to_vec()]);
         assert_eq!(strip_cursor_reports(b"\x1b[?1;2", true).2, b"\x1b[?1;2".to_vec());
+        // Cell sizes, CTerm's and xterm's.
+        let (keys, _, _, da) = strip_cursor_reports(b"\x1b[=3;16;8nq\x1b[6;20;10t", true);
+        assert_eq!((keys, da), (b"q".to_vec(), vec![b"=3;16;8n".to_vec(), b"6;20;10t".to_vec()]));
         // A status string (DECRQSS), whole or split between reads.
         let (keys, n, tail, da) = strip_cursor_reports(b"a\x1bP1$r0;38;2;1;2;3m\x1b\\\x1b[1;1Rb", true);
         assert_eq!((keys, n, tail), (b"ab".to_vec(), 1, Vec::new()));

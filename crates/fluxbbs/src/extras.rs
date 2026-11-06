@@ -740,7 +740,7 @@ impl Session {
     /// `~XY`: X is the field (A password .. O zip code; new: P SSH keys,
     /// Q the profile, R time zone, S text mode, T-V code and Markdown
     /// colors, W animations, X the screen saver, Y the email address, Z
-    /// the editor's keys), Y the key that edits
+    /// the editor's keys, 1 file popups, 2 sixel pictures), Y the key that edits
     /// it. `~**` is where the command key is read.
     pub async fn user_config(&mut self) -> io::Result<()> {
         self.user_config_screen("USERCFG").await
@@ -762,6 +762,8 @@ impl Session {
     }
 
     async fn user_config_screen_in(&mut self, screen: &str, original: crate::user::User, charset: fluxbbs_term::Charset) -> io::Result<()> {
+        // For the sixel field's "yours can".
+        self.ask_terminal().await?;
         loop {
             self.screen.set_color(fluxbbs_term::Color::DEFAULT);
             self.clear_screen();
@@ -868,6 +870,12 @@ impl Session {
             'Z' => if u.editor_keys == "vim" { "vim" } else { "standard" }.into(),
             // New: descriptions popping up in the file browser.
             '1' => if u.file_popups { "on" } else { "off" }.into(),
+            // New: pictures in sixels, and whether their terminal said it can.
+            '2' => match (u.sixel, self.sixel_seen()) {
+                (true, _) => "on".into(),
+                (false, true) => "off (yours can)".into(),
+                (false, false) => "off".into(),
+            },
             'X' => match crate::sysconfig::SAVERS.iter().find(|s| s.0 == u.saver) {
                 Some(s) => s.0.into(),
                 None => "board's".into(),
@@ -932,6 +940,7 @@ impl Session {
             'W' => self.user.animate = if self.user.animate == "off" { String::new() } else { "off".into() },
             'Z' => self.user.editor_keys = if self.user.editor_keys == "vim" { String::new() } else { "vim".into() },
             '1' => self.user.file_popups = !self.user.file_popups,
+            '2' => self.user.sixel = !self.user.sixel,
             // Change or confirm it (`UV`).
             #[cfg(feature = "email")]
             'Y' if self.email_on() => self.email_check("").await?,
@@ -1036,6 +1045,7 @@ impl Session {
             ('X', 'D', "Screen saver"),
             ('Z', 'I', "Editor keys"),
             ('1', 'F', "File popups"),
+            ('2', 'J', "Sixel pictures"),
         ]
         .to_vec();
         // New: the email address, where the board asks for one.

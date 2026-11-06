@@ -549,6 +549,21 @@ screen.
   a slow link doesn't pile up frames ahead of the caller's keys.
 - P replays; D downloads the file as it is.
 
+**Sixels.** A caller who turns on "sixel pics" in user configuration
+(J; off to start) sees pictures and PDF pages in sixel graphics
+instead: the same part of the screen, at the terminal's own pixels
+(640x384 on SyncTERM). The field says "off (yours can)" when their
+terminal has said it shows them: a 4 in its answer to `ESC[c`, or
+CTerm's pixel operations (`ESC[<c`). SyncTERM, IcyTerm, xterm (with
+sixels on), foot, WezTerm, mlterm and Windows Terminal show them.
+
+- A cell's size is asked once a call (`ESC[=3n` of CTerm, `ESC[16t` of
+  others), 8x16 if the terminal doesn't say.
+- Up to 256 colors a picture, chosen for it (NeuQuant). Still pictures
+  fill the space; a GIF is drawn no bigger than it is, and an animation
+  in 64 colors, so a frame stays near 100 KB.
+- Frames are paced the same way as half-blocks.
+
 ### PDFs
 
 | Key | Does |

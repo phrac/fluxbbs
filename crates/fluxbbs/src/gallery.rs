@@ -1388,14 +1388,21 @@ impl Session {
     ) -> io::Result<Option<Key>> {
         let (cols, rows) = (80usize, self.screen.rows().saturating_sub(1).max(2) as usize);
         let lim = self.state.config().files.image_limits();
+        // New: sixels for callers who turned them on, filling the same
+        // cells (bands of six pixels, so the last can't reach the bottom
+        // row and scroll the screen).
+        let sixel = self.user.sixel && !self.plain();
+        let cell = if sixel { self.cell_pixels().await? } else { (1, 2) };
+        let (pw, ph) = (cols as u32 * cell.0, rows as u32 * cell.1 / 6 * 6);
         let stamp = std::fs::metadata(&file).and_then(|m| m.modified()).ok().and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok()).map_or(0, |d| d.as_secs());
-        let key = (file, inner, stamp, cols, rows);
+        let inner = if sixel { format!("{inner}\0sixel") } else { inner };
+        let key = (file, inner, stamp, pw as usize, ph as usize);
         let pic = match picture::cached(&key) {
             Some(p) => p,
             None => {
                 let loaded = tokio::task::spawn_blocking(move || -> io::Result<Result<picture::Picture, String>> {
                     let data = read()?;
-                    Ok(picture::load(&data, cols, rows, lim))
+                    Ok(if sixel { picture::load_sixel(&data, pw, ph, lim) } else { picture::load(&data, cols, rows, lim) })
                 })
                 .await
                 .map_err(io::Error::other)??;
@@ -1425,8 +1432,11 @@ impl Session {
         };
         let truecolor = self.screen.truecolor() || self.screen.charset() == fluxbbs_term::Charset::Utf8;
         let first = &pic.frames[0];
-        let left = ((cols - first.w) / 2 + 1) as u16;
-        let top = ((rows - first.h / 2) / 2 + 1) as u16;
+        let (left, top) = if sixel {
+            (((pw - first.w as u32) / 2 / cell.0 + 1) as u16, ((ph - first.h as u32) / 2 / cell.1 + 1) as u16)
+        } else {
+            (((cols - first.w) / 2 + 1) as u16, ((rows - first.h / 2) / 2 + 1) as u16)
+        };
         loop {
             self.screen.set_color(fluxbbs_term::Color::DEFAULT);
             self.clear_screen();
@@ -1447,7 +1457,12 @@ impl Session {
             self.cursor_asks = self.cursor_asks.min(self.cursor_reports);
             let key = 'play: loop {
                 for f in &pic.frames {
-                    self.screen.write_bytes(&picture::draw(f, prev, truecolor, left, top));
+                    if sixel {
+                        self.screen.goto(left, top);
+                        self.screen.write_raw(&f.sixel);
+                    } else {
+                        self.screen.write_bytes(&picture::draw(f, prev, truecolor, left, top));
+                    }
                     self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                     self.screen.goto(1, self.screen.rows());
                     self.flush().await?;

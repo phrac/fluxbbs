@@ -154,6 +154,10 @@ pub struct Session {
     /// New: the terminal's answers to `ESC[c` and `ESC[<c` (without
     /// `ESC[` and `c`) and to DECRQSS (without `ESC P` and `ESC \`).
     pub(crate) device_attrs: Vec<String>,
+    /// New: a character cell's pixels, once asked (`cell_pixels`).
+    pub(crate) cell_px: Option<(u32, u32)>,
+    /// New: whether the terminal has been asked what it is.
+    pub(crate) attrs_asked: bool,
     /// A UTF-8 character split between reads.
     pub(crate) utf8_tail: Vec<u8>,
     /// Bytes sent this call, for the stalled-output warning.
@@ -364,6 +368,7 @@ impl Session {
             return Ok(());
         }
         let wait = std::time::Duration::from_secs(2);
+        self.attrs_asked = true;
         self.screen.write_bytes(b"\x1b[c");
         self.sync_output(wait, 0).await?;
         if self.device_attrs.is_empty() {
@@ -375,17 +380,68 @@ impl Session {
         self.sync_output(wait, 0).await?;
         let said = |s: &Self, any: &[&str]| s.device_attrs.iter().any(|a| a.contains("$r") && any.iter().any(|x| a.contains(x)));
         let (mut truecolor, palette256) = (said(self, &["38;2;1;2;3", "38:2::1:2:3", "38:2:1:2:3"]), said(self, &["38;5;", "38:5:"]));
-        if !truecolor && !palette256 && self.device_attrs.iter().any(|a| a.starts_with('=')) {
+        // Asked of every CTerm now, for its pixel operations (sixels).
+        if self.device_attrs.iter().any(|a| a.starts_with('=')) {
             self.screen.write_bytes(b"\x1b[<c");
             self.sync_output(wait, 0).await?;
             let features = self.device_attrs.iter().find_map(|a| a.strip_prefix("<0;")).unwrap_or("");
-            truecolor = features.split(';').any(|f| f == "6");
+            truecolor = truecolor || !palette256 && features.split(';').any(|f| f == "6");
         }
         let shows = if truecolor { "24-bit color" } else if palette256 { "256 colors" } else { "16 colors" };
         tracing::info!("node {}: the terminal answers {:?}: {shows}", self.node.number(), self.device_attrs);
         self.screen.set_truecolor(truecolor);
         self.screen.set_palette256(palette256 && !truecolor);
         Ok(())
+    }
+
+    /// New: what the terminal is, for sixels, if the probe didn't ask
+    /// (a terminal known by its TERM): `ESC[c`, and CTerm's features.
+    pub(crate) async fn ask_terminal(&mut self) -> io::Result<()> {
+        if self.attrs_asked || self.plain() {
+            return Ok(());
+        }
+        self.attrs_asked = true;
+        let wait = std::time::Duration::from_secs(2);
+        self.screen.write_bytes(b"\x1b[c");
+        self.sync_output(wait, 0).await?;
+        if self.device_attrs.iter().any(|a| a.starts_with('=')) && !self.device_attrs.iter().any(|a| a.starts_with("<0;")) {
+            self.screen.write_bytes(b"\x1b[<c");
+            self.sync_output(wait, 0).await?;
+        }
+        tracing::info!("node {}: the terminal answers {:?}", self.node.number(), self.device_attrs);
+        Ok(())
+    }
+
+    /// New: has the terminal said it shows sixels? A 4 in its `ESC[?...c`
+    /// answer, or CTerm's pixel operations (4 in `ESC[<0;...c`).
+    pub(crate) fn sixel_seen(&self) -> bool {
+        // `?`'s first number is the terminal's class (62...), not a feature.
+        self.device_attrs.iter().any(|a| {
+            let fields = a.strip_prefix('?').and_then(|f| f.split_once(';')).map(|(_, f)| f).or_else(|| a.strip_prefix("<0;"));
+            fields.is_some_and(|f| f.split(';').any(|x| x == "4"))
+        })
+    }
+
+    /// New: a character cell's size in pixels (width, height), asked once
+    /// a call: CTerm's way (`ESC[=3n`; its `ESC[...t` is a color) or
+    /// xterm's (`ESC[16t`); 8x16, SyncTERM's, if it doesn't say.
+    pub(crate) async fn cell_pixels(&mut self) -> io::Result<(u32, u32)> {
+        if let Some(c) = self.cell_px {
+            return Ok(c);
+        }
+        self.ask_terminal().await?;
+        let cterm = self.device_attrs.iter().any(|a| a.starts_with('='));
+        self.screen.write_bytes(if cterm { b"\x1b[=3n" } else { b"\x1b[16t" });
+        self.sync_output(std::time::Duration::from_secs(2), 0).await?;
+        let said = self.device_attrs.iter().find_map(|a| {
+            let f = a.strip_prefix("=3;").and_then(|f| f.strip_suffix('n')).or_else(|| a.strip_prefix("6;").and_then(|f| f.strip_suffix('t')))?;
+            let (h, w) = f.split_once(';')?;
+            Some((w.parse::<u32>().ok()?, h.parse::<u32>().ok()?))
+        });
+        let c = said.filter(|&(w, h)| (4..=64).contains(&w) && (6..=128).contains(&h)).unwrap_or((8, 16));
+        tracing::info!("node {}: character cells are {}x{} pixels", self.node.number(), c.0, c.1);
+        self.cell_px = Some(c);
+        Ok(c)
     }
 
     /// A session for tests: `user` logged in on a node, talking to nobody.
@@ -445,6 +501,8 @@ impl Session {
             bar_news: None,
             menu_help: None,
             device_attrs: Vec::new(),
+            cell_px: None,
+            attrs_asked: false,
             utf8_tail: Vec::new(),
             sent: 0,
             saved_color: Color::DEFAULT,
