@@ -293,6 +293,8 @@ impl Session {
             // New: the caller's email address and its code.
             #[cfg(feature = "email")]
             "UV" => self.email_check(param).await?,
+            // New: sixel pictures offered at logon, once.
+            "UX" => self.sixel_offer().await?,
             // New: the weather, where the caller is or where the menu says.
             #[cfg(feature = "weather")]
             "WX" => self.weather(param).await?,

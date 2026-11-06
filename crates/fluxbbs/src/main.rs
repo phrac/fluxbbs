@@ -142,6 +142,7 @@ mod profile;
 mod points;
 mod pushes;
 mod picture;
+mod sixeloffer;
 mod password;
 mod questions;
 mod qwk;

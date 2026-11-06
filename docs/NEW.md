@@ -263,6 +263,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - Pictures and PDF pages in sixel graphics, at the terminal's own
   pixels, for callers who turn on "sixel pics" in user configuration
   (off to start; it says when their terminal can). ([FILES](FILES.md#pictures))
+- A logon step that offers sixels once: what they are, whether the
+  caller's terminal can, a sample to compare with the ANSI beside it,
+  and a yes or no. ([FEATURES](FEATURES.md#logon-sequence-o))
 - `FW newest`, `hot`, `heavy`, `dig`, `kingpin` open the browser on
   that file.
 - The art gallery (`AG`), after Mystic's: a folder or a file area of
@@ -711,6 +714,7 @@ All in [DOORS](DOORS.md).
 | `AC` (+ `slots` `poker` `blackjack` `roulette` `craps` `bar` `club`) | the casino |
 | `AL` (+ `free`) | the slot machine; `free`, the day's free pull |
 | `!P` (+ `lottery` `tip`) | your points, the lottery, tips |
+| `UX` | sixel pictures offered, once (the `sixel` logon step) |
 | `AP` | Carrier Lost (the dial-up game) |
 | `AB` (+ `new`, SysOps) | the reading room; `new` chooses today's shelf again |
 | `DB` (+ door code) | BBSLink doors |

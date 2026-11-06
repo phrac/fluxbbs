@@ -750,6 +750,13 @@ Four special steps:
 - **Last night's lottery draw** (`!P draw`) replays the last draw for
   callers who held tickets in it, once ([points](#points)). Others go
   straight on. Put it before fast logon too.
+- **Offer sixel pictures** (`UX`) asks each caller once, unless
+  they've turned sixels on already. The SIXEL screen says what sixels
+  are and whether the caller's terminal has said it shows them, offers
+  a sample (SIXEL.PNG, .JPG or .GIF beside it) and asks whether to turn
+  them on for the gallery and file previews (J in user config changes
+  it later). A board makes SIXEL.ANS from its own art with `SIXEL_ART`
+  (art/README.md); without it, the step asks in plain lines.
 
 #### The waiting-for-caller screen
 

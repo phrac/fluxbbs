@@ -105,6 +105,8 @@ pub struct User {
     /// New: pictures in sixel graphics rather than half-blocks; off
     /// until they turn it on.
     pub sixel: bool,
+    /// New: whether they've been offered sixels at logon (`UX`).
+    pub sixel_asked: bool,
     /// New: `plain` for plain text (no ANSI), `ansi`, or blank: plain for
     /// bots (flag B).
     pub text_mode: String,
@@ -216,6 +218,7 @@ impl Default for User {
             ai_memory: false,
             file_popups: false,
             sixel: false,
+            sixel_asked: false,
             text_mode: String::new(),
             code_bg: String::new(),
             code_theme: String::new(),
@@ -333,6 +336,7 @@ impl User {
                 ai_memory,
                 file_popups,
                 sixel,
+                sixel_asked,
                 text_mode,
                 code_bg,
                 code_theme,
@@ -431,6 +435,7 @@ impl User {
                 ai_memory,
                 file_popups,
                 sixel,
+                sixel_asked,
                 text_mode,
                 code_bg,
                 code_theme,
