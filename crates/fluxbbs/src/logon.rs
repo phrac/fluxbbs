@@ -56,22 +56,22 @@ pub(crate) fn turned_away(state: &crate::BbsState, addr: std::net::SocketAddr) -
 }
 
 /// Where the login's prompts go when they stay on the screen: the name
-/// and password fields and the line for the rest, each with its color.
-/// `labeled`: the art labels the fields (a LOGIN screen), so the prompt
-/// strings for them aren't shown.
+/// and password prompts and the line for the rest, each with the color
+/// typing shows in. `fields`: a LOGIN screen's, each prompt shown when
+/// it's asked with the answer typed on the row under it.
 #[derive(Clone, Copy)]
 pub struct LoginAt {
     pub name: (u16, u16, fluxbbs_term::Color),
     pub pass: (u16, u16, fluxbbs_term::Color),
     pub other: (u16, u16, fluxbbs_term::Color),
-    pub labeled: bool,
+    pub fields: bool,
 }
 
 impl LoginAt {
     /// One row every prompt shares, from the left edge.
     fn line(y: u16) -> Self {
         let at = (1, y, fluxbbs_term::Color::DEFAULT);
-        LoginAt { name: at, pass: at, other: at, labeled: false }
+        LoginAt { name: at, pass: at, other: at, fields: false }
     }
 }
 
@@ -320,14 +320,15 @@ impl Session {
         let (tries, ask_apply) = (cfg.logon.tries, cfg.logon.ask_apply);
         let case = Case::from_alias_format(cfg.newuser.alias_format);
         drop(cfg);
-        // New: a LOGIN screen with fields for the name (~LU) and password
-        // (~LW), labeled by the art, and a line (~LM) for the rest.
+        // New: a LOGIN screen with places for the name (~LU) and password
+        // (~LW) prompts, each answered on the row under, and a line (~LM)
+        // for the rest.
         let screen = self.show_file("LOGIN").await?;
         let field = |s: &Self, k: &[u8; 2]| s.positions.get(k).map(|p| (p.0, p.1, p.2));
         self.login_at = match (screen, field(self, b"LU"), field(self, b"LW")) {
             (true, Some(name), Some(pass)) => {
-                let other = field(self, b"LM").unwrap_or((pass.0, pass.1 + 1, pass.2));
-                Some(LoginAt { name, pass, other, labeled: true })
+                let other = field(self, b"LM").unwrap_or((pass.0, pass.1 + 2, pass.2));
+                Some(LoginAt { name, pass, other, fields: true })
             }
             // After a lightbar menu the prompts share one line: the
             // art's ~LP marker, or the bottom row.
@@ -364,14 +365,31 @@ impl Session {
         self.login_prompt_at(|a| a.other);
     }
 
-    /// The name or password prompt: on a LOGIN screen only its field (the
-    /// art says what it is), else the prompt string.
+    /// The name or password prompt: its string, and on a LOGIN screen the
+    /// answer on the row under it, in the marker's color.
     async fn login_ask(&mut self, password: bool, key: &str) -> io::Result<()> {
-        self.login_prompt_at(|a| if password { a.pass } else { a.name });
-        if !self.login_at.is_some_and(|a| a.labeled) {
-            self.say(key).await?;
-        }
+        let at = self.login_at.filter(|a| a.fields).map(|a| if password { a.pass } else { a.name });
+        let Some((x, y, color)) = at else {
+            self.login_prompt_at(|a| if password { a.pass } else { a.name });
+            return self.say(key).await;
+        };
+        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+        self.screen.goto(x, y);
+        self.screen.clear_eol();
+        self.say(key).await?;
+        self.screen.set_color(color);
+        self.screen.goto(x + 1, y + 1);
+        self.screen.clear_eol();
         Ok(())
+    }
+
+    /// Clear a LOGIN screen's prompt and its answer.
+    fn login_clear(&mut self, at: (u16, u16, fluxbbs_term::Color)) {
+        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+        for y in [at.1, at.1 + 1] {
+            self.screen.goto(at.0, y);
+            self.screen.clear_eol();
+        }
     }
 
     /// After an answer: the login line stays put; otherwise a new line.
@@ -390,7 +408,7 @@ impl Session {
         self.login_prompt();
         self.say(key).await?;
         self.delay(1200).await?;
-        if self.login_at.is_some_and(|a| a.labeled) {
+        if self.login_at.is_some_and(|a| a.fields) {
             self.login_prompt();
         }
         Ok(())
@@ -399,9 +417,11 @@ impl Session {
     async fn login_loop(&mut self, tries: u8, ask_apply: bool, case: Case) -> io::Result<bool> {
         let mut attempt = 0;
         loop {
-            // A new try starts with the fields and the line under empty.
-            if self.login_at.is_some_and(|a| a.labeled) {
-                self.login_prompt_at(|a| a.pass);
+            // A new try starts with nothing asked yet: the password prompt
+            // shows only when it's asked.
+            if let Some(a) = self.login_at.filter(|a| a.fields) {
+                self.login_clear(a.name);
+                self.login_clear(a.pass);
                 self.login_prompt();
             }
             self.login_ask(false, "LoginName").await?;

@@ -732,7 +732,7 @@ Details in [ARTWORK](ARTWORK.md).
 | Screen | For |
 |---|---|
 | `BOTCHECK` (`~BC`, `~BP`) | the picture bot check |
-| `LOGIN` (`~LU`, `~LW`, `~LM`) | the login's own screen, name and password in fields the art labels |
+| `LOGIN` (`~LU`, `~LW`, `~LM`) | the login's own screen: the name and password prompts where the art says, each answered under it |
 | `STOCK` | the header `\|SA` draws |
 | `GALLERY` | the art gallery (else `LISTFILE`) |
 | `AICHAT` | AI chat |

@@ -1,11 +1,12 @@
 """LOGIN.ANS: the screen the login's name and password are asked on, made
 only for a board whose art/local.py has LOGIN_ART (a piece of art in its
 art/). The art keeps columns 1-78 (so nothing writes to the last ones and
-wraps); in it, labels for the name and password with the fields under
-them (~LU, ~LW: the board types there in the matrix's bright color), and
-a line for the rest (~LM: wrong logins, other questions; not the
-bottom row, where a yes/no's newline would scroll the screen). LOGIN_AT is
-where the labels start, (column, row): (44, 19) to start.
+wraps); in it, where the board asks for the name and the password (~LU,
+~LW: the prompt there when it's asked, the answer typed on the row under
+in the matrix's bright color), and a line for the rest (~LM: wrong
+logins, other questions; not the bottom row, where a yes/no's newline
+would scroll the screen). LOGIN_AT is where the prompts start, (column,
+row): (44, 19) to start.
 
 Run from text/: python3 -I ../art/login-gen.py
 """
@@ -24,7 +25,6 @@ grid = ansgrid.parse(open(boardname.art(name), 'rb').read())
 art = b''.join(ansgrid.line(grid, r, 0, 77, 1, r + 1) for r in range(24))
 
 E = '\x1b['
-WH, GR, DG = E + '0;1;37m', E + '0;37m', E + '0;1;30m'
 FIELD = E + '0;' + boardname.matrix_colors()['bright'] + 'm'
 
 
@@ -32,14 +32,7 @@ def at(x, y):
     return E + f'{y};{x}H'
 
 
-def label(word):
-    # As the stock prompt strings have it: "⌐-- Login".
-    return WH + '⌐' + GR + '-' + DG + '- ' + WH + word[0] + GR + word[1] + DG + word[2:]
-
-
 x, y = boardname.local('LOGIN_AT', (44, 19))
-out = (at(x, y) + label('login') + at(x + 1, y + 1) + FIELD + '~LU'
-       + at(x, y + 2) + label('password') + at(x + 1, y + 3) + FIELD + '~LW'
-       + at(x, y + 4) + GR + '~LM' + E + '0m')
+out = at(x, y) + FIELD + '~LU' + at(x, y + 2) + '~LW' + at(x, y + 4) + E + '0;37m' + '~LM' + E + '0m'
 with open(os.path.join(os.getcwd(), 'LOGIN.ANS'), 'wb') as f:
     f.write(b'\x1b[0m\x1b[2J' + art + b'\x1b[0m' + out.encode('cp437'))

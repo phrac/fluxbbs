@@ -150,19 +150,12 @@ impl Session {
             self.take_pending_input();
             // Take as many keys as were asked for before judging, so a
             // slip on the first doesn't spill the rest into the next go.
-            let mut ok = true;
-            for k in &keys {
-                let got = match tokio::time::timeout_at(deadline, self.read_key()).await {
-                    Ok(r) => r?,
-                    Err(_) => {
-                        self.newline();
-                        self.say_line("BotCheckTimeout").await?;
-                        return Ok(false);
-                    }
-                };
-                self.write("*");
-                ok &= k.matches(got);
-            }
+            let Some(got) = self.challenge_answer(keys.len(), deadline).await? else {
+                self.newline();
+                self.say_line("BotCheckTimeout").await?;
+                return Ok(false);
+            };
+            let ok = keys.iter().zip(&got).all(|(k, &g)| k.matches(g));
             if ok {
                 self.newline();
                 return Ok(true);
@@ -171,6 +164,30 @@ impl Session {
         }
         self.say_line("BotCheckFailed").await?;
         Ok(false)
+    }
+
+    /// `n` keys, each echoed `*`; Backspace (or Delete) takes the last
+    /// one back (new). None if time ran out.
+    async fn challenge_answer(&mut self, n: usize, deadline: tokio::time::Instant) -> io::Result<Option<Vec<Key>>> {
+        let mut got = Vec::with_capacity(n);
+        while got.len() < n {
+            let key = match tokio::time::timeout_at(deadline, self.read_key()).await {
+                Ok(r) => r?,
+                Err(_) => return Ok(None),
+            };
+            match key {
+                Key::Backspace | Key::Del => {
+                    if got.pop().is_some() {
+                        self.screen.backspace(1);
+                    }
+                }
+                k => {
+                    got.push(k);
+                    self.write("*");
+                }
+            }
+        }
+        Ok(Some(got))
     }
 
     /// The picture check: draw, read three keys (echoing `*`), judge.
@@ -198,19 +215,12 @@ impl Session {
             self.take_pending_input();
             self.flush().await?;
             let shown = Instant::now();
-            let mut ok = true;
-            for c in &chars {
-                let got = match tokio::time::timeout_at(deadline, self.read_key()).await {
-                    Ok(r) => r?,
-                    Err(_) => {
-                        self.newline();
-                        self.say_line("BotCheckTimeout").await?;
-                        return Ok(false);
-                    }
-                };
-                self.write("*");
-                ok &= got.upper() == Some(*c);
-            }
+            let Some(got) = self.challenge_answer(chars.len(), deadline).await? else {
+                self.newline();
+                self.say_line("BotCheckTimeout").await?;
+                return Ok(false);
+            };
+            let mut ok = chars.iter().zip(&got).all(|(c, g)| g.upper() == Some(*c));
             let ms = shown.elapsed().as_millis();
             if ok && ms < HUMAN_MS {
                 tracing::info!("bot check answered in {ms} ms: too quick for a person");

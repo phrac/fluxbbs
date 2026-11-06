@@ -208,6 +208,9 @@ impl Session {
             if let Some(b) = self.input.pop_front() {
                 let after_cr = std::mem::replace(&mut self.last_cr, b == b'\r');
                 if after_cr && (b == b'\n' || b == 0) {
+                    // CR NUL LF is one Enter too (a CR sent as telnet has
+                    // it, then the client's own LF): the NUL keeps the CR.
+                    self.last_cr = b == 0;
                     continue;
                 }
                 return Ok(Some(b));
@@ -359,9 +362,8 @@ impl Session {
     /// so output can be paced by it and stopped by a key.
     pub async fn key_waiting(&mut self) -> io::Result<bool> {
         // The LF or NUL after a CR (telnet's Enter) isn't a key.
-        if self.last_cr && matches!(self.input.front(), Some(b'\n' | 0)) {
-            self.input.pop_front();
-            self.last_cr = false;
+        while self.last_cr && matches!(self.input.front(), Some(b'\n' | 0)) {
+            self.last_cr = self.input.pop_front() == Some(0);
         }
         if !self.input.is_empty() {
             return Ok(true);
@@ -879,6 +881,20 @@ fn status_string(b: &[u8]) -> Option<Option<usize>> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Enter is one key however the client sends it: CR, CR LF, CR NUL,
+    /// CR NUL LF (telnet's CR, then the client's LF), or LF.
+    #[tokio::test]
+    async fn enter_is_one_key() {
+        let mut s = Session::for_test(crate::tests::state(), crate::user::User::default());
+        s.input.extend(b"a\r\0\nb\r\nc\r\0d\re\nf");
+        let mut keys = Vec::new();
+        while !s.input.is_empty() {
+            keys.push(s.read_key().await.unwrap());
+        }
+        let c = |b: u8| Key::Char(b);
+        assert_eq!(keys, [c(b'a'), Key::Enter, c(b'b'), Key::Enter, c(b'c'), Key::Enter, c(b'd'), Key::Enter, c(b'e'), Key::Enter, c(b'f')]);
+    }
 
     fn typed(case: Case, s: &str) -> String {
         let mut out = String::new();

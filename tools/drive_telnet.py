@@ -1,5 +1,5 @@
 """Drive a telnet session like a BBS terminal: tdrive.py HOST:PORT 'expect=>send' ...
-Answers negotiation as SyncTERM would (TTYPE syncterm, or $TTYPE; NAWS 80x25, binary);
+Answers negotiation as SyncTERM would (TTYPE syncterm, or $TTYPE; NAWS 80x25 or 80x$ROWS, binary);
 DA=1 also answers its device attribute and cursor queries.
 '!cmd' runs cmd with its stdin/stdout bridged to the connection (IAC-escaped)."""
 import os, re, select, socket, subprocess, sys, time
@@ -21,7 +21,7 @@ def handle_cmd(verb, opt):
     log.append((verb, opt))
     if verb == DO:
         if opt == 31:  # NAWS
-            send(bytes([IAC, WILL, 31, IAC, SB, 31, 0, 80, 0, 25, IAC, SE]))
+            send(bytes([IAC, WILL, 31, IAC, SB, 31, 0, 80, 0, int(os.environ.get("ROWS", "25")), IAC, SE]))
         elif opt in (24, 0, 3):
             send(bytes([IAC, WILL, opt]))
         else:

@@ -393,18 +393,20 @@ drawn as text), `ARCH*`, `MICRODOS`, `HELP*`, `INIQHELP`.
 ### LOGIN
 
 New, optional: the screen the name and password are asked on. Without
-it they're asked on MATRIX's `~LP` row, or its bottom row. The art
-labels the fields; the board only types in them, in the color in effect
-at each marker, and clears from there to the end of the row, so leave
-the space to their right empty (a name takes 36 columns). Keep the art
-to 78 columns, and `~LM` off the bottom row (a yes/no answer ends with a
+it they're asked on MATRIX's `~LP` row, or its bottom row. The board
+puts each prompt (`LoginName`, `LoginPassword`) at its marker when it's
+asked, the password's only once a name is in, and takes the answer on
+the row under it, from a column in, in the color in effect at the
+marker. It clears those rows from the marker to the end, so leave the
+space to their right empty (a name takes 36 columns). Keep the art to
+78 columns, and `~LM` off the bottom row (a yes/no answer ends with a
 new line). `art/login-gen.py` makes one from a piece of art.
 
 | Marker | Marks |
 |---|---|
-| `~LU` | the name field |
-| `~LW` | the password field |
-| `~LM` | the line for the rest: "Invalid login.", the apply question, the system password (else the row under `~LW`) |
+| `~LU` | the name prompt (the answer goes under it) |
+| `~LW` | the password prompt (likewise) |
+| `~LM` | the line for the rest: "Invalid login.", the apply question, the system password (else two rows under `~LW`) |
 
 ### LISTFILE and GALLERY
 
