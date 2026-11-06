@@ -754,8 +754,9 @@ Four special steps:
   they've turned sixels on already. The SIXEL screen says what sixels
   are and whether the caller's terminal has said it shows them, offers
   a sample (SIXEL.PNG, .JPG or .GIF beside it) and asks whether to turn
-  them on for the gallery and file previews (J in user config changes
-  it later). A board makes SIXEL.ANS from its own art with `SIXEL_ART`
+  them on for the gallery and file previews: yes, no, or show me (again)
+  first. The answer screen says where to change it later (user config,
+  C, then J). A board makes SIXEL.ANS from its own art with `SIXEL_ART`
   (art/README.md); without it, the step asks in plain lines.
 
 #### The waiting-for-caller screen

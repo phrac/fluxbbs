@@ -4,7 +4,7 @@ in its art/ that leaves a column of black on the right). The art keeps
 columns 1-79; the words go in the black from SIXEL_AT (column, row; (50,
 2) to start), 30 columns wide: what sixels are, SIXEL_LINES (the board's
 own, about its art), and where the board writes the terminal's lines
-(~ST), asks (~SQ, three rows) and answers (~SR). SIXEL_SAMPLE, a
+(~ST), asks (~SQ, three rows) and answers (~SR, four rows). SIXEL_SAMPLE, a
 picture in the board's art/, is copied beside it as SIXEL.<ext>, the
 sample the step offers.
 
@@ -45,7 +45,7 @@ for i, s in enumerate(body):
 out += at(x, y + 9) + BODY + '~ST'
 for i, s in enumerate(boardname.local('SIXEL_LINES', [])[:3]):
     out += at(x, y + 12 + i) + NOTE + s
-out += at(x, y + 16) + BODY + '~SQ' + at(x, y + 20) + BODY + '~SR' + E + '0m'
+out += at(x, y + 16) + BODY + '~SQ' + at(x, y + 19) + BODY + '~SR' + E + '0m'
 with open(os.path.join(os.getcwd(), 'SIXEL.ANS'), 'wb') as f:
     f.write(b'\x1b[0m\x1b[2J' + art + b'\x1b[0m' + out.encode('cp437'))
 
