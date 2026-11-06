@@ -107,6 +107,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - Reserved handles.
 - Enter alone at the application's first question (the alias, or the
   real name on a real-names board) leaves it, back to the prelogon menu.
+  Enter alone at the login name does the same.
+- The prelogon menu (MATRIX) takes each item's first letter (l, a, p, f,
+  h), shown brighter, as well as the arrows and Enter.
 - `APPLY` says what the application asks, how new callers get access,
   the rules and how passwords are kept (`art/apply-gen.py`), not the
   stock placeholder.

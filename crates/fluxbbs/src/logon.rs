@@ -426,12 +426,20 @@ impl Session {
             }
             self.login_ask(false, "LoginName").await?;
             // Offer the SSH login name first if it's an account here.
-            let mut opts = ReadOpts::new(36).case(case).required();
+            // New: with the matrix, Enter alone goes back to it.
+            let matrix = self.state.config().logon.matrix;
+            let mut opts = ReadOpts::new(36).case(case);
+            if !matrix {
+                opts = opts.required();
+            }
             if attempt == 0 && self.state.users.find(&self.caller.login_name, false).ok().flatten().is_some() {
                 opts = opts.prefill(self.caller.login_name.clone());
             }
             let name = self.read_string(opts).await?;
             self.login_answered();
+            if name.trim().is_empty() {
+                return Ok(false);
+            }
             let mut ok = false;
             let found = if ask_apply && name.eq_ignore_ascii_case("NEW") {
                 tracing::info!("caller asked to apply as a new user");

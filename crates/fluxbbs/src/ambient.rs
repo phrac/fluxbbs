@@ -633,6 +633,14 @@ impl Session {
     /// inactivity timeout work as ever: when something's for the caller,
     /// the animation stops and the usual wait takes over.
     pub(crate) async fn read_key_ambient(&mut self, amb: &mut Option<Ambient>, saver: bool) -> io::Result<Option<crate::input::Key>> {
+        self.read_key_animated(amb, saver, false).await
+    }
+
+    /// New: `read_key_ambient` that, with `keep`, leaves the animation
+    /// where it is at a key, for a line typed under it (the AI chat):
+    /// putting it back at every key and on again after made it flicker.
+    /// The caller restores it (`restore_effects`) once the line is done.
+    pub(crate) async fn read_key_animated(&mut self, amb: &mut Option<Ambient>, saver: bool, keep: bool) -> io::Result<Option<crate::input::Key>> {
         let since = tokio::time::Instant::now();
         let idle = self.idle_limit();
         // No screen saver unless one's built in (`screensavers`).
@@ -641,7 +649,9 @@ impl Session {
             let waker = self.node.waker();
             loop {
                 if self.key_waiting().await? {
-                    self.restore_effects(amb.as_mut()).await?;
+                    if !keep {
+                        self.restore_effects(amb.as_mut()).await?;
+                    }
                     break;
                 }
                 let stale = idle > 0 && since.elapsed() >= Duration::from_secs(idle);
@@ -694,7 +704,7 @@ impl Session {
 
     /// Put the cells an animation changed back as they were drawn, when
     /// its wait ends (a key, a message), so nothing is left mid-effect.
-    async fn restore_effects(&mut self, amb: Option<&mut Ambient>) -> io::Result<()> {
+    pub(crate) async fn restore_effects(&mut self, amb: Option<&mut Ambient>) -> io::Result<()> {
         let Some(a) = amb else { return Ok(()) };
         let out = a.restore();
         if !out.is_empty() {

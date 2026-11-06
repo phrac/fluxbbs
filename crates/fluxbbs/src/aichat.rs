@@ -660,7 +660,12 @@ impl Session {
         loop {
             // The header animates between keys.
             let mut amb = self.ai_amb.take();
-            let key = self.read_key_ambient(&mut amb, false).await;
+            let key = self.read_key_animated(&mut amb, false, true).await;
+            // Done typing (or looking back): the header as it was drawn.
+            if let Ok(Some(k)) = key
+                && (matches!(k, Key::Enter | Key::Esc) || looks_back(k)) {
+                    self.restore_effects(amb.as_mut()).await?;
+                }
             self.ai_amb = amb;
             let Some(mut key) = key? else { continue };
             if looks_back(key) {

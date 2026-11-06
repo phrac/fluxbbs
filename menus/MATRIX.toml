@@ -10,42 +10,42 @@ generic_columns = 3
 upper_input = true
 
 [[command]]
-keys = "1"
+keys = "L"
 command = ">L"
 desc = "log on"
 help = "|08> |07you have an account. prove it."
 on = "|B4|12[ |15  log on   |12]"
-off = "|B0|08[ |07  log on   |08]"
+off = "|B0|08[ |07  |15l|07og on   |08]"
 
 [[command]]
-keys = "2"
+keys = "A"
 command = ">A"
 desc = "apply"
 help = "|08> |07new here? we will decide if you stay."
 on = "|B4|12[ |15  apply    |12]"
-off = "|B0|08[ |07  apply    |08]"
+off = "|B0|08[ |07  |15a|07pply    |08]"
 
 [[command]]
-keys = "3"
+keys = "P"
 command = ">C"
 desc = "page sysop"
 help = "|08> |07ring the bell. someone may answer."
 on = "|B4|12[ |15page sysop |12]"
-off = "|B0|08[ |07page sysop |08]"
+off = "|B0|08[ |07|15p|07age sysop |08]"
 
 [[command]]
-keys = "4"
+keys = "F"
 command = "EE"
 param = "1;Matrix feedback;No"
 desc = "feedback"
 help = "|08> |07leave a note for the sysop."
 on = "|B4|12[ |15 feedback  |12]"
-off = "|B0|08[ |07 feedback  |08]"
+off = "|B0|08[ |07 |15f|07eedback  |08]"
 
 [[command]]
-keys = "5"
+keys = "H"
 command = ">H"
 desc = "hang up"
 help = "|08> |07the smart choice. no hard feelings."
 on = "|B4|12[ |15 hang up   |12]"
-off = "|B0|08[ |07 hang up   |08]"
+off = "|B0|08[ |07 |15h|07ang up   |08]"

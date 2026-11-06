@@ -47,6 +47,7 @@ these. disflux's is an example of all of them.
 | `AICHAT` | the AI chat screen's title, tagline, accent and logo colors, and with `face` part of a picture in its top left corner; see `aichat-gen.py` |
 | `LOGOS` | a menu's logo: a piece of art in the board's `art/` (`{'main': ('MYLOGO.ans', '35')}`) or a TheDraw font (`('tdf', file, face, word, column, options)`) |
 | `PRELOGON_LINES` | the lines under the prelogon's logo |
+| `PRELOGON_ART`, `PRELOGON_LOGO`, `PRELOGON_AT`, `PRELOGON_SIDE` | one prelogon instead of the logo variants: a piece of art in the board's `art/` that leaves the right black, a small logo there in a TheDraw font (`('MEMBERS.TDF', 'Members', 'dsflx')`), in flame colors, the columns of that black (`(46, 79)`), and the lines under it: `(row, [(color, text), ...])`, colors `red`, `orange`, `cyan`, `gray`, `dim`, `white`, a first part `('center', '')` to center the line |
 | `LOGIN_ART`, `LOGIN_AT` | the login's own screen (`LOGIN.ANS`, made only when it's set): a piece of art in the board's `art/`, cut to 78 columns, with the name and password prompts starting at `LOGIN_AT` (`(44, 19)`) |
 | `LOGON_ART`, `LOGON_ROWS`, `MATRIX_COLORS` | the logon matrix's logo (a piece of art in the board's `art/`, else `LOGON.ans`; 256 and 24-bit colors kept; taller than 8 rows, it takes the top of the screen), the rows of it to use (`(3, 16)`), and the screen's and lightbar's colors: `'red'` (stock), `'green'`, or a dict like those in `boardname.MATRIX_COLORS` |
 | `TELNET_SSH` | `host:port` the TELNET screen tells telnet callers to call back on |

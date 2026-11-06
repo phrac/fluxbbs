@@ -13,6 +13,11 @@ It also writes PRELOGON.FX beside them (one for all, so every logo sits
 in the same rows): glints over the logo, the box and the prompt in turn
 while the screen waits for Enter.
 
+A board can have one screen instead (its art/local.py's PRELOGON_ART, a
+piece of art in its art/ that leaves the right of the screen black): a
+small logo (PRELOGON_LOGO: font file, face, word) at the top of that
+black, the lines (PRELOGON_SIDE) under it, PRELOGON_AT where they go.
+
 Run from text/: python3 -I ../art/prelogon-gen.py
 """
 import os
@@ -122,6 +127,8 @@ def sgr(fg, bg=0):
 
 
 def main():
+    if boardname.local('PRELOGON_ART', None):
+        return side_screen()
     for i, (file, face, spacing, fg_map, bg_map) in enumerate(VARIANTS):
         path = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts', file)
         fonts = [f for f in read_tdf(path) if f['name'] == face]
@@ -195,6 +202,73 @@ def screen(word):
             out += (sgr(color) + t).encode('cp437')
     out += b'\x1b[0m|PK'
     return bytes(out)
+
+
+# The flame colors (xterm 256) the side screen's logo fades through, top to
+# bottom, and the dark red of its shading.
+SIDE_FADE = [214, 208, 202, 196, 160, 124]
+SIDE_SHADE = 52
+# What the side screen's parts are drawn in, by name (xterm 256).
+SIDE_COLORS = {'red': 196, 'orange': 208, 'cyan': 37, 'gray': 250, 'dim': 240, 'white': 231}
+
+
+def c256(n, bg=None):
+    return '\x1b[0;38;5;%d%sm' % (n, '' if bg is None else ';48;5;%d' % bg)
+
+
+def side_screen():
+    """PRELOGON.ANS from the board's art: the art (columns 1-79, so the
+    last stays clear), the logo in the black on the right, the lines
+    under it."""
+    import ansgrid
+    grid = ansgrid.parse(open(boardname.art(boardname.local('PRELOGON_ART', None)), 'rb').read())
+    out = '\x1b[0m\x1b[2J'.encode() + b''.join(ansgrid.line(grid, r, 0, 78, 1, r + 1) for r in range(24))
+    left, right = boardname.local('PRELOGON_AT', (46, 79))
+    file, face, word = boardname.local('PRELOGON_LOGO', ('MEMBERS.TDF', 'Members', 'flux'))
+    font = [f for f in read_tdf(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'fonts', file)) if f['name'] == face][0]
+    logo = [r for r in set_word(font, word, 1, {}, {}) if any(r)]
+    width = max(len(r) for r in logo)
+    if width > right - left + 1:
+        sys.exit('the logo is %d columns wide' % width)
+    x0 = left + (right - left + 1 - width) // 2
+    s = ''
+    for y, row in enumerate(logo):
+        main = SIDE_FADE[min(y * len(SIDE_FADE) // len(logo), len(SIDE_FADE) - 1)]
+        s += '\x1b[%d;%dH' % (2 + y, x0)
+        for cell in row:
+            if cell is None:
+                s += '\x1b[0m '
+                continue
+            ch, fg, bg = cell
+            # The font's bright color is the flame, its gray the shading.
+            f = main if fg & 7 != 0 else SIDE_SHADE
+            s += c256(f, main if bg else None) + bytes([ch]).decode('cp437')
+    # The lines, each (row, parts), a part (color name, text), left to
+    # right from the left edge; centered when the first part's color is
+    # 'center'.
+    for row, parts in boardname.local('PRELOGON_SIDE', []):
+        text = ''.join(t for c, t in parts if c != 'center')
+        x = left
+        if parts and parts[0][0] == 'center':
+            filled = text.replace('%FT', '62,199').replace('%FE', '913').replace('%FZ', '16 GB')
+            x = left + (right - left + 1 - len(filled)) // 2
+        if len(text) > right - left + 1:
+            sys.exit('too wide: ' + text)
+        s += '\x1b[%d;%dH' % (row, x) + ''.join(c256(SIDE_COLORS[c]) + t for c, t in parts if c != 'center')
+    out += (s + '\x1b[0m|PK').encode('cp437')
+    open(os.path.join(os.getcwd(), 'PRELOGON.ANS'), 'wb').write(out)
+    # One screen: the logo-only variants go.
+    for f in os.listdir(os.getcwd()):
+        if f.startswith('PRELOGON.AN') and f[11:].isdigit():
+            os.remove(f)
+    last = max((r for r, _ in boardname.local('PRELOGON_SIDE', [])), default=24)
+    fx = ['# PRELOGON.ANS, animated while it waits for Enter (fluxbbs [[effect]]).',
+          '# Made by art/prelogon-gen.py; change that, not this.', '',
+          '[[effect]]', 'kind = "glint"', 'rows = [2, %d]' % (1 + len(logo)), 'cols = [%d, %d]' % (left, right),
+          'every = 8.0', 'delay = 2.0', 'amount = 0.8', '',
+          '[[effect]]', 'kind = "glint"', 'rows = [%d, %d]' % (last, last), 'cols = [%d, %d]' % (left, right),
+          'every = 8.0', 'delay = 5.0', 'amount = 0.9']
+    open(os.path.join(os.getcwd(), 'PRELOGON.FX'), 'w').write('\n'.join(fx) + '\n')
 
 
 if __name__ == '__main__':
