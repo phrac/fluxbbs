@@ -135,7 +135,7 @@ fn parse_duckduckgo(html: &str) -> Vec<(String, String, String)> {
 /// Search the web: SearXNG's JSON at `searx` if set, else the Brave
 /// Search API if `brave_key` is, else DuckDuckGo's HTML page (which works
 /// until it decides the board is a bot).
-async fn web_search(client: &reqwest::Client, searx: &str, brave_key: Option<&str>, query: &str) -> Result<String, String> {
+pub(crate) async fn web_search(client: &reqwest::Client, searx: &str, brave_key: Option<&str>, query: &str) -> Result<String, String> {
     let results: Vec<(String, String, String)> = if let (true, Some(key)) = (searx.is_empty(), brave_key) {
         let url = format!("https://api.search.brave.com/res/v1/web/search?count=5&q={}", url_encode(query));
         let v: Value = client.get(url).header("X-Subscription-Token", key).header("Accept", "application/json").send().await.map_err(|e| e.to_string())?.json().await.map_err(|e| e.to_string())?;
@@ -225,7 +225,7 @@ fn public_ip(ip: std::net::IpAddr) -> bool {
 
 /// A web page as plain text, for the model: scripts and styles dropped,
 /// tags stripped, blank space squeezed, cut to 8000 characters.
-async fn read_page(client: &reqwest::Client, url: &str) -> Result<String, String> {
+pub(crate) async fn read_page(client: &reqwest::Client, url: &str) -> Result<String, String> {
     let parsed = reqwest::Url::parse(url).map_err(|e| e.to_string())?;
     if !matches!(parsed.scheme(), "http" | "https") {
         return Err("only http and https".into());

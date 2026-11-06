@@ -173,6 +173,12 @@ struct Chat {
     asked: Option<Instant>,
     /// Which of the commands dropping up is picked.
     pick: usize,
+    /// New: a line held at the top of the window (the start of `/list`'s
+    /// rooms) while what follows it comes in, so a long list reads from
+    /// its start; a key lets it go.
+    pin: Option<usize>,
+    /// Rows in the window.
+    window: usize,
 }
 
 impl Chat {
@@ -215,7 +221,12 @@ impl Chat {
             let over = self.lines.len() - SCROLLBACK;
             self.lines.drain(..over);
             self.back = self.back.min(self.lines.len());
+            self.pin = self.pin.and_then(|p| p.checked_sub(over));
         }
+        if let Some(p) = self.pin
+            && self.lines.len() > p + self.window {
+                self.back = self.lines.len() - (p + self.window);
+            }
         self.dirty = true;
     }
 
@@ -260,6 +271,8 @@ impl Session {
             dirty: true,
             asked: None,
             pick: 0,
+            pin: None,
+            window: 0,
         };
         let mut events = self.state.mrc.subscribe();
         chat.notice("|07Type and Enter to talk to the room. |15/|07 shows the commands, |15/help|07 lists them, |15Esc|07 leaves.");
@@ -368,6 +381,7 @@ impl Session {
     /// A key typed; false to leave.
     fn mrc_key(&mut self, chat: &mut Chat, key: Key) -> io::Result<bool> {
         let page = self.screen.rows().saturating_sub(4) as usize;
+        chat.pin = None;
         // A command being named: the list takes the arrows, Tab and Enter.
         let sugg = suggestions(&chat.input);
         if !sugg.is_empty() {
@@ -527,6 +541,12 @@ impl Session {
             }
             "list" | "rooms" => {
                 hub.send(&chat.cmd("LIST", ""));
+                // The rooms come in under this line; the window holds it at
+                // the top (PgDn for the rest).
+                let at = chat.lines.len();
+                chat.notice("|15Rooms on MRC|07 (|15PgDn|07 for more):");
+                chat.window = self.screen.rows().max(10) as usize - 3;
+                chat.pin = Some(at);
             }
             "clear" | "cls" => {
                 chat.lines.clear();
@@ -798,6 +818,25 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_long_list_is_held_at_its_start() {
+        let mut chat = Chat {
+            nick: "phrac".into(), site: String::new(), room: "lobby".into(), topic: String::new(), users: Vec::new(),
+            lines: Vec::new(), back: 0, missed: 0, mentions: 0, last_dm: String::new(), input: String::new(),
+            history: Vec::new(), recall: None, dirty: false, asked: None, pick: 0, pin: None, window: 5,
+        };
+        chat.add("before", false);
+        chat.pin = Some(chat.lines.len());
+        for i in 0..12 {
+            chat.add(&format!("#room{i}"), false);
+        }
+        // Lines 1..6 in view: the window's top is the list's first line.
+        assert_eq!(chat.lines.len() - chat.back - chat.window, 1);
+        chat.pin = None;
+        chat.add("after", false);
+        assert_eq!(chat.lines.len() - chat.back - chat.window, 1);
+    }
 
     #[test]
     fn colours_wrapping_and_chunks() {

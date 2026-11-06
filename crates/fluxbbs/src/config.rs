@@ -1551,6 +1551,9 @@ pub struct Files {
     pub use_kb_ratio: bool,
     /// New uploads may be downloaded before a SysOp checks them.
     pub auto_validate: bool,
+    /// New: with `auto_validate`, only the uploads of callers matching
+    /// this ACS (blank: everyone); the rest wait for a SysOp (`*Q`).
+    pub auto_validate_acs: String,
     /// Accept files sent without naming them first.
     pub allow_blind_upload: bool,
     /// Check names before upload: 1 never, 2 this area, 3+ every area.
@@ -1641,6 +1644,7 @@ impl Default for Files {
             use_ratio: false,
             use_kb_ratio: false,
             auto_validate: true,
+            auto_validate_acs: String::new(),
             allow_blind_upload: true,
             upload_dupe_check: 4,
             import_descriptions: true,

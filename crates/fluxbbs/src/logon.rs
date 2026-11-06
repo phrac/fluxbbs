@@ -133,6 +133,13 @@ impl Session {
                     let s = self.strings().fmt("SecurityNotice", &[&n.to_string(), &bans.to_string()]);
                     self.show_line(&s).await?;
                 }
+            // New: and about uploads waiting for them (`*Q`).
+            if let Ok(held) = self.state.files.held()
+                && !held.is_empty() {
+                    self.newline();
+                    let s = self.strings().fmt("HeldUploads", &[&held.len().to_string()]);
+                    self.show_line(&s).await?;
+                }
         }
         let sysop = self.is_sysop();
         self.node.update(|n| {

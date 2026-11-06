@@ -41,7 +41,7 @@ MENUS = {
        ('areas', [('a', 'change area'), ('l', 'list areas'), ('j', 'join conference'), ('#', 'jump to area #')]),
        ('more', [('[', 'previous area'), (']', 'next area'), ('s', 'set newscan date'), ('e', 'scan select'), ('q', 'quit')])]),
  'sysop': ('sysop menu', [('users', [('u', 'user editor'), ('l', 'access levels'), ('i', 'infoform editor'), ('p', 'new user questions'), ('g', 'security log'), ('r', 'read email'), ('h', 'stat editor'), ('b', 'bbs list editor'), ('n', 'caller notes'), ('q', 'quit')]),
-       ('areas & files', [('a', 'msg area editor'), ('@', 'msg conferences'), ('-', 'message trash'), ('f', 'file area editor'), ('!', 'file conferences'), ('s', 'file area sort'), ('y', 'file editor'), ('k', 'pack file areas'), ('%', 'local upload'), ('>', 'download any file')]),
+       ('areas & files', [('a', 'msg area editor'), ('@', 'msg conferences'), ('-', 'message trash'), ('f', 'file area editor'), ('!', 'file conferences'), ('s', 'file area sort'), ('y', 'file editor'), ('+', 'held uploads'), ('k', 'pack file areas'), ('%', 'local upload'), ('>', 'download any file')]),
        ('system', [('c', 'system config'), ('o', 'logon sequence'), ('#', 'menu editor'), ('e', 'string editor'), ('t', 'text libraries'), ('w', 'screen viewer'), ('j', 'tdf font viewer'), ('v', 'event editor'), ('x', 'protocol editor'), ('z', 'archiver config'), ('d', 'flux/bbs microdos'), ('m', 'modem setup')])]),
  'door': ('online games', [('popular doors', [('1', 'lord'), ('2', 'bre'), ('3', 'usurper'), ('4', 'tradewars 2002'), ('l', 'bbslink games')]),
           ('built in', [('t', 'tarot & fortunes'), ('c', 'casino'), ('v', 'carrier lost')]),
@@ -103,6 +103,8 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
          ('main', '#'): {'keys': '#', 'command': 'AB', 'param': '', 'desc': 'Reading room', 'help': 'A shelf of textfiles by the fire, on a new theme every day'},
          ('main', '@'): {'keys': '@', 'command': 'WX', 'param': '', 'desc': 'Weather', 'help': 'The weather where you are: the sky now, the next day and the week'},
          # MRC: chat with callers on other boards (XR), beside the node chat.
+         # Uploads waiting for a SysOp (*Q).
+         ('sysop', '+'): {'keys': '+', 'command': '*Q', 'param': '', 'acs': 's250', 'desc': 'Held uploads', 'help': '[sysop] Uploads waiting to be checked: view, validate or delete them'},
          ('multinod', 'r'): {'keys': 'R', 'command': 'XR', 'param': '', 'desc': 'MRC chat', 'help': 'Chat live with callers on other BBSes (Multi Relay Chat)'},
 }
 # Options a menu gains off the bar (their keys work; the screen says so):

@@ -1210,7 +1210,7 @@ impl Session {
                         None => continue,
                     },
                     'H' => {
-                        self.toggle_validated(&mut f, &mut fr).await?;
+                        self.toggle_validated(&mut f, &mut fr, &a.name).await?;
                         self.cfg_set(&mut f, key, yes_no(fr.valid));
                     }
                     'I' => {
@@ -1390,9 +1390,42 @@ impl Session {
         Ok(std::fs::metadata(path)?.len())
     }
 
+    /// New: `*Q`, the uploads waiting for a SysOp (not validated, from
+    /// callers outside `auto_validate_acs`), oldest first, across every
+    /// area: one picked opens in the file editor (`J` views it, `H`
+    /// validates and credits the uploader, `*` deletes), then the list
+    /// again.
+    pub async fn held_uploads(&mut self) -> io::Result<()> {
+        loop {
+            let areas: Vec<FAreaRef> = (1..=self.state.fareas().areas.len() as u32).filter_map(|n| self.farea(n)).collect();
+            let found: Vec<(FAreaRef, FileRec)> = self
+                .state
+                .files
+                .held()
+                .map_err(io_err)?
+                .into_iter()
+                .filter_map(|f| areas.iter().find(|a| a.area.file.eq_ignore_ascii_case(&f.area)).map(|a| (a.clone(), f)))
+                .take(FIND_MAX)
+                .collect();
+            if found.is_empty() {
+                self.newline();
+                let s = self.strings().get("HeldNone").to_string();
+                return self.show_line(&s).await;
+            }
+            let total = found.len();
+            let Some((area, fr)) = self.pick_file_to_edit(&found, total, "").await? else { return Ok(()) };
+            self.file_editor_at(area, fr.num).await?;
+            // The one left after the last is dealt with comes up again;
+            // Esc on the editor's list leaves.
+            if total == 1 && self.state.files.held().map_err(io_err)?.len() == 1 {
+                return Ok(());
+            }
+        }
+    }
+
     /// `H` in the file editor: validating credits the uploader, as the
     /// upload would have; unvalidating takes the credit back.
-    async fn toggle_validated(&mut self, f: &mut Form, fr: &mut FileRec) -> io::Result<()> {
+    async fn toggle_validated(&mut self, f: &mut Form, fr: &mut FileRec, area: &str) -> io::Result<()> {
         let uploader = self.state.users.find(&fr.uploader, false).map_err(io_err)?;
         if let Some(mut u) = uploader {
             let question = if fr.valid {
@@ -1424,6 +1457,10 @@ impl Session {
                     self.save_user();
                 } else {
                     self.save_other_user(&original, &u).map_err(io_err)?;
+                }
+                // New: in the points ledger, as the upload would have been.
+                if !fr.valid && points > 0 {
+                    crate::points::record(&self.state, "upload", (original.id, &original.handle), points, area, &fr.name);
                 }
             }
         }

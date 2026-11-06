@@ -259,6 +259,7 @@ impl Session {
             "*F" if self.is_sysop() => self.file_area_editor().await?,
             "*S" if self.is_sysop() => self.sort_file_areas(param).await?,
             "*Y" if self.is_sysop() => self.file_editor(param).await?,
+            "*Q" if self.is_sysop() => self.held_uploads().await?,
             "*U" if self.is_sysop() => self.user_editor(param).await?,
             // New: private notes on a caller.
             "*N" if self.is_sysop() => self.user_notes_cmd(param).await?,

@@ -133,6 +133,19 @@ In the editor itself:
 A co-SysOp's `edit` in a list edits the description only, as in the
 original.
 
+### Held uploads
+
+With Auto-validate on (`*C`, File System H), new uploads can be
+downloaded at once. Auto-validate ACS (Q) narrows that to the callers
+matching it: `s250` lets co-SysOps' uploads straight through (add
+`|U3` for a trusted caller, user #3), and everyone else's wait. A held
+file is listed but can't be downloaded; its uploader is told, and gets
+the upload's credit and points when it's validated. SysOps hear at
+logon how many are waiting; `*Q` (`+` on the SysOp menu) lists them,
+oldest first, from every area, and each opens in the file editor: `J`
+looks inside it, `H` validates it, `*` deletes it. Blank, the ACS lets
+everyone through, as before.
+
 ### Descriptions
 
 - `-` in the file editor reads a description from the file: an

@@ -1993,8 +1993,10 @@ impl Session {
         let got = self.receive_files(&proto, &temp).await?;
         let today = crate::clock::now().date_naive();
         let fc = &self.state.config().files;
+        // New: only callers matching `auto_validate_acs` skip the SysOp.
+        let trusted = fc.auto_validate_acs.trim().is_empty() || self.acs(&fc.auto_validate_acs);
         let (auto_valid, kb_pt, pct, use_points, import, desc_files, max_lines) = (
-            fc.auto_validate,
+            fc.auto_validate && trusted,
             fc.kb_per_point.max(1) as u64,
             fc.upload_points_percent as u64,
             fc.use_file_points,
@@ -2117,6 +2119,9 @@ impl Session {
                     let s = self.strings().fmt("s269", &[&award.to_string()]);
                     self.upload_note(&s).await?;
                 }
+            } else {
+                let s = self.strings().get("FaULheld").to_string();
+                self.upload_note(&s).await?;
             }
             added.0 += 1;
             added.1 += rec.size;

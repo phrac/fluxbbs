@@ -633,6 +633,7 @@ The `*` commands on the SysOp menu:
 | `*U` | users, with colors, preferences, auto-signature and infoforms |
 | `*F` | file areas |
 | `*Y` | files: validate, rename, move, delete, extract or apply DIZ; `/` finds a file in any area, and `edit` in a file list opens it ([FILES](FILES.md#managing-files)) |
+| `*Q` | held uploads: the files waiting to be validated, in every area, each opening in the file editor ([FILES](FILES.md#held-uploads)) |
 | `*S` | sort areas |
 | `*>` | download any file |
 | `*%` | local upload |

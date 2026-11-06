@@ -558,8 +558,8 @@ async fn answer_about(state: &BbsState, book: &Book, text: &str, summary: &str, 
     let system = format!(
         "You are {name}, who looks after {board}, a bulletin board system. {extra}\n\nA caller in the board's reading room is \
          asking you about the textfile they're reading. Answer their question from the text, briefly (under 120 words), in your \
-         own voice. Where the text doesn't say, say so, or say plainly that what you add is your own knowledge; don't make things \
-         up. Don't give working instructions for anything harmful. Plain text for an 80-column terminal: no markdown, no lists, \
+         own voice. Where the text doesn't say, look it up if you can, or say plainly that what you add is your own knowledge; \
+         don't make things up. Don't give working instructions for anything harmful. Plain text for an 80-column terminal: no markdown, no lists, \
          no emoji.",
         board = cfg.bbs.name,
         extra = cfg.ai.system_prompt.trim(),
@@ -570,7 +570,8 @@ async fn answer_about(state: &BbsState, book: &Book, text: &str, summary: &str, 
         prompt.push_str(&format!("\n{}: {words}", if *ai { "You" } else { "Caller" }));
     }
     prompt.push_str(&format!("\nCaller: {question}\nYou:"));
-    let answer = crate::aimemory::complete(&cfg.ai, &system, &prompt).await?;
+    // New: it may search the web for what the text doesn't say.
+    let answer = crate::aimemory::complete_with_web(&cfg.ai, &system, &prompt).await?;
     let paras: Vec<String> = answer
         .split("\n\n")
         .map(|p| p.split_whitespace().collect::<Vec<_>>().join(" "))
@@ -1799,7 +1800,7 @@ impl Session {
             self.discuss_draw(&talk, &lc, rows, tc);
             self.flush().await?;
             let so_far: Vec<(bool, String)> = talk[1..talk.len() - 2].to_vec();
-            let answer = tokio::time::timeout(Duration::from_secs(120), answer_about(&self.state, book, &body, summary, &so_far, &q)).await;
+            let answer = tokio::time::timeout(Duration::from_secs(180), answer_about(&self.state, book, &body, summary, &so_far, &q)).await;
             self.drain_keys().await?;
             let said = match answer {
                 Ok(Ok(a)) => a,

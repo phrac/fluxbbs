@@ -325,6 +325,12 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - An outside virus scanner (`test_command`, e.g. ClamAV) in place of
   the DOS one.
 - An ad file added to uploaded ZIPs.
+- Uploads held for a SysOp by level: with auto-validate on, only callers
+  matching Auto-validate ACS (`*C`, File System Q; `s250`) skip the
+  check. The uploader is told, the credit comes when it's validated (in
+  the points ledger too), SysOps hear at logon how many wait, and `*Q`
+  lists them across every area to view, validate or delete.
+  ([FILES](FILES.md#held-uploads))
 - Descriptions from SAUCE for single pieces of art.
 - RAR, 7Z and LHA through bsdtar or 7-Zip; ZIP read natively.
 - `fluxbbs add-files` adds files copied into every area from the shell;
@@ -504,7 +510,9 @@ All in [FEATURES](FEATURES.md#message-center).
   stories, the kitchen...); books open at the caller's bookmark, and
   reading one to the end marks it on their card. A book is pulled off
   the shelf and opened on screen, and read on warm paper, where `a`
-  asks the AI what the book is about and `d` discusses it further,
+  asks the AI what the book is about and `d` discusses it further
+  (looking up on the web what the book doesn't say, when `[ai]
+  web_search` is on),
   `x` votes or comments and `c` shows them. The AI leaves a note
   about the day's shelf on the mantel (`n`), and `m` shows the most
   read books, all time and today.
@@ -563,6 +571,7 @@ All in [FEATURES](FEATURES.md#qwk-offline-mail).
   callers, laid out like irssi (topic bar, timed scrolling window,
   status bar, input line, scrollback, history, name completion), one
   connection for the whole board. ([FEATURES](FEATURES.md#mrc-chat))
+  `/list` holds the window at the top of the rooms; PgDn for the rest.
 
 ## Doors
 

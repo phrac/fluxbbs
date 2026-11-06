@@ -135,6 +135,88 @@ pub async fn complete(cfg: &Ai, system: &str, prompt: &str) -> anyhow::Result<St
     ask(cfg, system, json!(prompt)).await
 }
 
+/// New: one answer that may look things up on the way: the web search
+/// and page reading the AI chat has (`[ai] web_search`, `read_pages`), a
+/// few rounds of them at most, then the answer. Without web search it's
+/// `complete`.
+#[cfg(feature = "ai")]
+pub async fn complete_with_web(cfg: &Ai, system: &str, prompt: &str) -> anyhow::Result<String> {
+    const ROUNDS: usize = 3;
+    if !cfg.web_search {
+        return complete(cfg, system, prompt).await;
+    }
+    let client = reqwest::Client::builder().timeout(Duration::from_secs(cfg.timeout_seconds.max(10))).build()?;
+    let url = format!("{}/chat/completions", cfg.base_url.trim_end_matches('/'));
+    let mut tools = vec![json!({"type": "function", "function": {
+        "name": "web_search",
+        "description": "Search the web. Returns the top results: title, address and a snippet.",
+        "parameters": {"type": "object", "properties": {"query": {"type": "string", "description": "What to search for"}}, "required": ["query"]}
+    }})];
+    if cfg.read_pages {
+        tools.push(json!({"type": "function", "function": {
+            "name": "read_page",
+            "description": "Read a web page (from search results) as plain text, when the snippet isn't enough.",
+            "parameters": {"type": "object", "properties": {"url": {"type": "string", "description": "The page's address"}}, "required": ["url"]}
+        }}));
+    }
+    let system = format!("{system} You can search the web with the web_search tool when the question needs facts you don't have; say briefly where they came from.");
+    let mut messages = vec![json!({"role": "system", "content": system}), json!({"role": "user", "content": prompt})];
+    let key = (!cfg.api_key_env.is_empty()).then(|| std::env::var(&cfg.api_key_env).ok()).flatten();
+    let brave = (!cfg.search_key_env.is_empty()).then(|| std::env::var(&cfg.search_key_env).ok()).flatten();
+    for round in 0..=ROUNDS {
+        let mut body = json!({"model": cfg.model, "messages": messages, "stream": false, "max_tokens": cfg.max_tokens});
+        if !cfg.reasoning_effort.is_empty() {
+            body["reasoning_effort"] = json!(cfg.reasoning_effort);
+        }
+        if round < ROUNDS {
+            body["tools"] = Value::Array(tools.clone());
+        } else {
+            messages.push(json!({"role": "system", "content": "No more searches. Answer now from what you have."}));
+            body["messages"] = Value::Array(messages.clone());
+        }
+        let mut req = client.post(&url).json(&body);
+        if let Some(k) = &key {
+            req = req.bearer_auth(k);
+        }
+        let resp = req.send().await?;
+        if !resp.status().is_success() {
+            anyhow::bail!("{}", resp.status());
+        }
+        let v: Value = resp.json().await?;
+        let msg = &v["choices"][0]["message"];
+        let calls = msg["tool_calls"].as_array().cloned().unwrap_or_default();
+        if calls.is_empty() || round == ROUNDS {
+            let text = without_thinking(msg["content"].as_str().unwrap_or(""));
+            if v["choices"][0]["finish_reason"] == "length" {
+                return Ok(whole_sentences(&text));
+            }
+            return Ok(text);
+        }
+        messages.push(json!({"role": "assistant", "content": msg["content"].as_str().unwrap_or(""), "tool_calls": calls}));
+        for c in &calls {
+            let name = c["function"]["name"].as_str().unwrap_or_default();
+            let args = serde_json::from_str::<Value>(c["function"]["arguments"].as_str().unwrap_or("{}")).unwrap_or_default();
+            let result = match name {
+                "web_search" => {
+                    let q = args["query"].as_str().unwrap_or_default();
+                    tracing::info!("ai: search {q:?}");
+                    crate::aichat::web_search(&client, &cfg.search_url, brave.as_deref(), q)
+                        .await
+                        .unwrap_or_else(|e| format!("Search failed ({e}). Don't search again for this; answer from what you know, and say so."))
+                }
+                "read_page" if cfg.read_pages => {
+                    let u = args["url"].as_str().unwrap_or_default();
+                    tracing::info!("ai: read {u:?}");
+                    crate::aichat::read_page(&client, u).await.unwrap_or_else(|e| format!("Couldn't read it ({e})."))
+                }
+                _ => format!("No tool called {name}."),
+            };
+            messages.push(json!({"role": "tool", "tool_call_id": c["id"], "content": result}));
+        }
+    }
+    anyhow::bail!("the AI never answered")
+}
+
 /// New: one answer about a picture (a PNG), shown to the model beside the
 /// prompt. The model has to see images (vega's does).
 #[cfg(feature = "ai")]

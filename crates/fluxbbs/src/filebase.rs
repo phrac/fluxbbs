@@ -752,6 +752,13 @@ impl FileBase {
         Ok(())
     }
 
+    /// New: the files waiting for a SysOp (not validated), oldest first.
+    pub fn held(&self) -> anyhow::Result<Vec<FileRec>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let rows = db.prepare("SELECT * FROM files WHERE NOT valid ORDER BY uploaded, id")?.query_map([], from_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// New: `uploader`'s newest validated files in `areas`.
     pub fn by_uploader(&self, uploader: &str, areas: &[String], limit: u32) -> anyhow::Result<Vec<FileRec>> {
         if areas.is_empty() {
