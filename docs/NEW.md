@@ -424,6 +424,7 @@ All in [FEATURES](FEATURES.md#message-center).
   not the author's initials; a line too wide with them goes on at the
   start of the paragraph's next line, rewrapped, rather than losing its
   end. ([FEATURES](FEATURES.md#quoting))
+- Max quote lines (`*C`, messages M) of 0 autoquotes the whole message.
 - The reader can have the board's prompt bar (MSGRBAR).
 - The thread tree (`v`) shows each message's comments under it.
 - Tab in the reader skips the next quote, on to what the reply says

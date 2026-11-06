@@ -387,8 +387,10 @@ fn is_quote(line: &str) -> bool {
 /// Initials for quote prefixes (`mInitials`).
 /// The lines `fsQuotePos` would quote: the end of the message (before the
 /// signature), up to `max` lines, skipping leading blanks and old quotes.
+/// New: a `max` of 0 quotes the whole message.
 pub fn quote_range(m: &Message, max: usize) -> Option<(usize, usize)> {
     let body = m.body();
+    let max = if max == 0 { usize::MAX } else { max };
     let usable = |l: &String| !l.is_empty() && !l.contains('\x1b');
     let last = body.iter().rposition(usable)?;
     let mut first = last.saturating_sub(max.saturating_sub(1));
@@ -1359,6 +1361,7 @@ mod tests {
         m.lines[1] = "> older".into();
         assert_eq!(quote_lines(&m, 1, 1, ""), vec![">> older"]);
         assert_eq!(quote_range(&m, 1), Some((2, 2)));
+        assert_eq!(quote_range(&m, 0), quote_range(&m, 99));
         // Too wide with the `> ` in front: what doesn't fit starts the
         // next line of the paragraph, not a line of its own.
         let mut m2 = m.clone();

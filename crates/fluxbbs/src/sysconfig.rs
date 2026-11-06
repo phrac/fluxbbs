@@ -381,7 +381,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('J', "Delete all read", 3, "Offer to delete all read email on leaving the mail reader?", Bool(|c| &mut c.messages.ask_delete_all_read)),
             set('K', "Ask autoquote", 3, "Ask whether to quote when replying?", Bool(|c| &mut c.messages.ask_auto_quote)),
             set('L', "Default quote lines", 3, "Suggest line numbers when quoting by hand?", Bool(|c| &mut c.messages.default_quote_lines)),
-            set('M', "Max quote lines", 3, "Most lines quoted automatically.", Num(|c| c.messages.max_quote_lines as u64, |c, v| c.messages.max_quote_lines = v as u8, 1, 99)),
+            set('M', "Max quote lines", 3, "Most lines quoted automatically (0: the whole message).", Num(|c| c.messages.max_quote_lines as u64, |c, v| c.messages.max_quote_lines = v as u8, 0, 99)),
             set('N', "Mandatory all confs", 3, "Should the mandatory scan ignore conferences?", Bool(|c| &mut c.messages.mandatory_all_confs)),
             set('O', "Compress numbers", 3, "Number listed areas 1, 2, 3... counting only visible ones?", Bool(|c| &mut c.messages.compress_area_numbers)),
             set('P', "ANSI quote text", 40, "Shown instead of quoted lines that contain ANSI.", Text(|c| &mut c.messages.ansi_quote, TEXT.max(100))),

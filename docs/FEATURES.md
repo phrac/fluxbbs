@@ -172,7 +172,8 @@ phrac wrote:
 
 The original put the author's initials in front (`P> `), which said too
 little. `MsgQuoteHead` is the opening line; it's kept in the message,
-so it's plain.
+so it's plain. Autoquote takes the end of the message, up to Max quote
+lines (`*C`, messages M; 11 to start); 0 quotes all of it.
 
 #### Editing your posts
 

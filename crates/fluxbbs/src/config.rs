@@ -1428,6 +1428,7 @@ pub struct Messages {
     pub ask_auto_quote: bool,
     /// Suggest line numbers when quoting by hand.
     pub default_quote_lines: bool,
+    /// New: 0 quotes the whole message.
     pub max_quote_lines: u8,
     /// The mandatory scan ignores conferences.
     pub mandatory_all_confs: bool,
