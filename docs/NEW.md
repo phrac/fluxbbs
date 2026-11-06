@@ -263,6 +263,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - Pictures and PDF pages in sixel graphics, at the terminal's own
   pixels, for callers who turn on "sixel pics" in user configuration
   (off to start; it says when their terminal can). ([FILES](FILES.md#pictures))
+- PDFs open on their pages for callers with sixels on, and Z zooms a
+  page to the screen's width, scrolled a screenful at a time, so
+  magazines can be read. ([FILES](FILES.md#pdfs))
 - A logon step that offers sixels once: what they are, whether the
   caller's terminal can, a sample to compare with the ANSI beside it,
   and a yes or no. ([FEATURES](FEATURES.md#logon-sequence-o))

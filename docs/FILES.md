@@ -573,9 +573,16 @@ sixels on), foot, WezTerm, mlterm and Windows Terminal show them.
 | arrows, space, PgUp/PgDn | turn the pages |
 | T | goes back to the text |
 | D | downloads |
+| Z | (sixels) zooms to the screen's width, and back |
 
 - OCR'd scans read fine, slips and all.
-- A PDF with no text in it opens on its pages.
+- A PDF with no text in it opens on its pages, and so does any PDF for
+  callers with [sixels](#pictures) on.
+- Zoomed, a page is rendered at the screen's full width (640 pixels on
+  SyncTERM), where a magazine's body text can be read, and shown a
+  screenful at a time: up and down scroll half a screen, PgUp, PgDn,
+  space and Enter a whole one (on to the next page at the end), left
+  and right turn pages. A screenful is about 200 KB (64 colors).
 - The text and page pictures are made once and kept in the data
   directory's `cache/pdf`.
 - This uses Poppler's `pdftotext`, `pdftoppm` and `pdfinfo`

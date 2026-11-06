@@ -1271,11 +1271,13 @@ impl Session {
         Ok(None)
     }
 
-    /// A PDF: its text (or with `pages`, its pages), switching between the
-    /// two with P and T. D is passed back to download it. One inside an
+    /// A PDF: its text (or with `pages`, or sixels on, its pages),
+    /// switching between the two with P and T. D is passed back to download it. One inside an
     /// archive is copied out first (Poppler reads files).
     #[cfg(feature = "pdf")]
-    async fn pdf_open(&mut self, name: &str, src: &Src, mut pages: bool) -> io::Result<Option<char>> {
+    async fn pdf_open(&mut self, name: &str, src: &Src, pages: bool) -> io::Result<Option<char>> {
+        // New: sixels show pages well enough to start with them.
+        let mut pages = pages || self.user.sixel && !self.plain();
         let path = match src {
             Src::Disk(p) => p.clone(),
             Src::Zip(z, n) | Src::Tar(z, _, n) => {

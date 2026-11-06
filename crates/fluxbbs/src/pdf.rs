@@ -90,18 +90,39 @@ pub fn pages(path: &Path) -> Result<u32, String> {
 
 /// Page `n` as a PNG, made into `dir` the first time.
 pub fn page_png(path: &Path, n: u32, dir: &Path) -> io::Result<Vec<u8>> {
-    let root = dir.join(format!("{}-p{n}", cache_key(path)));
+    render(path, n, dir, &format!("{}-p{n}", cache_key(path)), &["-scale-to".into(), PAGE_PIXELS.to_string()])
+}
+
+/// New: page `n` `width` pixels wide (its height as it comes), for the
+/// zoomed view.
+pub fn page_png_wide(path: &Path, n: u32, dir: &Path, width: u32) -> io::Result<Vec<u8>> {
+    render(path, n, dir, &format!("{}-p{n}-w{width}", cache_key(path)), &["-scale-to-x".into(), width.to_string(), "-scale-to-y".into(), "-1".into()])
+}
+
+fn render(path: &Path, n: u32, dir: &Path, stem: &str, size: &[String]) -> io::Result<Vec<u8>> {
+    let root = dir.join(stem);
     let png = root.with_extension("png");
     if !png.exists() {
         std::fs::create_dir_all(dir)?;
-        let (n, px) = (n.to_string(), PAGE_PIXELS.to_string());
-        poppler(
-            "pdftoppm",
-            &["-f".as_ref(), n.as_ref(), "-l".as_ref(), n.as_ref(), "-png".as_ref(), "-singlefile".as_ref(), "-scale-to".as_ref(), px.as_ref(), path.as_os_str(), root.as_os_str()],
-        )
-        .map_err(io::Error::other)?;
+        let n = n.to_string();
+        let mut args: Vec<&std::ffi::OsStr> = vec!["-f".as_ref(), n.as_ref(), "-l".as_ref(), n.as_ref(), "-png".as_ref(), "-singlefile".as_ref()];
+        args.extend(size.iter().map(std::ffi::OsStr::new));
+        args.extend([path.as_os_str(), root.as_os_str()]);
+        poppler("pdftoppm", &args).map_err(io::Error::other)?;
     }
     std::fs::read(&png)
+}
+
+/// New: rows `top..top + h` of a page's PNG as sixels (fewer if the page
+/// ends first), and the page's height. 64 colors: a scan's paper grain
+/// in 256 made a screenful 390 KB; in 64, 230 KB, the text as clear.
+pub fn page_slice(png: &[u8], top: u32, h: u32) -> Result<(Vec<u8>, u32), String> {
+    let img = image::load_from_memory(png).map_err(|e| e.to_string())?.to_rgb8();
+    let (w, ph) = img.dimensions();
+    let top = top.min(ph.saturating_sub(1));
+    let rows = h.min(ph - top);
+    let px: Vec<[u8; 3]> = (top..top + rows).flat_map(|y| (0..w).map(move |x| (x, y))).map(|(x, y)| img.get_pixel(x, y).0).collect();
+    Ok((crate::picture::sixel(&px, w as usize, rows as usize, 64), ph))
 }
 
 impl Session {
@@ -143,7 +164,8 @@ impl Session {
 
     /// A PDF's pages as pictures, from the first: right, space, enter or
     /// pgdn the next, left or pgup the one before, home and end; D (download)
-    /// and T (the text) are passed back, anything else leaves.
+    /// and T (the text) are passed back, anything else leaves. New: in
+    /// sixels, Z zooms to the screen's width ([`Session::pdf_zoomed`]).
     pub(crate) async fn pdf_pages(&mut self, name: &str, path: &Path) -> io::Result<Option<char>> {
         let p = path.to_path_buf();
         let total = match tokio::task::spawn_blocking(move || pages(&p)).await.map_err(io::Error::other)? {
@@ -155,9 +177,21 @@ impl Session {
             }
         };
         let dir = self.pdf_cache();
-        let mut n = 1;
+        let sixel = self.user.sixel && !self.plain();
+        let (mut n, mut zoom) = (1, false);
         loop {
-            let caption = self.strings().fmt("PdfPageBar", &[&fluxbbs_term::codes::squish(name, 24), &n.to_string(), &total.to_string()]);
+            if zoom {
+                match self.pdf_zoomed(name, path, &mut n, total).await? {
+                    Some('Z') => zoom = false,
+                    other => return Ok(other),
+                }
+                continue;
+            }
+            let caption = if sixel {
+                self.strings().fmt("PdfPageBarZoom", &[&fluxbbs_term::codes::squish(name, 20), &n.to_string(), &total.to_string()])
+            } else {
+                self.strings().fmt("PdfPageBar", &[&fluxbbs_term::codes::squish(name, 24), &n.to_string(), &total.to_string()])
+            };
             let (p, d) = (path.to_path_buf(), dir.clone());
             let read = move || page_png(&p, n, &d);
             let Some(key) = self.show_picture_key(name, Some(caption), path.to_path_buf(), format!("page {n}"), read).await? else { return Ok(None) };
@@ -170,9 +204,82 @@ impl Session {
                     Some(c @ ('D' | 'T')) => return Ok(Some(c)),
                     Some('N') => (n + 1).min(total),
                     Some('B') => n.saturating_sub(1).max(1),
+                    Some('Z') if sixel => {
+                        zoom = true;
+                        n
+                    }
                     _ => return Ok(None),
                 },
             };
+        }
+    }
+
+    /// New: pages at the screen's full width in sixels, a screenful at a
+    /// time: up and down scroll half a screen, pgup, pgdn, space and enter
+    /// a whole one (on past a page's end to the next), left and right
+    /// turn pages, home and end. Z (back to whole pages), D and T are
+    /// passed back, anything else leaves.
+    async fn pdf_zoomed(&mut self, name: &str, path: &Path, n: &mut u32, total: u32) -> io::Result<Option<char>> {
+        let (cw, ch) = self.cell_pixels().await?;
+        let rows = self.screen.rows().saturating_sub(1).max(2) as u32;
+        let (width, view) = (80 * cw, rows * ch / 6 * 6);
+        let (half, full) = (view / 12 * 6, view.saturating_sub(4 * ch) / 6 * 6);
+        let dir = self.pdf_cache();
+        let (mut top, mut fresh) = (0u32, true);
+        loop {
+            let (p, d, page) = (path.to_path_buf(), dir.clone(), *n);
+            let got = tokio::task::spawn_blocking(move || -> Result<(Vec<u8>, u32), String> {
+                let png = page_png_wide(&p, page, &d, width).map_err(|e| e.to_string())?;
+                page_slice(&png, top, view)
+            })
+            .await
+            .map_err(io::Error::other)?;
+            let (six, height) = match got {
+                Ok(g) => g,
+                Err(why) => {
+                    let s = self.strings().fmt("PdfCantRead", &[name, &why]);
+                    return self.archive_note(&s).await.map(|_| None);
+                }
+            };
+            let last = height.saturating_sub(view);
+            if fresh {
+                self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                self.clear_screen();
+                fresh = false;
+            }
+            self.screen.goto(1, 1);
+            self.screen.write_raw(&six);
+            let shown = ((top + view).min(height) * 100 / height.max(1)).to_string() + "%";
+            let bar = self.strings().fmt("PdfZoomBar", &[&fluxbbs_term::codes::squish(name, 20), &n.to_string(), &total.to_string(), &shown]);
+            self.screen.goto(1, self.screen.rows());
+            self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+            self.screen.clear_eol();
+            self.show(&bar).await?;
+            self.flush().await?;
+            let key = self.read_key().await?;
+            let mut to = *n;
+            match key {
+                Key::Down => top = (top + half).min(last),
+                Key::Up => top = top.saturating_sub(half),
+                Key::PgDn | Key::Enter | Key::Char(b' ') if top >= last => to = (*n + 1).min(total),
+                Key::PgDn | Key::Enter | Key::Char(b' ') => top = (top + full).min(last),
+                Key::PgUp => top = top.saturating_sub(full),
+                Key::Right => to = (*n + 1).min(total),
+                Key::Left => to = n.saturating_sub(1).max(1),
+                Key::Home => to = 1,
+                Key::End => to = total,
+                k => match k.upper() {
+                    Some(c @ ('D' | 'T' | 'Z')) => return Ok(Some(c)),
+                    Some('N') => to = (*n + 1).min(total),
+                    Some('B') => to = n.saturating_sub(1).max(1),
+                    _ => return Ok(None),
+                },
+            }
+            if to != *n {
+                *n = to;
+                top = 0;
+                fresh = true;
+            }
         }
     }
 }
@@ -180,6 +287,18 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn slices_pages() {
+        let img = image::RgbImage::from_fn(64, 100, |_, y| image::Rgb(if y < 50 { [255, 255, 255] } else { [0, 0, 0] }));
+        let mut png = Vec::new();
+        img.write_to(&mut std::io::Cursor::new(&mut png), image::ImageFormat::Png).unwrap();
+        let (six, h) = page_slice(&png, 40, 30).unwrap();
+        assert_eq!(h, 100);
+        assert!(six.starts_with(b"\x1bP9;1q\"1;1;64;30"));
+        let (end, _) = page_slice(&png, 90, 30).unwrap();
+        assert!(end.starts_with(b"\x1bP9;1q\"1;1;64;10"), "cut at the page's end");
+    }
 
     #[test]
     fn tidies_pages() {
