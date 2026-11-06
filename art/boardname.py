@@ -96,3 +96,21 @@ if STOCK:
 # them: the stock set has the codes the board fills in (%BN, %SN).
 TITLE = '%BN' if STOCK else ((CONFIG.get('bbs', {}).get('name') or 'flux/bbs').strip().lower())
 SYSOP = '%SN' if STOCK else ((CONFIG.get('bbs', {}).get('sysop_alias') or 'sysop').strip())
+
+
+# The logon matrix's colors (MATRIX.ANS and its lightbar): art/local.py's
+# MATRIX_COLORS names one of these, or gives its own dict like them.
+# dim and bright are ANSI colors, stops the fade of the screen's words,
+# bar the lit item's pipe-code background and brackets, rim the unlit
+# item's brackets.
+MATRIX_COLORS = {
+    'red': {'dim': '31', 'bright': '1;31', 'stops': ((255, 255, 255), (255, 85, 85), (170, 0, 0)),
+            'bar': ('|B4', '|12'), 'rim': '|08'},
+    'green': {'dim': '32', 'bright': '1;32', 'stops': ((255, 255, 255), (85, 255, 85), (0, 170, 0)),
+              'bar': ('|B2', '|10'), 'rim': '|02'},
+}
+
+
+def matrix_colors():
+    c = local('MATRIX_COLORS', 'red')
+    return c if isinstance(c, dict) else MATRIX_COLORS[c]

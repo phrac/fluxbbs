@@ -25,6 +25,7 @@ SCREENS = [
     ('GALLERY.ANS', ['gallery-gen.py']),
     ('LISTFILE.ANS', ['listgen.py', 'file']),
     (None, ['listsgen.py']),
+    (None, ['login-gen.py']),
     ('MATRIX.ANS', ['logon-gen.py']),
     ('../menus/MATRIX.toml', ['matrix-menu-gen.py']),
     ('MSGGUIDE.ANS', ['msgguide-gen.py']),

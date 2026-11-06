@@ -55,6 +55,26 @@ pub(crate) fn turned_away(state: &crate::BbsState, addr: std::net::SocketAddr) -
     Some(why)
 }
 
+/// Where the login's prompts go when they stay on the screen: the name
+/// and password fields and the line for the rest, each with its color.
+/// `labeled`: the art labels the fields (a LOGIN screen), so the prompt
+/// strings for them aren't shown.
+#[derive(Clone, Copy)]
+pub struct LoginAt {
+    pub name: (u16, u16, fluxbbs_term::Color),
+    pub pass: (u16, u16, fluxbbs_term::Color),
+    pub other: (u16, u16, fluxbbs_term::Color),
+    pub labeled: bool,
+}
+
+impl LoginAt {
+    /// One row every prompt shares, from the left edge.
+    fn line(y: u16) -> Self {
+        let at = (1, y, fluxbbs_term::Color::DEFAULT);
+        LoginAt { name: at, pass: at, other: at, labeled: false }
+    }
+}
+
 impl Session {
     /// A whole call: prelogon, logon (via the matrix menu or directly),
     /// then the menu loop until hang-up.
@@ -300,51 +320,91 @@ impl Session {
         let (tries, ask_apply) = (cfg.logon.tries, cfg.logon.ask_apply);
         let case = Case::from_alias_format(cfg.newuser.alias_format);
         drop(cfg);
-        // After a lightbar menu the prompts share one line: the art's ~LP
-        // marker, or the bottom row.
-        let lightbar = self.menu.menu.as_ref().is_some_and(|m| m.menu_type == crate::menu::MenuType::Lightbar);
-        self.login_line = self.positions.get(b"LP").map(|p| p.1).or_else(|| lightbar.then(|| self.screen.rows()));
+        // New: a LOGIN screen with fields for the name (~LU) and password
+        // (~LW), labeled by the art, and a line (~LM) for the rest.
+        let screen = self.show_file("LOGIN").await?;
+        let field = |s: &Self, k: &[u8; 2]| s.positions.get(k).map(|p| (p.0, p.1, p.2));
+        self.login_at = match (screen, field(self, b"LU"), field(self, b"LW")) {
+            (true, Some(name), Some(pass)) => {
+                let other = field(self, b"LM").unwrap_or((pass.0, pass.1 + 1, pass.2));
+                Some(LoginAt { name, pass, other, labeled: true })
+            }
+            // After a lightbar menu the prompts share one line: the
+            // art's ~LP marker, or the bottom row.
+            _ => {
+                let lightbar = self.menu.menu.as_ref().is_some_and(|m| m.menu_type == crate::menu::MenuType::Lightbar);
+                let row = self.positions.get(b"LP").map(|p| p.1).or_else(|| lightbar.then(|| self.screen.rows()));
+                row.map(LoginAt::line)
+            }
+        };
         let result = self.login_loop(tries, ask_apply, case).await;
-        self.login_line = None;
+        // The menu comes back over the LOGIN screen without a pause.
+        if screen && !matches!(result, Ok(true)) {
+            self.full_screen_done();
+        }
+        self.login_at = None;
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
         result
     }
 
-    /// Start a login prompt: on the login line, cleared, if there is one,
-    /// else on a new line.
-    fn login_prompt(&mut self) {
-        match self.login_line {
-            Some(y) => {
-                self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-                self.screen.goto(1, y);
+    /// Start a login prompt at `at` (its field, or the line the rest
+    /// share), cleared, if prompts stay put; else on a new line.
+    fn login_prompt_at(&mut self, at: impl Fn(&LoginAt) -> (u16, u16, fluxbbs_term::Color)) {
+        match self.login_at.as_ref().map(at) {
+            Some((x, y, color)) => {
+                self.screen.set_color(color);
+                self.screen.goto(x, y);
                 self.screen.clear_eol();
             }
             None => self.newline(),
         }
     }
 
+    fn login_prompt(&mut self) {
+        self.login_prompt_at(|a| a.other);
+    }
+
+    /// The name or password prompt: on a LOGIN screen only its field (the
+    /// art says what it is), else the prompt string.
+    async fn login_ask(&mut self, password: bool, key: &str) -> io::Result<()> {
+        self.login_prompt_at(|a| if password { a.pass } else { a.name });
+        if !self.login_at.is_some_and(|a| a.labeled) {
+            self.say(key).await?;
+        }
+        Ok(())
+    }
+
     /// After an answer: the login line stays put; otherwise a new line.
     fn login_answered(&mut self) {
-        if self.login_line.is_none() {
+        if self.login_at.is_none() {
             self.newline();
         }
     }
 
-    /// A message during login, held a moment on the login line.
+    /// A message during login, held a moment on the login line (and gone
+    /// again from a LOGIN screen's).
     async fn login_say(&mut self, key: &str) -> io::Result<()> {
-        if self.login_line.is_none() {
+        if self.login_at.is_none() {
             return self.say_line(key).await;
         }
         self.login_prompt();
         self.say(key).await?;
-        self.delay(1200).await
+        self.delay(1200).await?;
+        if self.login_at.is_some_and(|a| a.labeled) {
+            self.login_prompt();
+        }
+        Ok(())
     }
 
     async fn login_loop(&mut self, tries: u8, ask_apply: bool, case: Case) -> io::Result<bool> {
         let mut attempt = 0;
         loop {
-            self.login_prompt();
-            self.say("LoginName").await?;
+            // A new try starts with the fields and the line under empty.
+            if self.login_at.is_some_and(|a| a.labeled) {
+                self.login_prompt_at(|a| a.pass);
+                self.login_prompt();
+            }
+            self.login_ask(false, "LoginName").await?;
             // Offer the SSH login name first if it's an account here.
             let mut opts = ReadOpts::new(36).case(case).required();
             if attempt == 0 && self.state.users.find(&self.caller.login_name, false).ok().flatten().is_some() {
@@ -373,8 +433,7 @@ impl Session {
                 }
                 None => {}
                 Some(user) => {
-                    self.login_prompt();
-                    self.say("LoginPassword").await?;
+                    self.login_ask(true, "LoginPassword").await?;
                     let pw = self.read_string(ReadOpts::new(password::MAX_LEN).password()).await?;
                     self.login_answered();
                     ok = user.check_password(&pw);
@@ -402,7 +461,7 @@ impl Session {
                         let rules = self.state.config().passwords.clone();
                         if rules.enforce_at_login && let Err(weak) = password::check(&rules, &pw, &self.user.handle) {
                             // Several lines of its own: off the art first.
-                            if self.login_line.take().is_some() {
+                            if self.login_at.take().is_some() {
                                 self.clear_screen();
                             }
                             tracing::info!("{}: password breaks the rules ({weak:?}), must change it", self.user.handle);
@@ -416,7 +475,7 @@ impl Session {
                     } else {
                         self.user = prelogon;
                         self.login_say("LoginError").await?;
-                        if self.login_line.is_none() {
+                        if self.login_at.is_none() {
                             self.delay(1000).await?;
                         }
                     }

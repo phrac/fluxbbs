@@ -191,9 +191,10 @@ pub struct Session {
     pub nonstop: bool,
     /// FILETEST is on screen: upload messages go in its status field.
     pub test_screen: bool,
-    /// The row login prompts share, each replacing the last, when they
-    /// follow a lightbar menu (MATRIX) rather than scrolling it away.
-    pub login_line: Option<u16>,
+    /// Where login prompts go when they stay on the screen rather than
+    /// scrolling it away: a row they share after a lightbar menu
+    /// (MATRIX), or the LOGIN screen's fields.
+    pub login_at: Option<crate::logon::LoginAt>,
     /// Scripts running inside scripts (`%!` in a string a script shows).
     #[cfg(feature = "python")]
     pub(crate) script_depth: u8,
@@ -464,7 +465,7 @@ impl Session {
             positions2: HashMap::new(),
             nonstop: false,
             test_screen: false,
-            login_line: None,
+            login_at: None,
             #[cfg(feature = "python")]
             script_depth: 0,
             email_tag: 0,

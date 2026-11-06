@@ -248,6 +248,7 @@ prompt itself (e.g. `MHUBBOT`).
    80×25 screen. End it with a pause (stock: "press enter to
    continue").
 3. **MATRIX**: the pre-login menu (logon / apply / feedback / page).
+   **LOGIN** (optional) comes up when they choose to log on.
 4. **WELCOME**: right after login.
 5. The logon sequence: oneliners, last callers, automessage, your stats.
 6. **MAIN**: the main menu.
@@ -259,6 +260,7 @@ prompt itself (e.g. `MHUBBOT`).
 - [ ] `BOTCHECK`: the bot check (markers [below](#botcheck))
 - [x] `PRELOGON`: splash screen before login
 - [x] `MATRIX`: pre-login menu (lightbar)
+- [ ] `LOGIN`: the login's own screen (optional; markers [below](#login))
 - [x] `WELCOME`: after login
 - [x] `MAIN`: main menu (graffiti logo with built-in command list)
 - [ ] `MENUPMT1`: the command prompt under most menus (`MENUPMT2` and
@@ -387,6 +389,22 @@ drawn as text), `ARCH*`, `MICRODOS`, `HELP*`, `INIQHELP`.
 |---|---|
 | `~BC` | the top left of the 40×9 field the characters are drawn in |
 | `~BP` | where the answer is typed (the line above it takes "try again") |
+
+### LOGIN
+
+New, optional: the screen the name and password are asked on. Without
+it they're asked on MATRIX's `~LP` row, or its bottom row. The art
+labels the fields; the board only types in them, in the color in effect
+at each marker, and clears from there to the end of the row, so leave
+the space to their right empty (a name takes 36 columns). Keep the art
+to 78 columns, and `~LM` off the bottom row (a yes/no answer ends with a
+new line). `art/login-gen.py` makes one from a piece of art.
+
+| Marker | Marks |
+|---|---|
+| `~LU` | the name field |
+| `~LW` | the password field |
+| `~LM` | the line for the rest: "Invalid login.", the apply question, the system password (else the row under `~LW`) |
 
 ### LISTFILE and GALLERY
 
