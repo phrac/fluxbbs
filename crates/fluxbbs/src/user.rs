@@ -261,6 +261,12 @@ macro_rules! merge_fields {
         )*
         $(
             if *$c != $original.$c {
+                // New: said, not hidden, when a change takes more than is
+                // there (spending what's been spent meanwhile elsewhere).
+                if below_zero($me.$c, $original.$c, *$c) {
+                    let took = Into::<i128>::into($original.$c) - Into::<i128>::into(*$c);
+                    tracing::warn!("user {}: {} down {took} from {}; kept at 0", $me.id, stringify!($c), $me.$c);
+                }
                 $me.$c = add_change($me.$c, $original.$c, *$c);
             }
         )*
@@ -274,6 +280,10 @@ fn add_change<T: Copy + Ord + Into<i128> + TryFrom<i128>>(now: T, from: T, to: T
     T::try_from(v.max(0)).unwrap_or_else(|_| now.max(to).max(from))
 }
 
+/// Would [`add_change`] have gone below 0?
+fn below_zero<T: Copy + Into<i128>>(now: T, from: T, to: T) -> bool {
+    now.into() + to.into() - from.into() < 0
+}
 impl User {
     pub fn merge_edit(&mut self, original: &User, edited: &User) {
         merge_fields!(

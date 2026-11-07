@@ -295,6 +295,39 @@ struct Tally {
     free: u32,
 }
 
+impl Tally {
+    /// As stored: "day pulls minutes points free"; nothing if not `today`'s.
+    fn parse(v: &str, today: &str) -> Tally {
+        let mut w = v.split_whitespace();
+        if w.next() != Some(today) {
+            return Tally::default();
+        }
+        let mut n = || w.next().and_then(|x| x.parse().ok()).unwrap_or(0);
+        Tally { pulls: n(), minutes: n(), points: n(), free: n() }
+    }
+
+    /// Count a pull (free or not) that won `won`, if there's one left
+    /// today; false if not.
+    fn take(&mut self, cfg: &Slots, free: bool, won: Option<Prize>) -> bool {
+        if free {
+            if self.free >= cfg.free_per_day {
+                return false;
+            }
+            self.free += 1;
+        } else {
+            if cfg.pulls_per_day > 0 && self.pulls >= cfg.pulls_per_day {
+                return false;
+            }
+            self.pulls += 1;
+        }
+        if let Some(p) = won {
+            self.minutes += p.minutes;
+            self.points += p.points;
+        }
+        true
+    }
+}
+
 impl Session {
     fn slots_key(&self) -> String {
         format!("{}:slots", self.user.id)
@@ -303,20 +336,7 @@ impl Session {
     fn slots_today(&self) -> Tally {
         let today = crate::clock::now().date_naive().to_string();
         let v = self.state.sys.script_get("slots", &self.slots_key()).ok().flatten().unwrap_or_default();
-        let mut w = v.split_whitespace();
-        if w.next() != Some(today.as_str()) {
-            return Tally::default();
-        }
-        let mut n = || w.next().and_then(|x| x.parse().ok()).unwrap_or(0);
-        Tally { pulls: n(), minutes: n(), points: n(), free: n() }
-    }
-
-    fn slots_save(&self, t: &Tally) {
-        let today = crate::clock::now().date_naive();
-        let v = format!("{today} {} {} {} {}", t.pulls, t.minutes, t.points, t.free);
-        if let Err(e) = self.state.sys.script_set("slots", &self.slots_key(), Some(&v)) {
-            tracing::error!("slots: saving {}'s pulls: {e}", self.user.handle);
-        }
+        Tally::parse(&v, &today)
     }
 
     /// The casino's underground look?
@@ -331,24 +351,32 @@ impl Session {
     /// A pull: counted, decided and paid. None if none are left today
     /// (or, `free`, the day's free ones have been had).
     fn slots_pull(&mut self, cfg: &Slots, free: bool) -> Option<Pull> {
-        let mut t = self.slots_today();
-        if if free { t.free >= cfg.free_per_day } else { self.pulls_left(cfg) == Some(0) } {
-            return None;
-        }
         let pull = decide(cfg, &mut rand::rng());
+        // Counted on the day's tally as stored, in one step.
+        let today = crate::clock::now().date_naive().to_string();
+        let won = pull.win.map(|w| prize(cfg, w));
+        let counted = self.state.sys.script_update("slots", &self.slots_key(), |v| {
+            let mut t = Tally::parse(v.as_deref().unwrap_or(""), &today);
+            let ok = t.take(cfg, free, won);
+            if ok {
+                *v = Some(format!("{today} {} {} {} {}", t.pulls, t.minutes, t.points, t.free));
+            }
+            ok
+        });
+        match counted {
+            Ok(true) => {}
+            Ok(false) => return None,
+            Err(e) => {
+                tracing::error!("slots: counting {}'s pull: {e}", self.user.handle);
+                return None;
+            }
+        }
         // A pull counts as five chips played, for the players club.
         if !free {
             self.casino_played(5);
         }
-        if free {
-            t.free += 1;
-        } else {
-            t.pulls += 1;
-        }
         if let Some(w) = pull.win {
             let p = prize(cfg, w);
-            t.minutes += p.minutes;
-            t.points += p.points;
             self.user.time_today += p.minutes;
             self.user.file_points = self.user.file_points.saturating_add(p.points);
             if let Err(e) = self.save_own_user() {
@@ -361,7 +389,6 @@ impl Session {
                 let _ = self.state.sys.script_set("slots", "jackpot", Some(&format!("{when} {}", self.user.handle)));
             }
         }
-        self.slots_save(&t);
         Some(pull)
     }
 
@@ -913,6 +940,24 @@ impl Game {
 mod tests {
     use super::*;
     use crate::slotart::symbol_at;
+
+    #[test]
+    fn the_days_pulls_are_counted_as_stored() {
+        let cfg = Slots { pulls_per_day: 2, free_per_day: 1, ..Slots::default() };
+        let state = crate::tests::state();
+        let mut u = crate::user::User { handle: "phrac".into(), ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        let mut s = Session::for_test(state, u);
+        assert!(s.slots_pull(&cfg, false).is_some());
+        assert!(s.slots_pull(&cfg, false).is_some());
+        assert!(s.slots_pull(&cfg, false).is_none(), "two a day");
+        assert!(s.slots_pull(&cfg, true).is_some());
+        assert!(s.slots_pull(&cfg, true).is_none(), "one free");
+        let t = s.slots_today();
+        assert_eq!((t.pulls, t.free), (2, 1));
+        // Yesterday's tally doesn't count today.
+        assert_eq!(Tally::parse("2001-01-01 9 9 9 9", "2001-01-02").pulls, 0);
+    }
 
     #[test]
     fn lines_pay_as_the_table_says() {

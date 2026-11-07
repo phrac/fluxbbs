@@ -810,8 +810,7 @@ impl Session {
                     let i = (c - b'1') as usize;
                     bar.drink = Some((i, st.t()));
                     bar.drinks += 1;
-                    purse.drinks += 1;
-                    self.purse_save(purse);
+                    self.bar_drink(purse);
                     let key = match bar.drinks {
                         n if n >= 6 => "BarCutOff",
                         n if n >= 4 => "BarEasy",
@@ -863,6 +862,17 @@ impl Session {
         lines[rand::rng().random_range(0..lines.len())].clone()
     }
 
+    /// A drink poured, counted on the purse as stored.
+    fn bar_drink(&mut self, purse: &mut Purse) {
+        match self.purse_change(|p| p.drinks += 1) {
+            Some((now, ())) => *purse = now,
+            None => {
+                purse.drinks += 1;
+                self.purse_save(purse);
+            }
+        }
+    }
+
     async fn bar_plain(&mut self, purse: &mut Purse) -> io::Result<()> {
         loop {
             let menu: Vec<String> = DRINKS.iter().enumerate().map(|(i, d)| format!("{} {}", i + 1, d.name)).collect();
@@ -885,8 +895,7 @@ impl Session {
                 }
                 n => {
                     if let Some(i) = n.parse::<usize>().ok().filter(|i| (1..=DRINKS.len()).contains(i)) {
-                        purse.drinks += 1;
-                        self.purse_save(purse);
+                        self.bar_drink(purse);
                         let key = if purse.drinks >= 6 { "BarCutOff" } else if purse.drinks >= 4 { "BarEasy" } else { "BarServe" };
                         let l = crate::editor::strip_colours(&self.strings().fmt(key, &[DRINKS[i - 1].name]));
                         self.write(&l);
@@ -934,16 +943,11 @@ impl Session {
                 }
                 _ => continue,
             };
-            let (name, bit, need) = comps(cfg)[pick];
-            if purse.comps & bit != 0 {
-                self.say_line_on(&st, "ClubHad", &[name], [200, 200, 210]);
+            let (said, had) = self.comp_claim(cfg, purse, pick);
+            if !had {
+                self.stage_line(MSG_ROW, &painted(&said, [200, 200, 210]), st.truecolor);
                 continue;
             }
-            if purse.played < need {
-                self.say_line_on(&st, "ClubNotYet", &[&(need - purse.played).to_string(), name], [200, 200, 210]);
-                continue;
-            }
-            let said = self.comp_claim(cfg, purse, pick);
             // The comp itself, on screen a while.
             let begin = st.t();
             while st.t() - begin < 6.0 {
@@ -973,32 +977,57 @@ impl Session {
         Ok(())
     }
 
-    /// Take a comp: mark it had and give what it gives. Returns what to say.
-    fn comp_claim(&mut self, cfg: &Casino, purse: &mut Purse, pick: usize) -> String {
-        let (_, bit, _) = comps(cfg)[pick];
-        purse.comps |= bit;
+    /// Take a comp: mark it had and give what it gives. Returns what to
+    /// say, and whether it was had. The purse as stored decides (and
+    /// `purse` becomes it), so a stale copy can't claim one twice.
+    pub(crate) fn comp_claim(&mut self, cfg: &Casino, purse: &mut Purse, pick: usize) -> (String, bool) {
+        let (name, bit, need) = comps(cfg)[pick];
+        let suite = cfg.suite_chips;
+        let r = self.purse_change(|s| {
+            if s.comps & bit != 0 {
+                return Err(None);
+            }
+            if s.played < need {
+                return Err(Some(need - s.played));
+            }
+            s.comps |= bit;
+            if pick == 1 {
+                s.chips += suite;
+            }
+            Ok(())
+        });
+        let refused = match r {
+            Some((now, r)) => {
+                *purse = now;
+                r.err()
+            }
+            None => Some(None),
+        };
+        if let Some(short) = refused {
+            let s = match short {
+                Some(n) => self.strings().fmt("ClubNotYet", &[&n.to_string(), name]),
+                None => self.strings().fmt("ClubHad", &[name]),
+            };
+            return (crate::editor::strip_colours(&s), false);
+        }
         let (key, amount) = match pick {
             0 => {
                 self.user.time_today += cfg.buffet_minutes;
                 ("ClubBuffet", cfg.buffet_minutes)
             }
-            1 => {
-                purse.chips += cfg.suite_chips;
-                ("ClubSuite", cfg.suite_chips)
-            }
+            1 => ("ClubSuite", cfg.suite_chips),
             _ => {
                 self.user.file_points = self.user.file_points.saturating_add(cfg.show_points);
                 crate::points::record(&self.state, "show", (self.user.id, &self.user.handle), cfg.show_points, "", "");
                 ("ClubShow", cfg.show_points)
             }
         };
-        self.purse_save(purse);
         if pick != 1
             && let Err(e) = self.save_own_user() {
                 tracing::error!("casino: comping {}: {e}", self.user.handle);
             }
         tracing::info!("{}: casino: comped {}", self.user.handle, comps(cfg)[pick].0);
-        crate::editor::strip_colours(&self.strings().fmt(key, &[&amount.to_string()]))
+        (crate::editor::strip_colours(&self.strings().fmt(key, &[&amount.to_string()])), true)
     }
 
     async fn club_plain(&mut self, cfg: &Casino, purse: &mut Purse) -> io::Result<()> {
@@ -1020,14 +1049,7 @@ impl Session {
                 continue;
             }
             let Some(pick) = s.trim().parse::<usize>().ok().filter(|n| (1..=3).contains(n)).map(|n| n - 1) else { return Ok(()) };
-            let (name, bit, need) = comps(cfg)[pick];
-            let line = if purse.comps & bit != 0 {
-                crate::editor::strip_colours(&self.strings().fmt("ClubHad", &[name]))
-            } else if purse.played < need {
-                crate::editor::strip_colours(&self.strings().fmt("ClubNotYet", &[&(need - purse.played).to_string(), name]))
-            } else {
-                self.comp_claim(cfg, purse, pick)
-            };
+            let (line, _) = self.comp_claim(cfg, purse, pick);
             self.write(&line);
             self.newline();
         }
