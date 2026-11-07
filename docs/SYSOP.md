@@ -40,6 +40,7 @@ rename keep `iniquity.toml` and `data/iniquity.db`, and still work.
 | `fluxbbs textfiles fetch DIR`, `import CONFIG` | the textfiles.com archive as file areas ([FILES.md](FILES.md#the-textfilescom-archive)) |
 | `fluxbbs ftn poll [NET]\|toss\|scan\|areafix ...` | FTN mail jobs by hand ([FEATURES.md](FEATURES.md#ftn-echomail)) |
 | `fluxbbs backup [DAYS] [DIR] [CONFIG]` | a [backup](#backups) now, with the board running or not |
+| `fluxbbs achievements` | prints the stock `achievements.toml`, to start the board's own from ([FEATURES](FEATURES.md#achievements)) |
 | `fluxbbs library [--day YYYY-MM-DD] [--days N] [CONFIG]` | the reading room's shelf for a day, or the themes of the days to come ([FEATURES](FEATURES.md#reading-room)) |
 
 ## Backups

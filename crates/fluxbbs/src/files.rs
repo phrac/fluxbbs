@@ -742,6 +742,10 @@ impl Session {
         let area = self.state.fareas().areas.iter().find(|a| a.file.eq_ignore_ascii_case(&f.area)).map_or_else(|| f.area.clone(), |a| crate::editor::strip_colours(&a.name));
         *self.seen.downloads.entry(area).or_default() += 1;
         self.bump(crate::sysdata::Stat::Download { kb: kb as u64 });
+        // New: who and when, for the top lists.
+        if let Err(e) = self.state.sys.log_download(self.user.id, crate::clock::now().naive_local(), kb as u64) {
+            tracing::error!("logging a download: {e}");
+        }
         self.save_own_user().map_err(io_err)?;
         Ok(())
     }

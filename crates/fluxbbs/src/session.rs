@@ -190,6 +190,8 @@ pub struct Session {
     /// The message menu's figures, likewise, and while nothing's been
     /// posted or read since (`MsgBase::changes`).
     pub msg_stats: std::cell::RefCell<Option<(Instant, u64, std::sync::Arc<crate::msgcenter::MsgFigures>)>>,
+    /// New: when achievements were last looked at (`achieve.rs`).
+    pub achieve: crate::achieve::Tracker,
     /// The doors menu's figures, likewise.
     pub door_stats: std::cell::RefCell<Option<(Instant, std::sync::Arc<crate::sysdata::DoorStats>)>>,
     /// `~XX` / `^NN` markers from the last displayed file: (x, y, colour).
@@ -534,6 +536,7 @@ impl Session {
             file_stats: Default::default(),
             msg_stats: Default::default(),
             door_stats: Default::default(),
+            achieve: Default::default(),
             hangup: false,
             menu: MenuState::default(),
             input_string: String::new(),

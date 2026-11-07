@@ -308,6 +308,8 @@ impl Session {
         }
         self.menu.last_cmd_good = false;
         self.menu.skip_pause = false;
+        // New: achievements reached since the last menu, told here.
+        self.achieve_check().await?;
         // New: plain text lists a menu when it's entered or asked for.
         if self.plain() {
             let list = self.menu.plain_listed != self.menu.current;

@@ -1438,6 +1438,22 @@ impl MsgBase {
         Ok(rows)
     }
 
+    /// New: public posts (not private, anonymous or deleted) in `areas`
+    /// since `since`, by author (the top lists).
+    pub fn posts_by_user(&self, areas: &[String], since: NaiveDateTime) -> anyhow::Result<Vec<(u32, u64)>> {
+        if areas.is_empty() {
+            return Ok(Vec::new());
+        }
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let sql = format!(
+            "SELECT from_id, COUNT(*) FROM messages WHERE NOT deleted AND NOT private AND NOT anonymous AND from_id > 0 AND posted >= ? AND area IN ({}) GROUP BY from_id",
+            vec!["?"; areas.len()].join(",")
+        );
+        let p = rusqlite::params_from_iter(std::iter::once(&since as &dyn rusqlite::ToSql).chain(areas.iter().map(|a| a as &dyn rusqlite::ToSql)));
+        let rows = db.prepare(&sql)?.query_map(p, |r| Ok((r.get(0)?, r.get::<_, i64>(1)?.max(0) as u64)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// A caller's fills and points, ever.
     pub fn fills_of(&self, user: u32) -> anyhow::Result<(u32, u32)> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
@@ -1661,6 +1677,10 @@ mod tests {
         assert_eq!(s.mouth_latest.unwrap().lines, ["newest"]);
         assert_eq!(s.random.len(), 5);
         assert!(s.random.iter().all(|m| !m.private));
+        // The top lists' posters: public, named, in the areas given.
+        assert_eq!(mb.posts_by_user(&["general".into()], at(10)).unwrap(), [(1, 2)]);
+        assert_eq!(mb.posts_by_user(&["general".into(), "announce".into()], at(1)).unwrap(), [(1, 4)]);
+        assert!(mb.posts_by_user(&[], at(1)).unwrap().is_empty());
     }
 
     #[test]

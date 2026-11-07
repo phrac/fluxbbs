@@ -133,6 +133,8 @@ Leave it alone at a menu for a while and the screen saver comes on.
   and FileFix, several networks at once.
 - QWK offline mail, request boards, @mentions, a voting booth,
   oneliners, infoforms, new-user voting and profiles.
+- Achievements callers earn (posts, uploads, calls, days in a row,
+  doors...), and top lists for the week, the month and all time.
 - Screen themes callers can pick, animated screens, and plain text for
   screen readers and scripts.
 - Python scripting (`import fluxbbs`) in place of Iniquity's IPL.

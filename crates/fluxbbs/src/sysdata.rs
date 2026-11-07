@@ -380,7 +380,14 @@ pub fn migrate(db: &mut Connection, store: &str, schema: &str, steps: &[Step]) -
 }
 
 /// Columns added since a database was made.
-const STEPS: &[Step] = &[Step::Column("bbslist", "ssh", "TEXT NOT NULL DEFAULT ''")];
+const STEPS: &[Step] = &[
+    Step::Column("bbslist", "ssh", "TEXT NOT NULL DEFAULT ''"),
+    // New: downloads by whom and when, for the top lists' week and month.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS download_log (id INTEGER PRIMARY KEY, user_id INTEGER NOT NULL, at TEXT NOT NULL, kb INTEGER NOT NULL); \
+         CREATE INDEX IF NOT EXISTS download_log_at ON download_log (at);",
+    ),
+];
 
 impl SysData {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
@@ -697,6 +704,61 @@ impl SysData {
         let mut stmt = db.prepare("SELECT key, value FROM script_data WHERE script = ?1 AND substr(key, 1, length(?2)) = ?2 ORDER BY key")?;
         let rows = stmt.query_map(params![script, prefix], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
         Ok(rows)
+    }
+
+    // ---- for achievements and the top lists (new) ---------------------------
+
+    /// The days `user` is in the callers log.
+    pub fn call_days(&self, user: u32) -> anyhow::Result<Vec<NaiveDate>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT DISTINCT date(at) FROM callers WHERE user_id = ?1")?;
+        let rows = stmt.query_map([user], |r| r.get(0))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Calls since `since`, by caller.
+    pub fn calls_by_user(&self, since: NaiveDateTime) -> anyhow::Result<Vec<(u32, u64)>> {
+        self.by_user("SELECT user_id, COUNT(*) FROM callers WHERE at >= ?1 AND user_id > 0 GROUP BY user_id", since)
+    }
+
+    pub fn log_download(&self, user: u32, at: NaiveDateTime, kb: u64) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.execute("INSERT INTO download_log (user_id, at, kb) VALUES (?1, ?2, ?3)", params![user, at, kb as i64])?;
+        Ok(())
+    }
+
+    /// Downloads since `since`, by caller.
+    pub fn downloads_by_user(&self, since: NaiveDateTime) -> anyhow::Result<Vec<(u32, u64)>> {
+        self.by_user("SELECT user_id, COUNT(*) FROM download_log WHERE at >= ?1 AND user_id > 0 GROUP BY user_id", since)
+    }
+
+    /// Minutes in doors since `since` (None: ever), by caller.
+    pub fn door_minutes_by_user(&self, since: Option<NaiveDateTime>) -> anyhow::Result<Vec<(u32, u64)>> {
+        self.by_user("SELECT user_id, SUM(minutes) FROM door_plays WHERE started >= ?1 AND user_id > 0 GROUP BY user_id", since.unwrap_or_default())
+    }
+
+    /// Points got since `since`, by caller.
+    pub fn points_got_by_user(&self, since: NaiveDateTime) -> anyhow::Result<Vec<(u32, u64)>> {
+        self.by_user("SELECT to_id, SUM(amount) FROM points WHERE at >= ?1 AND to_id > 0 GROUP BY to_id", since)
+    }
+
+    fn by_user(&self, sql: &str, since: NaiveDateTime) -> anyhow::Result<Vec<(u32, u64)>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare(sql)?;
+        let rows = stmt.query_map([since], |r| Ok((r.get(0)?, r.get::<_, i64>(1)?.max(0) as u64)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// Doors `user` has played.
+    pub fn plays_by(&self, user: u32) -> anyhow::Result<u64> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row("SELECT COUNT(*) FROM door_plays WHERE user_id = ?1", [user], |r| r.get::<_, i64>(0))?.max(0) as u64)
+    }
+
+    /// Questions `user` has answered in the voting booth.
+    pub fn votes_by(&self, user: u32) -> anyhow::Result<u64> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row("SELECT COUNT(*) FROM votes WHERE user_id = ?1", [user], |r| r.get::<_, i64>(0))?.max(0) as u64)
     }
 
     // ---- door plays (new) ---------------------------------------------------
@@ -1283,6 +1345,28 @@ mod tests {
         assert_eq!(sd.bbs_list().unwrap()[0].ssh, "r666.example:2222");
         drop(sd);
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn figures_by_caller() {
+        let sd = SysData::open_memory().unwrap();
+        let at = |day: &str, h: u32| d(day).and_hms_opt(h, 0, 0).unwrap();
+        for (user, when) in [(1, at("2026-11-01", 9)), (1, at("2026-11-01", 20)), (1, at("2026-11-06", 9)), (2, at("2026-11-06", 10))] {
+            sd.add_call(&Call { call_num: 0, user_id: user, handle: String::new(), location: String::new(), at: when, new_user: false, area_code: String::new(), transport: "ssh".into() }).unwrap();
+        }
+        assert_eq!(sd.call_days(1).unwrap(), [d("2026-11-01"), d("2026-11-06")]);
+        let mut c = sd.calls_by_user(at("2026-11-02", 0)).unwrap();
+        c.sort();
+        assert_eq!(c, [(1, 1), (2, 1)]);
+        sd.log_download(2, at("2026-11-06", 11), 40).unwrap();
+        sd.log_download(2, at("2026-10-01", 11), 40).unwrap();
+        assert_eq!(sd.downloads_by_user(at("2026-11-01", 0)).unwrap(), [(2, 1)]);
+        sd.add_play(1, &Play { handle: "a".into(), door: "LORD".into(), started: at("2026-11-06", 1), minutes: 30 }).unwrap();
+        sd.add_play(1, &Play { handle: "a".into(), door: "LORD".into(), started: at("2026-10-06", 1), minutes: 10 }).unwrap();
+        assert_eq!(sd.door_minutes_by_user(Some(at("2026-11-01", 0))).unwrap(), [(1, 30)]);
+        assert_eq!(sd.door_minutes_by_user(None).unwrap(), [(1, 40)]);
+        assert_eq!(sd.plays_by(1).unwrap(), 2);
+        assert_eq!(sd.votes_by(1).unwrap(), 0);
     }
 
     #[test]

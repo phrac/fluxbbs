@@ -5,7 +5,9 @@
 //!                                               waiting-for-caller screen)
 //!     fluxbbs import <old-install> [dest]      convert a DOS install
 //!     fluxbbs add-files [fluxbbs.toml]         add files put in areas by hand
+//!     fluxbbs achievements                     print the stock achievements.toml
 
+mod achieve;
 mod acs;
 mod ambient;
 mod clock;
@@ -159,6 +161,7 @@ mod telnet;
 #[cfg(feature = "textfiles")]
 mod textfiles;
 mod themes;
+mod toplist;
 mod timebank;
 mod strings;
 mod sysconfig;
@@ -221,6 +224,11 @@ pub struct BbsState {
     questions: std::sync::RwLock<Arc<questions::Questions>>,
     themes: std::sync::RwLock<Arc<themes::Themes>>,
     events: std::sync::RwLock<Arc<events::Events>>,
+    /// New: achievements' definitions, and when their file was changed
+    /// (they're read again when it changes: there's no editor for them).
+    achievements: std::sync::RwLock<(Option<std::time::SystemTime>, Arc<achieve::Achievements>)>,
+    /// Who has earned which.
+    pub achieve: achieve::AchieveStore,
     /// Infoform answers and new user votes.
     pub forms: infoform::FormStore,
     /// Carrier Lost's world (`AP`).
@@ -411,6 +419,36 @@ impl BbsState {
     pub fn set_questions(&self, new: questions::Questions) -> anyhow::Result<()> {
         let path = self.config().resolve(&self.config().paths.questions);
         store(&self.questions, &path, &new.to_toml(), new)
+    }
+
+    /// The achievements (`achievements.toml`, else the stock set), read
+    /// again when the file changes; one that doesn't parse is logged and
+    /// the last good one kept.
+    pub fn achievements(&self) -> Arc<achieve::Achievements> {
+        let path = self.config().resolve(&self.config().paths.achievements);
+        let changed = std::fs::metadata(&path).and_then(|m| m.modified()).ok();
+        {
+            let held = self.achievements.read().unwrap_or_else(|e| e.into_inner());
+            if held.0 == changed {
+                return held.1.clone();
+            }
+        }
+        let mut held = self.achievements.write().unwrap_or_else(|e| e.into_inner());
+        let new = match changed {
+            None => Some(achieve::Achievements::stock()),
+            Some(_) => match extprog::load::<achieve::Achievements>(&path) {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::error!("{e:#}");
+                    None
+                }
+            },
+        };
+        held.0 = changed;
+        if let Some(new) = new {
+            held.1 = Arc::new(new);
+        }
+        held.1.clone()
     }
 
     /// The file areas as they are now.
@@ -664,6 +702,9 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     let weather = weather::WeatherStore::open(&db)?;
     let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
     let events: events::Events = extprog::load(&config.resolve(&config.paths.events))?.unwrap_or_default();
+    let achieve_path = config.resolve(&config.paths.achievements);
+    let achievements = (std::fs::metadata(&achieve_path).and_then(|m| m.modified()).ok(), Arc::new(extprog::load(&achieve_path)?.unwrap_or_default()));
+    let achieve = achieve::AchieveStore::open(&db)?;
     let files = FileBase::open(&db)?;
     let sys = SysData::open(&db)?;
     let nodes = Nodes::new(config.bbs.max_nodes);
@@ -682,6 +723,8 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         questions: std::sync::RwLock::new(Arc::new(questions)),
         themes: std::sync::RwLock::new(Arc::new(themes)),
         events: std::sync::RwLock::new(Arc::new(events)),
+        achievements: std::sync::RwLock::new(achievements),
+        achieve,
         forms,
         #[cfg(feature = "carrierlost")]
         carrier,
@@ -783,6 +826,11 @@ async fn run() -> anyhow::Result<()> {
         };
         let (days, dir) = backup::parse(&rest.iter().map(String::as_str).collect::<Vec<_>>())?;
         println!("{}", backup::run(&*load_state(&path)?, days, dir.as_deref())?.display());
+        return Ok(());
+    }
+    // New: `fluxbbs achievements`: the stock achievements.toml, to start one.
+    if args.first().is_some_and(|a| a == "achievements") {
+        print!("{}", achieve::Achievements::stock().to_toml());
         return Ok(());
     }
     if args.first().is_some_and(|a| a == "textfiles") {
@@ -924,6 +972,8 @@ pub mod tests {
             questions: std::sync::RwLock::new(Arc::new(questions::Questions::default())),
             themes: std::sync::RwLock::new(Arc::new(themes::Themes::default())),
             events: std::sync::RwLock::new(Arc::new(events::Events::default())),
+            achievements: std::sync::RwLock::new((None, Arc::new(achieve::Achievements::stock()))),
+            achieve: achieve::AchieveStore::open_memory().unwrap(),
             forms: infoform::FormStore::open_memory().unwrap(),
             #[cfg(feature = "carrierlost")]
             carrier: carrierlost::CarrierStore::open_memory().unwrap(),

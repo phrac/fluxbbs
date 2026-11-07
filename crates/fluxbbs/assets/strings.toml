@@ -1141,3 +1141,33 @@ TakenOver = "|12Your account just logged in on another node. |07Goodbye."
 FontViewNoFaces = "|U4None of the TheDraw fonts in |U6%S1|U4 has a face to show |U5(|U4outline faces are left out|U5)|U4."
 # Taking back a post when a reply came (or the time ran out) while it asked (new).
 RegretTooLate = "|U4Too late to take it back|U5: |U4someone answered it, or the time ran out|U5. |U4Retract or burn it instead|U5."
+# Achievements (new, UA): one earned (title, what for), with points; several
+# (how many, their titles, points); those for what was done before (how
+# many, "s" for more than one, the menu's key for UA); to the other nodes
+# (who, title, what for).
+AchEarned = "|U2» |U1Achievement|U2: |U3%S1 |U2(|U1%S2|U2)"
+AchEarnedPts = "|U2» |U1Achievement|U2: |U3%S1 |U2(|U1%S2|U2)|U1, |U3+%S3|U1 points"
+AchEarnedMany = "|U2» |U3%S1|U1 achievements|U2: |U3%S2"
+AchEarnedManyPts = "|U2» |U3%S1|U1 achievements|U2: |U3%S2|U1, |U3+%S3|U1 points"
+AchBack = "|U2» |U1You've |U3%S1|U1 achievement%S2 for what you'd done already%S3"
+AchAnnounce = "|U2» |U3%S1|U1 earned |U3%S2 |U2(|U1%S3|U2)"
+AchTitle = "|U3 achievements |U2- |U1you have |U3%S1|U1 of |U3%S2"
+AchNext = "%S1, %S2 to go"
+AchAllDone = "every one"
+AchYours = "|U1Achievements|U2: |U3%S1|U1 of |U3%S2|U2, |U3%S3|U1 points from them."
+AchOff = "|U4This board has no achievements."
+AchSummary = "%S1 of %S2, the latest %S3"
+FingerAchieved = "achieved"
+# The top lists (new, LT): the categories, in order; the columns; the title
+# (the category); your places (week, month, all time); the keys (how many
+# categories).
+TopCats = "top callers|top posters|top uploaders|top downloaders|top gamers|top earners"
+TopWeek = "this week"
+TopMonth = "last 30 days"
+TopEver = "all time"
+TopHeld = "held now"
+TopTitle = "|U3 %S1 |U2- |U1this week, the last 30 days and all time"
+TopYours = "|U1Your places|U2: |U3%S1|U1 this week, |U3%S2|U1 this month, |U3%S3|U1 all time"
+TopKeys = " |U2[|U3left|U2/|U3right|U2/|U31|U2-|U3%S1|U2] |U1another list  |U2[|U3q|U2] |U1quit "
+# The points ledger: an achievement earned (its title; new).
+PointsAchieve = "achievement: %S1"

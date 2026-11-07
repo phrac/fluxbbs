@@ -316,7 +316,10 @@ impl Session {
             "DB" => self.bbslink_door(param).await?,
             "IN" => self.infoforms(false).await?,
             "IM" => self.infoforms(true).await?,
-            "NV" => self.nuv_vote(param.to_ascii_uppercase().contains('S')).await?,
+            "NV" => {
+                self.nuv_vote(param.to_ascii_uppercase().contains('S')).await?;
+                self.achieve.due = true;
+            }
 
             // -- automessage, BBS list, callers
             "AS" => self.show_automsg().await?,
@@ -331,6 +334,9 @@ impl Session {
             "BC" => self.bbs_clear(param).await?,
             "LC" => self.last_callers(param).await?,
             "LH" => self.show_history().await?,
+            // New: the top lists, and your achievements.
+            "LT" => self.top_list(param).await?,
+            "UA" => self.achievements_screen().await?,
             "UC" => self.user_config().await?,
             "SD" => self.delete_autosig().await?,
             "SE" => self.edit_autosig().await?,
@@ -341,8 +347,14 @@ impl Session {
             "UL" => self.user_list().await?,
             "UP" => self.change_password().await?,
             "US" => self.scan_all_on().await?,
-            "VV" => self.vote_all().await?,
-            "VA" => self.vote_one().await?,
+            "VV" => {
+                self.vote_all().await?;
+                self.achieve.due = true;
+            }
+            "VA" => {
+                self.vote_one().await?;
+                self.achieve.due = true;
+            }
             "VR" => self.vote_results().await?,
             "VN" => self.vote_add().await?,
             "VD" => self.vote_delete().await?,

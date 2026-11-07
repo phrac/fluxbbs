@@ -341,6 +341,10 @@ prompt itself (e.g. `MHUBBOT`).
 - [ ] `USERSTAT`: your stats
 - [ ] `USERCFG`: user configuration screen ([markers](#usercfg))
 - [ ] `FINGER`: a caller's profile ([markers](#finger))
+- [x] `TOPLTOP` / `TOPLMID` / `TOPLBOT`: the top lists (`LT`;
+      [markers](#top-lists-and-achievements))
+- [x] `ACHVTOP` / `ACHVMID` / `ACHVBOT`: your achievements (`UA`;
+      [markers](#top-lists-and-achievements))
 - [x] `AUTOSIG`: auto-signature menu
 - [x] `BBSLIST`: BBS list menu
 - [ ] `BBSTOP` / `BBSMID` / `BBSBOT`: BBS list ([markers](#bbs-list))
@@ -438,6 +442,15 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 | `MTREE` (a thread's tree) | `~MN` number, `~MK` `*` if new, `~TR` the tree's lines, `~SN` author, `~TS` lines and author together, `~RT` who it answers, `~MT` subject, `~FL` as above, `~BL` first words, `~TX` the subject where it changes, else the first words, `~SC` score, `~DS` day, `~DT` / `~TI` date and time |
 | `MHOT` (the Hot list) | `~AT` board, `~MK` `*` if new, `~MT` subject, `~SN` started by, `~SC` score, `~NW` new, `~DS` / `~DT` latest day and date |
 
+### Top lists and achievements
+
+| Screens | Markers |
+|---|---|
+| `TOPL` (the top lists, `LT`) | TOP: `~CT` the category ("top posters"), `~YR` your places ("#3 - #12"), `~W1` `~W2` `~W3` the lists' heads (the third is "held now" for points). MID, a row of all three lists: `~R1` `~H1` `~V1` place, handle and figure this week (`»` before the place on your own row), `~R2` `~H2` `~V2` the last 30 days, `~R3` `~H3` `~V3` all time. Ten rows; the keys go on the line under BOT |
+| `ACHV` (your achievements, `UA`) | TOP: `~EA` earned of all ("12/41"), `~EP` points from them. MID, an achievement a row: `~AN` its name, `~AV` your figure, `~AM` its tiers (`■` earned, `·` not), `~AL` the latest earned, `~AX` the next and how far ("Wordsmith, 370 to go") |
+
+Both are made by `art/listsgen.py`, under the main menu's logo.
+
 ### USERCFG
 
 | Marker | Shows | Stock marker |
@@ -472,6 +485,7 @@ The second character is the field's key.
 | `~LP` | latest post |
 | `~LU` | latest uploads |
 | `~KA` | karma |
+| `~AC` | achievements: how many of how many, and the latest |
 | `~P1`-`~P6` | the plan |
 
 ### BBS list

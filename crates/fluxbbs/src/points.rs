@@ -766,6 +766,7 @@ impl Session {
             "show" => s.fmt("PointsShow", &[]),
             "upload" => s.fmt("PointsUpload", &[&e.note, &e.on]),
             "fill" => s.fmt("PointsFill", &[&e.note, &e.on]),
+            "achieve" => s.fmt("PointsAchieve", &[&e.note]),
             "tip" if mine => s.fmt("PointsTipFrom", &[&e.from]),
             "tip" => s.fmt("PointsTipTo", &[&e.to]),
             "ticket" => s.fmt("PointsTickets", &[&e.note]),
