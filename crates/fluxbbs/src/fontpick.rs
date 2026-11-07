@@ -164,7 +164,7 @@ impl Session {
                         let mut bytes = Vec::new();
                         let mut last = None;
                         for c in &cells {
-                            let (x, y) = (x0 + c.x, y0 + c.y);
+                            let (x, y) = (x0.saturating_add(c.x), y0.saturating_add(c.y));
                             if x > 80 || y >= prev_top + prev_rows {
                                 continue;
                             }

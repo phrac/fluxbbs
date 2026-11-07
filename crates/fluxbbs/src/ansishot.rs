@@ -12,6 +12,8 @@ const W: usize = 8;
 const H: usize = 16;
 /// The tallest picture made, in rows of text.
 const MAX_ROWS: usize = 120;
+/// A CSI parameter past this is taken as this (`ESC[99999999999B`).
+const MAX_PARAM: usize = 9999;
 
 const DOS: [[u8; 3]; 16] = [
     [0, 0, 0], [0, 0, 170], [0, 170, 0], [0, 170, 170], [170, 0, 0], [170, 0, 170], [170, 85, 0], [170, 170, 170],
@@ -73,7 +75,7 @@ pub fn png(data: &[u8]) -> Option<Vec<u8>> {
             0x1B if body.get(i) == Some(&b'[') => {
                 let start = i + 1;
                 let Some(end) = body[start..].iter().position(|c| (0x40..=0x7E).contains(c)).map(|p| start + p) else { break };
-                let params: Vec<usize> = std::str::from_utf8(&body[start..end]).unwrap_or("").split(';').map(|p| p.trim_start_matches('?').parse().unwrap_or(0)).collect();
+                let params: Vec<usize> = std::str::from_utf8(&body[start..end]).unwrap_or("").split(';').map(|p| p.trim_start_matches('?').parse::<usize>().map_or(0, |v| v.min(MAX_PARAM))).collect();
                 let n = |k: usize, d: usize| params.get(k).copied().filter(|&v| v > 0).unwrap_or(d);
                 match body[end] {
                     b'H' | b'f' => {
@@ -81,8 +83,8 @@ pub fn png(data: &[u8]) -> Option<Vec<u8>> {
                         x = (n(1, 1) - 1).min(cols - 1);
                     }
                     b'A' => y = y.saturating_sub(n(0, 1)),
-                    b'B' => y += n(0, 1),
-                    b'C' => x = (x + n(0, 1)).min(cols - 1),
+                    b'B' => y = y.saturating_add(n(0, 1)),
+                    b'C' => x = x.saturating_add(n(0, 1)).min(cols - 1),
                     b'D' => x = x.saturating_sub(n(0, 1)),
                     b's' => saved = (x, y),
                     b'u' => (x, y) = saved,

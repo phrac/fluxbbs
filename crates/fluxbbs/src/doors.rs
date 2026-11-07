@@ -382,13 +382,14 @@ pub fn is_dos(cmd: &str) -> bool {
     !prog.contains('/') && matches!(ext.as_deref(), Some("BAT" | "COM" | "EXE"))
 }
 
-/// A value for a DOS command line: printable ASCII without the characters
-/// COMMAND.COM treats specially, and one word: spaces become `_` and
-/// there's no `/` or leading `-`, so a handle like `x /L` can't add
-/// switches to the door's command line.
+/// A caller's text (a handle, a name, a location) for a DOS command line:
+/// printable ASCII without the characters COMMAND.COM acts on (pipes,
+/// redirects, `&`, `^`, `%`, quotes), and no word starting with `/` or
+/// `-`, so a handle like `x /L` can't add switches to the door's command
+/// line. Spaces stay: doors take a name as two words.
 fn dos_safe(s: &str) -> String {
-    let v: String = s.chars().filter(|c| (' '..='~').contains(c) && !"<>|\"%/".contains(*c)).map(|c| if c == ' ' { '_' } else { c }).collect();
-    v.trim_start_matches('-').to_string()
+    let v: String = s.chars().filter(|c| (' '..='~').contains(c) && !"<>|&^%\"'`".contains(*c)).collect();
+    v.split(' ').map(|w| w.trim_start_matches(['/', '-'])).collect::<Vec<_>>().join(" ")
 }
 
 /// Is a bare program name (no drive or directory) on the DOS drive?
@@ -994,8 +995,9 @@ impl Session {
     /// (data), `%PT` (text), `%PM` (menus), `%BR`/`%BP` (baud) and `%CP`
     /// (COM port), `%PN` for the node's drop directory, then any MCI code
     /// (`%UN`, `%ND`, `%TL`...). For a native door each value goes in
-    /// shell-quoted, so a handle can't run commands; for a DOS door it
-    /// loses the characters DOS would act on, and `%PN` is `D:\`.
+    /// shell-quoted, so a handle can't run commands; for a DOS door the
+    /// MCI codes' values lose the characters DOS would act on (the board's
+    /// own paths and numbers go in as they are), and `%PN` is `D:\`.
     fn door_command(&self, cmd: &str, dir: &Path, dos: bool) -> String {
         let cfg = self.state.config();
         // Absolute: a native door runs in its node's drop directory, so a
@@ -1009,18 +1011,23 @@ impl Session {
         while i < chars.len() {
             if chars[i] == '%' && i + 2 < chars.len() && chars[i + 1].is_ascii() && chars[i + 2].is_ascii() {
                 let code = [chars[i + 1].to_ascii_uppercase() as u8, chars[i + 2].to_ascii_uppercase() as u8];
-                let value = match &code {
-                    b"PD" => Some(path(&cfg.paths.data)),
-                    b"PT" => Some(path(&cfg.paths.text)),
-                    b"PM" => Some(path(&cfg.paths.menus)),
-                    b"PN" if dos => Some("D:\\".into()),
-                    b"PN" => Some(abs(dir.to_path_buf()).to_string_lossy().into_owned()),
-                    b"BR" | b"BP" => Some(BAUD.into()),
-                    b"CP" => Some(COM.into()),
-                    _ => self.mci_value(code),
+                // The board's own values, then any MCI code (callers' text).
+                let (value, board) = match &code {
+                    b"PD" => (Some(path(&cfg.paths.data)), true),
+                    b"PT" => (Some(path(&cfg.paths.text)), true),
+                    b"PM" => (Some(path(&cfg.paths.menus)), true),
+                    b"PN" if dos => (Some("D:\\".into()), true),
+                    b"PN" => (Some(abs(dir.to_path_buf()).to_string_lossy().into_owned()), true),
+                    b"BR" | b"BP" => (Some(BAUD.into()), true),
+                    b"CP" => (Some(COM.into()), true),
+                    _ => (self.mci_value(code), false),
                 };
                 if let Some(v) = value {
-                    out.push_str(&if dos { dos_safe(&v) } else { shell_quote(&v) });
+                    out.push_str(&match (dos, board) {
+                        (true, true) => v,
+                        (true, false) => dos_safe(&v),
+                        (false, _) => shell_quote(&v),
+                    });
                     i += 3;
                     continue;
                 }
@@ -1066,15 +1073,16 @@ impl Session {
 
     /// Pass bytes between the caller and a door until it exits, the caller
     /// hangs up, or their time runs out.
-    async fn run_door(&mut self, line: Line, mut child: Proc) -> io::Result<DoorEnd> {
+    async fn run_door(&mut self, line: Line, child: Proc) -> io::Result<DoorEnd> {
         let pid = child.id();
         // Whatever way this ends, even dropped half-way, the door's whole
         // process group is told and then stopped.
-        let mut group = GroupGuard(pid);
-        let r = self.pass_door(&line, &mut child).await;
+        let mut group = GroupGuard { pid, child: Some(child) };
+        let r = self.pass_door(&line, group.child.as_mut().expect("set")).await;
         let signal = line.hangup_signal();
         drop(line);
-        match &child {
+        let child = group.child.as_mut().expect("set");
+        match child {
             Proc::Child(_) => {
                 if matches!(r, Ok(DoorEnd::Exited(_))) {
                     // Like dropping carrier on anything the door left running.
@@ -1096,12 +1104,12 @@ impl Session {
                     && hangup.load(Ordering::Relaxed)
                     && r.is_ok()
                 {
-                    group.0 = None;
+                    group.pid = None;
                     return Ok(DoorEnd::Hangup);
                 }
             }
         }
-        group.0 = None;
+        group.pid = None;
         r
     }
 
@@ -1195,22 +1203,36 @@ impl Session {
     }
 }
 
-/// A door's process group, signalled when dropped while still set: a
-/// door left by an error, or by the session going, gets SIGHUP, and
-/// SIGKILL 3 seconds later if anything of it is still there.
-struct GroupGuard(Option<u32>);
+/// A door's process group, signalled when dropped while `pid` is still
+/// set: a door left by an error, or by the session going, gets SIGHUP,
+/// and SIGKILL 3 seconds later. The door's own process is kept unreaped
+/// until then (alive or a zombie, its pid can't be handed to another
+/// process), and the group is left alone if it was reaped already.
+struct GroupGuard {
+    pid: Option<u32>,
+    child: Option<Proc>,
+}
 
 impl Drop for GroupGuard {
     fn drop(&mut self) {
-        let Some(pid) = self.0 else { return };
+        let Some(pid) = self.pid else { return };
+        let Some(Proc::Child(mut c)) = self.child.take() else { return };
+        // `id` is None once the process has been waited on.
+        if c.id().is_none() {
+            return;
+        }
         signal_group(Some(pid), libc::SIGHUP);
         match tokio::runtime::Handle::try_current() {
             Ok(h) => {
                 h.spawn(async move {
                     tokio::time::sleep(Duration::from_secs(3)).await;
-                    signal_group(Some(pid), libc::SIGKILL);
+                    if c.id().is_some() {
+                        signal_group(Some(pid), libc::SIGKILL);
+                    }
+                    let _ = c.wait().await;
                 });
             }
+            // `kill_on_drop` and tokio's reaper see to `c` itself.
             Err(_) => signal_group(Some(pid), libc::SIGKILL),
         }
     }
@@ -1359,10 +1381,12 @@ mod tests {
         assert_eq!(door_name("C:\\DOORS\\BRE.EXE"), "BRE");
         assert!(!is_dos("./game.exe"));
         assert!(!is_dos("sleep 600"));
-        assert_eq!(dos_safe("Dark Lord|del *.*>nul %path%"), "Dark_Lorddel_*.*nul_path");
-        assert_eq!(dos_safe("x /L"), "x_L");
-        assert_eq!(dos_safe("-N9"), "N9");
+        assert_eq!(dos_safe("Dark Lord|del *.*>nul %path%"), "Dark Lorddel *.*nul path");
+        assert_eq!(dos_safe("x /L"), "x L");
+        assert_eq!(dos_safe("-N9 --x //y"), "N9 x y");
         assert_eq!(dos_safe("D:\\"), "D:\\");
+        assert_eq!(dos_safe("Joe & \"Bob\" ^C O'Neil"), "Joe  Bob C ONeil");
+        assert_eq!(dos_safe("11/07/26"), "11/07/26", "only a word's start");
     }
 
     #[test]

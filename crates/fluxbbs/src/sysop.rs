@@ -120,36 +120,62 @@ fn move_before<T>(v: &mut Vec<T>, from: usize, before: usize) {
     v.insert(to, item);
 }
 
-/// Where the area with storage key `before` is (the end without one, or
-/// if it's gone).
-fn area_pos(list: &[MsgArea], before: Option<&str>) -> usize {
-    before.and_then(|k| list.iter().position(|a| a.file.eq_ignore_ascii_case(k))).unwrap_or(list.len())
+/// A message area picked by number on `*A`, found again in the list as
+/// it is later: by where it was, its storage key and name (areas may
+/// share a key, so the key alone isn't enough).
+#[derive(Debug, Clone, PartialEq)]
+struct Pick {
+    at: usize,
+    key: String,
+    name: String,
 }
 
-/// `*A` insert, by key into the list as it is now: a fresh area before
+impl Pick {
+    fn of(list: &[MsgArea], at: usize) -> Option<Pick> {
+        list.get(at).map(|a| Pick { at, key: a.file.clone(), name: a.name.clone() })
+    }
+
+    /// Where it is now: still at its place, or the one area that's it
+    /// elsewhere. None if it's gone or can't be told from another.
+    fn find(&self, list: &[MsgArea]) -> Option<usize> {
+        let is = |a: &MsgArea| a.file.eq_ignore_ascii_case(&self.key) && a.name == self.name;
+        if list.get(self.at).is_some_and(is) {
+            return Some(self.at);
+        }
+        let mut hits = list.iter().enumerate().filter(|(_, a)| is(a)).map(|(i, _)| i);
+        match (hits.next(), hits.next()) {
+            (Some(i), None) => Some(i),
+            _ => None,
+        }
+    }
+}
+
+/// Where the area `before` is (the end without one, or if it's gone).
+fn area_pos(list: &[MsgArea], before: Option<&Pick>) -> usize {
+    before.and_then(|p| p.find(list)).unwrap_or(list.len())
+}
+
+/// `*A` insert, into the list as it is now: a fresh area before
 /// `before`.
-fn insert_area(ar: &mut MsgAreas, before: Option<&str>) {
+fn insert_area(ar: &mut MsgAreas, before: Option<&Pick>) {
     let used = ar.areas.iter().map(|a| a.file.as_str()).chain(std::iter::once(ar.email.file.as_str()));
     let fresh = MsgArea::new("New Message Area", &unused_key(used, "NEWAREA"));
     let at = area_pos(&ar.areas, before);
     ar.areas.insert(at, fresh);
 }
 
-/// `*A` delete, by key: None if it's gone, or the last one.
-fn delete_area(ar: &mut MsgAreas, key: &str) -> Option<MsgArea> {
-    let i = ar.areas.iter().position(|a| a.file.eq_ignore_ascii_case(key))?;
+/// `*A` delete: None if it's gone (or can't be told apart), or the last
+/// one.
+fn delete_area(ar: &mut MsgAreas, which: &Pick) -> Option<MsgArea> {
+    let i = which.find(&ar.areas)?;
     (ar.areas.len() > 1).then(|| ar.areas.remove(i))
 }
 
-/// `*A` move, by key: false if it's gone.
-fn move_area(ar: &mut MsgAreas, from: &str, before: Option<&str>) -> bool {
-    if before.is_some_and(|b| b.eq_ignore_ascii_case(from)) {
-        return ar.areas.iter().any(|a| a.file.eq_ignore_ascii_case(from));
-    }
-    let Some(i) = ar.areas.iter().position(|a| a.file.eq_ignore_ascii_case(from)) else { return false };
-    let item = ar.areas.remove(i);
+/// `*A` move: false if it's gone (or can't be told apart).
+fn move_area(ar: &mut MsgAreas, from: &Pick, before: Option<&Pick>) -> bool {
+    let Some(i) = from.find(&ar.areas) else { return false };
     let at = area_pos(&ar.areas, before);
-    ar.areas.insert(at, item);
+    move_before(&mut ar.areas, i, at);
     true
 }
 
@@ -378,17 +404,17 @@ impl Session {
                         continue;
                     }
                     let Some(which) = self.cfg_ask_number("Delete which message area?", 1, n).await? else { continue };
-                    let key = areas.areas[which as usize - 1].file.clone();
+                    let Some(pick) = Pick::of(&areas.areas, which as usize - 1) else { continue };
                     let done = self
                         .state
                         .update_areas(|ar| {
-                            let gone = delete_area(ar, &key)?;
+                            let gone = delete_area(ar, &pick)?;
                             let shared = ar.areas.iter().any(|a| a.file.eq_ignore_ascii_case(&gone.file)) || ar.email.file.eq_ignore_ascii_case(&gone.file);
                             Some((gone, shared))
                         })
                         .map_err(io_err)?;
                     let Some((gone, shared)) = done else {
-                        self.show_line("|U0That area has gone meanwhile, or is the last one.").await?;
+                        self.show_line("|U0That area has gone or moved meanwhile, or is the last one.").await?;
                         self.prompt_key().await?;
                         continue;
                     };
@@ -406,8 +432,8 @@ impl Session {
                     self.newline();
                     let n = areas.areas.len() as u32;
                     let Some(at) = self.cfg_ask_number("Insert before which message area?", 1, n + 1).await? else { continue };
-                    let before = areas.areas.get(at as usize - 1).map(|a| a.file.clone());
-                    self.state.update_areas(|ar| insert_area(ar, before.as_deref())).map_err(io_err)?;
+                    let before = Pick::of(&areas.areas, at as usize - 1);
+                    self.state.update_areas(|ar| insert_area(ar, before.as_ref())).map_err(io_err)?;
                 }
                 'M' => {
                     self.newline();
@@ -417,10 +443,10 @@ impl Session {
                     }
                     let Some(from) = self.cfg_ask_number("Move which message area?", 1, n).await? else { continue };
                     let Some(before) = self.cfg_ask_number("Move before which message area?", 1, n + 1).await? else { continue };
-                    let from = areas.areas[from as usize - 1].file.clone();
-                    let before = areas.areas.get(before as usize - 1).map(|a| a.file.clone());
-                    if !self.state.update_areas(|ar| move_area(ar, &from, before.as_deref())).map_err(io_err)? {
-                        self.show_line("|U0That area has gone meanwhile.").await?;
+                    let Some(from) = Pick::of(&areas.areas, from as usize - 1) else { continue };
+                    let before = Pick::of(&areas.areas, before as usize - 1);
+                    if !self.state.update_areas(|ar| move_area(ar, &from, before.as_ref())).map_err(io_err)? {
+                        self.show_line("|U0That area has gone or moved meanwhile.").await?;
                         self.prompt_key().await?;
                     }
                 }
@@ -1925,21 +1951,37 @@ mod tests {
     fn area_changes_go_by_key() {
         let mut ar = MsgAreas { confs: vec![], email: MsgArea::new("Email", "EMAIL"), areas: vec![MsgArea::new("A", "A"), MsgArea::new("B", "B"), MsgArea::new("C", "C")] };
         let keys = |ar: &MsgAreas| ar.areas.iter().map(|a| a.file.clone()).collect::<Vec<_>>().join(",");
+        let pick = |at: usize, key: &str| Pick { at, key: key.into(), name: key.into() };
         // A caller's board went meanwhile: B is still B.
         ar.areas.remove(0);
-        assert_eq!(delete_area(&mut ar, "b").map(|a| a.file), Some("B".into()));
-        assert_eq!(delete_area(&mut ar, "B"), None, "gone already");
-        assert_eq!(delete_area(&mut ar, "C"), None, "the last one stays");
+        assert_eq!(delete_area(&mut ar, &pick(1, "B")).map(|a| a.file), Some("B".into()));
+        assert_eq!(delete_area(&mut ar, &pick(1, "B")), None, "gone already");
+        assert_eq!(delete_area(&mut ar, &pick(0, "C")), None, "the last one stays");
         ar.areas.push(MsgArea::new("D", "D"));
-        insert_area(&mut ar, Some("D"));
+        insert_area(&mut ar, Some(&pick(1, "D")));
         assert_eq!(keys(&ar), "C,NEWAREA,D");
-        insert_area(&mut ar, Some("GONE"));
+        insert_area(&mut ar, Some(&pick(5, "GONE")));
         assert_eq!(keys(&ar), "C,NEWAREA,D,NEWAREA2");
-        assert!(move_area(&mut ar, "D", Some("C")));
+        assert!(move_area(&mut ar, &pick(2, "D"), Some(&pick(0, "C"))));
         assert_eq!(keys(&ar), "D,C,NEWAREA,NEWAREA2");
-        assert!(move_area(&mut ar, "D", None));
+        assert!(move_area(&mut ar, &pick(0, "D"), None));
         assert_eq!(keys(&ar), "C,NEWAREA,NEWAREA2,D");
-        assert!(!move_area(&mut ar, "GONE", None));
+        assert!(!move_area(&mut ar, &pick(0, "GONE"), None));
+    }
+
+    #[test]
+    fn areas_sharing_a_key_are_told_apart() {
+        let mut ar = MsgAreas { confs: vec![], email: MsgArea::new("Email", "EMAIL"), areas: vec![MsgArea::new("One", "K"), MsgArea::new("Two", "K"), MsgArea::new("Other", "O")] };
+        let two = Pick::of(&ar.areas, 1).unwrap();
+        // The first went meanwhile: the second is still found by name.
+        ar.areas.remove(0);
+        assert_eq!(delete_area(&mut ar, &two).map(|a| a.name), Some("Two".into()));
+        // Two alike, and neither where the pick was: refused.
+        ar.areas = vec![MsgArea::new("Same", "K"), MsgArea::new("Other", "O"), MsgArea::new("Same", "K")];
+        let third = Pick::of(&ar.areas, 2).unwrap();
+        ar.areas.insert(0, MsgArea::new("New", "N"));
+        assert_eq!(delete_area(&mut ar, &third), None);
+        assert_eq!(ar.areas.len(), 4);
     }
 
     #[test]

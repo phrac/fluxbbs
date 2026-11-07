@@ -740,36 +740,109 @@ pub fn save_changes(path: &Path, old: &Config, new: &Config) -> anyhow::Result<(
 
 /// What changed from `original` to `edited`, made to `current` instead:
 /// each setting the editor changed takes its value, the rest stay as
-/// they are now. (Lists are settings, taken whole.)
+/// they are now. Lists of tables whose entries have a name of their own
+/// (echoes by network and tag, networks and themes by name, channels,
+/// protocols by key) are merged entry by entry; other lists are taken
+/// whole.
 pub fn rebase(original: &Config, edited: &Config, current: &Config) -> anyhow::Result<Config> {
-    fn merge(o: Option<&toml::Value>, e: Option<&toml::Value>, c: &mut toml::Table, k: &str) {
-        if o == e {
-            return;
-        }
-        match (o, e, c.get_mut(k)) {
-            (Some(toml::Value::Table(ot)), Some(toml::Value::Table(et)), Some(toml::Value::Table(ct))) => {
-                let keys: std::collections::BTreeSet<String> = ot.keys().chain(et.keys()).cloned().collect();
-                for kk in keys {
-                    merge(ot.get(&kk), et.get(&kk), ct, &kk);
-                }
-            }
-            (_, Some(v), _) => {
-                c.insert(k.to_string(), v.clone());
-            }
-            (_, None, _) => {
-                c.remove(k);
-            }
-        }
-    }
     let (o, e) = (toml::Value::try_from(original)?, toml::Value::try_from(edited)?);
     let toml::Value::Table(mut c) = toml::Value::try_from(current)? else { anyhow::bail!("configuration isn't a table") };
     let empty = toml::Table::new();
     let (ot, et) = (o.as_table().unwrap_or(&empty), e.as_table().unwrap_or(&empty));
+    merge_tables(ot, et, &mut c);
+    let mut out: Config = toml::Value::Table(c).try_into()?;
+    // Not in the file (`#[serde(skip)]`): kept from the live copy.
+    out.root = current.root.clone();
+    Ok(out)
+}
+
+fn merge_tables(ot: &toml::Table, et: &toml::Table, ct: &mut toml::Table) {
     let keys: std::collections::BTreeSet<String> = ot.keys().chain(et.keys()).cloned().collect();
     for k in keys {
-        merge(ot.get(&k), et.get(&k), &mut c, &k);
+        merge_value(ot.get(&k), et.get(&k), ct, &k);
     }
-    Ok(toml::Value::Table(c).try_into()?)
+}
+
+fn merge_value(o: Option<&toml::Value>, e: Option<&toml::Value>, c: &mut toml::Table, k: &str) {
+    use toml::Value::{Array, Table};
+    if o == e {
+        return;
+    }
+    // An empty list may be left out of the file altogether.
+    fn list(v: Option<&toml::Value>) -> Option<&[toml::Value]> {
+        match v {
+            Some(Array(a)) => Some(a),
+            None => Some(&[]),
+            _ => None,
+        }
+    }
+    if let (Some(oa), Some(ea), Some(ca)) = (list(o), list(e), list(c.get(k)))
+        && keyed(oa)
+        && keyed(ea)
+        && keyed(ca)
+    {
+        let mut ca = ca.to_vec();
+        merge_keyed(oa, ea, &mut ca);
+        if ca.is_empty() && e.is_none() {
+            c.remove(k);
+        } else {
+            c.insert(k.to_string(), Array(ca));
+        }
+        return;
+    }
+    match (o, e, c.get_mut(k)) {
+        (Some(Table(ot)), Some(Table(et)), Some(Table(ct))) => merge_tables(ot, et, ct),
+        (_, Some(v), _) => {
+            c.insert(k.to_string(), v.clone());
+        }
+        (_, None, _) => {
+            c.remove(k);
+        }
+    }
+}
+
+/// What names an entry of a list of tables.
+fn entry_key(v: &toml::Value) -> Option<String> {
+    let t = v.as_table()?;
+    let s = |f: &str| t.get(f).and_then(|v| v.as_str());
+    if let Some(tag) = s("tag") {
+        return Some(format!("tag\0{}\0{}", s("network").unwrap_or("").to_ascii_lowercase(), tag.to_ascii_uppercase()));
+    }
+    ["name", "channel", "key"].iter().find_map(|f| s(f).map(|v| format!("{f}\0{v}")))
+}
+
+/// Does every entry have a name, and no two the same?
+fn keyed(list: &[toml::Value]) -> bool {
+    let mut seen = std::collections::HashSet::new();
+    list.iter().all(|v| entry_key(v).is_some_and(|k| seen.insert(k)))
+}
+
+/// The editor's additions, removals and changes to a keyed list, made to
+/// the list as it is now: entries others added or changed meanwhile stay,
+/// and one removed meanwhile stays removed.
+fn merge_keyed(oa: &[toml::Value], ea: &[toml::Value], ca: &mut Vec<toml::Value>) {
+    let find = |list: &[toml::Value], k: &Option<String>| list.iter().position(|v| entry_key(v) == *k);
+    for o in oa {
+        let k = entry_key(o);
+        if find(ea, &k).is_none()
+            && let Some(i) = find(ca, &k)
+        {
+            ca.remove(i);
+        }
+    }
+    for e in ea {
+        let k = entry_key(e);
+        match (find(oa, &k), find(ca, &k)) {
+            (Some(i), Some(j)) => {
+                if let (Some(ot), Some(et), Some(ct)) = (oa[i].as_table(), e.as_table(), ca[j].as_table_mut()) {
+                    merge_tables(ot, et, ct);
+                }
+            }
+            (Some(_), None) => {}
+            (None, Some(j)) => ca[j] = e.clone(),
+            (None, None) => ca.push(e.clone()),
+        }
+    }
 }
 
 /// New: the `@` section, callers' email addresses (`[email]`; the
@@ -1250,6 +1323,24 @@ mod tests {
         assert_eq!(merged.bbs.sysop_alias, "Changed elsewhere");
         assert_eq!(merged.flags.get("Q").map(String::as_str), Some("saved meanwhile"));
         assert_eq!(toml::to_string(&rebase(&original, &original, &current).unwrap()).unwrap(), toml::to_string(&current).unwrap());
+    }
+
+    #[test]
+    fn rebase_keeps_the_root_and_merges_echoes_by_tag() {
+        let echo = |tag: &str, area: &str| crate::config::FtnArea { tag: tag.into(), area: area.into(), network: String::new() };
+        let mut original = Config { root: "/srv/board".into(), ..Config::default() };
+        original.ftn.areas = vec![echo("A", "x"), echo("B", "y")];
+        original.ftn.file_areas = vec![];
+        let mut edited = original.clone();
+        edited.ftn.areas = vec![echo("A", "x"), echo("D", "w")];
+        edited.ftn.file_areas = vec![echo("F", "files")];
+        let mut current = original.clone();
+        current.ftn.areas = vec![echo("A", "z"), echo("B", "y"), echo("C", "v")];
+        current.ftn.file_areas = vec![echo("G", "more")];
+        let merged = rebase(&original, &edited, &current).unwrap();
+        assert_eq!(merged.root, std::path::PathBuf::from("/srv/board"));
+        assert_eq!(merged.ftn.areas, vec![echo("A", "z"), echo("C", "v"), echo("D", "w")]);
+        assert_eq!(merged.ftn.file_areas, vec![echo("G", "more"), echo("F", "files")]);
     }
 
     #[test]

@@ -1134,3 +1134,7 @@ PdfZoomBar = " |U6%S1 |U5- |U4p%S2/%S3 %S4  |U5[|U6arrows|U5]|U4move |U5[|U6z|U5
 AlreadyOnline = "|12That account is already on another node; one node at a time. |07Goodbye."
 TipAnonymous = "|U4Anonymous posts can't be tipped|U5."
 MsgAreaGone = "|U4That board was deleted meanwhile; the message wasn't posted|U5."
+# The font viewer when no .TDF in the folder has a face it can show (new).
+FontViewNoFaces = "|U4None of the TheDraw fonts in |U6%S1|U4 has a face to show |U5(|U4outline faces are left out|U5)|U4."
+# Taking back a post when a reply came (or the time ran out) while it asked (new).
+RegretTooLate = "|U4Too late to take it back|U5: |U4someone answered it, or the time ran out|U5. |U4Retract or burn it instead|U5."
