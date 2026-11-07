@@ -37,6 +37,10 @@ tokio-rustls = { version = "0.26.6", default-features = false, optional = true }
 webpki-roots = { version = "1.0.11", optional = true }
 lettre = { version = "0.11.23", default-features = false, features = ["builder", "smtp-transport", "hostname", "tokio1-rustls-tls"], optional = true }
 
+[dev-dependencies]
+# Paused clocks, so the fuzz targets' delays and timeouts take no time.
+tokio = { version = "1.53.3", features = ["test-util"] }
+
 # Optional components (docs/BUILDING.md). A plain `cargo build` is the
 # core board; `--features full` is everything, as disflux, the flagship
 # board, runs. A part left out answers its commands as one switched off

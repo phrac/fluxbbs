@@ -407,3 +407,51 @@ mod tests {
         assert_eq!(out, b"a\xff\xffb");
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit::{Target, chunks};
+
+    /// The stream in random reads parses as it does whole, and replies
+    /// stay small.
+    #[test]
+    #[ignore]
+    fn fuzz_telnet() {
+        let corpus: &[&[u8]] = &[
+            &[b'a', IAC, WILL, NAWS, IAC, SB, NAWS, 0, 132, 0, 50, IAC, SE, IAC, SB, TTYPE, IS, b'S', b'Y', b'N', IAC, SE, b'b'],
+            &[IAC, DO, ECHO, IAC, DONT, 5, IAC, WONT, 3, IAC, 241, IAC, IAC, b'x', IAC, SB, IAC, IAC, IAC, SE, IAC, SB, 1, IAC, 7],
+            b"login\r\n\xff\xfa\x18\x00ANSI-256COLOR\x00\xff\xf0\xff\xfa\x1f\xff\xff\x00\x00\x00\xff\xf0",
+        ];
+        let dict: &[&[u8]] = &[&[IAC, SB, NAWS], &[IAC, SB, TTYPE, IS], &[IAC, SE], &[IAC, WILL], &[IAC, DO], &[IAC, IAC], &[IAC, SB]];
+        Target::new("telnet", corpus).dict(dict).run(|input, rng| {
+            let (mut whole, mut ev_whole) = (Vec::new(), Vec::new());
+            Parser::default().feed(input, &mut whole, &mut ev_whole);
+            let mut p = Parser::default();
+            let (mut data, mut events) = (Vec::new(), Vec::new());
+            for c in chunks(input, rng) {
+                p.feed(c, &mut data, &mut events);
+                assert!(p.sub.len() <= 256);
+            }
+            assert_eq!(data, whole);
+            assert_eq!(events, ev_whole);
+            assert!(data.len() <= input.len());
+            for e in &events {
+                match e {
+                    Event::Option(v, o) => assert!(reply(*v, *o).len() <= 6),
+                    Event::TermType(t) => assert!(t.len() <= 3 * 256),
+                    Event::Size(w, h) => {
+                        let (w, h) = clamp_size(*w, *h);
+                        assert!((1..=400).contains(&w) && (1..=200).contains(&h));
+                    }
+                }
+            }
+            let mut out = Vec::new();
+            escape(input, &mut out);
+            let (mut back, mut none) = (Vec::new(), Vec::new());
+            Parser::default().feed(&out, &mut back, &mut none);
+            assert_eq!(back, input, "escaped data reads back as it was");
+            assert!(none.is_empty());
+        });
+    }
+}

@@ -65,6 +65,29 @@ each on its own). Don't run `cargo fmt`: the
 code has never been rustfmt'd, and a format pass would rewrite every
 file.
 
+### Fuzzing
+
+The parsers and renderers have `#[ignore]`d `fuzz_*` tests (telnet,
+keys and terminal answers, the screen model and display codes, the
+display engine, MCI codes, pager, ANSI snapshots, pictures and sixels,
+Markdown and code, HTML, vim keys, the editor, MRC lines and chat, the
+bot check), mutation fuzzers on a seed corpus with no nightly needed
+(`crates/fluxbbs-term/src/fuzzkit.rs`, which the server crate includes
+too):
+
+    FUZZ_SECS=600 FUZZ_ITERS=100000000 nice -n 19 \
+        cargo test --release --features full fuzz_ -- --ignored --test-threads=4
+    FUZZ_SECS=240 FUZZ_ITERS=100000000 FUZZ_HANG_S=60 FUZZ_SLOW_MS=5000 FUZZ_KEY_MS=20000 \
+        nice -n 19 cargo test --features full fuzz_ -- --ignored --test-threads=4
+
+The second is a debug build, which catches overflows (and is ten times
+slower: hence the looser time limits). `FUZZ_SEED` picks another run;
+a panic or a slow call fails the test with its input, made smaller,
+and the seed its own PRNG had. `FUZZ_INPUT=file FUZZ_INPUT_SEED=n`
+runs that input alone; a call stuck past `FUZZ_HANG_S` writes its input
+to `$TMPDIR/fuzz-hang-NAME.bin` and aborts. Add what's found as a normal
+test beside the fix.
+
 ### Live tests
 
 Run the server and drive it with the scripted callers in `tools/`. Each

@@ -456,3 +456,40 @@ mod tests {
         assert_eq!(read_line(&mut rd).await.unwrap(), None);
     }
 }
+
+#[cfg(test)]
+pub(crate) mod fuzz {
+    use super::*;
+    use crate::fuzzkit::Target;
+
+    pub(crate) const LINES: &[&[u8]] = &[
+        b"phrac~disflux~lobby~~~lobby~|03<|11phrac|03> |07hello~\nSERVER~~~~~~HELLO~\nSERVER~~~~~~STATS:12 5 40 3~\r\n",
+        b"SERVER~~~phrac~~~USERLIST:a,b, c,,phrac~\nSERVER~~~~~lobby~TOPIC:lobby:New topic~\nBob~X~~phrac~~~[CTCP] phrac VERSION~\n",
+        b"Bob~X~lobby~~~lobby~\xe2\x86\x90[2J \x1b[0m|16|23|99|1~\nBob~X~~phrac~~~direct~\nSERVER~~~~~~Joining lobby~\nSERVER~~~~~~ping~\n",
+    ];
+
+    /// Server lines in any pieces: read, parsed and written back.
+    #[test]
+    #[ignore]
+    fn fuzz_mrc_lines() {
+        let rt = tokio::runtime::Builder::new_current_thread().build().unwrap();
+        Target::new("mrc_lines", LINES).dict(&[b"~", b"\n", b"|", b"SERVER", b"STATS:", b"USERLIST:", b"TOPIC:", b"[CTCP] "]).max_len(20_000).run(|input, _| {
+            let mut rd = tokio::io::BufReader::with_capacity(64, input);
+            let mut n = 0;
+            while let Ok(Some(line)) = rt.block_on(read_line(&mut rd)) {
+                n += 1;
+                assert!(n <= input.len() + 1);
+                assert!(line.len() <= 3 * LINE_MAX);
+                if let Some(p) = Packet::parse(&line) {
+                    for f in [&p.from_user, &p.from_site, &p.from_room, &p.to_user, &p.msg_ext, &p.to_room, &p.body] {
+                        assert!(!f.chars().any(is_controlling), "a control character got through");
+                    }
+                    let back = p.to_line();
+                    assert_eq!(back.matches('\n').count(), 1);
+                    let _ = (strip_pipes(&p.body), wire_name(&p.from_user), nick_of(&p.body));
+                    assert!(wire_name(&p.body).chars().count() <= 30);
+                }
+            }
+        });
+    }
+}

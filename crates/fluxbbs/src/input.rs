@@ -979,3 +979,142 @@ mod tests {
     }
 }
 
+#[cfg(test)]
+pub(crate) mod fuzz {
+    use super::*;
+    use crate::fuzzkit::{Rng, Target, chunks};
+    use std::collections::VecDeque;
+    use std::pin::Pin;
+    use std::task::{Context, Poll};
+    use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
+
+    /// A caller whose reads arrive in these pieces, then hangs up; what's
+    /// written goes nowhere.
+    pub(crate) struct Pieces(pub(crate) VecDeque<Vec<u8>>);
+
+    impl AsyncRead for Pieces {
+        fn poll_read(mut self: Pin<&mut Self>, _: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+            if let Some(mut p) = self.0.pop_front() {
+                let n = p.len().min(buf.remaining());
+                buf.put_slice(&p[..n]);
+                if n < p.len() {
+                    self.0.push_front(p.split_off(n));
+                }
+            }
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    impl AsyncWrite for Pieces {
+        fn poll_write(self: Pin<&mut Self>, _: &mut Context<'_>, b: &[u8]) -> Poll<io::Result<usize>> {
+            Poll::Ready(Ok(b.len()))
+        }
+        fn poll_flush(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+        fn poll_shutdown(self: Pin<&mut Self>, _: &mut Context<'_>) -> Poll<io::Result<()>> {
+            Poll::Ready(Ok(()))
+        }
+    }
+
+    const KEYS: &[&[u8]] = &[
+        b"hello\r\x1b[A\x1b[B\x1b[C\x1b[D\x1bOA\x1b[5~\x1b[3~\x1b[1~x\x7f\x08\t\x15y\r\n",
+        b"\x1b[24;80R\x1b[=73;99;121c\x1b[?1;2c\x1b[=3;16;8n\x1b[6;16;8t\x1bP1$r0;38;2;1;2;3m\x1b\\abc\r",
+        b"caf\xc3\xa9 \xe2\x98\xba \xe2\x96\x91\xf0\x9f\x98\x80\r\0\n12/31/99\r",
+        b"\x1b[38;5;196mpasted\x1b[0m\x1b\x1b[\x1b[1;2;3;4;5;6;7;8;9;0;1;2;3;4;5;6;7;8;9X\r",
+    ];
+    const DICT: &[&[u8]] = &[b"\x1b[", b"\x1bO", b"R", b"~", b";", b"\x1bP", b"$r", b"\x1b\\", b"\x1b[=", b"\x1b[?", b"c", b"n", b"t"];
+
+    fn session() -> Session {
+        Session::for_test(crate::tests::state(), crate::user::User::default())
+    }
+
+    /// The decoders on their own: whatever the pieces, utf8_keys's tail
+    /// stays short and keeps what it's given.
+    #[test]
+    #[ignore]
+    fn fuzz_input_decoders() {
+        Target::new("input_decoders", KEYS).dict(DICT).run(|input, rng| {
+            let mut tail = Vec::new();
+            let mut out = Vec::new();
+            for c in chunks(input, rng) {
+                out.extend(utf8_keys(c, &mut tail));
+                assert!(tail.len() < 4, "utf8 tail {}", tail.len());
+            }
+            let mut t2 = Vec::new();
+            let whole = utf8_keys(input, &mut t2);
+            assert_eq!((out, tail), (whole, t2), "split reads decode as one");
+            for hold in [false, true] {
+                let (keys, reports, tail, da) = strip_cursor_reports(input, hold);
+                assert!(keys.len() + tail.len() <= input.len());
+                assert!(reports as usize <= input.len() / 4);
+                assert!(da.iter().map(|d| d.len()).sum::<usize>() <= input.len());
+                if !hold {
+                    assert!(tail.is_empty());
+                }
+            }
+            let _ = status_string(input);
+        });
+    }
+
+    async fn drive(s: &mut Session, input: &[u8], rng: &mut Rng) {
+        s.io = Box::new(Pieces(chunks(input, rng).into_iter().map(|c| c.to_vec()).collect()));
+        s.input.clear();
+        s.report_tail.clear();
+        s.utf8_tail.clear();
+        s.cursor_reports = 0;
+        s.cursor_asks = rng.below(3) as u32;
+        s.split_esc_o = rng.one_in(2);
+        s.screen.set_charset(if rng.one_in(2) { fluxbbs_term::Charset::Utf8 } else { fluxbbs_term::Charset::Cp437 });
+        for _ in 0..input.len() + 2 {
+            let r = match rng.below(6) {
+                0 => {
+                    let mut o = ReadOpts::new(rng.below(90));
+                    if rng.one_in(2) {
+                        o = o.case(*rng.pick(&[Case::Upper, Case::Lower, Case::Mixed, Case::Capital, Case::Weird, Case::Warped, Case::Cool]));
+                    }
+                    if rng.one_in(3) {
+                        o = o.prefill("default value");
+                    }
+                    if rng.one_in(3) {
+                        o = o.indent();
+                    }
+                    if rng.one_in(3) {
+                        o = o.esc_cancels();
+                    }
+                    if rng.one_in(4) {
+                        o = o.mask("mm/dd/yy");
+                    }
+                    if rng.one_in(4) {
+                        o = o.allowed("0123456789");
+                    }
+                    if rng.one_in(4) {
+                        o = o.password();
+                    }
+                    s.read_string(o).await.map(|r| assert!(r.chars().count() <= 90))
+                }
+                1 => s.yes_no(rng.one_in(2)).await.map(drop),
+                2 => s.key_waiting().await.map(drop),
+                _ => s.read_key().await.map(drop),
+            };
+            assert!(s.report_tail.len() <= 1024 && s.utf8_tail.len() < 4 && s.device_attrs.len() <= 32);
+            if r.is_err() {
+                break;
+            }
+        }
+    }
+
+    /// Keys through the session as a caller sends them: reads split
+    /// anywhere, with cursor reports expected or not.
+    #[test]
+    #[ignore]
+    fn fuzz_input_keys() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().unwrap();
+        let s = std::cell::RefCell::new(session());
+        Target::new("input_keys", KEYS).dict(DICT).max_len(4096).run(|input, rng| {
+            let mut s = s.borrow_mut();
+            rt.block_on(drive(&mut s, input, rng));
+        });
+    }
+}
+

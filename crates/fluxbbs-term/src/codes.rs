@@ -250,7 +250,9 @@ pub fn lit(s: &str) -> String {
 pub fn defuse(s: &str) -> String {
     // Without `lit`'s marks first: `encode` drops them, and a code split
     // by one would come back together.
-    let c: Vec<char> = unlit(s).chars().collect();
+    // Nor an escape (or CP437's `←`, which is one): an escape sequence
+    // would swallow the `|ZA` that follows it.
+    let c: Vec<char> = unlit(s).chars().filter(|&c| c != '\x1b' && c != crate::cp437::TO_UNICODE[0x1b]).collect();
     let mut out = String::new();
     let mut i = 0;
     while i < c.len() {
@@ -262,7 +264,9 @@ pub fn defuse(s: &str) -> String {
                 let zb = pair.eq_ignore_ascii_case(b"ZB");
                 !zb && (Control::parse(pair).is_some_and(|k| !k.is_colour()) || pair == *b"**" || pair.eq_ignore_ascii_case(b"ZA"))
             }
-            ('%', Some(a), Some(_)) => a.is_ascii_alphanumeric() || a == '@',
+            // And a screen's own `%>` and `%[` (a font), which a caller's
+            // line in a screen file could otherwise use.
+            ('%', Some(a), Some(_)) => a.is_ascii_alphanumeric() || matches!(a, '@' | '>' | '['),
             ('@' | '&' | '{' | '}' | '^', _, _) => two(a) && two(b),
             ('~', Some(a), Some(_)) => a.is_ascii_alphanumeric() || a == '*',
             _ => false,
@@ -552,6 +556,18 @@ mod tests {
         assert_eq!(String::from_utf8(text).unwrap(), &typed[3..]);
         assert_eq!(defuse("hello"), "hello");
         assert_eq!(tokenize_user(defuse("|04a|CS").as_bytes()), vec![Ctrl(Control::Fore(4)), Text(b"a|CS".to_vec())]);
+    }
+
+    /// Found by fuzzing: an escape (`←` in CP437) before a code made a
+    /// CSI that ate `|ZA`, and the code ran.
+    #[test]
+    fn defuse_drops_escapes() {
+        // Nor do a screen's `%>` and `%[` work in what was typed.
+        for typed in ["\x1b[2|SAJ", "\u{2190}[37|CSm", "\u{2190}[1;|PA1;", "a%>b", "%[AMNESIA.TDF,1]hi%]"] {
+            for t in tokenize(&crate::cp437::encode(&defuse(typed)), Source::File) {
+                assert!(!matches!(t, Ctrl(c) if !c.is_colour()) && !matches!(t, AlignRight | Font { .. }), "{typed:?}: {t:?}");
+            }
+        }
     }
 
     #[test]

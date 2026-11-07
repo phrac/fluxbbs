@@ -623,7 +623,7 @@ impl Session {
     pub fn acs_for(&self, u: &User, expr: &str) -> bool {
         let now = crate::clock::now();
         let level_req = self.state.level(u.level).map_or(0, |l| l.post_call as u32);
-        let ratio = (u.posts * 100).checked_div(u.total_calls).unwrap_or(0);
+        let ratio = (u.posts as u64 * 100).checked_div(u.total_calls as u64).unwrap_or(0).min(u32::MAX as u64) as u32;
         let env = AcsEnv {
             local: false,
             ok_flag: self.ok_flag,
@@ -818,10 +818,20 @@ impl Session {
         }
         let mut st = DisplayState::default();
         let toks = tokenize(src, source);
+        // The widths after the later `%>`s on a line, measured with the
+        // first: a line of thousands isn't measured thousands of times.
+        let mut ahead: HashMap<usize, usize> = HashMap::new();
         for (i, tok) in toks.iter().enumerate() {
             if *tok == Token::AlignRight {
-                let w = self.rest_of_line_len(&toks[i + 1..], waves, st.limit);
-                self.screen.pos_x(80u16.saturating_sub(w as u16).max(1));
+                let w = match ahead.remove(&i) {
+                    Some(w) => w,
+                    None => {
+                        let (w, later) = self.rest_of_line_len(&toks[i + 1..], waves, st.limit);
+                        ahead = later.into_iter().map(|(k, at)| (i + 1 + k, w - at)).collect();
+                        w
+                    }
+                };
+                self.screen.pos_x(80u16.saturating_sub(w.min(80) as u16).max(1));
                 continue;
             }
             self.display_token(tok.clone(), source, waves, &mut st).await?;
@@ -830,8 +840,9 @@ impl Session {
         Ok(())
     }
 
-    /// How wide what's left of a line of a screen will be on screen.
-    fn rest_of_line_len(&self, toks: &[Token], waves: Option<&Waves>, limit: Option<(usize, bool)>) -> usize {
+    /// How wide what's left of a line of a screen will be on screen, and
+    /// where each `%>` on it is (its index, and the width before it).
+    fn rest_of_line_len(&self, toks: &[Token], waves: Option<&Waves>, limit: Option<(usize, bool)>) -> (usize, Vec<(usize, usize)>) {
         let (mut n, mut limit) = (0, limit);
         // As `display_token` draws them: a `{NN`/`}NN` holds for every
         // value after it, and colour codes in a value take no room.
@@ -843,8 +854,10 @@ impl Session {
                 None => w,
             }
         };
-        for t in toks {
+        let mut later = Vec::new();
+        for (k, t) in toks.iter().enumerate() {
             match t {
+                Token::AlignRight => later.push((k, n)),
                 Token::Text(b) => {
                     let line = b.split(|&c| c == b'\r' || c == b'\n').next().unwrap_or_default();
                     n += fluxbbs_term::codes::visible_bytes(line);
@@ -859,7 +872,7 @@ impl Session {
                 _ => {}
             }
         }
-        n
+        (n, later)
     }
 
     /// One token of [`Session::display`].
@@ -1563,4 +1576,59 @@ pub fn find_ci(dir: &Path, name: &str) -> Option<PathBuf> {
         .find(|f| *f == name)
         .or_else(|| names.iter().find(|f| f.eq_ignore_ascii_case(name)))
         .map(|f| dir.join(f))
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit::Target;
+
+    /// Found by fuzzing: every `%>` measured the rest of its line, so a
+    /// line of thousands of them (with `%RC`-style codes, each a query)
+    /// took minutes. Later ones on a line are measured with the first.
+    #[tokio::test]
+    async fn many_right_aligns_on_a_line() {
+        let mut s = Session::for_test(crate::tests::state(), User::default());
+        s.display(b"%>ab%>c", Source::File, None, false).await.unwrap();
+        let at = |s: &Session, x| s.screen.shown(x, 1).map(|c| c.ch);
+        assert_eq!((at(&s, 77), at(&s, 78), at(&s, 79)), (Some(b'a'), Some(b'b'), Some(b'c')));
+        let line = "%>x%OP%RC".repeat(3000);
+        let t = std::time::Instant::now();
+        s.display(line.as_bytes(), Source::File, None, false).await.unwrap();
+        assert!(t.elapsed().as_secs() < 10, "{:?}", t.elapsed());
+    }
+
+    /// The display engine on prompts and screens with every kind of
+    /// code, for callers with odd values; the screen model stays on it.
+    #[test]
+    #[ignore]
+    fn fuzz_display() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().unwrap();
+        let s = std::cell::RefCell::new(Session::for_test(crate::tests::state(), User::default()));
+        let corpus: &[&[u8]] = &[
+            b"|09Hello %UN, you are the %RC caller.|CR|U3{10%RN}20%LO|** @05&03x|LC|SC|CS|CZ|CE|CH|CT|CB|LF|AS|AL|B3|19|PO|DS",
+            b"~01~02~AB^05^99%>right|ZAraw |CS|ZB %[AMNESIA.TDF,1,40]%UN%] %[../x,2]y%] %IS %A1 %MT %FA %TU %RO %KC",
+            b"\x1b[2J\x1b[1;1H\x1b[40m\xdb\xb2\x1b[10;70H%UN\x1b[s\x1b[u\r\n\x1a SAUCE",
+        ];
+        let dict: &[&[u8]] = &[b"|CS", b"|LC", b"|SC", b"|**", b"|PA", b"|PK", b"|PS", b"|DE", b"|SA", b"%>", b"%[", b"%]", b"~", b"^", b"@", b"&", b"{", b"}", b"%UN", b"%RC", b"%OP", b"|ZA", b"|ZB"];
+        // Some codes are a query each (`%KC`, a rank): thousands take a while.
+        Target::new("display", corpus).dict(dict).max_len(8192).slow_ms(1000).run(|input, rng| {
+            let mut s = s.borrow_mut();
+            s.user = crate::mci::fuzz::user(rng, input);
+            s.screen.set_rows(1 + rng.below(60) as u16);
+            s.screen.goto(1 + rng.below(80) as u16, 1 + rng.below(60) as u16);
+            s.io = Box::new(crate::input::fuzz::Pieces(Default::default()));
+            s.input.clear();
+            let waves: Waves = (0..rng.below(6)).map(|i| ([b'0' + i as u8 / 10, b'0' + i as u8 % 10], String::from_utf8_lossy(&input[..input.len().min(40 * i)]).into_owned())).collect();
+            let source = if rng.one_in(2) { Source::File } else { Source::String };
+            let _ = rt.block_on(s.display(input, source, Some(&waves), rng.one_in(2)));
+            assert!((1..=80).contains(&s.screen.where_x()) && (1..=s.screen.rows()).contains(&s.screen.where_y()));
+            let text = String::from_utf8_lossy(input);
+            s.write_with_controls(&text);
+            let _ = s.visible_len(input);
+            let e = s.expand_mci(&text, rng.below(40));
+            assert!(e.len() <= text.len() * 1024 + 4096, "{} from {}", e.len(), text.len());
+            let _ = s.screen.take_output();
+        });
+    }
 }

@@ -28,7 +28,7 @@ fn ordinal(n: usize) -> String {
 /// first of n fills them all, last leaves one.
 fn rank_bar(rank: usize, n: usize) -> String {
     let n = n.max(1);
-    let filled = ((n + 1 - rank.clamp(1, n)) * 10).div_ceil(n).clamp(1, 10);
+    let filled = ((n - rank.clamp(1, n) + 1) as u128 * 10).div_ceil(n as u128).clamp(1, 10) as usize;
     "█".repeat(filled) + &"░".repeat(10 - filled)
 }
 
@@ -345,6 +345,9 @@ mod tests {
         assert_eq!(initials("mike fricker"), "MF");
         assert_eq!(ratio(1, 4), "25%");
         assert_eq!(ratio(1, 0), "0%");
+        // Found by fuzzing (debug builds): the bar overflowed at the ends.
+        let lit = |s: String| s.chars().filter(|&c| c == '█').count();
+        assert_eq!((lit(rank_bar(1, usize::MAX)), lit(rank_bar(usize::MAX, usize::MAX)), lit(rank_bar(1, 1)), lit(rank_bar(3, 4))), (10, 1, 10, 5));
         let d = |m, d| chrono::NaiveDate::from_ymd_opt(2026, m, d);
         let today = d(10, 20).unwrap();
         assert_eq!(ago(d(10, 20), today), "today");
@@ -355,5 +358,74 @@ mod tests {
         assert_eq!(ago(None, today), "");
         let d: Vec<String> = ["▒▒▒▒", "i n i q u", ".g\"\"^'°`\"^'+AXF+°", "-=[ AXF ]=-", "  The   best  pack ", "more"].map(String::from).into();
         assert_eq!(blurb(&d), "The best pack");
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod fuzz {
+    use super::*;
+    use crate::fuzzkit::{Rng, Target};
+    use crate::user::User;
+
+    /// A date anywhere chrono has them, often near the ends.
+    fn date(rng: &mut Rng) -> Option<chrono::NaiveDate> {
+        match rng.below(5) {
+            0 => None,
+            1 => Some(chrono::NaiveDate::MIN),
+            2 => Some(chrono::NaiveDate::MAX),
+            _ => chrono::NaiveDate::from_num_days_from_ce_opt(rng.next() as i32 % 4_000_000),
+        }
+    }
+
+    /// A caller with odd text (from `input`) and boundary numbers.
+    pub(crate) fn user(rng: &mut Rng, input: &[u8]) -> User {
+        let text = |rng: &mut Rng| {
+            let a = rng.below(input.len() + 1);
+            let b = a + rng.below(input.len() - a + 1).min(200);
+            fluxbbs_term::cp437::decode(&input[a..b])
+        };
+        let mut u = User { handle: text(rng), real_name: text(rng), location: text(rng), phone: text(rng), note: text(rng), sysop_note: text(rng), address: text(rng), ..User::default() };
+        u.autosig = (0..rng.below(8)).map(|_| text(rng)).collect();
+        u.birth_date = date(rng);
+        u.first_call = date(rng);
+        u.last_call = date(rng);
+        u.file_scan = date(rng);
+        u.sex = rng.next() as u8 as char;
+        u.level = rng.next() as u8 as char;
+        u.sl = rng.next() as u8;
+        u.dsl = rng.next() as u8;
+        let mut n = || rng.number() as u32;
+        (u.total_calls, u.calls_today, u.time_today, u.time_per_day, u.posts, u.email, u.uploads, u.downloads) = (n(), n(), n(), n(), n(), n(), n(), n());
+        (u.file_points, u.post_call, u.limit_dl, u.limit_dl_kb, u.today_dl, u.today_dl_kb, u.uldl_ratio, u.kb_ratio) = (n(), n(), n(), n(), n(), n(), n(), n());
+        (u.cur_msg_area, u.cur_file_area, u.conf_msg, u.conf_file, u.vote_yes, u.vote_no, u.bank_time, u.bank_kb) = (n(), n(), n(), n(), n(), n(), n(), n());
+        u.page_length = rng.number() as u16;
+        u.upload_kb = rng.number();
+        u.download_kb = rng.number();
+        u.flags = input.iter().take(26).map(|&b| (b'A' + b % 26) as char).collect();
+        u
+    }
+
+    /// Every MCI code for callers with odd values, and the helpers on
+    /// boundary numbers.
+    #[test]
+    #[ignore]
+    fn fuzz_mci() {
+        let mut s = Session::for_test(crate::tests::state(), User::default());
+        let s = std::cell::RefCell::new(&mut s);
+        Target::new("mci", &[b"Mike Fricker", b"\xdb\xb2|CS%UN\x1b[2J", b""]).max_len(1024).run(|input, rng| {
+            let mut s = s.borrow_mut();
+            s.user = user(rng, input);
+            s.input_string = String::from_utf8_lossy(input).into_owned();
+            for _ in 0..16 {
+                let code = [*rng.pick(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ@0123456789"), *rng.pick(b"ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")];
+                let _ = s.mci_value(code);
+            }
+            let (a, b) = (rng.number() as usize, rng.number() as usize);
+            let _ = (ordinal(a), rank_bar(a, b), ratio(a as u32, b as u32), initials(&s.user.handle));
+            if let (Some(d), Some(t)) = (date(rng), date(rng)) {
+                let _ = ago(Some(d), t);
+            }
+            let _ = blurb(&s.user.autosig);
+        });
     }
 }
