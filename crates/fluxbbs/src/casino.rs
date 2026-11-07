@@ -29,7 +29,7 @@ pub const STATUS_ROW: u16 = 24;
 pub use crate::pixels::{H, Ink, Stage, W, ink, painted, shade};
 
 /// The caller's chips today, and what winnings have paid so far.
-#[derive(Clone, Copy, Default)]
+#[derive(Clone, Copy, Default, Debug, PartialEq)]
 pub struct Purse {
     pub chips: u32,
     pub paid: Prize,
@@ -38,6 +38,9 @@ pub struct Purse {
     /// Comps had today: 1 the buffet, 2 the suite, 4 the show.
     pub comps: u8,
     pub drinks: u32,
+    /// The day it's for (None: today). A table played past midnight
+    /// keeps the day it began on, so the next day still starts fresh.
+    pub day: Option<chrono::NaiveDate>,
 }
 
 impl Purse {
@@ -51,6 +54,20 @@ impl Purse {
     pub fn unstake(&mut self, n: u32) {
         self.chips += n;
         self.played = self.played.saturating_sub(n);
+    }
+
+    /// As stored: "day chips minutes points played comps drinks".
+    fn parse(v: &str) -> Option<Purse> {
+        let mut w = v.split_whitespace();
+        let day = w.next()?.parse().ok()?;
+        let mut n = || w.next().and_then(|x| x.parse::<u32>().ok()).unwrap_or(0);
+        let (chips, minutes, points, played, comps, drinks) = (n(), n(), n(), n(), n(), n());
+        Some(Purse { chips, paid: Prize { minutes, points }, played, comps: comps as u8, drinks, day: Some(day) })
+    }
+
+    fn encode(&self) -> String {
+        let day = self.day.unwrap_or_else(|| crate::clock::now().date_naive());
+        format!("{day} {} {} {} {} {} {}", self.chips, self.paid.minutes, self.paid.points, self.played, self.comps, self.drinks)
     }
 }
 
@@ -68,52 +85,78 @@ impl Session {
     /// Today's purse: a fresh stack the first time each day (winnings
     /// left on the table yesterday are paid then).
     pub(crate) fn purse(&mut self, cfg: &Casino) -> Purse {
-        let today = crate::clock::now().date_naive().to_string();
-        let v = self.state.sys.script_get("casino", &self.purse_key()).ok().flatten().unwrap_or_default();
-        let mut w = v.split_whitespace();
-        let day = w.next().unwrap_or("").to_string();
-        let mut n = || w.next().and_then(|x| x.parse::<u32>().ok()).unwrap_or(0);
-        let (chips, minutes, points, played, comps, drinks) = (n(), n(), n(), n(), n(), n());
-        if day == today {
-            return Purse { chips, paid: Prize { minutes, points }, played, comps: comps as u8, drinks };
+        let today = crate::clock::now().date_naive();
+        let fresh = Purse { chips: cfg.daily_chips, day: Some(today), ..Default::default() };
+        // Read and turned over in one step, so yesterday's are paid once.
+        let r = self.state.sys.script_update("casino", &self.purse_key(), |v| match v.as_deref().and_then(Purse::parse) {
+            Some(p) if p.day == Some(today) => (p, 0),
+            old => {
+                *v = Some(fresh.encode());
+                (fresh, old.map_or(0, |o| o.chips.saturating_sub(cfg.daily_chips)))
+            }
+        });
+        let (p, left) = r.unwrap_or_else(|e| {
+            tracing::error!("casino: reading {}'s chips: {e}", self.user.handle);
+            (fresh, 0)
+        });
+        if left > 0 {
+            self.casino_pay(winnings(cfg, left), left);
         }
-        if !day.is_empty() && chips > cfg.daily_chips {
-            let p = winnings(cfg, chips - cfg.daily_chips);
-            self.casino_pay(p, chips - cfg.daily_chips);
-        }
-        let p = Purse { chips: cfg.daily_chips, ..Default::default() };
-        self.purse_save(&p);
         p
     }
 
+    /// The purse as a table has it, stored under the day it's for.
     pub(crate) fn purse_save(&self, p: &Purse) {
-        let today = crate::clock::now().date_naive();
-        let v = format!("{today} {} {} {} {} {} {}", p.chips, p.paid.minutes, p.paid.points, p.played, p.comps, p.drinks);
-        if let Err(e) = self.state.sys.script_set("casino", &self.purse_key(), Some(&v)) {
+        if let Err(e) = self.state.sys.script_set("casino", &self.purse_key(), Some(&p.encode())) {
             tracing::error!("casino: saving {}'s chips: {e}", self.user.handle);
         }
     }
 
+    /// New: change the purse as stored, read and written in one step, so
+    /// a stale copy can't pay twice. The purse after, and what `f` said;
+    /// None if there's none stored.
+    pub(crate) fn purse_change<R>(&self, f: impl FnOnce(&mut Purse) -> R) -> Option<(Purse, R)> {
+        let r = self.state.sys.script_update("casino", &self.purse_key(), |v| {
+            let mut p = v.as_deref().and_then(Purse::parse)?;
+            let r = f(&mut p);
+            *v = Some(p.encode());
+            Some((p, r))
+        });
+        r.unwrap_or_else(|e| {
+            tracing::error!("casino: changing {}'s chips: {e}", self.user.handle);
+            None
+        })
+    }
+
     /// Leaving a table up: what's over the day's stack is paid, and the
-    /// stack goes back to that. Returns what was paid.
-    pub(crate) fn cash_out(&mut self, cfg: &Casino, p: &mut Purse) -> Option<Prize> {
-        let up = p.chips.checked_sub(cfg.daily_chips).filter(|&n| n > 0)?;
+    /// stack goes back to that. Returns the chips cashed and what they
+    /// paid. What's cashed is the purse as stored, which `p` becomes.
+    pub(crate) fn cash_out(&mut self, cfg: &Casino, p: &mut Purse) -> Option<(u32, Prize)> {
+        let (now, up) = self.purse_change(|s| {
+            let up = s.chips.saturating_sub(cfg.daily_chips);
+            if up > 0 {
+                let prize = winnings(cfg, up);
+                s.chips = cfg.daily_chips;
+                s.paid.minutes += prize.minutes;
+                s.paid.points += prize.points;
+            }
+            up
+        })?;
+        *p = now;
+        if up == 0 {
+            return None;
+        }
         let prize = winnings(cfg, up);
-        p.chips = cfg.daily_chips;
-        p.paid.minutes += prize.minutes;
-        p.paid.points += prize.points;
-        self.purse_save(p);
         self.casino_pay(prize, up);
         tracing::info!("{}: casino: cashed out {up} chips (+{} min, +{} points)", self.user.handle, prize.minutes, prize.points);
-        Some(prize)
+        Some((up, prize))
     }
 
     /// The cashier (the players club's `c`): what's over the day's stack
     /// paid in file points and minutes. Returns what to say.
     pub(crate) fn cashier(&mut self, cfg: &Casino, p: &mut Purse) -> String {
-        let up = p.chips.saturating_sub(cfg.daily_chips);
         let s = match self.cash_out(cfg, p) {
-            Some(prize) => self.strings().fmt("ClubCashed", &[&up.to_string(), &self.winnings_text(prize)]),
+            Some((up, prize)) => self.strings().fmt("ClubCashed", &[&up.to_string(), &self.winnings_text(prize)]),
             None => self.strings().fmt("ClubNothingToCash", &[&cfg.daily_chips.to_string()]),
         };
         crate::editor::strip_colours(&fluxbbs_term::codes::unlit(&s))
@@ -121,10 +164,9 @@ impl Session {
 
     /// Play outside the tables (a slot pull) counted toward comps.
     pub(crate) fn casino_played(&mut self, chips: u32) {
-        let cfg = self.state.config().casino.clone();
-        let mut p = self.purse(&cfg);
-        p.played += chips;
-        self.purse_save(&p);
+        let cfg = self.state.config().casino.tables();
+        self.purse(&cfg);
+        self.purse_change(|p| p.played += chips);
     }
 
     /// Winnings paid for `chips` cashed. New: the points go in the ledger
@@ -465,7 +507,7 @@ impl Session {
     /// `AC`: the casino. `AC slots`, `AC poker`, `AC blackjack`, `AC
     /// roulette`, `AC craps`, `AC bar` or `AC club` goes straight there.
     pub async fn casino(&mut self, param: &str) -> io::Result<()> {
-        let cfg = self.state.config().casino.clone();
+        let cfg = self.state.config().casino.tables();
         let p = param.trim().to_ascii_lowercase();
         if let Some(i) = GAMES.iter().position(|g| g.1 == p || (p == "club" && g.0 == 'P') || (p == "poker" && g.0 == 'V')) {
             self.casino_game(&cfg, i).await?;
@@ -651,11 +693,83 @@ mod tests {
         let mut s = Session::for_test(state, u);
         let cfg = Casino::default();
         let mut p = Purse { chips: cfg.daily_chips + 50, ..Default::default() };
-        let prize = s.cash_out(&cfg, &mut p).unwrap();
+        s.purse_save(&p);
+        let (up, prize) = s.cash_out(&cfg, &mut p).unwrap();
+        assert_eq!(up, 50);
         assert!(prize.points > 0);
         assert_eq!(s.user.file_points, prize.points);
         let got = s.state.sys.points_recent(s.user.id, 5).unwrap();
         assert_eq!(got.iter().map(|e| (e.kind.as_str(), e.amount, e.note.as_str())).collect::<Vec<_>>(), [("casino", prize.points, "50")]);
         assert_eq!(fluxbbs_term::codes::unlit(&s.ledger_what(&got[0])), "cashed 50 chips at the casino");
+    }
+
+    fn player() -> Session {
+        let state = crate::tests::state();
+        let mut u = crate::user::User { handle: "phrac".into(), ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        Session::for_test(state, u)
+    }
+
+    #[test]
+    fn a_stale_purse_cant_cash_out_twice() {
+        let mut s = player();
+        let cfg = Casino::default();
+        let mut p = s.purse(&cfg);
+        p.chips += 50;
+        s.purse_save(&p);
+        let mut stale = p;
+        assert!(s.cash_out(&cfg, &mut p).is_some());
+        assert!(s.cash_out(&cfg, &mut stale).is_none(), "the stored purse is what's cashed");
+        assert_eq!(stale.chips, cfg.daily_chips);
+        let points = s.user.file_points;
+        assert!(points > 0);
+        assert!(s.cash_out(&cfg, &mut p).is_none());
+        assert_eq!(s.user.file_points, points);
+    }
+
+    #[test]
+    fn a_table_past_midnight_leaves_the_new_day_fresh() {
+        let mut s = player();
+        let cfg = Casino::default();
+        let yesterday = crate::clock::now().date_naive().pred_opt().unwrap();
+        // Played from yesterday into today: saved under the day it began.
+        let p = Purse { chips: cfg.daily_chips + 20, played: 500, comps: 7, drinks: 3, day: Some(yesterday), ..Default::default() };
+        s.purse_save(&p);
+        let today = s.purse(&cfg);
+        assert_eq!((today.chips, today.played, today.comps, today.drinks), (cfg.daily_chips, 0, 0, 0));
+        assert_eq!(today.day, Some(crate::clock::now().date_naive()));
+        let paid = s.user.file_points;
+        assert_eq!(paid, winnings(&cfg, 20).points, "yesterday's winnings paid");
+        // Once.
+        s.purse(&cfg);
+        assert_eq!(s.user.file_points, paid);
+    }
+
+    #[test]
+    fn comps_are_claimed_once_from_the_stored_purse() {
+        let mut s = player();
+        let cfg = Casino::default();
+        let mut p = s.purse(&cfg);
+        p.played = cfg.comp_suite;
+        s.purse_save(&p);
+        let mut stale = p;
+        let (_, had) = s.comp_claim(&cfg, &mut p, 1);
+        assert!(had);
+        assert_eq!(p.chips, cfg.daily_chips + cfg.suite_chips);
+        let (_, again) = s.comp_claim(&cfg, &mut stale, 1);
+        assert!(!again, "a stale copy can't claim it again");
+        assert_eq!(stale.chips, cfg.daily_chips + cfg.suite_chips);
+        let (_, show) = s.comp_claim(&cfg, &mut p, 2);
+        assert!(!show, "not played enough for the show");
+    }
+
+    #[test]
+    fn bets_are_kept_sane() {
+        let mut c = Casino { min_bet: 0, max_bet: 0, ..Casino::default() };
+        c.normalize();
+        assert_eq!((c.min_bet, c.max_bet), (1, 1));
+        let c = Casino { min_bet: 50, max_bet: 10, ..Casino::default() }.tables();
+        assert_eq!((c.min_bet, c.max_bet), (50, 50));
+        assert_eq!(crate::craps::next_unit(1, &c, true), 50);
     }
 }

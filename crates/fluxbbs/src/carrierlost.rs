@@ -96,12 +96,45 @@ impl CarrierStore {
         Ok(p.unwrap_or_default())
     }
 
+    /// Save the player at the end of a run. The day's dials and a bust
+    /// are stored as they happen (`take_dial`, `bust`), so a player
+    /// already stored keeps those, and the better best.
     pub fn save_player(&self, user: u32, handle: &str, p: &Player) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT INTO clw_player (user, handle, gear, best, runs, day, dials, busted) VALUES (?1,?2,?3,?4,?5,?6,?7,?8)
-             ON CONFLICT(user) DO UPDATE SET handle=?2, gear=?3, best=?4, runs=?5, day=?6, dials=?7, busted=?8",
+             ON CONFLICT(user) DO UPDATE SET handle=?2, gear=?3, best=MAX(best, ?4), runs=?5",
             params![user, handle, p.gear, p.best, p.runs, p.day, p.dials, p.busted],
+        )?;
+        Ok(())
+    }
+
+    /// New: a dial off `day`'s (at most `limit`, 0 for no limit), counted
+    /// as stored in one step. The day's dials after, or None if none
+    /// were left.
+    pub fn take_dial(&self, user: u32, handle: &str, day: &str, limit: u32) -> anyhow::Result<Option<u32>> {
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let had: Option<(String, u32)> = tx.query_row("SELECT day, dials FROM clw_player WHERE user = ?1", params![user], |r| Ok((r.get(0)?, r.get(1)?))).optional()?;
+        let dials = had.filter(|h| h.0 == day).map_or(0, |h| h.1);
+        if limit > 0 && dials >= limit {
+            return Ok(None);
+        }
+        tx.execute(
+            "INSERT INTO clw_player (user, handle, day, dials) VALUES (?1,?2,?3,?4)
+             ON CONFLICT(user) DO UPDATE SET day=?3, dials=?4",
+            params![user, handle, day, dials + 1],
+        )?;
+        tx.commit()?;
+        Ok(Some(dials + 1))
+    }
+
+    /// New: busted for `day`, stored at once.
+    pub fn bust(&self, user: u32, handle: &str, day: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.execute(
+            "INSERT INTO clw_player (user, handle, busted) VALUES (?1,?2,?3) ON CONFLICT(user) DO UPDATE SET busted=?3",
+            params![user, handle, day],
         )?;
         Ok(())
     }
@@ -272,6 +305,31 @@ impl Session {
         r
     }
 
+    /// A dial off the day's, as stored; false if none are left.
+    fn cl_take_dial(&self, cfg: &Cfg, p: &mut Player) -> bool {
+        match self.state.carrier.take_dial(self.user.id, &self.user.handle, &p.day, cfg.dials_per_day) {
+            Ok(Some(n)) => {
+                p.dials = n;
+                true
+            }
+            Ok(None) => {
+                p.dials = p.dials.max(cfg.dials_per_day);
+                false
+            }
+            Err(e) => {
+                tracing::error!("carrier: counting {}'s dial: {e}", self.user.handle);
+                false
+            }
+        }
+    }
+
+    fn cl_bust(&self, p: &mut Player, today: &str) {
+        p.busted = today.to_string();
+        if let Err(e) = self.state.carrier.bust(self.user.id, &self.user.handle, today) {
+            tracing::error!("carrier: busting {}: {e}", self.user.handle);
+        }
+    }
+
     fn cl_save(&self, p: &Player) {
         if let Err(e) = self.state.carrier.save_player(self.user.id, &self.user.handle, p) {
             tracing::error!("carrier: saving {}: {e}", self.user.handle);
@@ -385,11 +443,10 @@ impl Session {
 
     /// Dial where the needle sits. Returns true if the caller got busted.
     async fn cl_dial(&mut self, cfg: &Cfg, p: &mut Player, st: &mut Stage, run: &mut Run) -> io::Result<bool> {
-        if cfg.dials_per_day > 0 && p.dials >= cfg.dials_per_day {
+        if !self.cl_take_dial(cfg, p) {
             self.cl_say(st, "ClNoDials", &[], WARN);
             return Ok(false);
         }
-        p.dials += 1;
         // Judge against the needle on the frame the caller last saw.
         let needle = run.shown_needle;
         // The nearest carrier the needle's close to.
@@ -487,7 +544,7 @@ impl Session {
     }
 
     async fn cl_busted(&mut self, st: &mut Stage, p: &mut Player, run: &mut Run, today: &str) -> io::Result<()> {
-        p.busted = today.to_string();
+        self.cl_bust(p, today);
         p.runs += 1;
         run.haul = 0;
         let begun = Instant::now();
@@ -691,11 +748,10 @@ impl Session {
                     }
                 }
                 Some('d') => {
-                    if cfg.dials_per_day > 0 && p.dials >= cfg.dials_per_day {
+                    if !self.cl_take_dial(cfg, p) {
                         self.show_line(self.strings().get("ClNoDials")).await?;
                         continue;
                     }
-                    p.dials += 1;
                     // Roll it all before any await: ThreadRng isn't Send.
                     let roll = {
                         let mut rng = rand::rng();
@@ -719,7 +775,7 @@ impl Session {
                             trace = (trace + (6 + (3 - hits) * 6).saturating_sub((p.gear * 2).min(8)).max(2)).min(100);
                             self.show_line(&self.strings().fmt("ClHaul", &[&hits.to_string(), &bytes.to_string(), kind_name(kind)])).await?;
                             if trace >= 100 {
-                                p.busted = today.to_string();
+                                self.cl_bust(p, today);
                                 p.runs += 1;
                                 self.show_line(self.strings().get("ClBusted")).await?;
                                 return Ok(());
@@ -818,5 +874,22 @@ mod tests {
         let got = s.player(7).unwrap();
         assert_eq!((got.gear, got.best, got.dials), (2, 450, 12));
         assert_eq!(s.player(99).unwrap().best, 0, "an unknown player is fresh");
+    }
+
+    #[test]
+    fn dials_and_busts_count_as_stored() {
+        let s = CarrierStore::open_memory().unwrap();
+        assert_eq!(s.take_dial(7, "push", "2026-10-26", 2).unwrap(), Some(1));
+        assert_eq!(s.take_dial(7, "push", "2026-10-26", 2).unwrap(), Some(2));
+        assert_eq!(s.take_dial(7, "push", "2026-10-26", 2).unwrap(), None, "two a day");
+        // A stale copy saved at the end of a run doesn't give them back.
+        let stale = Player { gear: 1, best: 10, runs: 1, day: "2026-10-26".into(), dials: 0, busted: String::new() };
+        s.save_player(7, "push", &stale).unwrap();
+        assert_eq!(s.take_dial(7, "push", "2026-10-26", 2).unwrap(), None);
+        assert_eq!(s.take_dial(7, "push", "2026-10-27", 2).unwrap(), Some(1), "a new day");
+        s.bust(7, "push", "2026-10-27").unwrap();
+        s.save_player(7, "push", &Player { best: 5, ..stale }).unwrap();
+        let got = s.player(7).unwrap();
+        assert_eq!((got.busted.as_str(), got.best, got.gear), ("2026-10-27", 10, 1));
     }
 }

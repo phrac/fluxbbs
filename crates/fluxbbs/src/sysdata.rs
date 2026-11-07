@@ -672,6 +672,33 @@ impl SysData {
         Ok(())
     }
 
+    /// New: change a script's value in one step, read and written under
+    /// the lock and in one transaction, so two changes at once can't
+    /// lose one. `f` gets the value as stored and leaves what to store
+    /// (`None` removes it); what it returns comes back. `f` mustn't call
+    /// back in here.
+    pub fn script_update<R>(&self, script: &str, key: &str, f: impl FnOnce(&mut Option<String>) -> R) -> anyhow::Result<R> {
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut v: Option<String> =
+            tx.query_row("SELECT value FROM script_data WHERE script = ?1 AND key = ?2", params![script, key], |r| r.get(0)).optional()?;
+        let r = f(&mut v);
+        match v {
+            Some(v) => tx.execute("INSERT OR REPLACE INTO script_data (script, key, value) VALUES (?1, ?2, ?3)", params![script, key, v])?,
+            None => tx.execute("DELETE FROM script_data WHERE script = ?1 AND key = ?2", params![script, key])?,
+        };
+        tx.commit()?;
+        Ok(r)
+    }
+
+    /// Keys a script has stored that start with `prefix`, with their values.
+    pub fn script_prefixed(&self, script: &str, prefix: &str) -> anyhow::Result<Vec<(String, String)>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT key, value FROM script_data WHERE script = ?1 AND substr(key, 1, length(?2)) = ?2 ORDER BY key")?;
+        let rows = stmt.query_map(params![script, prefix], |r| Ok((r.get(0)?, r.get(1)?)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     // ---- door plays (new) ---------------------------------------------------
 
     pub fn add_play(&self, user: u32, p: &Play) -> anyhow::Result<()> {
@@ -1010,8 +1037,34 @@ impl SysData {
             return Ok(false);
         }
         points_insert(&tx, e)?;
+        // New: the pot owed, in the same step, till it's paid
+        // (`lottery_paid`), so a failed payment is tried again.
+        if e.to_id != 0 && e.amount > 0 {
+            tx.execute(
+                "INSERT OR REPLACE INTO script_data (script, key, value) VALUES ('lottery', ?1, ?2)",
+                params![format!("unpaid:{}", e.on), format!("{} {}", e.to_id, e.amount)],
+            )?;
+        }
         tx.commit()?;
         Ok(true)
+    }
+
+    /// Draws whose pots haven't been paid yet: (day, winner, pot).
+    pub fn lottery_unpaid(&self) -> anyhow::Result<Vec<(String, u32, u32)>> {
+        Ok(self
+            .script_prefixed("lottery", "unpaid:")?
+            .into_iter()
+            .filter_map(|(k, v)| {
+                let day = k.strip_prefix("unpaid:")?.to_string();
+                let (to, pot) = v.split_once(' ')?;
+                Some((day, to.parse().ok()?, pot.parse().ok()?))
+            })
+            .collect())
+    }
+
+    /// A draw's pot has been paid.
+    pub fn lottery_paid(&self, day: &str) -> anyhow::Result<()> {
+        self.script_set("lottery", &format!("unpaid:{day}"), None)
     }
 
     /// The last draw.
@@ -1274,8 +1327,33 @@ mod tests {
         assert!(!sd.lottery_record(&e("lottery", 0, 1, 90, "2026-10-26", "4")).unwrap());
         assert!(sd.lottery_undrawn("2026-10-28").unwrap() == vec!["2026-10-27".to_string()]);
         assert_eq!(sd.lottery_last().unwrap().unwrap().to_id, 2);
+        // The pot is owed till it's paid, once.
+        assert_eq!(sd.lottery_unpaid().unwrap(), vec![("2026-10-26".to_string(), 2, 90)]);
+        sd.lottery_paid("2026-10-26").unwrap();
+        assert!(sd.lottery_unpaid().unwrap().is_empty());
         // A caller's ledger: what they got, and what they spent.
         let mine: Vec<String> = sd.points_recent(2, 10).unwrap().iter().map(|e| e.kind.clone()).collect();
         assert_eq!(mine, ["lottery", "ticket", "ticket"]);
+    }
+
+    #[test]
+    fn script_update_reads_and_writes_in_one_step() {
+        let sd = SysData::open_memory().unwrap();
+        let add = |n: u32| {
+            sd.script_update("t", "k", |v| {
+                let now = v.as_deref().and_then(|s| s.parse::<u32>().ok()).unwrap_or(0) + n;
+                *v = Some(now.to_string());
+                now
+            })
+            .unwrap()
+        };
+        assert_eq!(add(2), 2);
+        assert_eq!(add(3), 5);
+        assert_eq!(sd.script_get("t", "k").unwrap().as_deref(), Some("5"));
+        sd.script_update("t", "k", |v| *v = None).unwrap();
+        assert_eq!(sd.script_get("t", "k").unwrap(), None);
+        sd.script_set("t", "a:1", Some("x")).unwrap();
+        sd.script_set("t", "b:1", Some("y")).unwrap();
+        assert_eq!(sd.script_prefixed("t", "a:").unwrap(), vec![("a:1".to_string(), "x".to_string())]);
     }
 }

@@ -442,6 +442,21 @@ impl UserStore {
         write(&db, u)
     }
 
+    /// New: change the record as stored, read and written in one go; `f`
+    /// may refuse (nothing's written then). The record after, or None if
+    /// there's no such user.
+    pub fn update<E>(&self, id: u32, f: impl FnOnce(&mut User) -> Result<(), E>) -> anyhow::Result<Option<Result<User, E>>> {
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let Some(mut u) = tx.query_row("SELECT * FROM users WHERE id = ?1", [id], from_row).optional()? else { return Ok(None) };
+        if let Err(e) = f(&mut u) {
+            return Ok(Some(Err(e)));
+        }
+        write(&tx, &u)?;
+        tx.commit()?;
+        Ok(Some(Ok(u)))
+    }
+
     /// New: put into the record as it is now what changed from `base` to
     /// `mine` (`User::merge_edit`), reading and writing it in one go, so
     /// two sessions (or `fluxbbs` beside the board) can't lose each

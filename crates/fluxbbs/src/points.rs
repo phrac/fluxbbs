@@ -169,6 +169,7 @@ pub(crate) struct Tonight {
 /// Draw every past day's lottery that hasn't been (the event scheduler,
 /// each tick: just after midnight, or when the board's back up).
 pub fn draw_due(state: &BbsState) {
+    pay_unpaid(state);
     let days = match state.sys.lottery_undrawn(&day_key(now().date())) {
         Ok(d) => d,
         Err(e) => {
@@ -179,6 +180,16 @@ pub fn draw_due(state: &BbsState) {
     for day in days {
         if let Err(e) = draw(state, &day) {
             tracing::error!("lottery {day}: {e}");
+        }
+    }
+}
+
+/// New: pots drawn but not paid (paying failed): paid now.
+fn pay_unpaid(state: &BbsState) {
+    for (day, to, pot) in state.sys.lottery_unpaid().unwrap_or_default() {
+        match credit(state, to, pot).and_then(|()| state.sys.lottery_paid(&day)) {
+            Ok(()) => tracing::info!("lottery {day}: paid {pot} points owed to user {to}"),
+            Err(e) => tracing::error!("lottery {day}: paying user {to}: {e}"),
         }
     }
 }
@@ -203,7 +214,10 @@ fn draw(state: &BbsState, day: &str) -> anyhow::Result<()> {
     if !state.sys.lottery_record(&e)? || to == 0 {
         return Ok(());
     }
+    // The draw stands with the pot owed (`lottery_record`); paid now, or
+    // on a later tick if that fails.
     credit(state, to, pot)?;
+    state.sys.lottery_paid(day)?;
     tracing::info!("lottery {day}: {handle} won {pot} points with ticket {} of {total}", won.unwrap_or(0));
     let s = state.strings().fmt("LotteryWonNote", &[&pot.to_string(), &won.unwrap_or(0).to_string()]);
     tell(state, handle, 0, "the lottery", &s);
@@ -465,9 +479,14 @@ impl Session {
     // ---- the lottery, for a caller ------------------------------------------------
 
     pub(crate) fn tonight(&mut self) -> Tonight {
+        let day = day_key(now().date());
+        self.tonight_on(&day)
+    }
+
+    fn tonight_on(&mut self, day: &str) -> Tonight {
         self.sync_points();
         let cfg = self.state.config().points.clone();
-        let day = day_key(now().date());
+        let day = day.to_string();
         let sold: u32 = self.state.sys.lottery_entries(&day).unwrap_or_default().iter().map(|e| e.2).sum();
         let mine = ticket_numbers(&self.state, &day, self.user.id);
         let pot = self.state.sys.lottery_pot(&day).unwrap_or(0) + if sold > 0 { cfg.house } else { 0 };
@@ -475,14 +494,17 @@ impl Session {
         Tonight { pot, sold, mine, room, price: cfg.ticket }
     }
 
-    /// Buy `n` tickets in tonight's draw, or say why not.
-    pub(crate) fn buy_tickets_now(&mut self, n: u32) -> io::Result<Result<(), String>> {
+    /// Buy `n` tickets in tonight's draw, or say why not; the numbers
+    /// of the tickets bought.
+    pub(crate) fn buy_tickets_now(&mut self, n: u32) -> io::Result<Result<Vec<u32>, String>> {
         let cfg = self.state.config().points.clone();
         let s = self.strings();
         if cfg.ticket == 0 {
             return Ok(Err(s.get("LotteryOff").to_string()));
         }
-        let t = self.tonight();
+        // One day throughout, though midnight comes meanwhile.
+        let day = day_key(now().date());
+        let t = self.tonight_on(&day);
         if cap(cfg.tickets_daily) <= t.mine.len() as u32 {
             return Ok(Err(s.get("LotteryLimit").to_string()));
         }
@@ -492,10 +514,12 @@ impl Session {
         }
         self.user.file_points -= cost;
         self.save_own_user().map_err(io::Error::other)?;
-        let e = entry("ticket", (self.user.id, &self.user.handle), (0, ""), cost, &day_key(now().date()), &n.to_string());
+        let e = entry("ticket", (self.user.id, &self.user.handle), (0, ""), cost, &day, &n.to_string());
         self.state.sys.add_points(&e).map_err(io::Error::other)?;
         tracing::info!("{}: {n} lottery ticket(s) for {cost} points", self.user.handle);
-        Ok(Ok(()))
+        // This purchase is our newest, so its tickets are our last.
+        let mine = ticket_numbers(&self.state, &day, self.user.id);
+        Ok(Ok(mine[mine.len().saturating_sub(n as usize)..].to_vec()))
     }
 
     fn seen_key(&self) -> String {
@@ -588,7 +612,7 @@ impl Session {
             return Ok(());
         }
         match self.buy_tickets_now(n.min(t.room))? {
-            Ok(()) => {
+            Ok(_) => {
                 let held = self.tonight().mine;
                 let nums: Vec<String> = held.iter().map(|n| format!("#{n}")).collect();
                 let s = self.strings().fmt("LotteryBought", &[&held.len().to_string(), &nums.join(" ")]);
@@ -817,6 +841,30 @@ mod tests {
         let got: Vec<String> = s.state.sys.points_recent(s.user.id, 5).unwrap().iter().map(|e| fluxbbs_term::codes::unlit(&s.ledger_what(e))).collect();
         assert_eq!(got, ["filled request #12 in REQUESTS", "three cherries at the slots"]);
         assert_eq!(s.state.sys.points_got_since(s.user.id, today()).unwrap(), 15);
+    }
+
+    #[test]
+    fn a_purchase_says_its_own_tickets() {
+        let mut s = in_a_door();
+        // Someone else's ticket first.
+        let e = entry("ticket", (99, "una"), (0, ""), 10, &day_key(now().date()), "1");
+        s.state.sys.add_points(&e).unwrap();
+        assert_eq!(s.buy_tickets_now(2).unwrap(), Ok(vec![2, 3]));
+        assert_eq!(s.buy_tickets_now(1).unwrap(), Ok(vec![4]));
+        assert_eq!(s.user.file_points, 70);
+    }
+
+    #[test]
+    fn a_pot_that_failed_to_pay_is_paid_later() {
+        let s = in_a_door();
+        let me = s.user.id;
+        let e = entry("lottery", (0, ""), (me, "phrac"), 90, "2026-10-26", "1/1");
+        assert!(s.state.sys.lottery_record(&e).unwrap());
+        // As if crediting had failed: the pot's still owed.
+        pay_unpaid(&s.state);
+        assert_eq!(stored(&s), 190);
+        pay_unpaid(&s.state);
+        assert_eq!(stored(&s), 190, "paid once");
     }
 
     #[test]

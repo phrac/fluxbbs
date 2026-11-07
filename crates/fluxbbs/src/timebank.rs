@@ -98,7 +98,65 @@ pub fn withdraw(u: &mut User, l: &Level, unit: Unit, amount: u32) -> Result<(), 
     Ok(())
 }
 
+/// Kilobytes still downloadable today.
+fn kb_available(u: &User) -> u64 {
+    u.dl_kb_allowance().saturating_sub(u.today_dl_kb as u64)
+}
+
 impl Session {
+    /// The bank's figures (and today's time) as stored, here and in what
+    /// the session last saved, so they aren't counted twice.
+    fn take_bank(&mut self, now: &User) {
+        let copy = |u: &mut User| {
+            u.bank_time = now.bank_time;
+            u.bank_time_in = now.bank_time_in;
+            u.bank_time_out = now.bank_time_out;
+            u.bank_kb = now.bank_kb;
+            u.bank_kb_in = now.bank_kb_in;
+            u.bank_kb_out = now.bank_kb_out;
+            u.time_today = now.time_today;
+        };
+        copy(&mut self.user);
+        if let Some(b) = self.user_base.borrow_mut().as_mut().filter(|b| b.id == now.id) {
+            copy(b);
+        }
+    }
+
+    /// Make a deposit or withdrawal. New: the record as stored decides
+    /// (this session's changes saved into it first), checked and changed
+    /// in one step, so a stale copy can't take out what's gone. None if
+    /// the database failed.
+    fn bank_commit(&mut self, unit: Unit, put_in: bool, amount: u32) -> Option<Result<(), Refused>> {
+        let level = self.bank_level();
+        let minutes = self.minutes_left() as u64;
+        let deal = |u: &mut User| {
+            let available = match unit {
+                Unit::Minutes => minutes,
+                Unit::Kb => kb_available(u),
+            };
+            if put_in { deposit(u, &level, unit, amount, available) } else { withdraw(u, &level, unit, amount) }
+        };
+        self.save_user();
+        match self.state.users.update(self.user.id, deal) {
+            Ok(Some(Ok(now))) => {
+                self.take_bank(&now);
+                Some(Ok(()))
+            }
+            Ok(Some(Err(r))) => Some(Err(r)),
+            Ok(None) => {
+                let r = deal(&mut self.user);
+                if r.is_ok() {
+                    self.save_user();
+                }
+                Some(r)
+            }
+            Err(e) => {
+                tracing::error!("time bank: {}: {e}", self.user.handle);
+                None
+            }
+        }
+    }
+
     fn bank_level(&self) -> Level {
         self.state.level(self.user.level).unwrap_or_default()
     }
@@ -132,19 +190,9 @@ impl Session {
         if put_in && unit == Unit::Minutes && self.time_unlimited() {
             return self.say_line("BankUnlimited").await;
         }
-        let level = self.bank_level();
-        let available = match unit {
-            Unit::Minutes => self.minutes_left() as u64,
-            Unit::Kb => self.user.dl_kb_allowance().saturating_sub(self.user.today_dl_kb as u64),
-        };
-        let result = if put_in {
-            deposit(&mut self.user, &level, unit, amount, available)
-        } else {
-            withdraw(&mut self.user, &level, unit, amount)
-        };
+        let Some(result) = self.bank_commit(unit, put_in, amount) else { return Ok(()) };
         match result {
             Ok(()) => {
-                self.save_user();
                 let what = if unit == Unit::Minutes { "min" } else { "kb" };
                 tracing::info!(
                     "{}: time bank {} {amount} {what} (bank now {}m/{}k)",
@@ -205,6 +253,27 @@ mod tests {
         s.user.sl = 49;
         assert!(!s.time_unlimited());
         assert_eq!(s.minutes_left(), 3);
+    }
+
+    #[test]
+    fn a_stale_copy_cant_withdraw_twice() {
+        let state = crate::tests::state();
+        // No such level: the default one's limits (30 a day out).
+        let mut u = User { handle: "phrac".into(), level: '~', bank_time: 20, time_today: 10, ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        let mut a = Session::for_test(state.clone(), u.clone());
+        let mut b = Session::for_test(state.clone(), u);
+        assert_eq!(a.bank_commit(Unit::Minutes, false, 15), Some(Ok(())));
+        assert_eq!((a.user.bank_time, a.user.time_today), (5, 25));
+        // The other copy still thinks there are 20.
+        assert_eq!(b.bank_commit(Unit::Minutes, false, 15).unwrap().unwrap_err().string, "s310");
+        assert_eq!(b.user.bank_time, 20, "refused: nothing taken");
+        let stored = state.users.get(a.user.id).unwrap().unwrap();
+        assert_eq!((stored.bank_time, stored.bank_time_out, stored.time_today), (5, 15, 25));
+        // What `a` saves later doesn't count it twice.
+        a.save_user();
+        let stored = state.users.get(a.user.id).unwrap().unwrap();
+        assert_eq!((stored.bank_time, stored.time_today), (5, 25));
     }
 
     fn level() -> Level {

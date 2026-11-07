@@ -606,6 +606,22 @@ impl Default for Casino {
     }
 }
 
+impl Casino {
+    /// New: bets kept sane (a minimum of at least 1, a maximum no
+    /// smaller), whatever the file says.
+    pub fn normalize(&mut self) {
+        self.min_bet = self.min_bet.max(1);
+        self.max_bet = self.max_bet.max(self.min_bet);
+    }
+
+    /// The settings to play by: [`Self::normalize`]d.
+    pub fn tables(&self) -> Casino {
+        let mut c = self.clone();
+        c.normalize();
+        c
+    }
+}
+
 /// File points around the board (new, `points.rs`): upvotes pay the
 /// author, doors pay by the minute, callers tip each other, and a lottery
 /// is drawn each night. All of it needs `[files] use_file_points`; a 0
@@ -1958,6 +1974,7 @@ impl Config {
         if cfg.levels.is_empty() {
             cfg.levels = default_levels();
         }
+        cfg.casino.normalize();
         cfg.root = path.parent().map(Path::to_path_buf).unwrap_or_default();
         // Every command keeps board time from here on.
         crate::clock::set_board(&cfg.bbs.time_zone);

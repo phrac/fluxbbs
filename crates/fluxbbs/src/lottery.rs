@@ -409,16 +409,20 @@ impl Session {
                 Key::Char(c @ b'1'..=b'9') => qty = ((c - b'0') as u32).min(most),
                 Key::Enter | Key::Char(b' ') => {
                     match self.buy_tickets_now(qty)? {
-                        Ok(()) => {
-                            let had = t.mine.len();
+                        Ok(bought) => {
+                            let day_before = t.mine.clone();
                             t = self.tonight();
                             sc.pot = t.pot;
                             sc.sold = t.sold;
                             sc.churn = 2.0;
-                            for &n in &t.mine[had..] {
+                            // Bought across midnight: the stubs start over.
+                            if !t.mine.starts_with(&day_before) {
+                                sc.tickets.clear();
+                            }
+                            for &n in &bought {
                                 sc.tickets.push((n, now));
                             }
-                            let nums: Vec<String> = t.mine[had..].iter().map(|n| format!("#{n}")).collect();
+                            let nums: Vec<String> = bought.iter().map(|n| format!("#{n}")).collect();
                             let s = self.strings().fmt("LotteryPrinted", &[&nums.join(" ")]);
                             self.lottery_say(&st, &s, [255, 230, 160]);
                         }

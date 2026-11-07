@@ -746,7 +746,7 @@ impl Session {
                 self.read_key().await?;
                 return Ok(());
             }
-            bet = bet.clamp(cfg.min_bet, cfg.max_bet.min(purse.chips));
+            bet = bet.clamp(cfg.min_bet, cfg.max_bet.min(purse.chips).max(cfg.min_bet));
             tb.piles.retain(|p| p.gone > st.t());
             tb.piles.push(Pile { amount: bet, from: CIRCLE, to: CIRCLE, t0: 0.0, dur: 0.01, gone: f32::MAX });
             let keys = self.strings().get("BjBetKeys").to_string();
@@ -1003,6 +1003,8 @@ impl Session {
                 continue;
             }
             purse.stake(bet);
+            // Stored as soon as it's staked: a hangup mid-hand loses it.
+            self.purse_save(purse);
             shoe.new_round();
             let mut hands = vec![vec![shoe.draw()]];
             let mut dealer = vec![shoe.draw()];
@@ -1035,12 +1037,14 @@ impl Session {
                             "s" => break,
                             "d" if two && purse.chips >= bets[h] => {
                                 purse.stake(bets[h]);
+                                self.purse_save(purse);
                                 bets[h] *= 2;
                                 hands[h].push(shoe.draw());
                                 break;
                             }
                             "p" if two && hands.len() == 1 && hands[h][0].value() == hands[h][1].value() && purse.chips >= bets[h] => {
                                 purse.stake(bets[h]);
+                                self.purse_save(purse);
                                 let c = hands[h].pop().expect("two cards");
                                 hands.push(vec![c]);
                                 bets.push(bets[h]);
