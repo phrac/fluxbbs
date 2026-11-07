@@ -384,7 +384,8 @@ fn parse(v: &Value, units: Units) -> Option<Forecast> {
     // The next 24 hours, from this one.
     let times = v["hourly"]["time"].as_array()?;
     let temps = v["hourly"]["temperature_2m"].as_array()?;
-    let hour = &time[..time.len().min(13)];
+    // `2026-11-07T14`: the first 13 characters (API text: by character).
+    let hour = time.char_indices().nth(13).map_or(time.as_str(), |(i, _)| &time[..i]);
     let from = times.iter().position(|t| t.as_str().is_some_and(|t| t.starts_with(hour))).unwrap_or(0);
     let hours: Vec<f32> = temps.iter().skip(from).take(24).filter_map(f).collect();
     let d = &v["daily"];

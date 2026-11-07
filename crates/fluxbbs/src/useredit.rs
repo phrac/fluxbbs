@@ -143,11 +143,29 @@ const COLOR_ITEMS: [(char, &str, Slot); 11] = [
 /// Unlike the original, this never wraps: lowering level A used to jump
 /// to the highest level.
 pub fn next_level(levels: impl Fn(char) -> bool, cur: char, up: bool) -> Option<char> {
-    let cur = cur as u8;
+    // An imported raw level may be any byte (or past them).
+    let cur = u8::try_from(cur as u32).unwrap_or(u8::MAX);
     if up {
-        (cur + 1..=b'Z').map(char::from).find(|&c| levels(c))
+        (cur.saturating_add(1)..=b'Z').map(char::from).find(|&c| levels(c))
     } else {
         (b'A'..cur).rev().map(char::from).find(|&c| levels(c))
+    }
+}
+
+/// The levels changed from `original` to `edited`, made to `now`: what
+/// was saved meanwhile to the others stays.
+fn rebase_levels(original: &crate::extprog::Levels, edited: &crate::extprog::Levels, now: &mut crate::extprog::Levels) {
+    let keys: std::collections::BTreeSet<&String> = original.0.keys().chain(edited.0.keys()).collect();
+    for k in keys {
+        match (original.0.get(k), edited.0.get(k)) {
+            (o, e) if o == e => {}
+            (_, Some(e)) => {
+                now.0.insert(k.clone(), e.clone());
+            }
+            (_, None) => {
+                now.0.remove(k);
+            }
+        }
     }
 }
 
@@ -213,9 +231,9 @@ impl Session {
                             // The level is saved with them, so declining to
                             // save at the end can't leave users with limits
                             // their level doesn't have.
-                            let mut now = (*self.state.levels()).clone();
-                            now.0.insert(c.to_string(), l.clone());
-                            self.state.set_levels(now).map_err(io_err)?;
+                            self.state.update_levels(|now| {
+                                now.0.insert(c.to_string(), l.clone());
+                            }).map_err(io_err)?;
                             original.0.insert(c.to_string(), l.clone());
                             let n = self.update_level_users(c, &l)?;
                             self.cfg_info(&mut f, &format!("Level saved, {n} user(s) updated."));
@@ -247,7 +265,8 @@ impl Session {
         if levels != original {
             self.show("|U1Save access levels? ").await?;
             if self.yes_no(true).await? {
-                self.state.set_levels(levels).map_err(io_err)?;
+                // Only the levels edited here, onto the table as it is now.
+                self.state.update_levels(|now| rebase_levels(&original, &levels, now)).map_err(io_err)?;
             }
         }
         Ok(())
@@ -655,6 +674,24 @@ mod tests {
         assert_eq!(next_level(defined, 'A', false), None, "the bottom level stays put");
         assert_eq!(next_level(defined, 'E', false), Some('C'));
         assert_eq!(next_level(defined, 'Z', true), None);
+        assert_eq!(next_level(|_| true, '\u{ff}', true), None, "a raw level byte past Z");
+        assert_eq!(next_level(|c| c.is_ascii_uppercase(), '\u{ff}', false), Some('Z'));
+        assert_eq!(next_level(|_| true, '\u{1F600}', true), None);
+    }
+
+    #[test]
+    fn level_edits_go_onto_the_levels_as_they_are_now() {
+        use crate::config::Level;
+        let lv = |d: &str| Level { desc: d.into(), ..Level::default() };
+        let original = crate::extprog::Levels([("A".to_string(), lv("a")), ("B".to_string(), lv("b"))].into());
+        let mut edited = original.clone();
+        edited.0.insert("A".into(), lv("edited"));
+        edited.0.remove("B");
+        let mut now = original.clone();
+        now.0.insert("C".into(), lv("saved meanwhile"));
+        rebase_levels(&original, &edited, &mut now);
+        let descs: Vec<(&str, &str)> = now.0.iter().map(|(k, l)| (k.as_str(), l.desc.as_str())).collect();
+        assert_eq!(descs, [("A", "edited"), ("C", "saved meanwhile")]);
     }
 
     #[test]

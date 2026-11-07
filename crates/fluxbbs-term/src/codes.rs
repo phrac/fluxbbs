@@ -247,6 +247,8 @@ pub fn lit(s: &str) -> String {
 /// Text a caller typed, made safe to keep in a screen file (the stock
 /// oneliners append to ONELNMID): colour codes stay, and every other code
 /// is wrapped in `|ZA`...`|ZB`, so it shows as typed and does nothing.
+/// So are `%!` and `%%`, which at the start of a prompt string would run a
+/// script or show a file.
 pub fn defuse(s: &str) -> String {
     // Without `lit`'s marks first: `encode` drops them, and a code split
     // by one would come back together.
@@ -256,22 +258,23 @@ pub fn defuse(s: &str) -> String {
     while i < c.len() {
         let (a, b) = (c.get(i + 1).copied(), c.get(i + 2).copied());
         let two = |x: Option<char>| x.is_some_and(|x| x.is_ascii_digit());
-        let code = match (c[i], a, b) {
+        let len = if c[i] == '%' && matches!(a, Some('!' | '%')) { if b.is_some() { 3 } else { 2 } } else { 3 };
+        let code = len == 2 || match (c[i], a, b) {
             ('|', Some(a), Some(b)) if a.is_ascii() && b.is_ascii() => {
                 let pair = [a as u8, b as u8];
                 let zb = pair.eq_ignore_ascii_case(b"ZB");
                 !zb && (Control::parse(pair).is_some_and(|k| !k.is_colour()) || pair == *b"**" || pair.eq_ignore_ascii_case(b"ZA"))
             }
-            ('%', Some(a), Some(_)) => a.is_ascii_alphanumeric() || a == '@',
+            ('%', Some(a), Some(_)) => a.is_ascii_alphanumeric() || a == '@' || a == '!' || a == '%',
             ('@' | '&' | '{' | '}' | '^', _, _) => two(a) && two(b),
             ('~', Some(a), Some(_)) => a.is_ascii_alphanumeric() || a == '*',
             _ => false,
         };
         if code {
             out.push_str("|ZA");
-            out.extend(&c[i..i + 3]);
+            out.extend(&c[i..i + len]);
             out.push_str("|ZB");
-            i += 3;
+            i += len;
         } else {
             out.push(c[i]);
             i += 1;
@@ -551,6 +554,11 @@ mod tests {
         assert!(shown[1..].iter().all(|t| matches!(t, Text(_))), "{shown:?}");
         assert_eq!(String::from_utf8(text).unwrap(), &typed[3..]);
         assert_eq!(defuse("hello"), "hello");
+        for typed in ["%!evil args", "%%/etc/passwd", "%!", "%%"] {
+            assert!(defuse(typed).starts_with("|ZA%"), "{typed}");
+            let text: Vec<u8> = tokenize(defuse(typed).as_bytes(), Source::File).iter().flat_map(|t| if let Text(b) = t { b.clone() } else { Vec::new() }).collect();
+            assert_eq!(text, typed.as_bytes());
+        }
         assert_eq!(tokenize_user(defuse("|04a|CS").as_bytes()), vec![Ctrl(Control::Fore(4)), Text(b"a|CS".to_vec())]);
     }
 

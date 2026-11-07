@@ -186,12 +186,24 @@ pub fn draw_due(state: &BbsState) {
 
 /// New: pots drawn but not paid (paying failed): paid now.
 fn pay_unpaid(state: &BbsState) {
-    for (day, to, pot) in state.sys.lottery_unpaid().unwrap_or_default() {
-        match credit(state, to, pot).and_then(|()| state.sys.lottery_paid(&day)) {
-            Ok(()) => tracing::info!("lottery {day}: paid {pot} points owed to user {to}"),
+    for (day, to, _) in state.sys.lottery_unpaid().unwrap_or_default() {
+        match pay(state, &day) {
+            Ok(Some((_, pot))) => tracing::info!("lottery {day}: paid {pot} points owed to user {to}"),
+            Ok(None) => {}
             Err(e) => tracing::error!("lottery {day}: paying user {to}: {e}"),
         }
     }
+}
+
+/// Pay a draw's pot if it's still owed: taken off what's owed first, so
+/// it's never paid twice, and owed again if paying fails.
+fn pay(state: &BbsState, day: &str) -> anyhow::Result<Option<(u32, u32)>> {
+    let Some((to, pot)) = state.sys.lottery_take(day)? else { return Ok(None) };
+    if let Err(e) = credit(state, to, pot) {
+        state.sys.lottery_owe(day, to, pot)?;
+        return Err(e);
+    }
+    Ok(Some((to, pot)))
 }
 
 /// One day's draw: a ticket at random wins the pot and the house's part.
@@ -216,8 +228,9 @@ fn draw(state: &BbsState, day: &str) -> anyhow::Result<()> {
     }
     // The draw stands with the pot owed (`lottery_record`); paid now, or
     // on a later tick if that fails.
-    credit(state, to, pot)?;
-    state.sys.lottery_paid(day)?;
+    if pay(state, day)?.is_none() {
+        return Ok(());
+    }
     tracing::info!("lottery {day}: {handle} won {pot} points with ticket {} of {total}", won.unwrap_or(0));
     let s = state.strings().fmt("LotteryWonNote", &[&pot.to_string(), &won.unwrap_or(0).to_string()]);
     tell(state, handle, 0, "the lottery", &s);

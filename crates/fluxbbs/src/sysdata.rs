@@ -1038,7 +1038,7 @@ impl SysData {
         }
         points_insert(&tx, e)?;
         // New: the pot owed, in the same step, till it's paid
-        // (`lottery_paid`), so a failed payment is tried again.
+        // (`lottery_take`), so a failed payment is tried again.
         if e.to_id != 0 && e.amount > 0 {
             tx.execute(
                 "INSERT OR REPLACE INTO script_data (script, key, value) VALUES ('lottery', ?1, ?2)",
@@ -1062,9 +1062,26 @@ impl SysData {
             .collect())
     }
 
-    /// A draw's pot has been paid.
-    pub fn lottery_paid(&self, day: &str) -> anyhow::Result<()> {
-        self.script_set("lottery", &format!("unpaid:{day}"), None)
+    /// A draw's pot, taken off what's owed to be paid: (winner, pot), or
+    /// None if it isn't owed (paid already). Read and removed in one step,
+    /// so it's only ever handed out once; [`Self::lottery_owe`] puts it
+    /// back if paying fails.
+    pub fn lottery_take(&self, day: &str) -> anyhow::Result<Option<(u32, u32)>> {
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let key = format!("unpaid:{day}");
+        let v: Option<String> = tx.query_row("SELECT value FROM script_data WHERE script = 'lottery' AND key = ?1", [&key], |r| r.get(0)).optional()?;
+        tx.execute("DELETE FROM script_data WHERE script = 'lottery' AND key = ?1", [&key])?;
+        tx.commit()?;
+        Ok(v.and_then(|v| {
+            let (to, pot) = v.split_once(' ')?;
+            Some((to.parse().ok()?, pot.parse().ok()?))
+        }))
+    }
+
+    /// A draw's pot owed again (paying it failed).
+    pub fn lottery_owe(&self, day: &str, to: u32, pot: u32) -> anyhow::Result<()> {
+        self.script_set("lottery", &format!("unpaid:{day}"), Some(&format!("{to} {pot}")))
     }
 
     /// The last draw.
@@ -1329,8 +1346,11 @@ mod tests {
         assert_eq!(sd.lottery_last().unwrap().unwrap().to_id, 2);
         // The pot is owed till it's paid, once.
         assert_eq!(sd.lottery_unpaid().unwrap(), vec![("2026-10-26".to_string(), 2, 90)]);
-        sd.lottery_paid("2026-10-26").unwrap();
+        assert_eq!(sd.lottery_take("2026-10-26").unwrap(), Some((2, 90)));
+        assert_eq!(sd.lottery_take("2026-10-26").unwrap(), None, "taken once");
         assert!(sd.lottery_unpaid().unwrap().is_empty());
+        sd.lottery_owe("2026-10-26", 2, 90).unwrap();
+        assert_eq!(sd.lottery_unpaid().unwrap(), vec![("2026-10-26".to_string(), 2, 90)]);
         // A caller's ledger: what they got, and what they spent.
         let mine: Vec<String> = sd.points_recent(2, 10).unwrap().iter().map(|e| e.kind.clone()).collect();
         assert_eq!(mine, ["lottery", "ticket", "ticket"]);

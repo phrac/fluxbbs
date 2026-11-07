@@ -766,8 +766,12 @@ impl Session {
             return Ok(());
         }
         // `%!name args`: run a script instead (`iplExecute`); without
-        // scripts built in (`python`), nothing.
+        // scripts built in (`python`), or with them switched off
+        // (`[features] scripts`), nothing.
         if let Some(cmd) = s.strip_prefix("%!") {
+            if !crate::features::command_on(&self.state.config(), "-X") {
+                return Ok(());
+            }
             #[cfg(feature = "python")]
             return Box::pin(self.script_command(cmd)).await;
             #[cfg(not(feature = "python"))]

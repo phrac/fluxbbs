@@ -235,6 +235,12 @@ impl Session {
     }
 }
 
+/// A temperature there could be (not NaN, nor what a broken answer
+/// says): the API's numbers are trusted no further.
+fn sane(v: f32) -> bool {
+    v.is_finite() && v.abs() <= 200.0
+}
+
 /// The page: the chart across the top, the rain under it, the month and
 /// the day in boxes.
 fn draw(cv: &mut Canvas, r: &Recent, a: Option<&Almanac>, place: &str, units: Units, failed: bool) {
@@ -247,14 +253,14 @@ fn draw(cv: &mut Canvas, r: &Recent, a: Option<&Almanac>, place: &str, units: Un
     let title = format!(" the last {DAYS} days in {place} ");
     cv.label((W - title.chars().count().min(W)) / 2, 0, &title, rgb(255, 230, 140), None);
     let days = r.last(DAYS);
-    let normal = |d: NaiveDate| a.map(|a| a.day(d)).filter(|c| !c.hi.is_nan());
+    let normal = |d: NaiveDate| a.map(|a| a.day(d)).filter(|c| sane(c.hi) && sane(c.lo));
     // The scale: the days' range and the normals', a little room over and
     // under, in steps of ten (five Celsius).
     let mut lo = f32::MAX;
     let mut hi = f32::MIN;
     for i in days.clone() {
         for v in [r.hi[i], r.lo[i]] {
-            if !v.is_nan() {
+            if sane(v) {
                 lo = lo.min(v);
                 hi = hi.max(v);
             }
@@ -275,7 +281,11 @@ fn draw(cv: &mut Canvas, r: &Recent, a: Option<&Almanac>, place: &str, units: Un
     // The lines every step, each labeled where it has a row of its own.
     let mut t = lo;
     let mut labeled = usize::MAX;
-    while t <= hi {
+    // At most 400 degrees of them (see `sane`).
+    for _ in 0..=(400.0 / step) as usize {
+        if t > hi {
+            break;
+        }
         let y = ty(t).round() as i32;
         for x in 5..78 {
             cv.set(x, y, rgb(28, 36, 64));
@@ -300,7 +310,7 @@ fn draw(cv: &mut Canvas, r: &Recent, a: Option<&Almanac>, place: &str, units: Un
         }
     }
     for (n, i) in days.clone().enumerate() {
-        if r.hi[i].is_nan() || r.lo[i].is_nan() {
+        if !sane(r.hi[i]) || !sane(r.lo[i]) {
             continue;
         }
         let (y0, y1) = (ty(r.hi[i]).round() as i32, ty(r.lo[i]).round() as i32);
@@ -445,5 +455,17 @@ mod tests {
         assert_eq!(a.last_year, Some((61.0, 41.0)));
         assert_eq!(a.day(d(2024, 2, 29)).record_hi, (40.0, 2000), "Feb 29 is its own day");
         assert_eq!(a.since, 1950);
+    }
+
+    #[test]
+    fn broken_temperatures_draw_without_hanging() {
+        let start = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap();
+        let n = DAYS + 1;
+        let dates: Vec<NaiveDate> = (0..n as u64).map(|i| start + chrono::Days::new(i)).collect();
+        let mut hi = vec![60.0; n];
+        let mut lo = vec![40.0; n];
+        (hi[0], lo[0], hi[1], lo[1], hi[2]) = (1e30, -1e30, f32::INFINITY, f32::NEG_INFINITY, f32::NAN);
+        let r = Recent { dates, hi, lo, rain: vec![f32::INFINITY; n] };
+        draw(&mut Canvas::new(W, H), &r, None, "here", Units::Us, false);
     }
 }

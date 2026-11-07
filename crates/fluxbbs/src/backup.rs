@@ -98,15 +98,33 @@ pub fn run(state: &BbsState, days: u64, dir: Option<&Path>) -> anyhow::Result<Pa
 }
 
 /// Link `part` into `dir` as `{base}.tar.gz`, or `{base}-2.tar.gz`... if
-/// that's taken; returns the name used.
+/// that's taken; returns the name used. Where there are no hard links
+/// (FAT, CIFS, some FUSE), the name is claimed by creating it empty and
+/// `part` renamed over that claim, so still nothing else is replaced.
 fn put_beside(part: &Path, dir: &Path, base: &str) -> anyhow::Result<PathBuf> {
+    let mut links = true;
     for n in 1..1000 {
         let out = dir.join(if n == 1 { format!("{base}.tar.gz") } else { format!("{base}-{n}.tar.gz") });
-        match std::fs::hard_link(part, &out) {
-            Ok(()) => return Ok(out),
+        if links {
+            match std::fs::hard_link(part, &out) {
+                Ok(()) => return Ok(out),
+                Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+                Err(e) => {
+                    tracing::debug!("backup: no hard link ({e}); renaming instead");
+                    links = false;
+                }
+            }
+        }
+        match std::fs::OpenOptions::new().write(true).create_new(true).open(&out) {
+            Ok(_) => {}
             Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
             Err(e) => return Err(e.into()),
         }
+        if let Err(e) = std::fs::rename(part, &out) {
+            let _ = std::fs::remove_file(&out);
+            return Err(e.into());
+        }
+        return Ok(out);
     }
     anyhow::bail!("no free name for {base}.tar.gz")
 }
