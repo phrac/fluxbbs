@@ -1,6 +1,7 @@
 """Drive a telnet session like a BBS terminal: tdrive.py HOST:PORT 'expect=>send' ...
 Answers negotiation as SyncTERM would (TTYPE syncterm, or $TTYPE; NAWS 80x25 or 80x$ROWS, binary);
-DA=1 also answers its device attribute and cursor queries.
+DA=1 also answers its device attribute and cursor queries (DA_ID another
+terminal's answer to ESC[c; DA_LINKS=1 CTerm's on OSC 8 links).
 '!cmd' runs cmd with its stdin/stdout bridged to the connection (IAC-escaped)."""
 import os, re, select, socket, subprocess, sys, time
 
@@ -60,12 +61,16 @@ def feed(data):
     if os.environ.get('DA'):
         o = bytes(out)
         for _ in range(o.count(b'\x1b[c')):
-            send(b'\x1b[=67;84;101;114;109;1;316c')
+            send(b'\x1b[' + os.environ.get('DA_ID', '=67;84;101;114;109;1;316').encode() + b'c')
         # DA_FEATURES=4;6 adds pixel operations (sixels).
         for _ in range(o.count(b'\x1b[<c')):
             send(b'\x1b[<0;' + os.environ.get('DA_FEATURES', '6').encode() + b'c')
         for _ in range(o.count(b'\x1b[=3n')):
             send(b'\x1b[=3;16;8n')
+        # DA_LINKS=1 (or 0) answers whether it takes OSC 8 links; unset,
+        # it doesn't answer, as SyncTERM before 1.8.
+        for _ in range(o.count(b'\x1b[=6n') if os.environ.get('DA_LINKS') else 0):
+            send(b'\x1b[=6;' + os.environ['DA_LINKS'].encode() + b'n')
         for _ in range(o.count(b'\x1b[6n')):
             send(b'\x1b[1;1R')
     return bytes(out)

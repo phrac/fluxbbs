@@ -46,6 +46,10 @@ differently on purpose. Each line links to the doc with the details.
   24-bit color though it sends a plain `ANSI`. ([SYSOP](SYSOP.md#terminal-handling))
 - Output paced to the terminal for fast streams (animated GIFs), and a
   log line when a link stalls.
+- Clickable links (OSC 8): URLs in messages, file descriptions, the text
+  viewers and the HTTPS download links, for terminals known to take them
+  (SyncTERM asked, IcyTerm, UTF-8 xterms by TERM); "links" in user
+  configuration sets auto, on or off. ([FEATURES](FEATURES.md#clickable-links))
 
 ## Storage and setup
 

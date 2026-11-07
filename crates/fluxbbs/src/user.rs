@@ -107,6 +107,9 @@ pub struct User {
     pub sixel: bool,
     /// New: whether they've been offered sixels at logon (`UX`).
     pub sixel_asked: bool,
+    /// New: URLs as clickable links (OSC 8): blank for auto (where the
+    /// terminal is known to take them), `on` or `off`.
+    pub links: String,
     /// New: `plain` for plain text (no ANSI), `ansi`, or blank: plain for
     /// bots (flag B).
     pub text_mode: String,
@@ -219,6 +222,7 @@ impl Default for User {
             file_popups: false,
             sixel: false,
             sixel_asked: false,
+            links: String::new(),
             text_mode: String::new(),
             code_bg: String::new(),
             code_theme: String::new(),
@@ -347,6 +351,7 @@ impl User {
                 file_popups,
                 sixel,
                 sixel_asked,
+                links,
                 text_mode,
                 code_bg,
                 code_theme,
@@ -446,6 +451,7 @@ impl User {
                 file_popups,
                 sixel,
                 sixel_asked,
+                links,
                 text_mode,
                 code_bg,
                 code_theme,

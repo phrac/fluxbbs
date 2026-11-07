@@ -10,6 +10,7 @@ use std::time::Instant;
 
 use chrono::{Datelike, Timelike};
 use fluxbbs_term::codes::{resize, squish};
+use fluxbbs_term::hyperlink::Span;
 use fluxbbs_term::{Charset, Color, Control, Screen, Slot, Source, Token, cp437, tokenize, tokenize_str, tokenize_user};
 use rand::RngExt;
 use tokio::io::{AsyncRead, AsyncWrite, AsyncWriteExt};
@@ -407,9 +408,10 @@ impl Session {
         self.sync_output(wait, 0).await?;
         let said = |s: &Self, any: &[&str]| s.device_attrs.iter().any(|a| a.contains("$r") && any.iter().any(|x| a.contains(x)));
         let (mut truecolor, palette256) = (said(self, &["38;2;1;2;3", "38:2::1:2:3", "38:2:1:2:3"]), said(self, &["38;5;", "38:5:"]));
-        // Asked of every CTerm now, for its pixel operations (sixels).
+        // Asked of every CTerm now, for its pixel operations (sixels),
+        // and whether it takes links (`ESC[=6n`).
         if self.device_attrs.iter().any(|a| a.starts_with('=')) {
-            self.screen.write_bytes(b"\x1b[<c");
+            self.screen.write_bytes(b"\x1b[<c\x1b[=6n");
             self.sync_output(wait, 0).await?;
             let features = self.device_attrs.iter().find_map(|a| a.strip_prefix("<0;")).unwrap_or("");
             truecolor = truecolor || !palette256 && features.split(';').any(|f| f == "6");
@@ -432,11 +434,71 @@ impl Session {
         self.screen.write_bytes(b"\x1b[c");
         self.sync_output(wait, 0).await?;
         if self.device_attrs.iter().any(|a| a.starts_with('=')) && !self.device_attrs.iter().any(|a| a.starts_with("<0;")) {
-            self.screen.write_bytes(b"\x1b[<c");
+            self.screen.write_bytes(b"\x1b[<c\x1b[=6n");
             self.sync_output(wait, 0).await?;
         }
         tracing::info!("node {}: the terminal answers {:?}", self.node.number(), self.device_attrs);
         Ok(())
+    }
+
+    /// New: after logon, a CP437 terminal known by its TERM (SyncTERM)
+    /// is asked what it is, for links, unless the caller turned them off.
+    pub(crate) async fn links_probe(&mut self) -> io::Result<()> {
+        if self.screen.charset() == Charset::Cp437 && self.user.links != "off" {
+            self.ask_terminal().await?;
+        }
+        Ok(())
+    }
+
+    /// New: are URLs sent as clickable links (OSC 8)? As the caller set
+    /// it, or where their terminal is known to take them; never in plain
+    /// text.
+    pub(crate) fn links_on(&self) -> bool {
+        !self.plain()
+            && match self.user.links.as_str() {
+                "on" => true,
+                "off" => false,
+                _ => self.links_seen(),
+            }
+    }
+
+    /// New: has the terminal said it takes links? CTerm's answer to
+    /// `ESC[=6n` (SyncTERM), IcyTerm by its device attributes (its name),
+    /// or a UTF-8 terminal whose TERM is in `[terminal] link_terms`.
+    /// Anything else (DOS terminals, NetRunner) could show the codes.
+    pub(crate) fn links_seen(&self) -> bool {
+        if let Some(a) = self.device_attrs.iter().find(|a| a.starts_with("=6;")) {
+            return a == "=6;1n";
+        }
+        // `ESC[=73;99;121;84;101;114;109;...c`: "IcyTerm".
+        if self.device_attrs.iter().any(|a| a.starts_with("=73;99;121;84;101;114;109;")) {
+            return true;
+        }
+        self.screen.charset() == Charset::Utf8 && crate::config::term_listed(&self.state.config().terminal.link_terms, &self.caller.term)
+    }
+
+    /// New: [`Self::write_with_controls`], with URLs as clickable links
+    /// where [`Self::links_on`].
+    pub(crate) fn write_linked(&mut self, s: &str) {
+        let on = self.links_on();
+        self.write_controls(s, on);
+    }
+
+    /// New: `shown`, the start of `full` (cut to fit), as
+    /// [`Self::write_linked`] would write it, but a URL it cuts still
+    /// going to the whole of it.
+    pub(crate) fn write_linked_cut(&mut self, full: &str, shown: &str) {
+        if !self.links_on() {
+            return self.write_with_controls(shown);
+        }
+        let (all, part) = (visible_text(full), visible_text(shown));
+        let same = all.iter().zip(&part).take_while(|(a, b)| a == b).count();
+        let spans: Vec<Span> = fluxbbs_term::hyperlink::find(&all)
+            .into_iter()
+            .filter(|&(a, _)| a < same)
+            .map(|(a, b)| Span { start: a, end: b.min(same), url: all[a..b].to_vec(), id: None })
+            .collect();
+        self.write_controls_spans(shown, &spans);
     }
 
     /// New: has the terminal said it shows sixels? A 4 in its `ESC[?...c`
@@ -945,12 +1007,13 @@ impl Session {
                 Some(v) => {
                     let here = self.here();
                     self.positions.insert(code, here);
-                    let v = match st.limit {
+                    let shown = match st.limit {
                         Some((n, true)) => resize(v, n),
                         Some((n, false)) => squish(v, n),
                         None => v.clone(),
                     };
-                    self.write_with_controls(&v);
+                    // New: a URL in it clickable, whole if it's cut.
+                    self.write_linked_cut(v, &shown);
                 }
                 None => {
                     let here = self.here();
@@ -1069,14 +1132,62 @@ impl Session {
     /// typed, where cursor moves and clears would wreck other screens (2.0
     /// fixed "'|XX' would kill multinode chat").
     pub(crate) fn write_with_controls(&mut self, s: &str) {
+        self.write_controls(s, false);
+    }
+
+    fn write_controls(&mut self, s: &str, links: bool) {
+        let spans = if links {
+            let shown = visible_text(s);
+            fluxbbs_term::hyperlink::find(&shown).into_iter().map(|(a, b)| Span { start: a, end: b, url: shown[a..b].to_vec(), id: None }).collect()
+        } else {
+            Vec::new()
+        };
+        self.write_controls_spans(s, &spans);
+    }
+
+    /// New: [`Self::write_with_controls`], with links round `spans`
+    /// (columns of what it shows, [`visible_text`]), colour codes inside
+    /// them or not.
+    pub(crate) fn write_controls_spans(&mut self, s: &str, spans: &[Span]) {
+        let mut col = 0;
+        // The next span not yet closed (they're in order).
+        let (mut open, mut next) = (false, 0);
         for tok in tokenize_user(&cp437::encode(s)) {
             match tok {
                 Token::Ctrl(c) => {
                     self.control_now(c);
                 }
+                Token::Text(b) if !spans.is_empty() && !self.plain() => {
+                    let mut i = 0;
+                    while i < b.len() {
+                        // The colour sequences `tokenize_user` keeps.
+                        if b[i] == 0x1B {
+                            let end = b[i..].iter().position(|&c| c == b'm').map_or(b.len(), |p| i + p + 1);
+                            self.screen.write_bytes(&b[i..end]);
+                            i = end;
+                            continue;
+                        }
+                        while spans.get(next).is_some_and(|sp| sp.end <= col) {
+                            next += 1;
+                        }
+                        if !open && let Some(sp) = spans.get(next).filter(|sp| sp.start <= col) {
+                            self.screen.write_raw(&sp.open());
+                            open = true;
+                        }
+                        self.screen.write_bytes(&b[i..=i]);
+                        (col, i) = (col + 1, i + 1);
+                        if open && spans[next].end == col {
+                            self.screen.write_raw(fluxbbs_term::hyperlink::CLOSE);
+                            (open, next) = (false, next + 1);
+                        }
+                    }
+                }
                 Token::Text(b) => self.screen.write_bytes(&b),
                 _ => {}
             }
+        }
+        if open {
+            self.screen.write_raw(fluxbbs_term::hyperlink::CLOSE);
         }
     }
 
@@ -1610,6 +1721,65 @@ pub fn find_ci(dir: &Path, name: &str) -> Option<PathBuf> {
         .map(|f| dir.join(f))
 }
 
+/// New: what text with colour codes shows (CP437), as
+/// [`Session::write_with_controls`] writes it: for finding its URLs.
+pub(crate) fn visible_text(s: &str) -> Vec<u8> {
+    let mut out = Vec::new();
+    for tok in tokenize_user(&cp437::encode(s)) {
+        if let Token::Text(b) = tok {
+            let mut i = 0;
+            while i < b.len() {
+                if b[i] == 0x1B {
+                    i = b[i..].iter().position(|&c| c == b'm').map_or(b.len(), |p| i + p + 1);
+                    continue;
+                }
+                out.push(b[i]);
+                i += 1;
+            }
+        }
+    }
+    out
+}
+
+#[cfg(test)]
+mod links {
+    use super::*;
+
+    #[test]
+    fn links_round_urls_and_through_colors() {
+        let mut s = Session::for_test(crate::tests::state(), User { links: "on".into(), ..User::default() });
+        s.screen.take_output();
+        s.write_linked("|U1see |04http://a.com/|09x|U1 ok");
+        let out = String::from_utf8_lossy(&s.screen.take_output()).into_owned();
+        let open = out.find("\x1b]8;;http://a.com/x\x1b\\").expect("opened with the whole URL");
+        let close = out.find("\x1b]8;;\x1b\\").expect("closed");
+        assert!(open < out.find("http://").unwrap() && close > out.rfind('x').unwrap() && close < out.find(" ok").unwrap(), "{out:?}");
+        assert_eq!(s.screen.where_x(), 1 + "see http://a.com/x ok".len() as u16);
+        // Off, and in plain text, nothing but the text.
+        for (links, plain) in [("off", false), ("on", true)] {
+            s.user.links = links.into();
+            s.screen.set_plain(plain);
+            s.write_linked("http://a.com");
+            assert!(!s.screen.take_output().windows(2).any(|w| w == b"\x1b]"));
+        }
+        // Auto: a UTF-8 xterm, CTerm's answer, IcyTerm; not an unknown CP437 one.
+        s.screen.set_plain(false);
+        s.user.links.clear();
+        s.caller.term = "xterm-256color".into();
+        s.screen.set_charset(Charset::Utf8);
+        assert!(s.links_on());
+        s.screen.set_charset(Charset::Cp437);
+        s.caller.term = "ansi".into();
+        assert!(!s.links_on());
+        s.device_attrs = vec!["=67;84;101;114;109;1;316".into(), "=6;1n".into()];
+        assert!(s.links_on());
+        s.device_attrs = vec!["=67;84;101;114;109;1;316".into(), "=6;0n".into()];
+        assert!(!s.links_on());
+        s.device_attrs = vec!["=73;99;121;84;101;114;109;4;0;0".into()];
+        assert!(s.links_on());
+    }
+}
+
 #[cfg(test)]
 mod fuzz {
     use super::*;
@@ -1657,6 +1827,12 @@ mod fuzz {
             assert!((1..=80).contains(&s.screen.where_x()) && (1..=s.screen.rows()).contains(&s.screen.where_y()));
             let text = String::from_utf8_lossy(input);
             s.write_with_controls(&text);
+            // New: with links, the same on screen.
+            s.user.links = "on".into();
+            let at = (s.screen.where_x(), s.screen.where_y());
+            s.write_linked(&text);
+            s.write_linked_cut(&text, &squish(&text, rng.below(100)));
+            assert!((1..=80).contains(&s.screen.where_x()) && (1..=s.screen.rows()).contains(&s.screen.where_y()), "from {at:?}");
             let _ = s.visible_len(input);
             let e = s.expand_mci(&text, rng.below(40));
             assert!(e.len() <= text.len() * 1024 + 4096, "{} from {}", e.len(), text.len());

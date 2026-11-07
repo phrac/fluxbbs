@@ -138,6 +138,8 @@ Leave it alone at a menu for a while and the screen saver comes on.
   doors...), and top lists for the week, the month and all time.
 - Screen themes callers can pick, animated screens, and plain text for
   screen readers and scripts.
+- URLs in messages, file descriptions and the text viewer are clickable
+  (OSC 8) on terminals that take links.
 - Python scripting (`import fluxbbs`) in place of Iniquity's IPL.
 - A MeshCore radio bridge that turns mesh channels into message areas.
 - An editor for every setting, the waiting-for-caller screen, scheduled

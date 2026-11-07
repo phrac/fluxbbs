@@ -851,9 +851,9 @@ fn strip_cursor_reports(buf: &[u8], hold: bool) -> (Vec<u8>, u32, Vec<u8>, Vec<V
             }
             // New: a character cell's size in pixels, CTerm's
             // (`ESC[=3;16;8n`) or xterm's (`ESC[6;16;8t`), kept with its
-            // final letter.
+            // final letter; and CTerm's on links (`ESC[=6;1n`).
             let body_of = &buf[i + 2..end];
-            if (lead == 1 && buf.get(end) == Some(&b'n') && body_of.starts_with(b"=3;"))
+            if (lead == 1 && buf.get(end) == Some(&b'n') && (body_of.starts_with(b"=3;") || body_of.starts_with(b"=6;")))
                 || (lead == 0 && buf.get(end) == Some(&b't') && body_of.starts_with(b"6;"))
             {
                 da.push(buf[i + 2..=end].to_vec());
@@ -968,6 +968,8 @@ mod tests {
         // Cell sizes, CTerm's and xterm's.
         let (keys, _, _, da) = strip_cursor_reports(b"\x1b[=3;16;8nq\x1b[6;20;10t", true);
         assert_eq!((keys, da), (b"q".to_vec(), vec![b"=3;16;8n".to_vec(), b"6;20;10t".to_vec()]));
+        let (keys, _, _, da) = strip_cursor_reports(b"\x1b[=6;1nq", true);
+        assert_eq!((keys, da), (b"q".to_vec(), vec![b"=6;1n".to_vec()]));
         // A status string (DECRQSS), whole or split between reads.
         let (keys, n, tail, da) = strip_cursor_reports(b"a\x1bP1$r0;38;2;1;2;3m\x1b\\\x1b[1;1Rb", true);
         assert_eq!((keys, n, tail), (b"ab".to_vec(), 1, Vec::new()));

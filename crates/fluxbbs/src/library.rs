@@ -1666,7 +1666,8 @@ impl Session {
                 out.extend(fluxbbs_term::cp437::encode(&keys));
                 fill(&mut out, 2 + 16 + keys.chars().count());
                 out.extend(b"\x1b[0m");
-                self.screen.write_bytes(&out);
+                let links = self.links_on();
+                self.screen.write_linked(&out, links);
                 drawn = Some(top);
             }
             let key = self.read_key().await?;
