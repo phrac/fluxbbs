@@ -290,6 +290,8 @@ pub async fn run(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Caller) 
         caller.term,
         *caller.size.borrow()
     );
+    let line = node.line();
+    let io: Box<dyn Stream> = Box::new(crate::nodes::CutStream::new(io, line.clone()));
     let mut s = Session::new(state, io, caller, node);
     if let Err(e) = s.probe_terminal().await {
         tracing::info!("{who}: disconnected ({e})");
@@ -298,7 +300,7 @@ pub async fn run(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Caller) 
     // Boxed, as are each command, the thread list and the reader: a
     // session's futures nest each other's state, and unboxed the whole
     // call came to 186 KB, which overflowed a debug build's worker stack.
-    let result = Box::pin(s.call()).await;
+    let result = cut_or(&line, Box::pin(s.call())).await;
     s.logoff();
     match result {
         Ok(()) => tracing::info!("{who}: {} logged off", s.user.handle),
@@ -329,10 +331,12 @@ pub async fn run_local(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Ca
         let _ = io.flush().await;
         return;
     };
+    let line = node.line();
+    let io: Box<dyn Stream> = Box::new(crate::nodes::CutStream::new(io, line.clone()));
     let mut s = Session::new(state, io, caller, node);
     let result = match what {
         LocalJob::Logon => {
-            let r = Box::pin(s.call()).await;
+            let r = cut_or(&line, Box::pin(s.call())).await;
             s.logoff();
             r
         }
@@ -344,6 +348,19 @@ pub async fn run_local(state: Arc<BbsState>, mut io: Box<dyn Stream>, caller: Ca
         Err(e) => tracing::warn!("local: session error: {e}"),
     }
     let _ = s.flush().await;
+}
+
+/// New: run a call until it ends, or until a few seconds after its line
+/// is cut (an account taken over) if it hasn't ended by itself by then:
+/// whatever it's waiting on, it's dropped.
+async fn cut_or(line: &crate::nodes::Cut, call: impl std::future::Future<Output = io::Result<()>>) -> io::Result<()> {
+    tokio::select! {
+        r = call => r,
+        _ = async {
+            line.wait().await;
+            tokio::time::sleep(std::time::Duration::from_secs(3)).await;
+        } => Err(kicked()),
+    }
 }
 
 /// The error that ends a call for a forced event.
@@ -652,6 +669,10 @@ impl Session {
     /// Persist the user at the end of the call, charging time used.
     fn logoff(&mut self) {
         if !self.logged_in || self.user.id == 0 {
+            return;
+        }
+        if self.node.lost(self.user.id) {
+            tracing::info!("{}: account taken over by another node; this call's record isn't saved", self.user.handle);
             return;
         }
         // An edit that hasn't reached us yet (no key since) still counts.

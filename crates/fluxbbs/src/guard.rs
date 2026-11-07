@@ -52,8 +52,10 @@ const STRIKES_KEPT: Duration = Duration::from_secs(30 * 24 * 3600);
 /// telnet negotiation (not yet a session), and from everyone.
 const PENDING_TOTAL: usize = 256;
 
+/// Per address: twice the sessions it may have (at least 4); none with
+/// `max_per_ip` 0 (unlimited), the total cap still holding.
 fn pending_limit(cfg: &Security) -> u32 {
-    cfg.max_per_ip.max(2) * 2
+    if cfg.max_per_ip == 0 { u32::MAX } else { cfg.max_per_ip.max(2).saturating_mul(2) }
 }
 
 #[derive(Default)]
@@ -273,13 +275,14 @@ impl Guard {
         Some(len)
     }
 
-    /// A good login to `account` forgets the failures against it (not
-    /// the ban history). Guesses at other accounts, and failed bot
-    /// checks, still count: logging in to one's own account between
+    /// A good login to `account` forgets the failures against it and
+    /// those against no account (bot checks a flaky link hung up on, a
+    /// mistyped system password), not the ban history. Guesses at other
+    /// accounts still count: logging in to one's own account between
     /// guesses mustn't keep an address from being banned.
     pub fn success(&self, ip: IpAddr, account: u32) {
         if let Some(e) = self.ips.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&ip) {
-            e.failures.retain(|(_, a)| *a != Some(account));
+            e.failures.retain(|(_, a)| a.is_some_and(|a| a != account));
         }
     }
 
@@ -463,7 +466,15 @@ mod tests {
         g.success(y, 3);
         assert_eq!(g.failure_for(&c, y, Some(3)), None, "their own failures were forgotten");
         assert_eq!(g.failure(&c, y), None);
-        assert!(g.failure(&c, y).is_some(), "the bot check's weren't forgiven by the login");
+        assert!(g.failure(&c, y).is_some(), "a bot check's count until a good login");
+        // A flaky link: bot checks hung up on, a mistyped system password,
+        // then in; a good login forgives those, not guesses at others.
+        let z = ip("9.9.9.3");
+        g.failure(&c, z);
+        g.failure_for(&c, z, Some(2));
+        g.success(z, 3);
+        assert_eq!(g.failure(&c, z), None);
+        assert!(g.failure(&c, z).is_some(), "the guess at account 2 still counted");
     }
 
     #[test]
@@ -477,6 +488,11 @@ mod tests {
         drop(held);
         assert!(g.pending(&c, x).is_some(), "freed when they end");
         assert_eq!(g.pending.load(Ordering::SeqCst), 0);
+        // No limit per address: only the total's.
+        let open = Security { max_per_ip: 0, ..cfg() };
+        let held: Vec<_> = (0..PENDING_TOTAL).map(|_| g.pending(&open, x).unwrap()).collect();
+        assert!(g.pending(&open, ip("9.9.9.2")).is_none(), "the total still holds");
+        drop(held);
     }
 
     #[test]

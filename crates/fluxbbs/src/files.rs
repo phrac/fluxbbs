@@ -690,7 +690,8 @@ impl Session {
 
     /// New: links to fetch these files over HTTPS instead (`web.rs`):
     /// shown, each good for `[web] link_minutes` and `link_uses` fetches,
-    /// counted as a download when first fetched whole.
+    /// checked (points, limits, ratios) as each fetch starts, and counted
+    /// and charged once, when one first sends the whole file.
     async fn give_links(&mut self, files: &[(FAreaRef, FileRec)]) -> io::Result<()> {
         let (base, minutes, uses) = {
             let web = &self.state.config().web;
@@ -719,6 +720,15 @@ impl Session {
 
     /// Credit a completed download.
     pub(crate) fn count_download(&mut self, f: &mut FileRec) -> io::Result<()> {
+        // Counted in place: `f` was read before the transfer, and a SysOp
+        // may have edited or renamed it meanwhile.
+        f.downloads = self.state.files.add_download(f).map_err(io_err)?.unwrap_or(f.downloads + 1);
+        self.credit_download(f)
+    }
+
+    /// New: a completed download on the caller's side (their counts,
+    /// points, the day's figures), the file's own count apart.
+    pub(crate) fn credit_download(&mut self, f: &FileRec) -> io::Result<()> {
         let kb = (f.size / 1024) as u32;
         let u = &mut self.user;
         u.downloads += 1;
@@ -728,9 +738,6 @@ impl Session {
         if self.state.config().files.use_file_points {
             u.file_points = u.file_points.saturating_sub(f.points);
         }
-        // Counted in place: `f` was read before the transfer, and a SysOp
-        // may have edited or renamed it meanwhile.
-        f.downloads = self.state.files.add_download(f).map_err(io_err)?.unwrap_or(f.downloads + 1);
         let area = self.state.fareas().areas.iter().find(|a| a.file.eq_ignore_ascii_case(&f.area)).map_or_else(|| f.area.clone(), |a| crate::editor::strip_colours(&a.name));
         *self.seen.downloads.entry(area).or_default() += 1;
         self.bump(crate::sysdata::Stat::Download { kb: kb as u64 });

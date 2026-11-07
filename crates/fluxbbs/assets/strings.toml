@@ -1134,3 +1134,6 @@ PdfZoomBar = " |U6%S1 |U5- |U4p%S2/%S3 %S4  |U5[|U6arrows|U5]|U4move |U5[|U6z|U5
 AlreadyOnline = "|12That account is already on another node; one node at a time. |07Goodbye."
 TipAnonymous = "|U4Anonymous posts can't be tipped|U5."
 MsgAreaGone = "|U4That board was deleted meanwhile; the message wasn't posted|U5."
+AskTakeOver = "|12That account is on node %S1. |15Disconnect it and log in here?"
+TakingOver = "|07Disconnecting node %S1..."
+TakenOver = "|12Your account just logged in on another node. |07Goodbye."

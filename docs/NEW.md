@@ -110,8 +110,14 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   enforced at login if wanted.
 - Sign-up limits per address and per day.
 - One account, one node: a login to an account already on another
-  node (SysOps' too) is told so (`AlreadyOnline`) and the call ends;
-  the session already on goes on.
+  node (SysOps' too) is asked, once it has proved the account, whether
+  to disconnect that node (`AskTakeOver`, default No; a dead link no
+  longer locks a caller out for minutes). Yes ends the other call
+  (`TakenOver`; its line is cut if it doesn't go within 2 s, and after
+  6 s the claim is taken anyway and that session's saves of the
+  account are dropped). No, plain text and bots are told so
+  (`AlreadyOnline`) and the call ends. WFC console jobs aren't calls
+  and don't claim the account.
 - An SSH login with the account's own password gets the same birth
   date and phone checks, and the same forced password change, as the
   board's login.

@@ -42,6 +42,15 @@ pub struct Link {
     expires: Instant,
     uses_left: u32,
     counted: bool,
+    /// Fetches begun and not yet over: the link stays (expired or used
+    /// up) until they are, so a fetch that fails can give its use back.
+    in_flight: u32,
+}
+
+impl Link {
+    fn done(&self, now: Instant) -> bool {
+        self.in_flight == 0 && (self.expires <= now || self.uses_left == 0)
+    }
 }
 
 /// The download links given out, by token. In memory: they're short
@@ -68,10 +77,11 @@ impl Links {
             expires: Instant::now() + Duration::from_secs(web.link_minutes.max(1) as u64 * 60),
             uses_left: web.link_uses.max(1),
             counted: false,
+            in_flight: 0,
         };
         let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
         let now = Instant::now();
-        map.retain(|_, l| l.expires > now && l.uses_left > 0);
+        map.retain(|_, l| !l.done(now));
         if map.len() >= MAX_LINKS
             && let Some(oldest) = map.iter().min_by_key(|(_, l)| l.expires).map(|(k, _)| k.clone())
         {
@@ -82,18 +92,37 @@ impl Links {
     }
 
     /// The link for a token, if it's still good; a fetch used up if
-    /// `fetch`.
+    /// `fetch`, to be ended with [`Self::finish`].
     fn take(&self, token: &str, fetch: bool) -> Option<Link> {
         let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        let now = Instant::now();
         let l = map.get_mut(token)?;
-        if l.expires <= Instant::now() || l.uses_left == 0 {
-            map.remove(token);
+        if l.expires <= now || l.uses_left == 0 {
+            if l.done(now) {
+                map.remove(token);
+            }
             return None;
         }
         if fetch {
             l.uses_left -= 1;
+            l.in_flight += 1;
         }
         Some(l.clone())
+    }
+
+    /// A fetch [`Self::take`] began is over; a refused one (`used`
+    /// false) gives its use back.
+    fn finish(&self, token: &str, used: bool) {
+        let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(l) = map.get_mut(token) {
+            l.in_flight = l.in_flight.saturating_sub(1);
+            if !used {
+                l.uses_left += 1;
+            }
+            if l.done(Instant::now()) {
+                map.remove(token);
+            }
+        }
     }
 
     /// Whether a link's file has been charged for.
@@ -110,18 +139,10 @@ impl Links {
         }
     }
 
-    /// A fetch that was refused, given back.
-    fn give_back(&self, token: &str) {
-        let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        if let Some(l) = map.get_mut(token) {
-            l.uses_left += 1;
-        }
-    }
-
-    /// The first fetch of a link: the caller's download, if they can still
-    /// have it (points, daily limits, ratios as they are now); else why not.
-    fn charge(&self, state: &BbsState, token: &str, l: &Link) -> anyhow::Result<Result<(), String>> {
-        let _one = self.charging.lock().unwrap_or_else(|e| e.into_inner());
+    /// As a fetch of a link starts: whether the caller can still have
+    /// the file (points, daily limits, ratios as they are now), unless
+    /// it's been charged already; else why not.
+    fn check(&self, state: &BbsState, token: &str, l: &Link) -> anyhow::Result<Result<(), String>> {
         if self.counted(token, l) {
             return Ok(Ok(()));
         }
@@ -132,9 +153,21 @@ impl Links {
             tracing::info!("{}: download of {} by link refused ({key})", l.handle, l.name);
             return Ok(Err(crate::editor::strip_colours(&state.strings().fmt(key, &args)).trim().to_string()));
         }
+        Ok(Ok(()))
+    }
+
+    /// A fetch that sent the whole file: the caller's download, counted
+    /// and charged once per link (the first one whole). Previews and
+    /// aborted or stalled sends aren't.
+    fn charge(&self, state: &BbsState, token: &str, l: &Link) -> anyhow::Result<()> {
+        let _one = self.charging.lock().unwrap_or_else(|e| e.into_inner());
+        if self.counted(token, l) {
+            return Ok(());
+        }
+        let (Some(f), Some(u)) = (state.files.find(&l.area, &l.name)?, state.users.get(l.user_id)?) else { return Ok(()) };
         count_link(state, l, &f, &u)?;
         self.set_counted(token);
-        Ok(Ok(()))
+        Ok(())
     }
 }
 
@@ -182,12 +215,26 @@ async fn timed(f: impl std::future::Future<Output = std::io::Result<()>>) -> boo
     matches!(tokio::time::timeout(DL_IDLE, f).await, Ok(Ok(())))
 }
 
-/// `tokio::io::copy`, giving up on a client that stops reading.
-async fn send_file(file: &mut tokio::fs::File, sock: &mut tokio::net::TcpStream) -> u64 {
+/// New: past [`DL_GRACE`], a download averaging under this many bytes a
+/// second lets its slot go: a trickle within [`DL_IDLE`] each write could
+/// otherwise hold one for hours.
+const DL_MIN_RATE: u64 = 2048;
+const DL_GRACE: Duration = Duration::from_secs(60);
+
+/// Whether a send of `sent` bytes after `elapsed` is too slow to go on.
+fn too_slow(sent: u64, elapsed: Duration) -> bool {
+    elapsed > DL_GRACE && sent < DL_MIN_RATE.saturating_mul(elapsed.as_secs())
+}
+
+/// `tokio::io::copy` of up to `size` bytes, giving up on a client that
+/// stops reading or reads too slowly. The bytes sent.
+async fn send_file(file: &mut tokio::fs::File, sock: &mut tokio::net::TcpStream, size: u64) -> u64 {
     let mut buf = vec![0u8; 16 * 1024];
     let mut sent = 0;
-    loop {
-        let n = match file.read(&mut buf).await {
+    let start = Instant::now();
+    while sent < size {
+        let want = buf.len().min(usize::try_from(size - sent).unwrap_or(usize::MAX));
+        let n = match file.read(&mut buf[..want]).await {
             Ok(0) | Err(_) => return sent,
             Ok(n) => n,
         };
@@ -195,7 +242,12 @@ async fn send_file(file: &mut tokio::fs::File, sock: &mut tokio::net::TcpStream)
             return sent;
         }
         sent += n as u64;
+        if sent < size && too_slow(sent, start.elapsed()) {
+            tracing::info!("download link: {sent} bytes in {:.0}s, too slow; ending it", start.elapsed().as_secs_f64());
+            return sent;
+        }
     }
+    sent
 }
 
 /// `/dl/TOKEN/NAME`: the file, if the link's still good.
@@ -215,14 +267,17 @@ async fn serve_link(state: &Arc<BbsState>, sock: &mut tokio::net::TcpStream, met
         return;
     };
     let Ok(mut file) = tokio::fs::File::open(&link.path).await else {
+        if !head {
+            state.links.finish(token, false);
+        }
         let _ = timed(sock.write_all(b"HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")).await;
         return;
     };
-    // Charged on the first fetch (not a HEAD), if they can still have it.
+    // Checked as a fetch (not a HEAD) starts: can they still have it?
     if !head {
         let (st, l, t) = (state.clone(), link.clone(), token.to_string());
-        let charged = tokio::task::spawn_blocking(move || st.links.charge(&st, &t, &l)).await;
-        let refused = match charged {
+        let checked = tokio::task::spawn_blocking(move || st.links.check(&st, &t, &l)).await;
+        let refused = match checked {
             Ok(Ok(Ok(()))) => None,
             Ok(Ok(Err(why))) => Some(why),
             Ok(Err(e)) => {
@@ -232,7 +287,7 @@ async fn serve_link(state: &Arc<BbsState>, sock: &mut tokio::net::TcpStream, met
             Err(_) => Some("The board couldn't check this download. Try again later.".to_string()),
         };
         if let Some(why) = refused {
-            state.links.give_back(token);
+            state.links.finish(token, false);
             let body = format!("{why}\n");
             let reply = format!("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
             let _ = timed(sock.write_all(reply.as_bytes())).await;
@@ -247,12 +302,24 @@ async fn serve_link(state: &Arc<BbsState>, sock: &mut tokio::net::TcpStream, met
     let head_lines = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"{plain}\"; filename*=UTF-8''{exact}\r\nContent-Length: {size}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
     );
-    if !timed(sock.write_all(head_lines.as_bytes())).await || head {
+    if head {
+        let _ = timed(sock.write_all(head_lines.as_bytes())).await;
         let _ = timed(sock.shutdown()).await;
         return;
     }
-    // Charged above, when the fetch began; a send stalled 30 s gives up.
-    let _ = send_file(&mut file, sock).await;
+    // Counted and charged once the whole file has gone.
+    let sent = if timed(sock.write_all(head_lines.as_bytes())).await { send_file(&mut file, sock, size).await } else { 0 };
+    if sent == size {
+        let (st, l, t) = (state.clone(), link.clone(), token.to_string());
+        match tokio::task::spawn_blocking(move || st.links.charge(&st, &t, &l)).await {
+            Ok(Ok(())) => {}
+            Ok(Err(e)) => tracing::warn!("download link: counting {}: {e:#}", link.name),
+            Err(e) => tracing::warn!("download link: counting {}: {e}", link.name),
+        }
+    } else {
+        tracing::info!("{}: download of {} by link ended at {sent} of {size} bytes; not charged", link.handle, link.name);
+    }
+    state.links.finish(token, true);
     let _ = timed(sock.shutdown()).await;
 }
 
@@ -714,6 +781,32 @@ mod tests {
         assert!(!state.links.counted(&t, &l));
         state.links.set_counted(&t);
         assert!(state.links.counted(&t, &l));
+    }
+
+    #[test]
+    fn a_refused_last_use_comes_back() {
+        let state = crate::tests::state();
+        let mut cfg = (*state.config()).clone();
+        cfg.web.link_uses = 1;
+        *state.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(cfg);
+        let t = state.links.mint(&state, 1, "phrac", "AGNNODE", "agoranet.z03", "/nonexistent".into());
+        assert!(state.links.take(&t, true).is_some(), "the last use, in flight");
+        assert!(state.links.take(&t, true).is_none(), "none left meanwhile");
+        // A new link's tidying mustn't drop it while that fetch is on.
+        state.links.mint(&state, 1, "phrac", "AGNNODE", "other.zip", "/nonexistent".into());
+        state.links.finish(&t, false);
+        assert!(state.links.take(&t, true).is_some(), "refused (410, 403): given back");
+        state.links.finish(&t, true);
+        assert!(state.links.take(&t, false).is_none(), "used: gone");
+        assert!(state.links.map.lock().unwrap_or_else(|e| e.into_inner()).get(&t).is_none());
+    }
+
+    #[test]
+    fn slow_downloads_end() {
+        assert!(!too_slow(0, Duration::from_secs(59)), "a grace period first");
+        assert!(too_slow(100_000, Duration::from_secs(61)));
+        assert!(!too_slow(200_000, Duration::from_secs(61)));
+        assert!(too_slow(2048 * 600 - 1, Duration::from_secs(600)));
     }
 
     #[test]

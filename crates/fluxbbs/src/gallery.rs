@@ -1336,16 +1336,25 @@ impl Session {
                     std::fs::metadata(z).and_then(|m| m.modified()).ok().hash(&mut h);
                     h.finish()
                 }));
-                if !out.exists() {
+                if out.exists() {
+                    crate::pdf::touch(&out);
+                } else {
                     // Off the async threads, straight to disk, then into
                     // place; the cache kept within its size, oldest out.
+                    // The copy in progress has a name of its own (two
+                    // nodes may open the same PDF at once), and goes if
+                    // the copy fails.
+                    static COPIES: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+                    let n = COPIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    let part = out.with_extension(format!("part{}-{}-{n}", std::process::id(), self.node.number()));
                     let (src, to) = (src.clone(), out.clone());
                     let made = tokio::task::spawn_blocking(move || -> io::Result<()> {
                         std::fs::create_dir_all(&dir)?;
-                        let part = to.with_extension(format!("part{}", std::process::id()));
-                        let _ = std::fs::remove_file(&part);
-                        extract_piece(&src, &part, max)?;
-                        std::fs::rename(&part, &to)?;
+                        let copied = extract_piece(&src, &part, max).and_then(|()| std::fs::rename(&part, &to));
+                        if copied.is_err() {
+                            let _ = std::fs::remove_file(&part);
+                        }
+                        copied?;
                         crate::pdf::prune_cache(&dir, &to);
                         Ok(())
                     })
@@ -1609,8 +1618,10 @@ impl Session {
 
     /// Download a piece (pulled out of its pack if need be) or a pack.
     /// New: a piece of a pack that is a file area's file (in `owners`)
-    /// downloads as the pack would: its area's checks, and the pack's
-    /// points and counts once it's sent.
+    /// downloads under the pack's area checks (access, ratios), charged
+    /// as a download of its own size ([`piece_rec`]): time, kb, a daily
+    /// download each, points in proportion. The pack's own download
+    /// count is for whole packs and isn't touched.
     async fn gallery_download(&mut self, item: &Item, owners: &Owners) -> io::Result<()> {
         let dl = self.state.config().gallery.download_acs.clone();
         self.screen.goto(1, self.screen.rows());
@@ -1628,11 +1639,15 @@ impl Session {
             Item::Art { src: Src::Zip(arc, _) | Src::Tar(arc, _, _), .. } => owners.iter().find(|(p, _)| p == arc).map(|(_, r)| r.clone()),
             _ => None,
         };
+        let piece_size = match item {
+            Item::Art { size, .. } => *size,
+            _ => 0,
+        };
         let owner = match owner {
             Some((n, f)) => match self.farea(n) {
                 Some(a) if self.farea_visible(n) => {
                     self.newline();
-                    if !self.may_download(&a, &f, (0, 0, 0, 0)).await? {
+                    if !self.may_download(&a, &piece_rec(&f, piece_size), (0, 0, 0, 0)).await? {
                         return self.prompt_key().await;
                     }
                     Some((a, f))
@@ -1673,16 +1688,31 @@ impl Session {
         if let Some(proto) = self.select_protocol(false).await? {
             tracing::info!("{}: gallery download {}", self.user.handle, file.display());
             let ok = self.send_files(&proto, std::slice::from_ref(&file)).await?;
-            if let Some((a, mut f)) = owner
+            if let Some((a, f)) = owner
                 && ok.first() == Some(&true)
             {
-                tracing::info!("{}: downloaded a piece of {} ({})", self.user.handle, f.name, a.area.name);
-                self.count_download(&mut f)?;
+                // What was sent, which the listing's size only claimed.
+                let sent = std::fs::metadata(&file).map_or(piece_size, |m| m.len());
+                tracing::info!("{}: downloaded a piece of {} ({}), {sent} bytes", self.user.handle, f.name, a.area.name);
+                self.credit_download(&piece_rec(&f, sent))?;
             }
         }
         let _ = std::fs::remove_dir_all(&temp);
         self.prompt_key().await
     }
+}
+
+/// New: a piece of pack `f`, `size` bytes, as a download of its own: the
+/// pack's record with the piece's size, and the pack's points in
+/// proportion (rounded up, so a pack that costs points never gives
+/// pieces away; never more than the pack).
+fn piece_rec(f: &FileRec, size: u64) -> FileRec {
+    let points = if f.points == 0 || f.size == 0 {
+        f.points
+    } else {
+        (f.points as u64).saturating_mul(size).div_ceil(f.size).clamp(1, f.points as u64) as u32
+    };
+    FileRec { size, points, ..f.clone() }
 }
 
 /// "artist/group", or whichever is known.
@@ -1847,6 +1877,17 @@ fn is_pdf(name: &str) -> bool {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn a_piece_costs_its_share_of_the_pack() {
+        let pack = FileRec { id: 1, area: "A".into(), num: 1, name: "pack.zip".into(), size: 100 * 1024, date: None, uploader: String::new(), uploaded: None, downloads: 4, points: 10, valid: true, description: Vec::new() };
+        let p = piece_rec(&pack, 10 * 1024);
+        assert_eq!((p.size, p.points, p.name.as_str()), (10 * 1024, 1, "pack.zip"), "its own size, a tenth of the points, the pack's name for the checks");
+        assert_eq!(piece_rec(&pack, 1).points, 1, "never free when the pack isn't");
+        assert_eq!(piece_rec(&pack, 500 * 1024).points, 10, "never more than the pack");
+        assert_eq!(piece_rec(&FileRec { points: 0, ..pack.clone() }, 10).points, 0);
+        assert_eq!(piece_rec(&FileRec { size: 0, ..pack }, 10).points, 10);
+    }
 
     fn sauce_rec(title: &str, author: &str, group: &str, date: &str) -> Vec<u8> {
         let mut r = b"SAUCE00".to_vec();
