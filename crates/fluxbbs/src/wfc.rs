@@ -668,6 +668,7 @@ impl Wfc {
             transport: "local",
             login_name: String::new(),
             key_user: None,
+            ssh_password: None,
             term: std::env::var("TERM").unwrap_or_else(|_| "xterm".into()),
             size,
         };
@@ -742,6 +743,12 @@ impl Session {
             self.newline();
             return self.pause().await;
         };
+        // New: not while the SysOp's account is on another node.
+        if let Err(other) = self.node.claim(u.id) {
+            self.write(&format!("{} is on node {other}; one node at a time.", u.handle));
+            self.newline();
+            return self.pause().await;
+        }
         self.user = u;
         *self.user_base.borrow_mut() = Some(self.user.clone());
         self.logged_in = true;

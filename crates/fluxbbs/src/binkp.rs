@@ -542,7 +542,7 @@ async fn answer(state: Arc<BbsState>, stream: TcpStream, peer: std::net::SocketA
         } else if remote_is_hub {
             // Someone else claiming to be the hub: a guess, counted.
             tracing::warn!("binkp: {peer} gave the hub's address with the wrong session password");
-            crate::logon::record_failure(&state, peer, "binkp: wrong session password");
+            crate::logon::record_failure_for(&state, peer, "binkp: wrong session password", None);
         } else if claims_any_hub {
             // The hub of a network that's set up wrong here: not their fault.
             for p in state.config().ftn.problems() {

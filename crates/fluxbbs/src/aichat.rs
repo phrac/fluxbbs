@@ -1002,7 +1002,7 @@ impl Session {
             }
             let (top, last) = (win.top, rows - 1);
             win.since += 1;
-            let full = win.pausing && win.since + 1 >= (last - top + 1) as usize;
+            let full = win.pausing && win.since + 1 >= (last.saturating_sub(top) + 1) as usize;
             self.ai_win = Some(win);
             if self.screen.where_y() < last {
                 self.newline();
@@ -1047,7 +1047,7 @@ impl Session {
     /// (the line being written is the latest).
     async fn ai_paint(&mut self, back: usize) -> io::Result<()> {
         let Some(win) = self.ai_win.take() else { return Ok(()) };
-        let height = (self.screen.rows() - win.top) as usize;
+        let height = self.screen.rows().saturating_sub(win.top) as usize;
         let total = win.lines.len() + 1;
         let end = total.saturating_sub(back);
         let start = end.saturating_sub(height);
@@ -1118,7 +1118,7 @@ impl Session {
     /// latest (None). Any other key returns too, and is handed back.
     async fn ai_look_back(&mut self, mut key: Key) -> io::Result<Option<Key>> {
         let Some(win) = &self.ai_win else { return Ok(Some(key)) };
-        let height = (self.screen.rows() - win.top) as usize;
+        let height = self.screen.rows().saturating_sub(win.top) as usize;
         let most = (win.lines.len() + 1).saturating_sub(height);
         if most == 0 {
             return Ok(None);

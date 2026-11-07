@@ -102,6 +102,9 @@ pub struct Caller {
     /// New: the user whose SSH key (or own password) the client logged in
     /// with.
     pub key_user: Option<u32>,
+    /// New: with `key_user`, the password it logged in with if it wasn't
+    /// a key (checked against the rules, then dropped).
+    pub ssh_password: Option<String>,
     pub term: String,
     /// (columns, rows), updated on window changes.
     pub size: watch::Receiver<(u16, u16)>,
@@ -449,7 +452,7 @@ impl Session {
     pub(crate) fn for_test(state: Arc<BbsState>, user: User) -> Self {
         let (io, _) = tokio::io::duplex(1 << 16);
         let (_, size) = watch::channel((80, 24));
-        let caller = Caller { remote: None, transport: "test", login_name: String::new(), key_user: None, term: "ansi".into(), size };
+        let caller = Caller { remote: None, transport: "test", login_name: String::new(), key_user: None, ssh_password: None, term: "ansi".into(), size };
         let node = state.nodes.acquire("test").expect("a free node");
         let mut s = Session::new(state, Box::new(io), caller, node);
         s.user = user.clone();

@@ -302,30 +302,52 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     let listener = TcpListener::bind(&listen).await.with_context(|| format!("telnet on {listen}"))?;
     tracing::info!("telnet listening on {listen}");
     loop {
-        let (sock, peer) = listener.accept().await?;
+        // New: an accept error (out of descriptors) waits a moment and
+        // goes on, rather than ending the server.
+        let (sock, peer) = match listener.accept().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("telnet: accept: {e}");
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+        };
         // Banned and denied addresses are dropped before any negotiation.
         if let Some(why) = crate::logon::turned_away(&state, peer) {
             tracing::info!("{peer}: telnet refused: {why}");
             drop(sock);
             continue;
         }
+        // New: and so are floods of connections still negotiating.
+        let Some(pending) = state.guard.pending(&state.config().security, peer.ip()) else {
+            tracing::info!("{peer}: telnet refused: too many connections negotiating");
+            drop(sock);
+            continue;
+        };
         let state = state.clone();
         tokio::spawn(async move {
-            if let Err(e) = connection(state, sock, peer).await {
+            if let Err(e) = connection(state, sock, peer, pending).await {
                 tracing::info!("{peer}: telnet: {e}");
             }
         });
     }
 }
 
-async fn connection(state: Arc<BbsState>, sock: TcpStream, peer: SocketAddr) -> std::io::Result<()> {
+/// New: how long a client has to take the options offered at connect
+/// (a client that never reads mustn't hold the socket).
+const NEGOTIATE_LIMIT: Duration = Duration::from_secs(10);
+
+async fn connection(state: Arc<BbsState>, sock: TcpStream, peer: SocketAddr, pending: crate::guard::Pending) -> std::io::Result<()> {
     sock.set_nodelay(true)?;
     let (tx, rx) = watch::channel((80, 24));
     let mut t = TelnetStream::new(sock, tx);
-    t.negotiate(Duration::from_millis(1500)).await?;
+    tokio::time::timeout(NEGOTIATE_LIMIT, t.negotiate(Duration::from_millis(1500)))
+        .await
+        .map_err(|_| std::io::Error::new(std::io::ErrorKind::TimedOut, "negotiation took too long"))??;
+    drop(pending);
     // A client that doesn't say is almost certainly a BBS terminal.
     let term = t.term.clone().unwrap_or_else(|| "ansi-bbs".into());
-    let caller = Caller { remote: Some(peer), transport: "telnet", login_name: String::new(), key_user: None, term, size: rx };
+    let caller = Caller { remote: Some(peer), transport: "telnet", login_name: String::new(), key_user: None, ssh_password: None, term, size: rx };
     session::run(state, Box::new(t), caller).await;
     Ok(())
 }

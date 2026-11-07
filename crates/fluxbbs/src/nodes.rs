@@ -62,6 +62,9 @@ pub struct NodeInfo {
     /// New: the message area being read (its key), for the message
     /// center's readers-now count; empty if none.
     pub msg_area: String,
+    /// New: the account logged in here (its user id; 0 before login),
+    /// claimed by [`NodeGuard::claim`] so it's on one node at a time.
+    pub account: u32,
 }
 
 pub struct Nodes {
@@ -158,6 +161,22 @@ impl NodeGuard {
 
     pub fn nodes(&self) -> &Arc<Nodes> {
         &self.nodes
+    }
+
+    /// New: claim account `id` for this node, unless another node has it
+    /// (then its number). Checked and taken under one lock, so two logins
+    /// at once can't both have it; the node's release (drop) frees it.
+    pub fn claim(&self, id: u32) -> Result<(), usize> {
+        let mut slots = self.nodes.slots.lock().unwrap_or_else(|e| e.into_inner());
+        if id != 0
+            && let Some(other) = slots.iter().enumerate().position(|(i, s)| i != self.index && s.as_ref().is_some_and(|n| n.account == id))
+        {
+            return Err(other + 1);
+        }
+        if let Some(info) = slots[self.index].as_mut() {
+            info.account = id;
+        }
+        Ok(())
     }
 
     /// Events waiting for this node, oldest first. With `chat` false,
@@ -273,6 +292,33 @@ mod tests {
         assert_eq!(a.take_if(|e| matches!(e, NodeEvent::ChatEnd { .. })), None);
         assert_eq!(a.take_if(|e| matches!(e, NodeEvent::ChatKey { .. })), Some(NodeEvent::ChatKey { from: 2, key: b'x' }));
         assert_eq!(a.take_page(), None);
+    }
+
+    #[test]
+    fn an_account_is_on_one_node_at_a_time() {
+        let n = Nodes::new(3);
+        let a = n.acquire("ssh").unwrap();
+        let b = n.acquire("telnet").unwrap();
+        assert_eq!(a.claim(7), Ok(()));
+        assert_eq!(a.claim(7), Ok(()), "its own node may claim it again");
+        assert_eq!(b.claim(7), Err(1), "on node 1 already");
+        assert_eq!(b.claim(8), Ok(()), "another account is fine");
+        assert_eq!(n.acquire("ssh").unwrap().claim(0), Ok(()), "nobody yet never collides");
+        drop(a);
+        assert_eq!(b.claim(7), Ok(()), "free once node 1 hangs up");
+    }
+
+    #[test]
+    fn a_hangup_or_panic_frees_the_account() {
+        let n = Nodes::new(2);
+        let a = n.acquire("ssh").unwrap();
+        a.claim(5).unwrap();
+        let held = std::panic::catch_unwind(std::panic::AssertUnwindSafe(move || {
+            let _a = a;
+            panic!("session panicked");
+        }));
+        assert!(held.is_err());
+        assert_eq!(n.acquire("ssh").unwrap().claim(5), Ok(()));
     }
 
     #[test]

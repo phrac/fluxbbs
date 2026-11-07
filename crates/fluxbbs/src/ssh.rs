@@ -20,7 +20,7 @@ use russh::{Preferred, cipher, kex, mac};
 use russh::server::{Auth, ChannelOpenHandle, Msg, Response, Server as _, Session};
 use russh::{MethodKind, MethodSet};
 use russh::{Channel, ChannelId, Pty};
-use tokio::sync::watch;
+use tokio::sync::{oneshot, watch};
 
 use crate::BbsState;
 use crate::session::{self, Caller};
@@ -58,27 +58,66 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     // russh's `run_on_socket`, but banned and denied addresses are
     // dropped as telnet drops them: before the handshake, without a word.
     loop {
-        let (sock, peer) = listener.accept().await.context("ssh server")?;
+        // New: an accept error (out of descriptors) waits a moment and
+        // goes on, rather than ending the server.
+        let (sock, peer) = match listener.accept().await {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!("ssh: accept: {e}");
+                tokio::time::sleep(Duration::from_millis(250)).await;
+                continue;
+            }
+        };
         if let Some(why) = crate::logon::turned_away(&state, peer) {
             tracing::info!("{peer}: ssh refused: {why}");
             drop(sock);
             continue;
         }
+        // New: connections that haven't asked for a shell yet are counted
+        // per address, and have `PRE_SESSION` to get there.
+        let Some(pending) = state.guard.pending(&state.config().security, peer.ip()) else {
+            tracing::info!("{peer}: ssh refused: too many connections logging in");
+            drop(sock);
+            continue;
+        };
         let _ = sock.set_nodelay(true);
-        let handler = server.new_client(Some(peer));
+        let (started_tx, started_rx) = oneshot::channel();
+        let mut handler = server.new_client(Some(peer));
+        handler.pending = Some(pending);
+        handler.started = Some(started_tx);
         let config = config.clone();
         tokio::spawn(async move {
-            match russh::server::run_stream(config, sock, handler).await {
-                Ok(session) => {
-                    if let Err(e) = session.await {
+            let deadline = tokio::time::Instant::now() + PRE_SESSION;
+            let mut session = match tokio::time::timeout_at(deadline, russh::server::run_stream(config, sock, handler)).await {
+                Ok(Ok(session)) => session,
+                Ok(Err(e)) => return tracing::debug!("{peer}: ssh setup: {e:#}"),
+                Err(_) => return tracing::debug!("{peer}: ssh setup took too long"),
+            };
+            let handle = session.handle();
+            let started = tokio::select! {
+                r = &mut session => {
+                    if let Err(e) = r {
                         tracing::debug!("{peer}: ssh: {e:#}");
                     }
+                    return;
                 }
-                Err(e) => tracing::debug!("{peer}: ssh setup: {e:#}"),
+                s = tokio::time::timeout_at(deadline, started_rx) => matches!(s, Ok(Ok(()))),
+            };
+            if !started {
+                tracing::info!("{peer}: ssh: no shell within {}s, closed", PRE_SESSION.as_secs());
+                let _ = handle.disconnect(russh::Disconnect::ByApplication, "took too long to log in".into(), String::new()).await;
+            }
+            if let Err(e) = session.await {
+                tracing::debug!("{peer}: ssh: {e:#}");
             }
         });
     }
 }
+
+/// New: how long a connection has from connecting to asking for a shell
+/// (the handshake, and a person typing a password at their client's
+/// prompt).
+const PRE_SESSION: Duration = Duration::from_secs(120);
 
 /// russh's modern defaults, plus (if `legacy`) the older algorithms that
 /// BBS terminals need: SyncTERM's cryptlib knows none of curve25519,
@@ -127,6 +166,9 @@ impl russh::server::Server for SshServer {
             peer,
             user: String::new(),
             key_user: None,
+            ssh_password: None,
+            pending: None,
+            started: None,
             channel: None,
             term: String::new(),
             size: (80, 25),
@@ -142,6 +184,12 @@ struct Connection {
     user: String,
     /// The user whose key or password logged this connection in.
     key_user: Option<u32>,
+    /// The password, if it was one (`Caller::ssh_password`).
+    ssh_password: Option<String>,
+    /// Counted as not yet a session (`Guard::pending`) until the shell.
+    pending: Option<crate::guard::Pending>,
+    /// Told when the shell starts, so `serve` stops the clock.
+    started: Option<oneshot::Sender<()>>,
     channel: Option<Channel<Msg>>,
     term: String,
     size: (u16, u16),
@@ -208,6 +256,7 @@ impl russh::server::Handler for Connection {
             Some(u) if matches!(self.auth(), Auth::Accept) => {
                 tracing::info!("{}: ssh key accepted for {}", self.peer.map_or("?".into(), |p| p.to_string()), u.handle);
                 self.key_user = Some(u.id);
+                self.ssh_password = None;
                 Ok(Auth::Accept)
             }
             _ => Ok(Auth::reject()),
@@ -229,14 +278,13 @@ impl russh::server::Handler for Connection {
         if matches!(auth, Auth::Accept) && !password.is_empty()
             && let Some(u) = self.account(user)
         {
-            if u.check_password(password) {
+            if crate::logon::password_ok(&u, password).await {
                 tracing::info!("{}: ssh password accepted for {}", self.peer.map_or("?".into(), |p| p.to_string()), u.handle);
                 self.key_user = Some(u.id);
-                if let Some(p) = self.peer {
-                    self.state.guard.success(p.ip());
-                }
+                // The session forgets the address's failures once it's in.
+                self.ssh_password = Some(password.to_string());
             } else if let Some(p) = self.peer
-                && crate::logon::record_failure(&self.state, p, &format!("wrong ssh password for {}", u.handle))
+                && crate::logon::record_failure_for(&self.state, p, &format!("wrong ssh password for {}", u.handle), Some(u.id))
             {
                 return Ok(Auth::Reject { proceed_with_methods: None, partial_success: false });
             }
@@ -331,6 +379,10 @@ impl russh::server::Handler for Connection {
             return Ok(());
         };
         session.channel_success(channel)?;
+        self.pending = None;
+        if let Some(tx) = self.started.take() {
+            let _ = tx.send(());
+        }
         let (tx, rx) = watch::channel(self.size);
         self.resize = Some(tx);
         let caller = Caller {
@@ -338,6 +390,7 @@ impl russh::server::Handler for Connection {
             transport: "ssh",
             login_name: self.user.clone(),
             key_user: self.key_user,
+            ssh_password: self.ssh_password.take(),
             term: self.term.clone(),
             size: rx,
         };

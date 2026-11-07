@@ -140,6 +140,34 @@ fn count_link(state: &BbsState, l: &Link) -> anyhow::Result<()> {
     Ok(())
 }
 
+/// New: how long a download may go without the client taking a chunk
+/// (16 KB) of it: one that stops reading lets its slot go.
+const DL_IDLE: Duration = Duration::from_secs(30);
+
+/// Downloads at once, apart from the status feed's own requests.
+const DL_SLOTS: usize = 16;
+
+/// A write (or shutdown) to a download's client, within [`DL_IDLE`].
+async fn timed(f: impl std::future::Future<Output = std::io::Result<()>>) -> bool {
+    matches!(tokio::time::timeout(DL_IDLE, f).await, Ok(Ok(())))
+}
+
+/// `tokio::io::copy`, giving up on a client that stops reading.
+async fn send_file(file: &mut tokio::fs::File, sock: &mut tokio::net::TcpStream) -> u64 {
+    let mut buf = vec![0u8; 16 * 1024];
+    let mut sent = 0;
+    loop {
+        let n = match file.read(&mut buf).await {
+            Ok(0) | Err(_) => return sent,
+            Ok(n) => n,
+        };
+        if !timed(sock.write_all(&buf[..n])).await {
+            return sent;
+        }
+        sent += n as u64;
+    }
+}
+
 /// `/dl/TOKEN/NAME`: the file, if the link's still good.
 async fn serve_link(state: &Arc<BbsState>, sock: &mut tokio::net::TcpStream, method: &str, path: &str) {
     let token = path.trim_start_matches("/dl/").split('/').next().unwrap_or("");
@@ -152,12 +180,12 @@ async fn serve_link(state: &Arc<BbsState>, sock: &mut tokio::net::TcpStream, met
     let Some(link) = found else {
         let body = "This link has expired or doesn't exist. Ask the board for a new one.\n";
         let reply = format!("HTTP/1.1 404 Not Found\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
-        let _ = sock.write_all(reply.as_bytes()).await;
-        let _ = sock.shutdown().await;
+        let _ = timed(sock.write_all(reply.as_bytes())).await;
+        let _ = timed(sock.shutdown()).await;
         return;
     };
     let Ok(mut file) = tokio::fs::File::open(&link.path).await else {
-        let _ = sock.write_all(b"HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n").await;
+        let _ = timed(sock.write_all(b"HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")).await;
         return;
     };
     let size = file.metadata().await.map(|m| m.len()).unwrap_or(0);
@@ -167,12 +195,12 @@ async fn serve_link(state: &Arc<BbsState>, sock: &mut tokio::net::TcpStream, met
     let head_lines = format!(
         "HTTP/1.1 200 OK\r\nContent-Type: application/octet-stream\r\nContent-Disposition: attachment; filename=\"{plain}\"; filename*=UTF-8''{exact}\r\nContent-Length: {size}\r\nCache-Control: no-store\r\nX-Content-Type-Options: nosniff\r\nConnection: close\r\n\r\n"
     );
-    if sock.write_all(head_lines.as_bytes()).await.is_err() || head {
-        let _ = sock.shutdown().await;
+    if !timed(sock.write_all(head_lines.as_bytes())).await || head {
+        let _ = timed(sock.shutdown()).await;
         return;
     }
-    let sent = tokio::io::copy(&mut file, sock).await.unwrap_or(0);
-    let _ = sock.shutdown().await;
+    let sent = send_file(&mut file, sock).await;
+    let _ = timed(sock.shutdown()).await;
     if sent == size && state.links.count_once(token) {
         let st = state.clone();
         let l = link.clone();
@@ -519,6 +547,9 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
     let building = Arc::new(tokio::sync::Mutex::new(()));
     // Requests served at once.
     let slots = Arc::new(tokio::sync::Semaphore::new(32));
+    // New: downloads give theirs up for one of these, so slow ones can't
+    // take every slot from the feed.
+    let dl_slots = Arc::new(tokio::sync::Semaphore::new(DL_SLOTS));
     loop {
         let mut sock = match listener.accept().await {
             Ok((s, _)) => s,
@@ -529,9 +560,9 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
             }
         };
         let Ok(slot) = slots.clone().try_acquire_owned() else { continue };
-        let (state, cache, started, lists, building) = (state.clone(), cache.clone(), started.clone(), lists.clone(), building.clone());
+        let (state, cache, started, lists, building, dl_slots) = (state.clone(), cache.clone(), started.clone(), lists.clone(), building.clone(), dl_slots.clone());
         tokio::spawn(async move {
-            let _slot = slot;
+            let slot = slot;
             let mut buf = vec![0u8; 4096];
             let mut got = 0;
             // The request line and headers, within a few seconds.
@@ -552,6 +583,11 @@ pub async fn serve(state: Arc<BbsState>) -> anyhow::Result<()> {
             let path = path.split('?').next().unwrap_or("");
             if path.starts_with("/dl/") {
                 let (method, path) = (method.to_string(), path.to_string());
+                drop(slot);
+                let Ok(_dl) = dl_slots.try_acquire_owned() else {
+                    let _ = timed(sock.write_all(b"HTTP/1.1 503 Service Unavailable\r\nRetry-After: 60\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")).await;
+                    return;
+                };
                 return serve_link(&state, &mut sock, &method, &path).await;
             }
             let mut kind = "application/json";

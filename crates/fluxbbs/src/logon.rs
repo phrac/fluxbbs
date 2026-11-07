@@ -13,7 +13,9 @@ use crate::user::{User, parse_date};
 
 /// Count a failed bot check or password against `addr` (in the security
 /// log, and toward a ban). True if it earned a ban.
-pub(crate) fn record_failure(state: &crate::BbsState, addr: std::net::SocketAddr, what: &str) -> bool {
+/// `account`: the account whose password or identity was wrong (only
+/// its own good login forgets it, `Guard::success`); none for the rest.
+pub(crate) fn record_failure_for(state: &crate::BbsState, addr: std::net::SocketAddr, what: &str, account: Option<u32>) -> bool {
     tracing::warn!("{addr}: {what}");
     let ip = addr.ip().to_string();
     let log = |what: &str| {
@@ -22,7 +24,7 @@ pub(crate) fn record_failure(state: &crate::BbsState, addr: std::net::SocketAddr
         }
     };
     log(what);
-    match state.guard.failure(&state.config().security, addr.ip()) {
+    match state.guard.failure_for(&state.config().security, addr.ip(), account) {
         Some(len) => {
             let said = if crate::guard::permanent(len) { "banned for good".to_string() } else { format!("banned for {} minutes", len.as_secs() / 60) };
             tracing::warn!("{ip}: {said}");
@@ -53,6 +55,13 @@ pub(crate) fn turned_away(state: &crate::BbsState, addr: std::net::SocketAddr) -
         }
     }
     Some(why)
+}
+
+/// New: Argon2 off the async workers: a password check takes tens of
+/// milliseconds, and a flood of them mustn't stall every node.
+pub(crate) async fn password_ok(user: &User, pw: &str) -> bool {
+    let (user, pw) = (user.clone(), pw.to_string());
+    tokio::task::spawn_blocking(move || user.check_password(&pw)).await.unwrap_or(false)
 }
 
 /// Where the login's prompts go when they stay on the screen: the name
@@ -182,9 +191,12 @@ impl Session {
     /// New: a caller whose SSH client logged in with a key on their
     /// account, or with their own password as the SSH password, comes
     /// straight in after PRELOGON, without the bot check or the login
-    /// prompts (SysOps are still asked the system password). False if the
-    /// account is gone, to go the usual way.
+    /// prompts (SysOps are still asked the system password). A password
+    /// login is also asked the identity questions and made to change a
+    /// password that breaks the rules, as at the board's own login. False
+    /// if the account is gone, to go the usual way.
     async fn key_logon(&mut self, id: u32) -> io::Result<bool> {
+        let password = self.caller.ssh_password.take();
         let Some(user) = self.state.users.get(id).map_err(io::Error::other)?.filter(|u| !u.deleted) else { return Ok(false) };
         // New: known from the start, so a bot gets plain text throughout.
         if crate::plain::wants_plain(&user.text_mode, crate::aimemory::is_bot(&user)) {
@@ -196,19 +208,68 @@ impl Session {
         *self.user_base.borrow_mut() = Some(self.user.clone());
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
         self.clear_screen();
+        if password.is_some() && !self.verify_identity().await? {
+            self.user = prelogon;
+            self.hangup = true;
+            return Ok(true);
+        }
         if !self.system_password_ok().await? {
             self.user = prelogon;
             self.record_failure("wrong system password");
             self.hangup = true;
             return Ok(true);
         }
+        if !self.claim_account().await? {
+            self.user = prelogon;
+            return Ok(true);
+        }
         tracing::info!("{}: logged in over SSH, no prompts", self.user.handle);
         self.logged_in = true;
         if let Some(addr) = self.caller.remote {
-            self.state.guard.success(addr.ip());
+            self.state.guard.success(addr.ip(), self.user.id);
+        }
+        if let Some(pw) = password {
+            self.enforce_password_rules(&pw).await?;
         }
         self.welcome_screens().await?;
         Ok(true)
+    }
+
+    /// New: one account, one node. Claim the account for this node, or,
+    /// when it's on another already, say so and end the call (the other
+    /// session goes on as it was).
+    pub(crate) async fn claim_account(&mut self) -> io::Result<bool> {
+        match self.node.claim(self.user.id) {
+            Ok(()) => Ok(true),
+            Err(other) => {
+                tracing::info!("{}: already on node {other}, second login refused", self.user.handle);
+                self.login_at = None;
+                self.newline();
+                self.say_line("AlreadyOnline").await?;
+                self.hangup = true;
+                Ok(false)
+            }
+        }
+    }
+
+    /// `enforce_at_login`: a password that breaks the rules is changed
+    /// before going on.
+    async fn enforce_password_rules(&mut self, pw: &str) -> io::Result<()> {
+        let rules = self.state.config().passwords.clone();
+        if rules.enforce_at_login && let Err(weak) = password::check(&rules, pw, &self.user.handle) {
+            // Several lines of its own: off the art first.
+            if self.login_at.take().is_some() {
+                self.clear_screen();
+            }
+            tracing::info!("{}: password breaks the rules ({weak:?}), must change it", self.user.handle);
+            self.say_line("PwMustChange").await?;
+            self.say_weak(&weak).await?;
+            let new = self.ask_new_password(&self.user.handle.clone(), "PwNewPassword", "PwValidate", "PwNoMatch").await?;
+            self.user.set_password(&new);
+            self.save_own_user().map_err(io::Error::other)?;
+            self.say_line("PwChanged").await?;
+        }
+        Ok(())
     }
 
     /// The system password, where the caller's access asks for it.
@@ -471,10 +532,10 @@ impl Session {
                     self.login_ask(true, "LoginPassword").await?;
                     let pw = self.read_string(ReadOpts::new(password::MAX_LEN).password()).await?;
                     self.login_answered();
-                    ok = user.check_password(&pw);
+                    ok = password_ok(&user, &pw).await;
                     if !ok {
                         tracing::info!("{}: wrong password", user.handle);
-                        if self.record_failure("wrong password") {
+                        if self.record_failure_for("wrong password", Some(user.id)) {
                             self.hangup = true;
                         }
                     }
@@ -485,28 +546,24 @@ impl Session {
                     }
                     if ok {
                         ok = self.system_password_ok().await?;
+                        // New: a wrong one counts, as it does after an SSH login.
+                        if !ok && self.record_failure("wrong system password") {
+                            self.hangup = true;
+                        }
+                    }
+                    if ok && !self.claim_account().await? {
+                        self.user = prelogon;
+                        *self.user_base.borrow_mut() = Some(self.user.clone());
+                        return Ok(false);
                     }
                     if ok {
                         // Text mode once they're in, not before every check.
                         self.apply_text_mode();
                         self.logged_in = true;
                         if let Some(addr) = self.caller.remote {
-                            self.state.guard.success(addr.ip());
+                            self.state.guard.success(addr.ip(), self.user.id);
                         }
-                        let rules = self.state.config().passwords.clone();
-                        if rules.enforce_at_login && let Err(weak) = password::check(&rules, &pw, &self.user.handle) {
-                            // Several lines of its own: off the art first.
-                            if self.login_at.take().is_some() {
-                                self.clear_screen();
-                            }
-                            tracing::info!("{}: password breaks the rules ({weak:?}), must change it", self.user.handle);
-                            self.say_line("PwMustChange").await?;
-                            self.say_weak(&weak).await?;
-                            let new = self.ask_new_password(&self.user.handle.clone(), "PwNewPassword", "PwValidate", "PwNoMatch").await?;
-                            self.user.set_password(&new);
-                            self.save_own_user().map_err(io::Error::other)?;
-                            self.say_line("PwChanged").await?;
-                        }
+                        self.enforce_password_rules(&pw).await?;
                     } else {
                         self.user = prelogon;
                         self.login_say("LoginError").await?;
@@ -539,7 +596,7 @@ impl Session {
             self.login_answered();
             if parse_date(&s) != Some(birth) {
                 tracing::info!("{}: wrong birth date at logon", self.user.handle);
-                self.record_failure("wrong birth date");
+                self.record_failure_for("wrong birth date", Some(self.user.id));
                 return Ok(false);
             }
         }
@@ -552,7 +609,7 @@ impl Session {
             self.login_answered();
             if s != digits[digits.len() - 4..] {
                 tracing::info!("{}: wrong phone number at logon", self.user.handle);
-                self.record_failure("wrong phone number");
+                self.record_failure_for("wrong phone number", Some(self.user.id));
                 return Ok(false);
             }
         }
@@ -562,7 +619,12 @@ impl Session {
     /// Count a failed bot check or password against the caller's address.
     /// True if it earned a ban (the caller should be cut off).
     fn record_failure(&self, what: &str) -> bool {
-        self.caller.remote.is_some_and(|addr| record_failure(&self.state, addr, what))
+        self.record_failure_for(what, None)
+    }
+
+    /// [`Self::record_failure`], against an account.
+    fn record_failure_for(&self, what: &str, account: Option<u32>) -> bool {
+        self.caller.remote.is_some_and(|addr| record_failure_for(&self.state, addr, what, account))
     }
 
     /// `userLogonInit`: count the call and reset daily limits.
@@ -788,6 +850,11 @@ impl Session {
             self.user_config_screen("NEWCFG").await?;
             self.save_user();
         }
+        // A new account can't be on elsewhere yet, but it's claimed here
+        // so it isn't twice.
+        if !self.claim_account().await? {
+            return Ok(());
+        }
         self.logged_in = true;
         self.new_user = true;
         Ok(())
@@ -860,8 +927,12 @@ impl Session {
         Ok(())
     }
 
+    /// New: someone's SSH login name (`ssh_user`) is taken too: a handle
+    /// comes first when an SSH name is looked up, so a new caller taking
+    /// it would take that login over.
     fn name_taken(&self, name: &str) -> io::Result<bool> {
-        Ok(self.state.users.find(name, true).map_err(io::Error::other)?.is_some())
+        let users = &self.state.users;
+        Ok(users.find(name, true).map_err(io::Error::other)?.is_some() || users.by_ssh_user(name).map_err(io::Error::other)?.is_some())
     }
 
     /// Too many sign-ups lately, from this address or overall: the string
@@ -959,4 +1030,35 @@ pub fn has_codes(name: &str) -> bool {
     fluxbbs_term::tokenize(&fluxbbs_term::cp437::encode(name), fluxbbs_term::Source::String)
         .iter()
         .any(|t| !matches!(t, fluxbbs_term::Token::Text(_)))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_new_handle_cant_be_someones_ssh_name() {
+        let state = crate::tests::state();
+        let mut u = User { handle: "phrac".into(), ssh_user: "derek".into(), ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        let s = Session::for_test(state, User::default());
+        assert!(s.name_taken("PHRAC").unwrap());
+        assert!(s.name_taken("Derek").unwrap(), "taken as an SSH login name");
+        assert!(!s.name_taken("fiend").unwrap());
+    }
+
+    #[tokio::test]
+    async fn a_second_login_to_an_account_is_refused() {
+        let state = crate::tests::state();
+        let mut u = User { handle: "phrac".into(), ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        let mut first = Session::for_test(state.clone(), u.clone());
+        let mut second = Session::for_test(state, u);
+        assert!(first.claim_account().await.unwrap());
+        assert!(!second.claim_account().await.unwrap());
+        assert!(second.hangup && !first.hangup, "the second call ends; the first goes on");
+        drop(first);
+        second.hangup = false;
+        assert!(second.claim_account().await.unwrap(), "free once the first hangs up");
+    }
 }

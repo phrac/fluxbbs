@@ -101,7 +101,10 @@ impl Parser<'_> {
         while self.peek().is_some_and(|c| c.is_ascii_digit()) {
             self.i += 1;
         }
-        self.s[start..self.i].iter().collect::<String>().parse().unwrap_or(0)
+        // Digits only: what doesn't parse is too big for a u32, and is
+        // the most (deny), not 0 (allow everyone).
+        let digits: String = self.s[start..self.i].iter().collect();
+        if digits.is_empty() { 0 } else { digits.parse().unwrap_or(u32::MAX) }
     }
 
     fn letter_arg(&mut self) -> char {
@@ -228,5 +231,8 @@ mod tests {
     fn malformed_fails_closed() {
         assert!(!check("s25)", &env()));
         assert!(!check("q", &env()));
+        // Too big for a number: the most there is, not 0.
+        assert!(!check("s99999999999", &env()));
+        assert!(!check("t99999999999999999999", &env()));
     }
 }

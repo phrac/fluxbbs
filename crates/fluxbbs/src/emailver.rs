@@ -140,32 +140,39 @@ impl CodeStore {
 
     /// Is `code` the one out to `user` for `address`? Right clears it.
     pub fn check(&self, user: u32, address: &str, code: &str, now: NaiveDateTime) -> anyhow::Result<Check> {
-        let row: Option<(String, String, String, u32)> = self
-            .db
-            .lock()
-            .unwrap()
-            .query_row("SELECT address, hash, expires, tries FROM email_codes WHERE user = ?1", params![user], |r| {
-                Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
-            })
-            .optional()?;
-        let Some((to, hash, expires, tries)) = row else { return Ok(Check::NoCode) };
-        if !to.eq_ignore_ascii_case(address) || hash.is_empty() {
-            return Ok(Check::NoCode);
-        }
-        if tries >= TRIES {
-            return Ok(Check::Void);
-        }
-        if NaiveDateTime::parse_from_str(&expires, STAMP).is_ok_and(|e| now > e) {
-            return Ok(Check::Expired);
-        }
+        let (hash, tries) = {
+            let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+            let row: Option<(String, String, String, u32)> = db
+                .query_row("SELECT address, hash, expires, tries FROM email_codes WHERE user = ?1", params![user], |r| {
+                    Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))
+                })
+                .optional()?;
+            let Some((to, hash, expires, tries)) = row else { return Ok(Check::NoCode) };
+            if !to.eq_ignore_ascii_case(address) || hash.is_empty() {
+                return Ok(Check::NoCode);
+            }
+            if tries >= TRIES {
+                return Ok(Check::Void);
+            }
+            if NaiveDateTime::parse_from_str(&expires, STAMP).is_ok_and(|e| now > e) {
+                return Ok(Check::Expired);
+            }
+            // The try is used up before the hash is checked, in the same
+            // locked step that read the count: checks at once can't each
+            // see a try left that only one of them had.
+            let used = db.execute("UPDATE email_codes SET tries = tries + 1 WHERE user = ?1 AND hash = ?2 AND tries = ?3", params![user, hash, tries])?;
+            if used == 0 {
+                return Ok(Check::Void);
+            }
+            (hash, tries)
+        };
         // Checked without the lock held: the hash takes a moment.
         let right = PasswordHash::new(&hash).is_ok_and(|h| Argon2::default().verify_password(code.trim().as_bytes(), &h).is_ok());
-        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         if right {
-            db.execute("UPDATE email_codes SET hash = '' WHERE user = ?1", params![user])?;
+            let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+            db.execute("UPDATE email_codes SET hash = '' WHERE user = ?1 AND hash = ?2", params![user, hash])?;
             return Ok(Check::Right);
         }
-        db.execute("UPDATE email_codes SET tries = tries + 1 WHERE user = ?1", params![user])?;
         let left = TRIES - (tries + 1);
         Ok(if left == 0 { Check::Void } else { Check::Wrong(left) })
     }
@@ -491,6 +498,26 @@ mod tests {
         }
         assert_eq!(s.check(2, "c@d.co", "999999", t).unwrap(), Check::Void);
         assert_eq!(s.check(2, "c@d.co", "222222", t).unwrap(), Check::Void, "even the right one, once void");
+    }
+
+    #[test]
+    fn guesses_at_once_each_use_a_try() {
+        let s = std::sync::Arc::new(CodeStore::open_memory().unwrap());
+        let t = at("2026-10-26 12:00:00");
+        s.issue(3, "e@f.co", "333333", t, 30).unwrap();
+        let results: Vec<Check> = (0..12)
+            .map(|_| {
+                let s = s.clone();
+                std::thread::spawn(move || s.check(3, "e@f.co", "999999", t).unwrap())
+            })
+            .collect::<Vec<_>>()
+            .into_iter()
+            .map(|h| h.join().unwrap())
+            .collect();
+        let mut left: Vec<u32> = results.iter().filter_map(|c| if let Check::Wrong(n) = c { Some(*n) } else { None }).collect();
+        left.sort_unstable();
+        assert_eq!(left, (1..TRIES).collect::<Vec<_>>(), "no try counted twice: {results:?}");
+        assert_eq!(s.check(3, "e@f.co", "333333", t).unwrap(), Check::Void);
     }
 
     #[test]

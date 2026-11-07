@@ -104,10 +104,12 @@ impl Window {
             c => {
                 if self.line.chars().count() >= self.width {
                     // Wrap at the last space, taking the word along.
+                    // By characters: CP437's upper half is several bytes here.
                     match self.line.rfind(' ').filter(|&i| i > 0) {
                         Some(i) => {
                             let tail = self.line[i + 1..].to_string();
-                            s.goto(self.x + i as u16, self.y + self.row);
+                            let col = self.line[..i].chars().count();
+                            s.goto(self.x + col as u16, self.y + self.row);
                             s.write_str(&" ".repeat(tail.chars().count() + 1));
                             self.newline(s);
                             s.write_str(&tail);
@@ -396,7 +398,13 @@ impl Session {
                     }
                 }
             }
-            while let Some(ev) = self.node.take_if(|e| matches!(e, NodeEvent::ChatKey { .. } | NodeEvent::ChatEnd { .. } | NodeEvent::Kick { .. })) {
+            // Only the other side's keys and end: another caller's page
+            // giving up (`ChatEnd`) isn't this chat's.
+            while let Some(ev) = self.node.take_if(|e| match e {
+                NodeEvent::ChatKey { from, .. } | NodeEvent::ChatEnd { from, .. } => *from == peer,
+                NodeEvent::Kick { .. } => true,
+                _ => false,
+            }) {
                 match ev {
                     NodeEvent::ChatKey { key: KEY_CLS, .. } => {
                         mine.clear(&mut self.screen);
@@ -452,5 +460,23 @@ mod tests {
         assert_eq!((w.line(), s.where_x(), s.where_y()), ("", 3, 2));
         w.apply(&mut s, 0xB0);
         assert_eq!(w.line(), "░");
+    }
+
+    #[test]
+    fn window_wraps_lines_of_block_characters_by_column() {
+        let mut s = Screen::new(Charset::Utf8, 25);
+        let mut w = Window::new(3, 2, 12, 3, Color::DEFAULT);
+        w.clear(&mut s);
+        // Seven blocks (three bytes each here), a space, two more: the
+        // eleventh character wraps the "░░" after the space at column 7.
+        for b in [0xB0; 7].iter().chain(&[b' ', 0xB0, 0xB0]) {
+            w.apply(&mut s, *b);
+        }
+        s.take_output();
+        w.apply(&mut s, b'x');
+        let out = String::from_utf8_lossy(&s.take_output()).into_owned();
+        assert!(out.contains("\x1b[2;10H"), "the word is blanked from the space's column: {out:?}");
+        assert_eq!(w.line(), "░░x");
+        assert_eq!((s.where_x(), s.where_y()), (6, 3));
     }
 }

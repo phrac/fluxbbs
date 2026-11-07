@@ -86,7 +86,12 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   and too-quick answers fail.
 - A BOTCHECK screen frames it. The key-press check is the other option.
 - Per-address limits: connections at once, and new connections a
-  minute.
+  minute. Connections still in the SSH handshake or telnet
+  negotiation are limited too (a few per address, 256 in all), and an
+  SSH connection has two minutes to ask for a shell.
+- A good login forgets only the failures against that same account:
+  logging in to one's own account between guesses at another's
+  doesn't stop the ban. Failures count for an hour.
 - Bans for repeated failures: doubling, up to a day, kept across
   restarts. `fluxbbs unban` lifts them from the shell.
 - Bans for good: the fifth ban for an address (`permanent_after`), or
@@ -104,6 +109,12 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - Password rules (length, common passwords, the handle, repeats),
   enforced at login if wanted.
 - Sign-up limits per address and per day.
+- One account, one node: a login to an account already on another
+  node (SysOps' too) is told so (`AlreadyOnline`) and the call ends;
+  the session already on goes on.
+- An SSH login with the account's own password gets the same birth
+  date and phone checks, and the same forced password change, as the
+  board's login.
 - Reserved handles.
 - Enter alone at the application's first question (the alias, or the
   real name on a real-names board) leaves it, back to the prelogon menu.

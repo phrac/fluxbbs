@@ -369,7 +369,8 @@ impl Session {
         {
             return Ok(ChatLayout { top: tl.1, bottom: bl.1, x: si.0, y: si.1, width: (ei.0 - si.0 + 1) as usize });
         }
-        let rows = self.screen.rows();
+        // A window of a line at least, however few rows the terminal says.
+        let rows = self.screen.rows().max(4);
         self.clear_screen();
         self.screen.goto(1, rows - 1);
         self.set_slot(Slot::Border);

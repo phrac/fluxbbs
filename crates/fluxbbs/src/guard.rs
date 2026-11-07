@@ -4,6 +4,7 @@
 
 use std::collections::{HashMap, VecDeque};
 use std::net::IpAddr;
+use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -39,11 +40,31 @@ pub fn permanent(left: Duration) -> bool {
     left > Duration::from_secs(10 * 365 * 24 * 3600)
 }
 
+/// How long a failure counts toward a ban (new; before, only a good
+/// login forgot them).
+const FAILURE_WINDOW: Duration = Duration::from_secs(3600);
+
+/// How long an address's ban history is kept after its last ban ends
+/// (new): the table doesn't keep every address ever banned.
+const STRIKES_KEPT: Duration = Duration::from_secs(30 * 24 * 3600);
+
+/// New: connections from one address still in the SSH handshake or
+/// telnet negotiation (not yet a session), and from everyone.
+const PENDING_TOTAL: usize = 256;
+
+fn pending_limit(cfg: &Security) -> u32 {
+    cfg.max_per_ip.max(2) * 2
+}
+
 #[derive(Default)]
 struct PerIp {
     active: u32,
     recent: VecDeque<Instant>,
-    failures: u32,
+    /// When each failure was, and the account it was against (none for
+    /// the bot check or the system password).
+    failures: VecDeque<(Instant, Option<u32>)>,
+    /// Connections not yet a session ([`Guard::pending`]).
+    pending: u32,
     banned_until: Option<Instant>,
     /// How many times it's been banned: each ban lasts twice the last.
     strikes: u32,
@@ -54,6 +75,7 @@ struct PerIp {
 #[derive(Default)]
 pub struct Guard {
     ips: Mutex<HashMap<IpAddr, PerIp>>,
+    pending: AtomicUsize,
 }
 
 /// Does `ip` match an entry: an address, or a prefix like `10.0.` or
@@ -93,9 +115,8 @@ impl Guard {
         for (ip, left, strikes) in bans {
             let e = ips.entry(ip).or_default();
             e.strikes = e.strikes.max(strikes);
-            if let Some(left) = left {
-                e.banned_until = Some(now + left);
-            }
+            // An old ban ends now, for `tidy`'s clock.
+            e.banned_until = Some(now + left.unwrap_or_default());
         }
     }
 
@@ -110,7 +131,7 @@ impl Guard {
         let mut out: Vec<_> = self
             .ips
             .lock()
-            .unwrap()
+            .unwrap_or_else(|e| e.into_inner())
             .iter()
             .filter_map(|(ip, e)| e.banned_until.filter(|t| *t > now).map(|t| (*ip, t - now)))
             .collect();
@@ -122,9 +143,9 @@ impl Guard {
     pub fn unban(&self, ip: IpAddr) -> bool {
         let mut ips = self.ips.lock().unwrap_or_else(|e| e.into_inner());
         match ips.get_mut(&ip) {
-            Some(e) if e.banned_until.is_some() || e.strikes > 0 => {
+            Some(e) if e.banned_until.is_some_and(|t| t > Instant::now()) || e.strikes > 0 => {
                 e.banned_until = None;
-                e.failures = 0;
+                e.failures.clear();
                 e.strikes = 0;
                 true
             }
@@ -197,19 +218,48 @@ impl Guard {
         Ok(Ticket { guard: self.clone(), ip })
     }
 
-    /// Count a failure (challenge or password). Returns the ban length
-    /// if this one earned a ban.
-    pub fn failure(&self, cfg: &Security, ip: IpAddr) -> Option<Duration> {
-        if self.trusted(cfg, ip) || cfg.fail_limit == 0 {
+    /// New: hold a place for a connection that isn't a session yet (the
+    /// SSH handshake and auth, telnet's negotiation), so a flood of them
+    /// can't use up the board's sockets: a few per address, and a few
+    /// hundred in all. None: turn it away.
+    pub fn pending(self: &Arc<Self>, cfg: &Security, ip: IpAddr) -> Option<Pending> {
+        if self.pending.fetch_add(1, Ordering::SeqCst) >= PENDING_TOTAL && !self.trusted(cfg, ip) {
+            self.pending.fetch_sub(1, Ordering::SeqCst);
             return None;
         }
         let mut ips = self.ips.lock().unwrap_or_else(|e| e.into_inner());
         let e = ips.entry(ip).or_default();
-        e.failures += 1;
-        if e.failures < cfg.fail_limit {
+        if e.pending >= pending_limit(cfg) && !self.trusted(cfg, ip) {
+            self.pending.fetch_sub(1, Ordering::SeqCst);
             return None;
         }
-        e.failures = 0;
+        e.pending += 1;
+        Some(Pending { guard: self.clone(), ip })
+    }
+
+    /// Count a failure (challenge or password) not against an account.
+    /// Returns the ban length if this one earned a ban.
+    pub fn failure(&self, cfg: &Security, ip: IpAddr) -> Option<Duration> {
+        self.failure_for(cfg, ip, None)
+    }
+
+    /// [`Self::failure`], against `account` (a password or identity
+    /// question for it): only that account's own good login forgets it.
+    pub fn failure_for(&self, cfg: &Security, ip: IpAddr, account: Option<u32>) -> Option<Duration> {
+        if self.trusted(cfg, ip) || cfg.fail_limit == 0 {
+            return None;
+        }
+        let now = Instant::now();
+        let mut ips = self.ips.lock().unwrap_or_else(|e| e.into_inner());
+        let e = ips.entry(ip).or_default();
+        while e.failures.front().is_some_and(|(t, _)| now.duration_since(*t) > FAILURE_WINDOW) {
+            e.failures.pop_front();
+        }
+        e.failures.push_back((now, account));
+        if (e.failures.len() as u32) < cfg.fail_limit {
+            return None;
+        }
+        e.failures.clear();
         let minutes = (cfg.ban_minutes.max(1) as u64) << e.strikes.min(7);
         // New: the `permanent_after`th ban is for good.
         let len = if cfg.permanent_after > 0 && e.strikes + 1 >= cfg.permanent_after {
@@ -223,22 +273,28 @@ impl Guard {
         Some(len)
     }
 
-    /// A good login clears the failure count (not the ban history).
-    pub fn success(&self, ip: IpAddr) {
+    /// A good login to `account` forgets the failures against it (not
+    /// the ban history). Guesses at other accounts, and failed bot
+    /// checks, still count: logging in to one's own account between
+    /// guesses mustn't keep an address from being banned.
+    pub fn success(&self, ip: IpAddr, account: u32) {
         if let Some(e) = self.ips.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&ip) {
-            e.failures = 0;
+            e.failures.retain(|(_, a)| *a != Some(account));
         }
     }
 
     /// Forget addresses that are idle and not banned, so the table
-    /// doesn't grow forever.
+    /// doesn't grow forever. Ban history goes a month after the last ban
+    /// ended (it was kept for good).
     pub fn tidy(&self) {
         let now = Instant::now();
         self.ips.lock().unwrap_or_else(|e| e.into_inner()).retain(|_, e| {
             e.active > 0
+                || e.pending > 0
                 || e.banned_until.is_some_and(|t| t > now)
                 || e.recent.back().is_some_and(|t| now.duration_since(*t) < Duration::from_secs(3600))
-                || e.strikes > 0
+                || e.failures.back().is_some_and(|(t, _)| now.duration_since(*t) < FAILURE_WINDOW)
+                || (e.strikes > 0 && e.banned_until.is_some_and(|t| t + STRIKES_KEPT > now))
         });
     }
 }
@@ -252,6 +308,22 @@ pub struct Ticket {
 impl Ticket {
     pub fn ip(&self) -> IpAddr {
         self.ip
+    }
+}
+
+/// A connection not yet a session ([`Guard::pending`]); its place goes
+/// when dropped.
+pub struct Pending {
+    guard: Arc<Guard>,
+    ip: IpAddr,
+}
+
+impl Drop for Pending {
+    fn drop(&mut self) {
+        self.guard.pending.fetch_sub(1, Ordering::SeqCst);
+        if let Some(e) = self.guard.ips.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&self.ip) {
+            e.pending = e.pending.saturating_sub(1);
+        }
     }
 }
 
@@ -370,6 +442,51 @@ mod tests {
         let h = Guard::new();
         h.load([(x, Some(PERMANENT - Duration::from_secs(5)), 5)]);
         assert_eq!(h.blocked(&c, x).map(|r| r.to_string()).as_deref(), Some("banned for good"));
+    }
+
+    #[test]
+    fn a_good_login_forgets_only_its_own_failures() {
+        let g = Guard::new();
+        let c = Security { fail_limit: 3, ..cfg() };
+        let x = ip("9.9.9.5");
+        // Guesses at account 2, with logins to the attacker's own (7)
+        // between: still banned on the third.
+        assert_eq!(g.failure_for(&c, x, Some(2)), None);
+        g.success(x, 7);
+        assert_eq!(g.failure_for(&c, x, Some(2)), None);
+        g.success(x, 7);
+        assert!(g.failure_for(&c, x, Some(2)).is_some(), "banned");
+        // A caller who mistypes their own password, then gets it right.
+        let y = ip("9.9.9.4");
+        g.failure_for(&c, y, Some(3));
+        g.failure_for(&c, y, Some(3));
+        g.success(y, 3);
+        assert_eq!(g.failure_for(&c, y, Some(3)), None, "their own failures were forgotten");
+        assert_eq!(g.failure(&c, y), None);
+        assert!(g.failure(&c, y).is_some(), "the bot check's weren't forgiven by the login");
+    }
+
+    #[test]
+    fn pending_connections_are_limited_per_address() {
+        let g = Guard::new();
+        let c = cfg();
+        let x = ip("9.9.9.3");
+        let held: Vec<_> = (0..pending_limit(&c)).map(|_| g.pending(&c, x).unwrap()).collect();
+        assert!(g.pending(&c, x).is_none(), "too many handshakes at once");
+        assert!(g.pending(&c, ip("9.9.9.2")).is_some(), "other addresses aren't affected");
+        drop(held);
+        assert!(g.pending(&c, x).is_some(), "freed when they end");
+        assert_eq!(g.pending.load(Ordering::SeqCst), 0);
+    }
+
+    #[test]
+    fn tidy_forgets_old_ban_history() {
+        let g = Guard::new();
+        let (old, recent) = (ip("9.9.9.1"), ip("9.9.8.1"));
+        g.load([(old, None, 2), (recent, None, 1)]);
+        g.ips.lock().unwrap_or_else(|e| e.into_inner()).get_mut(&old).unwrap().banned_until = Instant::now().checked_sub(STRIKES_KEPT + Duration::from_secs(1));
+        g.tidy();
+        assert_eq!((g.strikes(old), g.strikes(recent)), (0, 1));
     }
 
     #[test]
