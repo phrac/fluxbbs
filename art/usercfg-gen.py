@@ -7,7 +7,8 @@ import sys
 # color themes, W menus animating or not, X the screen saver, Z the
 # editor's keys, standard or vim; 1 file popups, 2 sixel pictures, 3
 # clickable links), ~*A the theme's
-# author and ~** the command prompt.
+# author (without it, the author follows the theme's name) and ~** the
+# command prompt.
 # Run from text/: python3 -I ../art/usercfg-gen.py > USERCFG.ANS
 E='\x1b['
 DG=E+'0;1;30m'; WH=E+'0;1;37m'; GR=E+'0;37m'
@@ -34,9 +35,9 @@ def fade(n,rev):
 # where the value goes (values run to 30 characters about you, 10 in
 # settings).
 BOXES=[('about you',47,12,[('l','location','~DL'),('a','address','~EA'),('u','usernote','~FU'),('n','phone','~BN'),
-                        ('z','zip code','~OZ'),('p','profile','~QP'),('k','ssh keys','~PK'),('t','theme','~NT'),(None,'by','~*A'),('r','code theme','~UR'),('m','md theme','~VM'),('i','editor keys','~ZI'),('j','sixel pics','~2J')]),
+                        ('z','zip code','~OZ'),('p','profile','~QP'),('k','ssh keys','~PK'),('t','theme','~NT'),('r','code theme','~UR'),('m','md theme','~VM'),('i','editor keys','~ZI'),('j','sixel pics','~2J'),('o','links','~3O')]),
        ('settings',30,12,[('s','screen len','~GS'),('e','emulation','~ME'),('q','autoquote','~LQ'),('y','yes/no bars','~HY'),
-                       ('x','expert mode','~IX'),('h','hot keys','~JH'),('w','pausing','~KW'),('c','time zone','~RC'),('b','text mode','~SB'),('g','code bg','~TG'),('v','animations','~WV'),('d','screensaver','~XD'),('f','file popups','~1F'),('o','links','~3O')])]
+                       ('x','expert mode','~IX'),('h','hot keys','~JH'),('w','pausing','~KW'),('c','time zone','~RC'),('b','text mode','~SB'),('g','code bg','~TG'),('v','animations','~WV'),('d','screensaver','~XD'),('f','file popups','~1F')])]
 H=max(len(b[3]) for b in BOXES)
 def top(t,w):
     head=BR+'─'+DG+'[ '+fade_text(t)+' '+DG+']'

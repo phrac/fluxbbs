@@ -787,8 +787,14 @@ impl Session {
                     fields.push((f, k.to_ascii_uppercase(), pos));
                 }
             }
+            // New: a screen without a place for the theme's author has it
+            // after the theme's name.
+            let author_here = self.positions.contains_key(b"*A");
             for (f, _, pos) in &fields {
-                let v = self.user_field(*f);
+                let mut v = self.user_field(*f);
+                if *f == 'N' && !author_here && let Some(a) = self.current_theme().map(|t| t.author).filter(|a| !a.is_empty()) {
+                    v = squish(&format!("{v}, by {a}"), 30);
+                }
                 self.screen.goto(pos.0, pos.1);
                 self.screen.set_color(pos.2);
                 self.write_with_controls(&v);
