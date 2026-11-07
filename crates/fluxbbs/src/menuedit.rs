@@ -89,11 +89,7 @@ fn menu_path(dir: &Path, name: &str) -> PathBuf {
 
 fn save_menu(dir: &Path, name: &str, m: &Menu) -> anyhow::Result<()> {
     let path = menu_path(dir, name);
-    let tmp = path.with_extension("toml.new");
-    std::fs::write(&tmp, m.to_toml())?;
-    crate::keep_mode(&path, &tmp);
-    std::fs::rename(&tmp, &path)?;
-    Ok(())
+    crate::write_atomic(&path, &m.to_toml())
 }
 
 impl Session {

@@ -44,6 +44,9 @@ pub enum Status {
     Fault(String),
 }
 
+/// The most input kept waiting for a program that isn't reading it.
+pub const INPUT_MAX: usize = 64 << 10;
+
 /// Devices and the OS layer: everything the CPU talks to.
 pub struct System {
     pub uart: Uart,
@@ -148,6 +151,10 @@ impl System {
     /// The caller typed, in console mode: turn bytes into BIOS keys.
     pub fn console_keys(&mut self, bytes: &[u8]) {
         for &b in bytes {
+            // A flood the program isn't reading goes no further.
+            if self.keys.len() >= INPUT_MAX {
+                break;
+            }
             if !self.esc.is_empty() {
                 self.esc.push(b);
                 let key = match self.esc.as_slice() {
@@ -199,7 +206,8 @@ impl System {
         }
         self.active();
         if self.remote {
-            self.input.extend(bytes);
+            let room = INPUT_MAX.saturating_sub(self.input.len()).min(bytes.len());
+            self.input.extend(&bytes[..room]);
             self.uart.data_arrived();
             if self.uart.irq() {
                 self.raise_irq(COM1_IRQ);
@@ -299,7 +307,7 @@ impl Machine {
         self.sys.fault = None;
         self.sys.blocked = false;
         self.sys.hangup = false;
-        self.sys.dos.exec(&mut self.cpu, &mut self.mem, program, args, None)
+        self.sys.dos.exec(&mut self.cpu, &mut self.mem, program, args, None).map_err(|e| e.msg)
     }
 
     /// Hardware interrupts between instructions.

@@ -186,3 +186,41 @@ fn nodes_share_files_with_modes_and_locks() {
     assert_eq!(run(&mut c, &mut out), Status::Exited(0));
     std::fs::remove_dir_all(&dir).unwrap();
 }
+
+#[test]
+fn malformed_programs_fail_without_a_panic() {
+    let dir = std::env::temp_dir().join(format!("fluxbbs-dos-bad-{}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let mut short_hdr = b"MZ".to_vec();
+    short_hdr.resize(0x10, 0);
+    let mut zero_pages = vec![0u8; 0x20];
+    zero_pages[..2].copy_from_slice(b"MZ");
+    zero_pages[2] = 5; // a last page, but no pages
+    let mut past_end = vec![0u8; 0x20];
+    past_end[..2].copy_from_slice(b"MZ");
+    past_end[4] = 1;
+    past_end[8] = 0xFF; // a header longer than the file
+    for (name, image) in [("ONE.COM", vec![0xC3]), ("SHORT.EXE", short_hdr), ("ZERO.EXE", zero_pages), ("PAST.EXE", past_end)] {
+        std::fs::write(dir.join(name), &image).unwrap();
+        let mut m = Machine::new(&dir, None);
+        let r = m.start(name, "");
+        if name == "ONE.COM" {
+            assert!(r.is_ok(), "{name}: {r:?}");
+        } else {
+            assert!(r.is_err(), "{name} loaded");
+        }
+    }
+    std::fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn input_flood_is_bounded() {
+    let mut m = Machine::new(&programs(), None);
+    m.start("ECHO.COM", "").unwrap();
+    let mut out = Vec::new();
+    assert_eq!(run(&mut m, &mut out), Status::Idle);
+    for _ in 0..100 {
+        m.feed(&[b'x'; 4096]);
+    }
+    assert!(m.sys.input.len() <= fluxbbs_dos::machine::INPUT_MAX);
+}

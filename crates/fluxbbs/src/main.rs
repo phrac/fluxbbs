@@ -260,9 +260,8 @@ impl BbsState {
     /// Save the strings that differ from stock to strings.toml and start
     /// using them.
     pub fn set_strings(&self, new: Strings) -> anyhow::Result<()> {
-        write_atomic(&self.config().resolve(&self.config().paths.strings), &strings::to_toml(&new.overrides()))?;
-        *self.strings.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
-        Ok(())
+        let path = self.config().resolve(&self.config().paths.strings);
+        store(&self.strings, &path, &strings::to_toml(&new.overrides()), new)
     }
 
     /// The configuration as it is now.
@@ -274,6 +273,34 @@ impl BbsState {
     pub fn set_config(&self, new: Config) {
         clock::set_board(&new.bbs.time_zone);
         *self.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
+    }
+
+    /// Change the configuration as it is now, save what changed to its
+    /// file (keeping the file's comments) and start using it, all under
+    /// its lock: no other change can come between. `f` mustn't read the
+    /// configuration through `self` (it's locked).
+    pub fn update_config<T>(&self, f: impl FnOnce(&mut Config) -> T) -> anyhow::Result<T> {
+        let mut held = self.config.write().unwrap_or_else(|e| e.into_inner());
+        let mut new = (**held).clone();
+        let r = f(&mut new);
+        if toml::Value::try_from(&new)? != toml::Value::try_from(&**held)? {
+            sysconfig::save_changes(&self.config_path, &held, &new)?;
+            clock::set_board(&new.bbs.time_zone);
+            *held = Arc::new(new);
+        }
+        Ok(r)
+    }
+
+    /// An editor's changes (`edited`, from the copy `original` it opened
+    /// with) made to the configuration as it is now, so what others saved
+    /// meanwhile (flag descriptions, moved echoes) stays.
+    pub fn save_config_edits(&self, original: &Config, edited: &Config) -> anyhow::Result<()> {
+        let mut held = self.config.write().unwrap_or_else(|e| e.into_inner());
+        let new = sysconfig::rebase(original, edited, &held)?;
+        sysconfig::save_changes(&self.config_path, &held, &new)?;
+        clock::set_board(&new.bbs.time_zone);
+        *held = Arc::new(new);
+        Ok(())
     }
 
     /// The message areas as they are now.
@@ -309,9 +336,8 @@ impl BbsState {
     }
 
     pub fn set_events(&self, new: events::Events) -> anyhow::Result<()> {
-        write_atomic(&self.config().resolve(&self.config().paths.events), &new.to_toml())?;
-        *self.events.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
-        Ok(())
+        let path = self.config().resolve(&self.config().paths.events);
+        store(&self.events, &path, &new.to_toml(), new)
     }
 
     pub fn protocols(&self) -> Arc<extprog::Protocols> {
@@ -319,9 +345,8 @@ impl BbsState {
     }
 
     pub fn set_protocols(&self, new: extprog::Protocols) -> anyhow::Result<()> {
-        write_atomic(&self.config().resolve(&self.config().paths.protocols), &new.to_toml())?;
-        *self.protocols.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
-        Ok(())
+        let path = self.config().resolve(&self.config().paths.protocols);
+        store(&self.protocols, &path, &new.to_toml(), new)
     }
 
     pub fn archivers(&self) -> Arc<extprog::Archivers> {
@@ -329,9 +354,8 @@ impl BbsState {
     }
 
     pub fn set_archivers(&self, new: extprog::Archivers) -> anyhow::Result<()> {
-        write_atomic(&self.config().resolve(&self.config().paths.archivers), &new.to_toml())?;
-        *self.archivers.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
-        Ok(())
+        let path = self.config().resolve(&self.config().paths.archivers);
+        store(&self.archivers, &path, &new.to_toml(), new)
     }
 
     pub fn levels(&self) -> Arc<extprog::Levels> {
@@ -344,9 +368,8 @@ impl BbsState {
     }
 
     pub fn set_levels(&self, new: extprog::Levels) -> anyhow::Result<()> {
-        write_atomic(&self.config().resolve(&self.config().paths.levels), &new.to_toml())?;
-        *self.levels.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
-        Ok(())
+        let path = self.config().resolve(&self.config().paths.levels);
+        store(&self.levels, &path, &new.to_toml(), new)
     }
 
     pub fn themes(&self) -> Arc<themes::Themes> {
@@ -354,9 +377,8 @@ impl BbsState {
     }
 
     pub fn set_themes(&self, new: themes::Themes) -> anyhow::Result<()> {
-        write_atomic(&self.config().resolve(&self.config().paths.themes), &new.to_toml())?;
-        *self.themes.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
-        Ok(())
+        let path = self.config().resolve(&self.config().paths.themes);
+        store(&self.themes, &path, &new.to_toml(), new)
     }
 
     pub fn infoforms(&self) -> Arc<infoform::Infoforms> {
@@ -364,9 +386,8 @@ impl BbsState {
     }
 
     pub fn set_infoforms(&self, new: infoform::Infoforms) -> anyhow::Result<()> {
-        write_atomic(&self.config().resolve(&self.config().paths.infoforms), &new.to_toml())?;
-        *self.infoforms.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
-        Ok(())
+        let path = self.config().resolve(&self.config().paths.infoforms);
+        store(&self.infoforms, &path, &new.to_toml(), new)
     }
 
     pub fn questions(&self) -> Arc<questions::Questions> {
@@ -374,9 +395,8 @@ impl BbsState {
     }
 
     pub fn set_questions(&self, new: questions::Questions) -> anyhow::Result<()> {
-        write_atomic(&self.config().resolve(&self.config().paths.questions), &new.to_toml())?;
-        *self.questions.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
-        Ok(())
+        let path = self.config().resolve(&self.config().paths.questions);
+        store(&self.questions, &path, &new.to_toml(), new)
     }
 
     /// The file areas as they are now.
@@ -391,18 +411,37 @@ impl BbsState {
             std::fs::create_dir_all(&dir).with_context(|| format!("file area directory {}", dir.display()))?;
         }
         let path = self.config().resolve(&self.config().paths.fileareas);
-        write_atomic(&path, &new.to_toml())?;
-        *self.fareas.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(new);
-        Ok(())
+        store(&self.fareas, &path, &new.to_toml(), new)
     }
+}
+
+/// Write a settings file and start using it, under the setting's lock,
+/// so two writers can't cross and the file and memory agree.
+fn store<T>(lock: &std::sync::RwLock<Arc<T>>, path: &std::path::Path, text: &str, new: T) -> anyhow::Result<()> {
+    let mut held = lock.write().unwrap_or_else(|e| e.into_inner());
+    write_atomic(path, text)?;
+    *held = Arc::new(new);
+    Ok(())
+}
+
+/// A temporary beside `path` that no other writer uses (`X.toml.new.PID.N`).
+pub(crate) fn temp_beside(path: &std::path::Path) -> PathBuf {
+    static N: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = N.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let mut name = path.file_name().map(|f| f.to_os_string()).unwrap_or_default();
+    name.push(format!(".new.{}.{n}", std::process::id()));
+    path.with_file_name(name)
 }
 
 /// Write a file through a temporary, so a crash can't leave half of it.
 pub(crate) fn write_atomic(path: &std::path::Path, text: &str) -> anyhow::Result<()> {
-    let tmp = path.with_extension("toml.new");
+    let tmp = temp_beside(path);
     std::fs::write(&tmp, text).with_context(|| format!("writing {}", tmp.display()))?;
     keep_mode(path, &tmp);
-    std::fs::rename(&tmp, path).with_context(|| format!("replacing {}", path.display()))?;
+    if let Err(e) = std::fs::rename(&tmp, path) {
+        let _ = std::fs::remove_file(&tmp);
+        return Err(e).with_context(|| format!("replacing {}", path.display()));
+    }
     Ok(())
 }
 

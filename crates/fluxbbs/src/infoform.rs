@@ -139,12 +139,31 @@ impl FormStore {
             .is_some())
     }
 
+    /// A vote with its comment, as imported.
     pub fn add_vote(&self, voter: u32, candidate: u32, initials: &str, comment: &str, at: NaiveDateTime) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         db.execute(
             "INSERT OR REPLACE INTO nuv_votes (voter_id, candidate_id, initials, comment, at) VALUES (?1, ?2, ?3, ?4, ?5)",
             params![voter, candidate, initials, comment, at],
         )?;
+        Ok(())
+    }
+
+    /// Records a vote (no comment yet) unless this voter has one on this
+    /// candidate already: false then, and the vote mustn't be counted.
+    pub fn record_vote(&self, voter: u32, candidate: u32, initials: &str, at: NaiveDateTime) -> anyhow::Result<bool> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let n = db.execute(
+            "INSERT OR IGNORE INTO nuv_votes (voter_id, candidate_id, initials, comment, at) VALUES (?1, ?2, ?3, '', ?4)",
+            params![voter, candidate, initials, at],
+        )?;
+        Ok(n == 1)
+    }
+
+    /// The comment on a vote already recorded.
+    pub fn set_vote_comment(&self, voter: u32, candidate: u32, comment: &str) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.execute("UPDATE nuv_votes SET comment = ?3 WHERE voter_id = ?1 AND candidate_id = ?2", params![voter, candidate, comment])?;
         Ok(())
     }
 
@@ -437,6 +456,7 @@ impl Session {
         self.say("NuvScanning").await?;
         self.newline();
         let me = self.user.id;
+        let ini = initials(&self.user.handle);
         let mut any = false;
         for mut u in self.state.users.list().map_err(io_err)? {
             if u.deleted || u.id == me || !self.acs_for(&u, &nuv.candidate_acs) {
@@ -510,6 +530,11 @@ impl Session {
                     'Y' => {
                         self.write("Yes");
                         self.newline();
+                        // The vote is recorded before it's counted, so a
+                        // hangup (or another node) can't count it twice.
+                        if !self.state.forms.record_vote(me, u.id, &ini, crate::clock::now().naive_local()).map_err(io_err)? {
+                            break ('-', false);
+                        }
                         // As they are now: others may have voted meanwhile.
                         if let Some(f) = self.state.users.get(u.id).map_err(io_err)? {
                             u = f;
@@ -532,6 +557,9 @@ impl Session {
                     'N' => {
                         self.write("No");
                         self.newline();
+                        if !self.state.forms.record_vote(me, u.id, &ini, crate::clock::now().naive_local()).map_err(io_err)? {
+                            break ('-', false);
+                        }
                         if let Some(f) = self.state.users.get(u.id).map_err(io_err)? {
                             u = f;
                         }
@@ -551,21 +579,22 @@ impl Session {
                     _ => {
                         self.write("Abstain");
                         self.newline();
+                        self.state.forms.record_vote(me, u.id, &ini, crate::clock::now().naive_local()).map_err(io_err)?;
                         break ('A', false);
                     }
                 }
             };
-            let mut comment = String::new();
-            if choice != 'A' && !done && comments.len() < 12 {
+            if choice != 'A' && choice != '-' && !done && comments.len() < 12 {
                 self.say("NuvAskComment").await?;
                 if self.yes_no(false).await? {
                     self.say("NuvComment").await?;
-                    comment = self.read_string(ReadOpts::new(80)).await?;
+                    let comment = self.read_string(ReadOpts::new(80)).await?;
                     self.newline();
+                    if !comment.is_empty() {
+                        self.state.forms.set_vote_comment(me, u.id, &comment).map_err(io_err)?;
+                    }
                 }
             }
-            let ini = initials(&self.user.handle);
-            self.state.forms.add_vote(me, u.id, &ini, &comment, crate::clock::now().naive_local()).map_err(io_err)?;
         }
         if !any {
             self.newline();
@@ -734,6 +763,18 @@ mod tests {
         s.clear_votes(3).unwrap();
         assert!(!s.has_voted(1, 3).unwrap());
         assert_eq!(s.clear(None, 3).unwrap(), 1);
+    }
+
+    #[test]
+    fn vote_recorded_once() {
+        let s = FormStore::open_memory().unwrap();
+        let now = crate::clock::now().naive_local();
+        assert!(s.record_vote(1, 3, "SO", now).unwrap());
+        assert!(!s.record_vote(1, 3, "SO", now).unwrap());
+        assert!(s.has_voted(1, 3).unwrap());
+        assert!(s.comments(3).unwrap().is_empty());
+        s.set_vote_comment(1, 3, "ok").unwrap();
+        assert_eq!(s.comments(3).unwrap(), [("SO".to_string(), "ok".to_string())]);
     }
 
     #[test]

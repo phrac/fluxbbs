@@ -735,11 +735,41 @@ pub fn save_changes(path: &Path, old: &Config, new: &Config) -> anyhow::Result<(
             }
         }
     }
-    let tmp = path.with_extension("toml.new");
-    std::fs::write(&tmp, doc.to_string())?;
-    crate::keep_mode(path, &tmp);
-    std::fs::rename(&tmp, path)?;
-    Ok(())
+    crate::write_atomic(path, &doc.to_string())
+}
+
+/// What changed from `original` to `edited`, made to `current` instead:
+/// each setting the editor changed takes its value, the rest stay as
+/// they are now. (Lists are settings, taken whole.)
+pub fn rebase(original: &Config, edited: &Config, current: &Config) -> anyhow::Result<Config> {
+    fn merge(o: Option<&toml::Value>, e: Option<&toml::Value>, c: &mut toml::Table, k: &str) {
+        if o == e {
+            return;
+        }
+        match (o, e, c.get_mut(k)) {
+            (Some(toml::Value::Table(ot)), Some(toml::Value::Table(et)), Some(toml::Value::Table(ct))) => {
+                let keys: std::collections::BTreeSet<String> = ot.keys().chain(et.keys()).cloned().collect();
+                for kk in keys {
+                    merge(ot.get(&kk), et.get(&kk), ct, &kk);
+                }
+            }
+            (_, Some(v), _) => {
+                c.insert(k.to_string(), v.clone());
+            }
+            (_, None, _) => {
+                c.remove(k);
+            }
+        }
+    }
+    let (o, e) = (toml::Value::try_from(original)?, toml::Value::try_from(edited)?);
+    let toml::Value::Table(mut c) = toml::Value::try_from(current)? else { anyhow::bail!("configuration isn't a table") };
+    let empty = toml::Table::new();
+    let (ot, et) = (o.as_table().unwrap_or(&empty), e.as_table().unwrap_or(&empty));
+    let keys: std::collections::BTreeSet<String> = ot.keys().chain(et.keys()).cloned().collect();
+    for k in keys {
+        merge(ot.get(&k), et.get(&k), &mut c, &k);
+    }
+    Ok(toml::Value::Table(c).try_into()?)
 }
 
 /// New: the `@` section, callers' email addresses (`[email]`; the
@@ -921,9 +951,9 @@ impl Session {
         if toml::to_string(&cfg).ok() != toml::to_string(&original).ok() {
             self.show("|U1Save system configuration? ").await?;
             if self.yes_no(true).await? {
-                let path = self.config_path();
-                save_changes(&path, &original, &cfg).map_err(io_err)?;
-                self.state.set_config(cfg);
+                // Onto the configuration as it is now: others change it
+                // while this is open.
+                self.state.save_config_edits(&original, &cfg).map_err(io_err)?;
                 tracing::info!("{}: saved system configuration", self.user.handle);
             }
         }
@@ -1206,6 +1236,21 @@ fn text_lines(text: &str) -> Vec<String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn edits_go_onto_the_configuration_as_it_is_now() {
+        let original = Config::default();
+        let mut edited = original.clone();
+        edited.bbs.name = "Edited".into();
+        let mut current = original.clone();
+        current.flags.insert("Q".into(), "saved meanwhile".into());
+        current.bbs.sysop_alias = "Changed elsewhere".into();
+        let merged = rebase(&original, &edited, &current).unwrap();
+        assert_eq!(merged.bbs.name, "Edited");
+        assert_eq!(merged.bbs.sysop_alias, "Changed elsewhere");
+        assert_eq!(merged.flags.get("Q").map(String::as_str), Some("saved meanwhile"));
+        assert_eq!(toml::to_string(&rebase(&original, &original, &current).unwrap()).unwrap(), toml::to_string(&current).unwrap());
+    }
 
     #[test]
     fn long_text_keeps_its_lines() {

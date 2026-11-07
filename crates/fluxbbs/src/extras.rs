@@ -796,15 +796,10 @@ impl Session {
             let key = self.read_key().await?;
             if matches!(key, Key::Enter | Key::Esc) {
                 if key == Key::Esc {
-                    // The password, SSH keys and plan are saved as they change.
-                    let pw = std::mem::take(&mut self.user.password_hash);
-                    let keys = std::mem::take(&mut self.user.ssh_keys);
-                    let plan = std::mem::take(&mut self.user.plan);
-                    self.user = original;
+                    // Only what this screen changes itself: the password,
+                    // SSH keys, profile and email screens saved theirs.
+                    revert_config_fields(&mut self.user, &original);
                     self.apply_text_mode();
-                    self.user.password_hash = pw;
-                    self.user.ssh_keys = keys;
-                    self.user.plan = plan;
                     self.screen.set_charset(charset);
                 }
                 self.save_user();
@@ -1084,9 +1079,53 @@ impl Session {
     }
 }
 
+/// Esc in user configuration: the fields the screen itself sets go back
+/// to `original`; the rest (saved by its sub-screens: password, SSH keys,
+/// profile and AI memory, email and the level it gives) stay.
+fn revert_config_fields(u: &mut crate::user::User, original: &crate::user::User) {
+    let o = original.clone();
+    u.phone = o.phone;
+    u.location = o.location;
+    u.address = o.address;
+    u.note = o.note;
+    u.page_length = o.page_length;
+    u.time_zone = o.time_zone;
+    u.code_theme = o.code_theme;
+    u.md_theme = o.md_theme;
+    u.code_bg = o.code_bg;
+    u.text_mode = o.text_mode;
+    u.animate = o.animate;
+    u.editor_keys = o.editor_keys;
+    u.file_popups = o.file_popups;
+    u.sixel = o.sixel;
+    u.saver = o.saver;
+    u.yes_no_bars = o.yes_no_bars;
+    u.expert = o.expert;
+    u.hot_keys = o.hot_keys;
+    u.pause = o.pause;
+    u.quote = o.quote;
+    u.theme = o.theme;
+    u.zip_code = o.zip_code;
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn esc_keeps_what_sub_screens_saved() {
+        let original = crate::user::User { phone: "1".into(), ai_memory: true, ..Default::default() };
+        let mut u = original.clone();
+        u.phone = "2".into();
+        u.expert = !u.expert;
+        u.ai_memory = false;
+        u.profile_header = vec!["hi".into()];
+        revert_config_fields(&mut u, &original);
+        assert_eq!(u.phone, "1");
+        assert_eq!(u.expert, original.expert);
+        assert!(!u.ai_memory);
+        assert_eq!(u.profile_header, ["hi"]);
+    }
 
     #[test]
     fn ssh_short_on_the_same_host() {

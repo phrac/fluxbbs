@@ -174,7 +174,7 @@ impl Session {
     /// `cfgLevelEditor`: levels A-Z; `[` and `]` step through them.
     pub async fn level_editor(&mut self) -> io::Result<()> {
         tracing::info!("{}: access level edit", self.user.handle);
-        let original = (*self.state.levels()).clone();
+        let mut original = (*self.state.levels()).clone();
         let mut levels = original.clone();
         let mut c = 'A';
         loop {
@@ -209,9 +209,16 @@ impl Session {
                         levels.0.insert(c.to_string(), l.clone());
                         if l.desc.is_empty() {
                             self.cfg_info(&mut f, "Give the level a description first.");
-                        } else if self.cfg_ask(&mut f, &format!("Update all level {c} users?"), false).await? {
+                        } else if self.cfg_ask(&mut f, &format!("Save level {c} and update all its users?"), false).await? {
+                            // The level is saved with them, so declining to
+                            // save at the end can't leave users with limits
+                            // their level doesn't have.
+                            let mut now = (*self.state.levels()).clone();
+                            now.0.insert(c.to_string(), l.clone());
+                            self.state.set_levels(now).map_err(io_err)?;
+                            original.0.insert(c.to_string(), l.clone());
                             let n = self.update_level_users(c, &l)?;
-                            self.cfg_info(&mut f, &format!("{n} user(s) updated."));
+                            self.cfg_info(&mut f, &format!("Level saved, {n} user(s) updated."));
                         }
                     }
                     '[' => break -1,
@@ -318,7 +325,7 @@ impl Session {
                 f.item_xy(40, 19, 1, '*', if u.deleted { "Undelete user" } else { "Delete user" }, 0, "", "");
                 f.item_xy(60, 19, 1, '<', "Lower access", 0, "", "");
                 let notes = self.state.users.notes(u.id).map_err(io_err)?.len();
-                f.item_xy(1, 20, 1, ':', &format!("SysOp notes ({notes})"), 0, "", "Private notes on this caller (the AI chat suits itself to them).");
+                f.item_xy(1, 20, 1, ':', &format!("SysOp notes ({notes})"), 0, "", "Private notes on this caller, for SysOps only.");
                 self.cfg_draw(&f);
                 if !note.is_empty() {
                     let n = std::mem::take(&mut note);

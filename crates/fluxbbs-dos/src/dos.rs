@@ -35,6 +35,52 @@ const ERR_TOO_MANY_FILES: u16 = 4;
 const ERR_ACCESS_DENIED: u16 = 5;
 const ERR_BAD_HANDLE: u16 = 6;
 const ERR_NO_MEMORY: u16 = 8;
+const ERR_BAD_FORMAT: u16 = 11;
+
+/// Why `exec` couldn't start a program: the DOS error code for
+/// `INT 21h/4Bh`, and what to log.
+#[derive(Debug)]
+pub struct ExecError {
+    pub code: u16,
+    pub msg: String,
+}
+
+impl std::fmt::Display for ExecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(&self.msg)
+    }
+}
+
+/// How a program image loads: the sizes from an EXE header (a COM file
+/// is all body), checked against the file.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct ExeLayout {
+    exe: bool,
+    load_size: u32,
+    min_alloc: u32,
+    max_alloc: u32,
+    /// Where the body starts in the file.
+    body_at: usize,
+}
+
+/// None for an EXE whose header doesn't fit the file.
+fn exe_layout(image: &[u8]) -> Option<ExeLayout> {
+    let is_exe = image.len() >= 2 && matches!(&image[..2], b"MZ" | b"ZM");
+    if !is_exe {
+        return Some(ExeLayout { exe: false, load_size: image.len() as u32, min_alloc: 0, max_alloc: 0xFFFF, body_at: 0 });
+    }
+    if image.len() < 0x1C {
+        return None;
+    }
+    let word = |i: usize| u16::from_le_bytes([image[i], image[i + 1]]) as u32;
+    let (last_page, pages, header_paras) = (word(2), word(4), word(8));
+    let total = if last_page == 0 { pages * 512 } else { pages.checked_sub(1)? * 512 + last_page };
+    let body_at = header_paras as usize * 16;
+    if body_at > image.len() {
+        return None;
+    }
+    Some(ExeLayout { exe: true, load_size: total.saturating_sub(header_paras * 16), min_alloc: word(0xA), max_alloc: word(0xC), body_at })
+}
 const ERR_BAD_DRIVE: u16 = 15;
 const ERR_NO_MORE_FILES: u16 = 18;
 
@@ -456,17 +502,43 @@ impl Dos {
     /// Load a program and make it the running process. From `INT 21h/4Bh`
     /// (`from_int21`), the caller's return frame has been popped and its
     /// state is saved first.
-    pub fn exec(&mut self, cpu: &mut Cpu, mem: &mut Memory, program: &str, args: &str, env_seg: Option<u16>) -> Result<(), String> {
-        let (host, dos_path) = self.find_program(program).ok_or_else(|| format!("{program}: not found"))?;
+    pub fn exec(&mut self, cpu: &mut Cpu, mem: &mut Memory, program: &str, args: &str, env_seg: Option<u16>) -> Result<(), ExecError> {
+        let err = |code: u16, msg: String| ExecError { code, msg };
+        let (host, dos_path) = self.find_program(program).ok_or_else(|| err(ERR_FILE_NOT_FOUND, format!("{program}: not found")))?;
         if dos_path.to_ascii_uppercase().ends_with(".BAT") {
-            return Err(format!("{program}: batch files aren't run from inside a program"));
+            return Err(err(ERR_FILE_NOT_FOUND, format!("{program}: batch files aren't run from inside a program")));
         }
-        let image = std::fs::read(&host).map_err(|e| format!("{}: {e}", host.display()))?;
+        let image = std::fs::read(&host).map_err(|e| err(ERR_FILE_NOT_FOUND, format!("{}: {e}", host.display())))?;
+        // Checked before anything changes: a short or broken header is
+        // DOS's "invalid format", not a crash.
+        let layout = exe_layout(&image).ok_or_else(|| err(ERR_BAD_FORMAT, format!("{program}: not a program DOS can load")))?;
         let parent = self.psp;
-        if parent != 0 {
+        let pushed = parent != 0;
+        if pushed {
             self.procs.push(SavedProcess { regs: cpu.regs, sregs: cpu.sregs, ip: cpu.ip, flags: cpu.flags, psp: parent, dta: self.dta });
         }
+        let r = self.exec_image(cpu, mem, &image, layout, &dos_path, parent, args, env_seg);
+        if r.is_err() && pushed {
+            self.procs.pop();
+        }
+        r.map_err(|(code, msg)| err(code, format!("{program}: {msg}")))
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn exec_image(
+        &mut self,
+        cpu: &mut Cpu,
+        mem: &mut Memory,
+        image: &[u8],
+        layout: ExeLayout,
+        dos_path: &str,
+        parent: u16,
+        args: &str,
+        env_seg: Option<u16>,
+    ) -> Result<(), (u16, String)> {
+        let ExeLayout { exe: is_exe, load_size, min_alloc, max_alloc, body_at } = layout;
         // The environment: the parent's, or ours.
+        let mut ours = None;
         let env_seg = match env_seg {
             Some(s) if s != 0 => s,
             _ => {
@@ -481,31 +553,22 @@ impl Dos {
                 block.extend(dos_path.as_bytes());
                 block.push(0);
                 let paras = (block.len() as u16).div_ceil(16);
-                let seg = self.alloc(mem, paras, 0, b"").ok_or("no memory for the environment")?;
+                let seg = self.alloc(mem, paras, 0, b"").ok_or((ERR_NO_MEMORY, "no memory for the environment".to_string()))?;
                 mem.write((seg as u32) << 4, &block);
+                ours = Some(seg);
                 seg
             }
-        };
-        let is_exe = image.len() > 0x1C && &image[..2] == b"MZ" || &image[..2] == b"ZM";
-        let (load_size, min_alloc, max_alloc) = if is_exe {
-            let last_page = u16::from_le_bytes([image[2], image[3]]) as u32;
-            let pages = u16::from_le_bytes([image[4], image[5]]) as u32;
-            let header_paras = u16::from_le_bytes([image[8], image[9]]) as u32;
-            let total = if last_page == 0 { pages * 512 } else { (pages - 1) * 512 + last_page };
-            let size = total.saturating_sub(header_paras * 16);
-            (size, u16::from_le_bytes([image[0xA], image[0xB]]) as u32, u16::from_le_bytes([image[0xC], image[0xD]]) as u32)
-        } else {
-            (image.len() as u32, 0, 0xFFFF)
         };
         let need = 0x10 + load_size.div_ceil(16) + min_alloc;
         let want = (0x10 + load_size.div_ceil(16) + max_alloc).min(0xFFFF);
         let largest = Self::largest_free(mem) as u32;
-        if largest < need || need > 0xFFFF {
-            self.procs.pop();
-            return Err("not enough memory".into());
-        }
-        let paras = want.min(largest) as u16;
-        let psp = self.alloc(mem, paras, 0, b"").ok_or("no memory")?;
+        let psp = if largest < need || need > 0xFFFF { None } else { self.alloc(mem, want.min(largest) as u16, 0, b"") };
+        let Some(psp) = psp else {
+            if let Some(seg) = ours {
+                self.free(mem, seg);
+            }
+            return Err((ERR_NO_MEMORY, "not enough memory".into()));
+        };
         // The block belongs to the new process.
         let seg = psp - 1;
         let (kind, _, size) = Self::mcb(mem, seg);
@@ -518,8 +581,7 @@ impl Dos {
         let load_seg = psp + 0x10;
         let base = (load_seg as u32) << 4;
         if is_exe {
-            let header_paras = u16::from_le_bytes([image[8], image[9]]) as usize;
-            let body = &image[header_paras * 16..];
+            let body = &image[body_at..];
             mem.write(base, &body[..body.len().min(load_size as usize)]);
             let reloc_count = u16::from_le_bytes([image[6], image[7]]) as usize;
             let reloc_off = u16::from_le_bytes([image[0x18], image[0x19]]) as usize;
@@ -544,7 +606,7 @@ impl Dos {
             cpu.sregs[cpu::SS] = load_seg.wrapping_add(init_ss);
             cpu.set_r16(cpu::SP, init_sp);
         } else {
-            mem.write(base, &image);
+            mem.write(base, image);
             cpu.regs = [0; 8];
             cpu.sregs[cpu::CS] = psp;
             cpu.sregs[cpu::SS] = psp;
@@ -996,7 +1058,7 @@ pub fn int21(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) -> After {
                     Ok(()) => {}
                     Err(e) => {
                         sys.log.push(format!("exec {name}: {e}"));
-                        cpu.set_ax(ERR_FILE_NOT_FOUND);
+                        cpu.set_ax(e.code);
                         cpu.set_flag(cpu::CF, true);
                     }
                 }
