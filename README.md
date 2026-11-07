@@ -111,7 +111,9 @@ ones run in an x86 machine built into the board, so there's no DOSBox to
 set up. Then there are the games written for disflux: a casino with
 slots, video poker, blackjack, roulette, craps and a bar; Carrier Lost, a
 war-dialing game; tarot; and a reading room that puts a new shelf of
-textfiles out by the fire every day.
+textfiles out by the fire every day. And callers make ANSI art from a
+prompt, drawn by an image model trained on the scene's art on the
+SysOp's own GPU, and vote on each other's.
 
 | | |
 |---|---|

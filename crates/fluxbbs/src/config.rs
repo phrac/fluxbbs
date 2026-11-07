@@ -49,6 +49,8 @@ pub struct Config {
     pub email: Email,
     /// New: the weather door (`weather`).
     pub weather: Weather,
+    /// New: ANSI art from a prompt (`ansigen`).
+    pub ansigen: AnsiGen,
     /// New: the reading room (`library`).
     pub library: Library,
     /// New: which parts of the board are on.
@@ -677,6 +679,61 @@ pub struct Weather {
 impl Default for Weather {
     fn default() -> Self {
         Self { units: "us".into(), place: String::new(), ai_forecast: true, ai_effort: "none".into() }
+    }
+}
+
+/// ANSI art from a prompt (new, `ansigen.rs`, the `ansigen` component):
+/// an image model on the SysOp's GPU host, through its gateway. Off to
+/// start.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct AnsiGen {
+    pub enabled: bool,
+    /// The gateway (`http://ryzen:8197`).
+    pub gateway: String,
+    /// Its bearer token, or (better, kept out of this file) a file holding
+    /// it, relative to the config's folder.
+    pub token: String,
+    pub token_file: String,
+    /// Who may make art.
+    pub acs: String,
+    /// Free gens a caller has a day (they don't carry over).
+    pub free_daily: u32,
+    /// File points an extra costs once the free and bonus gens are used
+    /// (0: no extras).
+    pub cost: u32,
+    /// The most gens the board makes in a day, SysOps' aside (0: no limit).
+    pub board_daily: u32,
+    /// The file area gens are filed in (its storage key or name).
+    pub area: String,
+    /// The longest prompt (20 to 300).
+    pub max_prompt: usize,
+    /// Ask the board's AI (`[ai]`) whether a prompt sexualizes minors, as
+    /// well as the word rule (which always applies).
+    pub ai_check: bool,
+    /// The check's `reasoning_effort` (blank: `[ai]`'s).
+    pub ai_effort: String,
+    /// How long a gen may take, the model loading included.
+    pub timeout_seconds: u64,
+}
+
+impl Default for AnsiGen {
+    fn default() -> Self {
+        Self {
+            enabled: false,
+            gateway: String::new(),
+            token: String::new(),
+            token_file: String::new(),
+            acs: "s25".into(),
+            free_daily: 3,
+            cost: 5,
+            board_daily: 100,
+            area: "AIART".into(),
+            max_prompt: 200,
+            ai_check: true,
+            ai_effort: "none".into(),
+            timeout_seconds: 900,
+        }
     }
 }
 

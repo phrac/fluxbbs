@@ -45,7 +45,7 @@ MENUS = {
        ('areas & files', [('a', 'msg area editor'), ('@', 'msg conferences'), ('-', 'message trash'), ('f', 'file area editor'), ('!', 'file conferences'), ('s', 'file area sort'), ('y', 'file editor'), ('+', 'held uploads'), ('k', 'pack file areas'), ('%', 'local upload'), ('>', 'download any file')]),
        ('system', [('c', 'system config'), ('o', 'logon sequence'), ('#', 'menu editor'), ('e', 'string editor'), ('t', 'text libraries'), ('w', 'screen viewer'), ('j', 'tdf font viewer'), ('v', 'event editor'), ('x', 'protocol editor'), ('z', 'archiver config'), ('d', 'flux/bbs microdos'), ('m', 'modem setup')])]),
  'door': ('online games', [('popular doors', [('1', 'lord'), ('2', 'bre'), ('3', 'usurper'), ('4', 'tradewars 2002'), ('l', 'bbslink games')]),
-          ('built in', [('t', 'tarot & fortunes'), ('c', 'casino'), ('v', 'carrier lost')]),
+          ('built in', [('t', 'tarot & fortunes'), ('c', 'casino'), ('v', 'carrier lost'), ('a', 'ansi art')]),
           ('more doors', [('5', 'yankees & rednecks'), ('6', 'bbs hacker'), ('7', 'lore'), ('8', 'steel & ice'), ('9', 'mechwars')])]),
  'bbslink': ('bbslink games', [('bbslink.net', [('m', 'every bbslink game'), ('1', 'lord'), ('2', 'lord ii'), ('3', 'planets: teos'), ('4', 'overkill ii'), ('5', 'tradewars 2002'), ('6', 'barren realms elite'), ('q', 'back to doors')])]),
  'tarot': ('tarot & fortunes', [('the cards', [('d', 'card of the day'), ('t', 'three cards'), ('f', 'a fortune'), ('q', 'quit')])]),
@@ -87,6 +87,8 @@ CHANGED = {
     ('door', 'c'): {'command': 'AC', 'param': '', 'desc': 'Casino', 'help': 'The casino: slots, blackjack, roulette, craps, the bar and the players club'},
     # a is MRC, live chat with other boards' callers; automsg moves to more (!).
     ('main', 'a'): {'command': 'XR', 'param': '', 'acs': '', 'desc': 'MRC chat', 'help': 'Chat live with callers on other BBSes (Multi Relay Chat)'},
+    # a is ANSI art from a prompt (AN), not the classic menu's Outpost Trader.
+    ('door', 'a'): {'command': 'AN', 'param': '', 'acs': '', 'desc': 'ANSI art', 'help': 'Describe a picture and the AI draws it in ANSI; it goes in the gens file area'},
 }
 ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', 'desc': 'How it works', 'help': 'The keys for reading, posting, votes and comments'},
          # The about screen (art/about-gen.py).

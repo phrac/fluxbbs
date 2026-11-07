@@ -47,7 +47,7 @@ tokio = { version = "1.53.3", features = ["test-util"] }
 # in *C Features, and its settings still load.
 [features]
 default = []
-full = ["doors", "effects", "screensavers", "games", "ai", "ftn", "meshcore", "mrc", "pdf", "python", "textfiles", "email", "weather", "library"]
+full = ["doors", "effects", "screensavers", "games", "ai", "ftn", "meshcore", "mrc", "pdf", "python", "textfiles", "email", "weather", "library", "ansigen"]
 # DOS doors in the built-in DOS machine, external doors, and BBSLink.
 doors = ["dep:fluxbbs-dos", "dep:reqwest", "dep:md-5"]
 # Menus and screens that animate while they wait (.FX effects, glints),
@@ -81,3 +81,6 @@ textfiles = ["dep:reqwest"]
 email = ["dep:lettre"]
 # The weather (`WX`), from Open-Meteo, in pixels; the AI reads it if `ai` is built too.
 weather = ["dep:reqwest"]
+# ANSI art from a prompt (`AN`), drawn by an image model behind a gateway
+# on the SysOp's GPU host; the board's AI checks prompts if `ai` is built.
+ansigen = ["dep:reqwest"]

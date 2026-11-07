@@ -197,9 +197,48 @@ scripts. Everything is on to start. A part that's off:
   editing a menu. Its slot on a lightbar screen stays empty, as an
   entry the caller's access doesn't allow does.
 
-AI chat, BBSLink, new user voting, MeshCore and FTN keep the switches
+AI chat, BBSLink, new user voting, MeshCore, FTN and ANSI art (`AN`) keep the switches
 in their own sections and count the same way (an AI menu entry
 disappears when AI chat is off). The DOS machine goes by `[dos]`.
+
+### ANSI art from a prompt
+
+`AN` (the `ansigen` component, in `full`) needs an image model on a
+machine with a GPU, behind a small gateway: ansilora's
+`scripts/gateway.py` (Python, the standard library only). The gateway
+listens where the board can reach it, wants a bearer token, and:
+
+- `GET /status` says whether the art model is loaded (`ready`),
+  loading (`warming`), not loaded but loadable (`startable`: the GPU
+  has room, so a gen starts it), or not to be had (`busy`: another
+  model is loaded; `unavailable`: no room on the GPU);
+- `POST /generate` (`{"prompt": "..."}`) makes one image, starting the
+  model first if it may, and sends back the seed, the seconds, the PNG
+  and the 16, 256 and 24-bit `.ans`, base64 in JSON. It applies the
+  model's prompt rules, so the board sends the caller's words as typed.
+
+It never stops the model or switches it for another; one image at a
+time. Then, in `fluxbbs.toml`:
+
+    [ansigen]
+    enabled = true
+    gateway = "http://ryzen:8197"
+    token_file = "ansigen.token"     # the gateway's token, mode 600; or token = "..."
+    area = "AIART"                   # the gens' file area (storage key or name)
+    free_daily = 3                   # free gens a caller has a day
+    cost = 5                         # file points an extra costs (0: none)
+    board_daily = 100                # the board's most a day (0: no cap)
+    acs = "s25"                      # who may make art
+    max_prompt = 200
+    ai_check = true                  # ask [ai] too whether a prompt sexualizes minors
+    ai_effort = "none"               # its reasoning_effort
+    timeout_seconds = 900            # the longest a gen may take, loading included
+
+Make the file area (`*F`) first: an area of its own, its upload ACS
+the SysOp's (gens get there by `AN`, not by upload). Extras need file
+points on (`[files] use_file_points`). Restart after changing
+`[ansigen]` (it isn't in `*C`). `tools/fake_ansigen.py` stands in for
+the gateway in tests (ready, warming, busy, failing).
 
 ### Running a board outside the repo
 

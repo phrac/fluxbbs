@@ -342,7 +342,7 @@ fn ends_at(l: &str) -> usize {
 /// plain colour codes, bright backgrounds as `10x` so the screen turns
 /// them into whatever the caller's terminal shows without blinking; the
 /// code shade as `shade`.
-fn row_bytes(cells: &[Cell], shade: &str) -> Vec<u8> {
+pub(crate) fn row_bytes(cells: &[Cell], shade: &str) -> Vec<u8> {
     let mut out = Vec::new();
     let mut cur: Option<Attr> = None;
     for c in cells {

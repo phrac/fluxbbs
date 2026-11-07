@@ -29,6 +29,7 @@ disflux, the flagship board, runs with all of them.
 | `python` | Python scripts on menus (`-X`) and in strings (`%!`), with the `fluxbbs` module | Python 3 on the host (`python3`; the Docker image has it) |
 | `textfiles` | The textfiles.com importer (`fluxbbs textfiles`) | HTTPS |
 | `weather` | The weather (`WX`, or `WX <place>` for a fixed one): the sky in animated pixels, the week, the next 24 hours; the AI reads it as a forecaster when `ai` is built and on. `[weather]`: `units`, `place`, `ai_forecast`, `ai_effort` (the forecaster's `reasoning_effort`, `none` unless set) | HTTPS to open-meteo.com (free, no key) |
+| `ansigen` | ANSI art from a prompt (`AN`), drawn by an image model on the SysOp's GPU and filed in an area of its own; the board's AI checks prompts when `ai` is built too. Off until `[ansigen] enabled` | HTTP to the model's gateway (`[ansigen] gateway`) |
 | `email` | Callers' email addresses, confirmed by a mailed code (`UV`, the `email` logon step, `*C` `@`); off until `[email] enabled` | an SMTP server |
 | `full` | All of the above | |
 

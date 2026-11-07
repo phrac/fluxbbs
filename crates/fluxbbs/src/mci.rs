@@ -306,6 +306,11 @@ impl Session {
                 let (kind, limit) = if code == *b"TR" { ("tarot", ai.tarot_daily) } else { ("fortune", ai.fortune_daily) };
                 self.tarot_left(kind, limit).map_or("∞".into(), |n| n.to_string())
             }
+            // New: ANSI art gens: free ones left today (F), bonus ones banked (B).
+            #[cfg(feature = "ansigen")]
+            b"IF" | b"IB" => self.ansigen_code(code[1]),
+            #[cfg(not(feature = "ansigen"))]
+            b"IF" | b"IB" => "0".into(),
             b"TI" => now.format("%-I:%M%P").to_string(),
             b"TL" => self.minutes_left().to_string(),
             b"TM" => now.format("%H:%M").to_string(),

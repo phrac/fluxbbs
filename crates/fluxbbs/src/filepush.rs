@@ -132,7 +132,12 @@ impl Session {
         let p = FilePush { id: 0, file_id: f.id, user_id: self.user.id, handle: self.user.handle.clone(), kind, text, at: now };
         self.state.files.add_file_push(&p).map_err(io_err)?;
         tracing::info!("{}: pushed file {}/{} ({kind})", self.user.handle, f.area, f.name);
-        if kind == 1 {
+        // New: a gen's author banks a bonus gen instead of the points.
+        #[cfg(feature = "ansigen")]
+        let is_gen = kind == 1 && self.ansigen_upvote(f);
+        #[cfg(not(feature = "ansigen"))]
+        let is_gen = false;
+        if kind == 1 && !is_gen {
             self.pay_file_upvote(f);
         }
         Ok(true)

@@ -298,6 +298,9 @@ impl Session {
             // New: the weather, where the caller is or where the menu says.
             #[cfg(feature = "weather")]
             "WX" => self.weather(param).await?,
+            // New: ANSI art from a prompt, drawn on the SysOp's GPU.
+            #[cfg(feature = "ansigen")]
+            "AN" => self.ansigen(param).await?,
             #[cfg(feature = "python")]
             "-X" => Box::pin(self.script_command(param)).await?,
             "!D" => self.bank_transaction(crate::timebank::Unit::Minutes, true).await?,

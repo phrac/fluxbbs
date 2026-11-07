@@ -11,6 +11,7 @@ says what's new over Iniquity.
 - [QWK offline mail](#qwk-offline-mail)
 - [Infoforms and new user voting](#infoforms-and-new-user-voting)
 - [AI chat](#ai-chat)
+- [ANSI art from a prompt](#ansi-art-from-a-prompt)
 - [Message center](#message-center)
 - [MeshCore](#meshcore)
 - [FTN echomail](#ftn-echomail)
@@ -1051,6 +1052,76 @@ instead.
   one; otherwise the `TarotTitle` line. Keep it to a line or two: the
   cards take 15 rows under it.
 
+## ANSI art from a prompt
+
+`AN` (`A` on the stock doors menu) makes ANSI art from a prompt: the
+caller describes a picture, and an image model trained on the scene's
+ANSI art (a Qwen-Image LoRA) draws it on the SysOp's GPU. A converter
+turns the picture into real `.ans` files, a screen of 78x24, in 16
+colors with iCE, 256 colors and 24-bit. The caller sees the one their
+terminal shows best, and the picture itself in sixels if they use them
+(`p`). Every gen goes in the gens' file area under the caller's name,
+where others vote on it. It's the `ansigen` component, off until
+`[ansigen] enabled`; [SYSOP](SYSOP.md#ansi-art-from-a-prompt) has the
+setting up.
+
+- **When it can't.** The GPU is the SysOp's, and it may be busy with
+  something else. `AN` asks first; if the art model can't be had, the
+  caller is told to check back later. If it has to be loaded, they're
+  told it's warming up (about a minute) and their image comes after.
+- **What a caller has.** 3 free gens a day (`free_daily`), which don't
+  carry over. Then the bonus gens they've banked: each other caller's
+  first `+` on one of their gens banks them one, and those keep from
+  day to day. Then an extra for 5 file points (`cost`; 0 for none),
+  asked first. Free gens go first, then bonus ones, then points.
+  SysOps' gens are free. `AN` shows what's left; so do `%IF` (free
+  gens left today) and `%IB` (bonus gens banked).
+- **A cap for the board.** 100 gens a day at most (`board_daily`; 0
+  for no cap), SysOps' aside.
+- **One at a time.** The GPU makes one image at a time, so callers on
+  other nodes wait in line: their place in it and the time they've
+  waited show, then a clock while theirs is drawn (about 25 seconds).
+  Keys typed meanwhile are dropped, and waiting doesn't count as idle.
+- **Nothing lost.** A gen that fails costs nothing (a bonus gen goes
+  back to the bank, points aren't taken). A caller who hangs up while
+  theirs is being drawn still gets it filed (and pays for it, if it was
+  an extra); one who hangs up while still in line loses nothing.
+- **Votes.** A `+` from another caller on a gen banks its author a
+  bonus gen, once per voter and gen (voting again, or taking the vote
+  back and giving it again, doesn't pay twice; taking it back doesn't
+  take the bonus). It pays that instead of the file points an upvote
+  pays an upload: a gen is the caller's, as an upload is (they can't
+  vote on their own), but one reward a vote. Downvotes and comments
+  work as on any file.
+- **The prompt.** Up to 200 characters (`max_prompt`). The caller's
+  words go to the model as typed; the gateway adds what the model
+  needs (its style word in front, "no text, no letters" at the end,
+  "image" for "screen" or "interface", which make it draw fake panels
+  of text).
+- **What's refused.** Nothing is filtered but sexual content involving
+  minors. Two checks: a strict word rule (any word for a minor, a
+  child's age or school, with any word for sex or nudity), which always
+  applies; and the board's AI (`[ai]`, when it's built and on), asked
+  only that question (`ai_check`). A refused prompt costs nothing and
+  is logged for the SysOp: `AN refused` on a SysOp's menu lists the
+  latest (when, who, which check, the prompt).
+
+### Gens in the file base
+
+Each gen is one file in the area named by `[ansigen] area` (its storage
+key or name): `NAME.ans`, its name from the prompt's first words
+(`red-dragon.ans`), its description the prompt, uploaded by the caller,
+with a SAUCE record (the prompt's first words as its title, the
+caller's handle as the author, the board's name as the group).
+
+- The file is the 16-color version, which every ANSI viewer and editor
+  shows. The 256 and 24-bit versions and the PNG are kept beside it, in
+  the area's hidden `.ansigen` folder (`NAME.256.ans`, `NAME.24.ans`,
+  `NAME.png`), and the file browser and gallery show a caller the best
+  of them their terminal takes. A download is the 16-color file.
+- Without that area the gen is still shown to the caller (and paid
+  for), but not filed; the log says to make the area.
+
 ## Points
 
 File points do more than pay for downloads. On a board that uses them
@@ -1859,6 +1930,8 @@ under the bar in the file lister and in the file browser and gallery
 - An upvote pays file points ([points](#points)) the same as on a post,
   but only to a caller who uploaded the file through the board. Imported
   files (the textfiles archive, `add-files`, file echoes) pay no one.
+  An upvote on an ANSI art gen banks its author a bonus gen instead
+  ([ANSI art from a prompt](#ansi-art-from-a-prompt)).
 - **Hot files** (`h` on the file menu, `FW votes`): the files pushed
   most in the last three days, votes one each way and comments a half,
   fading with age, then the best scored ever.
