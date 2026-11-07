@@ -365,6 +365,10 @@ impl Session {
 
     async fn zmodem_receive(&mut self, dir: &Path) -> io::Result<Vec<PathBuf>> {
         let max = self.state.config().files.max_upload_bytes;
+        // New: one session brings at most so many files and bytes; past
+        // that it's aborted (what came whole before stays).
+        let session_cap = session_bytes(max);
+        let mut done_bytes = 0u64;
         // Nonstop I/O: on SSH and telnet the sender may stream the whole
         // file. The library's default buffer (1 KB, then wait for an ack)
         // costs a round trip a kilobyte, which made uploads crawl.
@@ -403,6 +407,11 @@ impl Session {
                         rx.abort().map_err(zerr)?;
                         continue;
                     }
+                    if got.len() >= MAX_SESSION_FILES || info.size.is_some_and(|s| done_bytes.saturating_add(s.get() as u64) > session_cap) {
+                        tracing::info!("{}: upload {name} past the session's limit ({} files, {done_bytes} bytes)", self.user.handle, got.len());
+                        rx.abort().map_err(zerr)?;
+                        continue;
+                    }
                     file = Some((tokio::fs::File::create(&path).await?, path, 0));
                     idle = Duration::ZERO;
                 }
@@ -413,7 +422,7 @@ impl Session {
                     if let Some((f, _, written)) = file.as_mut() {
                         f.write_all(&bytes).await?;
                         *written += n as u64;
-                        if max > 0 && *written > max {
+                        if max > 0 && *written > max || done_bytes.saturating_add(*written) > session_cap {
                             rx.abort().map_err(zerr)?;
                             continue;
                         }
@@ -421,8 +430,9 @@ impl Session {
                     rx.file_written(n).map_err(zerr)?;
                 }
                 Action::Event(Event::FileCompleted) => {
-                    if let Some((mut f, path, _)) = file.take() {
+                    if let Some((mut f, path, written)) = file.take() {
                         f.flush().await?;
+                        done_bytes += written;
                         got.push(path);
                     }
                 }
@@ -540,6 +550,17 @@ impl CanWatch {
     }
 }
 
+/// Files one upload session may bring.
+const MAX_SESSION_FILES: usize = 100;
+/// Bytes one upload session may bring with no per-file limit.
+const MAX_SESSION_BYTES: u64 = 8 << 30;
+
+/// Bytes one upload session may bring: MAX_SESSION_FILES files of
+/// `max_file` bytes (if there's a per-file limit), at most MAX_SESSION_BYTES.
+fn session_bytes(max_file: u64) -> u64 {
+    if max_file == 0 { MAX_SESSION_BYTES } else { max_file.saturating_mul(MAX_SESSION_FILES as u64).min(MAX_SESSION_BYTES) }
+}
+
 /// `dir/name`, or `dir/name.1` etc. if that exists.
 fn unique_path(dir: &Path, name: &str) -> PathBuf {
     let first = dir.join(name);
@@ -553,6 +574,13 @@ fn unique_path(dir: &Path, name: &str) -> PathBuf {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn upload_sessions_are_capped() {
+        assert_eq!(session_bytes(0), MAX_SESSION_BYTES);
+        assert_eq!(session_bytes(1 << 20), 100 << 20);
+        assert_eq!(session_bytes(1 << 40), MAX_SESSION_BYTES);
+    }
 
     #[test]
     fn upload_names_are_sanitised() {

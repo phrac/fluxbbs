@@ -9,7 +9,9 @@
 //! New: `/dl/TOKEN/NAME` is a download link a caller asked for in the
 //! terminal (the "web link" protocol): one file, for a while
 //! (`[web] link_minutes`) and a few fetches (`link_uses`), counted as
-//! that caller's download when it's first fetched whole.
+//! that caller's download when it's first fetched. Points, daily limits
+//! and ratios are checked again then, so a pile of links made on one
+//! balance can't all be fetched.
 
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -47,6 +49,9 @@ pub struct Link {
 #[derive(Default)]
 pub struct Links {
     map: Mutex<HashMap<String, Link>>,
+    /// Held while a first fetch is checked and charged, so two at once
+    /// can't both pass on the same balance.
+    charging: Mutex<()>,
 }
 
 impl Links {
@@ -91,18 +96,45 @@ impl Links {
         Some(l.clone())
     }
 
-    /// Mark a link's file counted; false if it already was.
-    fn count_once(&self, token: &str) -> bool {
+    /// Whether a link's file has been charged for.
+    fn counted(&self, token: &str, l: &Link) -> bool {
+        let map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        map.get(token).map_or(l.counted, |l| l.counted)
+    }
+
+    /// Mark a link's file counted.
+    fn set_counted(&self, token: &str) {
         let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
-        match map.get_mut(token) {
-            Some(l) if !l.counted => {
-                l.counted = true;
-                true
-            }
-            // Gone (its last fetch): counted when that fetch began, if not before.
-            Some(_) => false,
-            None => true,
+        if let Some(l) = map.get_mut(token) {
+            l.counted = true;
         }
+    }
+
+    /// A fetch that was refused, given back.
+    fn give_back(&self, token: &str) {
+        let mut map = self.map.lock().unwrap_or_else(|e| e.into_inner());
+        if let Some(l) = map.get_mut(token) {
+            l.uses_left += 1;
+        }
+    }
+
+    /// The first fetch of a link: the caller's download, if they can still
+    /// have it (points, daily limits, ratios as they are now); else why not.
+    fn charge(&self, state: &BbsState, token: &str, l: &Link) -> anyhow::Result<Result<(), String>> {
+        let _one = self.charging.lock().unwrap_or_else(|e| e.into_inner());
+        if self.counted(token, l) {
+            return Ok(Ok(()));
+        }
+        let Some(f) = state.files.find(&l.area, &l.name)? else { return Ok(Err("That file is no longer on the board.".into())) };
+        let Some(u) = state.users.get(l.user_id)? else { return Ok(Err("That caller is no longer on the board.".into())) };
+        if let Some((key, args)) = crate::files::over_limits(&state.config().files, &u, &f, (0, 0, 0)) {
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            tracing::info!("{}: download of {} by link refused ({key})", l.handle, l.name);
+            return Ok(Err(crate::editor::strip_colours(&state.strings().fmt(key, &args)).trim().to_string()));
+        }
+        count_link(state, l, &f, &u)?;
+        self.set_counted(token);
+        Ok(Ok(()))
     }
 }
 
@@ -115,14 +147,12 @@ pub fn link_url(base: &str, token: &str, name: &str) -> String {
     format!("{}/dl/{token}/{enc}", base.trim_end_matches('/'))
 }
 
-/// A file fetched whole by link: the caller's download, as a transfer's
+/// A file fetched by link: the caller's download, as a transfer's
 /// would be (the file's count, the caller's totals, today's, points).
-fn count_link(state: &BbsState, l: &Link) -> anyhow::Result<()> {
-    let Some(mut f) = state.files.find(&l.area, &l.name)? else { return Ok(()) };
+fn count_link(state: &BbsState, l: &Link, f: &crate::filebase::FileRec, u: &User) -> anyhow::Result<()> {
     let kb = (f.size / 1024) as u32;
-    f.downloads += 1;
-    state.files.update(&f)?;
-    if let Some(u) = state.users.get(l.user_id)? {
+    state.files.add_download(f)?;
+    {
         let mut paid = u.clone();
         paid.downloads += 1;
         paid.download_kb += kb as u64;
@@ -133,7 +163,7 @@ fn count_link(state: &BbsState, l: &Link) -> anyhow::Result<()> {
         }
         // Onto their record as it is now: a session they have open adds
         // what it changed when it saves.
-        state.users.merge_with(&u, &paid, false)?;
+        state.users.merge_with(u, &paid, false)?;
     }
     state.sys.bump(crate::clock::now().date_naive(), crate::sysdata::Stat::Download { kb: kb as u64 })?;
     tracing::info!("{}: downloaded {} ({}) by link", l.handle, l.name, l.area);
@@ -188,6 +218,28 @@ async fn serve_link(state: &Arc<BbsState>, sock: &mut tokio::net::TcpStream, met
         let _ = timed(sock.write_all(b"HTTP/1.1 410 Gone\r\nContent-Length: 0\r\nConnection: close\r\n\r\n")).await;
         return;
     };
+    // Charged on the first fetch (not a HEAD), if they can still have it.
+    if !head {
+        let (st, l, t) = (state.clone(), link.clone(), token.to_string());
+        let charged = tokio::task::spawn_blocking(move || st.links.charge(&st, &t, &l)).await;
+        let refused = match charged {
+            Ok(Ok(Ok(()))) => None,
+            Ok(Ok(Err(why))) => Some(why),
+            Ok(Err(e)) => {
+                tracing::warn!("download link: counting {}: {e:#}", link.name);
+                Some("The board couldn't check this download. Try again later.".to_string())
+            }
+            Err(_) => Some("The board couldn't check this download. Try again later.".to_string()),
+        };
+        if let Some(why) = refused {
+            state.links.give_back(token);
+            let body = format!("{why}\n");
+            let reply = format!("HTTP/1.1 403 Forbidden\r\nContent-Type: text/plain\r\nCache-Control: no-store\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+            let _ = timed(sock.write_all(reply.as_bytes())).await;
+            let _ = timed(sock.shutdown()).await;
+            return;
+        }
+    }
     let size = file.metadata().await.map(|m| m.len()).unwrap_or(0);
     // The name as the browser saves it: plain for old ones, exact for the rest.
     let plain: String = link.name.chars().map(|c| if c.is_ascii_graphic() && c != '"' && c != '\\' { c } else { '_' }).collect();
@@ -199,18 +251,9 @@ async fn serve_link(state: &Arc<BbsState>, sock: &mut tokio::net::TcpStream, met
         let _ = timed(sock.shutdown()).await;
         return;
     }
-    let sent = send_file(&mut file, sock).await;
+    // Charged above, when the fetch began; a send stalled 30 s gives up.
+    let _ = send_file(&mut file, sock).await;
     let _ = timed(sock.shutdown()).await;
-    if sent == size && state.links.count_once(token) {
-        let st = state.clone();
-        let l = link.clone();
-        let _ = tokio::task::spawn_blocking(move || {
-            if let Err(e) = count_link(&st, &l) {
-                tracing::warn!("download link: counting {}: {e:#}", l.name);
-            }
-        })
-        .await;
-    }
 }
 
 #[derive(Serialize)]
@@ -667,7 +710,10 @@ mod tests {
         assert!(state.links.take("0".repeat(32).as_str(), true).is_none());
         // Counted once, however often it's fetched.
         let t = state.links.mint(&state, 1, "phrac", "AGNNODE", "agoranet.z03", "/nonexistent".into());
-        assert!(state.links.count_once(&t) && !state.links.count_once(&t));
+        let l = state.links.take(&t, false).unwrap();
+        assert!(!state.links.counted(&t, &l));
+        state.links.set_counted(&t);
+        assert!(state.links.counted(&t, &l));
     }
 
     #[test]

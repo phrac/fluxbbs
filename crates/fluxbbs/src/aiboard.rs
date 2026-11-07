@@ -77,8 +77,10 @@ impl Session {
     }
 
     /// The file areas the caller can see, in board order.
-    fn ai_visible_file_areas(&self) -> Vec<crate::fileareas::FileArea> {
-        self.state.fareas().areas.iter().filter(|a| self.acs(&a.acs)).cloned().collect()
+    /// A sub-area needs its parents' access too.
+    pub(crate) fn ai_visible_file_areas(&self) -> Vec<crate::fileareas::FileArea> {
+        let visible: std::collections::HashSet<u32> = self.visible_fareas().into_iter().map(|(n, _)| n).collect();
+        self.state.fareas().areas.iter().enumerate().filter(|(i, _)| visible.contains(&(*i as u32 + 1))).map(|(_, a)| a.clone()).collect()
     }
 
     fn ai_file_areas(&self) -> String {

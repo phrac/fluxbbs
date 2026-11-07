@@ -540,6 +540,18 @@ impl FileBase {
         Ok(())
     }
 
+    /// New: one more download of `f`, counted in the database rather than
+    /// by writing back a record read before a long transfer; the count now.
+    pub fn add_download(&self, f: &FileRec) -> anyhow::Result<Option<u32>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let (sql, by): (&str, Vec<rusqlite::types::Value>) = if f.id != 0 {
+            ("UPDATE files SET downloads = downloads + 1 WHERE id = ?1 RETURNING downloads", vec![f.id.into()])
+        } else {
+            ("UPDATE files SET downloads = downloads + 1 WHERE area = ?1 AND num = ?2 RETURNING downloads", vec![f.area.clone().into(), (f.num as i64).into()])
+        };
+        Ok(db.query_row(sql, rusqlite::params_from_iter(by), |r| r.get(0)).optional()?)
+    }
+
     /// Remove a file's record and close the gap in the numbering; its
     /// pushes go too.
     pub fn remove(&self, area: &str, num: u32) -> anyhow::Result<()> {
@@ -727,7 +739,11 @@ impl FileBase {
         if by == SortBy::None {
             return Ok(());
         }
-        let mut files = self.list(area)?;
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        // Read inside the transaction, so a file added or removed by
+        // another node meanwhile can't be renumbered from a stale list.
+        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
+        let mut files: Vec<FileRec> = tx.prepare("SELECT * FROM files WHERE area = ?1 ORDER BY num")?.query_map([area], from_row)?.collect::<Result<_, _>>()?;
         let ext = |n: &str| n.rsplit_once('.').map(|(_, e)| e.to_ascii_uppercase()).unwrap_or_default();
         files.sort_by(|a, b| {
             let o = match by {
@@ -742,8 +758,6 @@ impl FileBase {
             };
             if descending { o.reverse() } else { o }
         });
-        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        let tx = db.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate)?;
         tx.execute("UPDATE files SET num = -num WHERE area = ?1", [area])?;
         for (i, f) in files.iter().enumerate() {
             tx.execute("UPDATE files SET num = ?3 WHERE area = ?1 AND num = ?2", params![area, -(f.num as i64), i as u32 + 1])?;
@@ -863,6 +877,23 @@ mod tests {
             valid: true,
             description: vec!["A file".into(), "second line".into()],
         }
+    }
+
+    #[test]
+    fn downloads_count_in_place() {
+        let fb = FileBase::open_memory().unwrap();
+        let mut a = rec("A", "one.txt");
+        fb.add(&mut a).unwrap();
+        let stale = a.clone();
+        let mut edited = a.clone();
+        edited.description = vec!["edited meanwhile".into()];
+        fb.update(&edited).unwrap();
+        assert_eq!(fb.add_download(&stale).unwrap(), Some(1));
+        let now = fb.get("A", a.num).unwrap().unwrap();
+        assert_eq!((now.downloads, now.description), (1, vec!["edited meanwhile".to_string()]));
+        let mut by_num = stale.clone();
+        by_num.id = 0;
+        assert_eq!(fb.add_download(&by_num).unwrap(), Some(2));
     }
 
     #[test]

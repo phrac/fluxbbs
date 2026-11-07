@@ -16,6 +16,9 @@ use crate::session::Session;
 /// for a terminal's half-blocks.
 const PAGE_PIXELS: u32 = 480;
 
+/// The zoomed view's widest page and tallest window, in pixels.
+const ZOOM_MAX: u32 = 2048;
+
 pub fn is_pdf(name: &str) -> bool {
     name.to_ascii_lowercase().ends_with(".pdf")
 }
@@ -32,17 +35,55 @@ fn cache_key(path: &Path) -> String {
     format!("{:016x}", h.finish())
 }
 
+/// What the cache of PDFs' text, pages and copies out of archives may hold.
+const CACHE_BYTES: u64 = 512 << 20;
+
+/// New: oldest files out of the cache `dir` until it's within CACHE_BYTES,
+/// keeping `keep` (just made).
+pub(crate) fn prune_cache(dir: &Path, keep: &Path) {
+    prune_to(dir, CACHE_BYTES, keep)
+}
+
+fn prune_to(dir: &Path, max: u64, keep: &Path) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = rd
+        .filter_map(Result::ok)
+        .filter_map(|e| {
+            let m = e.metadata().ok()?;
+            m.is_file().then(|| (m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len(), e.path()))
+        })
+        .collect();
+    let mut total: u64 = files.iter().map(|f| f.1).sum();
+    files.sort();
+    for (_, len, path) in files {
+        if total <= max {
+            break;
+        }
+        if path != keep && std::fs::remove_file(&path).is_ok() {
+            total -= len;
+        }
+    }
+}
+
+/// How long one of Poppler's tools may run, and how much it may print.
+const TOOL_SECS: u64 = 60;
+const TOOL_BYTES: u64 = 64 << 20;
+
 /// Run one of Poppler's tools; its output, or why not.
 fn poppler(tool: &str, args: &[&std::ffi::OsStr]) -> Result<Vec<u8>, String> {
-    let out = Command::new(tool).args(args).output().map_err(|e| match e.kind() {
-        io::ErrorKind::NotFound => format!("{tool} isn't installed"),
-        _ => e.to_string(),
+    // New: killed past TOOL_SECS or TOOL_BYTES (a crafted PDF can keep
+    // one busy for ever).
+    let mut cmd = Command::new(tool);
+    cmd.args(args);
+    let out = crate::upscan::run_limited(cmd, std::time::Duration::from_secs(TOOL_SECS), TOOL_BYTES).map_err(|e| match e {
+        crate::upscan::RunError::Spawn(e) if e.kind() == io::ErrorKind::NotFound => format!("{tool} isn't installed"),
+        e => e.to_string(),
     })?;
-    if !out.status.success() {
-        let err = String::from_utf8_lossy(&out.stderr);
+    if !out.0.success() {
+        let err = String::from_utf8_lossy(&out.2);
         return Err(err.lines().next().unwrap_or("it failed").to_string());
     }
-    Ok(out.stdout)
+    Ok(out.1)
 }
 
 /// The text of a PDF, in reading order, with a rule where each page
@@ -109,6 +150,7 @@ fn render(path: &Path, n: u32, dir: &Path, stem: &str, size: &[String]) -> io::R
         args.extend(size.iter().map(std::ffi::OsStr::new));
         args.extend([path.as_os_str(), root.as_os_str()]);
         poppler("pdftoppm", &args).map_err(io::Error::other)?;
+        prune_cache(dir, &png);
     }
     std::fs::read(&png)
 }
@@ -144,6 +186,7 @@ impl Session {
                 if let Ok(t) = &got {
                     let _ = std::fs::create_dir_all(cached.parent().unwrap_or(Path::new(".")));
                     let _ = std::fs::write(&cached, t);
+                    prune_cache(cached.parent().unwrap_or(Path::new(".")), &cached);
                 }
                 got
             }
@@ -222,7 +265,9 @@ impl Session {
     async fn pdf_zoomed(&mut self, name: &str, path: &Path, n: &mut u32, total: u32) -> io::Result<Option<char>> {
         let (cw, ch) = self.cell_pixels().await?;
         let rows = self.screen.rows().saturating_sub(1).max(2) as u32;
-        let (width, view) = (80 * cw, rows * ch / 6 * 6);
+        // The cell size is the terminal's word: capped, so a claimed giant
+        // cell can't make a page tens of thousands of pixels big.
+        let (width, view) = ((80 * cw).min(ZOOM_MAX), (rows * ch).min(ZOOM_MAX) / 6 * 6);
         let (half, full) = (view / 12 * 6, view.saturating_sub(4 * ch) / 6 * 6);
         let dir = self.pdf_cache();
         let (mut top, mut fresh) = (0u32, true);
@@ -287,6 +332,24 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn cache_prunes_oldest() {
+        let dir = std::env::temp_dir().join(format!("fluxbbs-prune-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (i, n) in ["a", "b", "c"].iter().enumerate() {
+            let p = dir.join(n);
+            std::fs::write(&p, [0u8; 100]).unwrap();
+            let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000 + i as u64);
+            std::fs::File::options().write(true).open(&p).unwrap().set_modified(t).unwrap();
+        }
+        prune_to(&dir, 150, &dir.join("a"));
+        let left: Vec<bool> = ["a", "b", "c"].iter().map(|n| dir.join(n).exists()).collect();
+        assert_eq!(left, [true, false, false], "oldest go first, the one kept stays");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
 
     #[test]
     fn slices_pages() {

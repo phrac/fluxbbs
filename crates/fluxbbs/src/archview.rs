@@ -3,7 +3,7 @@
 //! screening's unpack limit, for the gallery-style browser
 //! (`gallery.rs`) to show.
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::path::Path;
 
 use fluxbbs_term::Color;
@@ -13,29 +13,32 @@ use crate::upscan::Kind;
 
 /// The bytes of `name` in the archive at `path`, at most `cap` of them
 /// (counting, for tars, everything read on the way to it).
+#[cfg(test)]
 pub(crate) fn read_entry(path: &Path, kind: Kind, name: &str, cap: u64) -> io::Result<Vec<u8>> {
-    let file = std::fs::File::open(path)?;
     let mut out = Vec::new();
+    copy_entry(path, kind, name, cap, &mut out)?;
+    Ok(out)
+}
+
+/// As [`read_entry`], written to `out` as it's read; the bytes copied.
+pub(crate) fn copy_entry(path: &Path, kind: Kind, name: &str, cap: u64, out: &mut dyn Write) -> io::Result<u64> {
+    let file = std::fs::File::open(path)?;
     match kind {
         Kind::Tar | Kind::TarGz => {
             let reader: Box<dyn Read> = if kind == Kind::Tar { Box::new(file) } else { Box::new(flate2::read::MultiGzDecoder::new(file)) };
             for e in tar::Archive::new(reader.take(cap)).entries()? {
                 let mut e = e?;
                 if e.path().is_ok_and(|p| p.to_string_lossy() == name) {
-                    e.read_to_end(&mut out)?;
-                    return Ok(out);
+                    return io::copy(&mut e, out);
                 }
             }
             Err(io::ErrorKind::NotFound.into())
         }
-        Kind::Gzip => {
-            flate2::read::MultiGzDecoder::new(file).take(cap).read_to_end(&mut out)?;
-            Ok(out)
-        }
+        Kind::Gzip => io::copy(&mut flate2::read::MultiGzDecoder::new(file).take(cap), out),
         _ => {
             let mut z = zip::ZipArchive::new(file).map_err(io::Error::other)?;
-            z.by_name(name).map_err(io::Error::other)?.take(cap).read_to_end(&mut out)?;
-            Ok(out)
+            let mut e = z.by_name(name).map_err(io::Error::other)?;
+            io::copy(&mut (&mut e).take(cap), out)
         }
     }
 }

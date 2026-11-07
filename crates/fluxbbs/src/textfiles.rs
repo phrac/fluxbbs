@@ -185,6 +185,12 @@ fn relative(href: &str) -> bool {
         && !href.to_ascii_lowercase().starts_with("mailto:")
 }
 
+/// A decoded link name that is one plain path component: not empty, not
+/// hidden or `..`, no separators.
+fn safe_component(name: &str) -> bool {
+    !name.is_empty() && !name.starts_with('.') && !name.contains(['/', '\\', '\0']) && !Path::new(name).is_absolute()
+}
+
 fn percent_decode(s: &str) -> String {
     let b = s.as_bytes();
     let mut out = Vec::with_capacity(b.len());
@@ -288,6 +294,10 @@ pub fn parse_index(html: &str) -> Page {
             continue;
         }
         let name = percent_decode(&href);
+        // Checked again decoded: `%2E%2E%2F` is `../`.
+        if !safe_component(&name) {
+            continue;
+        }
         if !seen.insert(name.to_lowercase()) {
             continue;
         }
@@ -343,6 +353,9 @@ fn parse_listing(html: &str, low: &str) -> Page {
         }
         let is_dir = href.ends_with('/');
         let name = percent_decode(href.trim_end_matches('/'));
+        if !safe_component(&name) {
+            continue;
+        }
         if !seen.insert(name.to_lowercase()) {
             continue;
         }
@@ -887,6 +900,26 @@ pub async fn from_args(args: &[String]) -> anyhow::Result<()> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn encoded_links_stay_inside() {
+        let html = r#"<H1>x</H1><TABLE>
+<TR><TD><A HREF="%2E%2E%2Fevil.txt">a</A><TD> 10<TD> bad
+<TR><TD><A HREF="..%2f..%2fetc">b</A><TD> 10<TD> bad
+<TR><TD><A HREF="%2Fetc%2Fpasswd">c</A><TD> 10<TD> bad
+<TR><TD><A HREF="a%5Cb.txt">d</A><TD> 10<TD> bad
+<TR><TD><A HREF="%2E%2E">e</A><TD> 10<TD> bad
+<TR><TD><A HREF="ok%20name.txt">f</A><TD> 10<TD> good
+</TABLE>"#;
+        let names: Vec<String> = parse_index(html).entries.into_iter().map(|e| e.name).collect();
+        assert_eq!(names, ["ok name.txt"]);
+        let listing = r#"<pre><a href="%2E%2E%2F">x</a>  -
+<a href="sub%2F..%2F..%2F/">y</a>  -
+<a href="fine.txt">fine.txt</a>  01-Jan-1990 00:00  12
+</pre>"#;
+        let names: Vec<String> = parse_listing(listing, &listing.to_lowercase()).entries.into_iter().map(|e| e.name).collect();
+        assert_eq!(names, ["fine.txt"]);
+    }
 
     const ANARCHY: &str = r#"<HTML><TITLE>T E X T F I L E S</TITLE>
 <H1>Anarchy and Explosives and General Mayhem</H1>

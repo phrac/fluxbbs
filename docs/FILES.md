@@ -346,8 +346,11 @@ Copied into a browser, it fetches that file over HTTPS. Each link:
 - lasts `link_minutes` (30) and works `link_uses` times (3), then says
   it has expired; a made-up or old token gets the same;
 - counts as that caller's download, the file's count, points, today's
-  totals, once, when it's first fetched whole; asking for it is held
-  to the same access, points and limits as any download.
+  totals, once, when it's first fetched (later fetches of it are free);
+  asking for it is held to the same access, points and limits as any
+  download, and the points, daily limits and ratios are checked again
+  at that first fetch, so links made on one balance can't all be
+  spent (a refused fetch says why and doesn't use up the link).
 
 Links are kept in memory, so a restart ends them early. Only files of
 file areas get them: pieces out of archives and QWK packets don't.
