@@ -1407,6 +1407,14 @@ impl Session {
 
     /// A piece in the scrolling viewer, titled from its SAUCE.
     async fn gallery_view(&mut self, name: &str, sauce: Option<&Sauce>, src: &Src) -> io::Result<Option<char>> {
+        // New: an ANSI art gen in the version the terminal shows best.
+        #[cfg(feature = "ansigen")]
+        let best = match src {
+            Src::Disk(p) => self.ansigen_best(p).map(Src::Disk),
+            _ => None,
+        };
+        #[cfg(feature = "ansigen")]
+        let src = best.as_ref().unwrap_or(src);
         let data = match read_piece(src) {
             Ok(d) => d,
             Err(e) => return self.show_line(&format!("|U0{name}: {e}")).await.map(|_| None),

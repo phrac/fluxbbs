@@ -770,6 +770,7 @@ impl Session {
             "tip" if mine => s.fmt("PointsTipFrom", &[&e.from]),
             "tip" => s.fmt("PointsTipTo", &[&e.to]),
             "ticket" => s.fmt("PointsTickets", &[&e.note]),
+            "ansigen" => s.fmt("PointsAnsiGen", &[&e.note]),
             "lottery" => {
                 let d = Draw::from_entry(e);
                 s.fmt("PointsWon", &[&d.number.to_string(), &d.tickets.to_string()])

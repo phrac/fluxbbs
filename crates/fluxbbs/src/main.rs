@@ -19,6 +19,8 @@ mod aiboard;
 mod aichat;
 mod aimemory;
 mod aidesc;
+#[cfg(feature = "ansigen")]
+mod ansigen;
 #[cfg(feature = "ai")]
 mod ansishot;
 mod backup;
@@ -255,6 +257,9 @@ pub struct BbsState {
     /// Codes out to confirm callers' email addresses (`UV`).
     #[cfg(feature = "email")]
     pub email: emailver::CodeStore,
+    /// New: ANSI art from a prompt: the allowances, the gens, the line (`AN`).
+    #[cfg(feature = "ansigen")]
+    pub ansigen: ansigen::AnsiGens,
     /// Places callers picked for the weather, and recent forecasts.
     #[cfg(feature = "weather")]
     pub weather: weather::WeatherStore,
@@ -700,6 +705,8 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     let carrier = carrierlost::CarrierStore::open(&db)?;
     #[cfg(feature = "email")]
     let email = emailver::CodeStore::open(&db)?;
+    #[cfg(feature = "ansigen")]
+    let ansigen = ansigen::AnsiGens::open(&db)?;
     #[cfg(feature = "weather")]
     let weather = weather::WeatherStore::open(&db)?;
     let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
@@ -732,6 +739,8 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         carrier,
         #[cfg(feature = "email")]
         email,
+        #[cfg(feature = "ansigen")]
+        ansigen,
         #[cfg(feature = "weather")]
         weather,
         files,
@@ -981,6 +990,8 @@ pub mod tests {
             carrier: carrierlost::CarrierStore::open_memory().unwrap(),
             #[cfg(feature = "email")]
             email: emailver::CodeStore::open_memory().unwrap(),
+            #[cfg(feature = "ansigen")]
+            ansigen: ansigen::AnsiGens::open_memory().unwrap(),
             #[cfg(feature = "weather")]
             weather: weather::WeatherStore::open_memory().unwrap(),
             files: FileBase::open_memory().unwrap(),

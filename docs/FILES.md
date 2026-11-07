@@ -592,6 +592,16 @@ sixels on), foot, WezTerm, mlterm and Windows Terminal show them.
   (`poppler-utils`; the Docker image has them). Without them, PDFs can
   still be downloaded.
 
+### ANSI art gens
+
+The gens made with `AN` are files in an area of their own (`[ansigen]
+area`), the 16-color `.ans` as the file and its 256 and 24-bit versions
+and PNG beside it in a hidden `.ansigen` folder. The gallery and file
+browser show a caller the version their terminal takes best; the SAUCE
+names the caller and the board. Packing or deleting a gen leaves those
+versions behind (they're small: about 100 KB a gen). See
+[FEATURES](FEATURES.md#ansi-art-from-a-prompt).
+
 ### Picture uploads
 
 Picture uploads are decoded first. They're refused past these `[files]`

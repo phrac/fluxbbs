@@ -120,6 +120,14 @@ on = "\u001b[0;30;41m (\u001b[0;1;37;41mv\u001b[0;30;41m) \u001b[0;1;37;41mcarri
 off = " \u001b[0;1;30m(\u001b[0;1;31mv\u001b[0;1;30m) \u001b[38;2;255;255;255mc\u001b[38;2;255;224;224ma\u001b[38;2;255;193;193mr\u001b[38;2;255;162;162mr\u001b[38;2;255;131;131mi\u001b[38;2;255;100;100me\u001b[38;2;247;77;77mr \u001b[38;2;216;46;46ml\u001b[38;2;201;31;31mo\u001b[38;2;185;15;15ms\u001b[38;2;170;0;0mt      \u001b[0m"
 
 [[command]]
+keys = "A"
+command = "AN"
+desc = "ANSI art"
+help = "Describe a picture and the AI draws it in ANSI; it goes in the gens file area"
+on = "\u001b[0;30;41m (\u001b[0;1;37;41ma\u001b[0;30;41m) \u001b[0;1;37;41mansi art          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;31ma\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;206;206mn\u001b[38;2;255;158;158ms\u001b[38;2;255;109;109mi \u001b[38;2;219;49;49ma\u001b[38;2;194;24;24mr\u001b[38;2;170;0;0mt          \u001b[0m"
+
+[[command]]
 keys = "5"
 command = "D1"
 param = "YANK.BAT"

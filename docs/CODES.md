@@ -141,6 +141,8 @@ characters are letters, as the original did.
 | `%TB` | minutes in the time bank (2.20) |
 | `%TR` | tarot readings left today (`∞` with no limit; new) |
 | `%TF` | fortunes left today (`∞` with no limit; new) |
+| `%IF` | ANSI art gens left free today (new; 0 without the `ansigen` component) |
+| `%IB` | ANSI art bonus gens banked (new) |
 | `%BD` | birth date |
 | `%SX` | gender |
 | `%PN` | phone |

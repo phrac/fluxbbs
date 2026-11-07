@@ -37,6 +37,7 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
         "XR" => "mrc",
         "RL" | "RA" | "RS" => "rumors",
         ">F" => "feedback",
+        "AN" => "ansigen",
         _ => return None,
     })
 }
@@ -45,7 +46,8 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
 /// components are Cargo features (docs/BUILDING.md); one left out
 /// counts as switched off, whatever `[features]` says.
 pub fn built(name: &str) -> bool {
-    const BUILT: [(&str, bool); 13] = [
+    const BUILT: [(&str, bool); 14] = [
+        ("ansigen", cfg!(feature = "ansigen")),
         ("mrc", cfg!(feature = "mrc")),
         ("weather", cfg!(feature = "weather")),
         ("email", cfg!(feature = "email")),
@@ -74,6 +76,7 @@ pub fn command_on(cfg: &Config, code: &str) -> bool {
         Some("nuv") => cfg.nuv.enabled,
         Some("email") => cfg.email.enabled,
         Some("mrc") => cfg.mrc.enabled,
+        Some("ansigen") => cfg.ansigen.enabled,
         Some(name) => cfg.features.on(name),
     }
 }
@@ -105,5 +108,9 @@ mod tests {
         assert_eq!(command_on(&cfg, "-X"), cfg!(feature = "python"));
         assert!(built("message_center") && built("anything else"), "the core is always built");
         assert!(!command_on(&cfg, "AD"), "the retired temple never is");
+        let mut on = Config::default();
+        on.ansigen.enabled = true;
+        assert_eq!(command_on(&on, "AN"), cfg!(feature = "ansigen"));
+        assert!(!command_on(&cfg, "AN"), "off to start");
     }
 }

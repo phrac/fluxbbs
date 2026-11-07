@@ -653,6 +653,9 @@ All in [DOORS](DOORS.md).
 
 ## Around the board
 
+- ANSI art from a prompt (`AN`), drawn by an image model on the
+  SysOp's GPU and filed in an area of its own, where votes on a gen
+  bank its author more gens. ([FEATURES](FEATURES.md#ansi-art-from-a-prompt))
 - Plain text, for bots (flag B) and anyone who sets it in user config:
   no ANSI, art or pauses; menus listed and answered a line at a time,
   the message boards as line commands, messages written a line at a
@@ -768,6 +771,7 @@ All in [DOORS](DOORS.md).
 | `UX` | sixel pictures offered, once (the `sixel` logon step) |
 | `AP` | Carrier Lost (the dial-up game) |
 | `AB` (+ `new`, SysOps) | the reading room; `new` chooses today's shelf again |
+| `AN` (+ `refused`, SysOps) | ANSI art from a prompt; `refused`, the prompts refused |
 | `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin` `search` `votes`) | file browser; `votes`, the hot files |
 | `MH` | message center |
@@ -802,6 +806,7 @@ Details in [CODES](CODES.md).
 | `%MG` `%MY` `%MB` `%MF` `%MD` `%MK` `%MH` `%MR` `%ML` `%MQ` `%MC` `%MX` `%MV` `%MJ` | the message base: totals, new for you, newest, most replied to, loudest area, top poster, at random |
 | `%RM` `%RL` | a rumor at random, the newest rumor |
 | `%GL` `%GW` `%GA` `%GP` `%GC` `%GK` `%GQ` `%GH` `%GN` `%GX` `%GJ` `%GZ` `%GO` `%GD` `%GG` `%GE` `%GF` `%GY` `%GU` `%GV` | door games: last played, most played, most time, longest play, who's in one now, gathering dust, untried, the caller's own |
+| `%IF` `%IB` | ANSI art gens: free ones left today, bonus ones banked |
 
 ### New screens
 
@@ -839,7 +844,7 @@ Details in [ARTWORK](ARTWORK.md).
 
 - New sections in `fluxbbs.toml`: `[ssh]`, `[telnet]`, `[web]`,
   `[gallery]`, `[security]`, `[passwords]`, `[terminal]`, `[dos]`,
-  `[ai]`, `[meshcore]`, `[ftn]`, `[flags]`.
+  `[ai]`, `[meshcore]`, `[ftn]`, `[flags]`, `[ansigen]`.
 - New keys elsewhere, chiefly upload screening in `[files]`, sign-up
   limits in `[newuser]`, and callers' boards in `[messages]`.
 - New prompt strings are at the end of `assets/strings.toml`: about
