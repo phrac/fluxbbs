@@ -699,6 +699,16 @@ All in [DOORS](DOORS.md).
   feedback ran `EE` as nobody. ([FEATURES](FEATURES.md#feedback-from-the-matrix))
 - A JSON feed of who's on, last callers, new files and posts, and
   totals, for a website. ([SYSOP](SYSOP.md#website-feed))
+- Achievements (`UA`, after ENiGMA½'s): tiers earned once for posts,
+  uploads, downloads, calls, days in a row, doors, oneliners, votes,
+  requests filled and days a member, with points, told at the next
+  menu and to the other nodes; what was done before is given quietly
+  and unpaid. Kept in `achievements.toml`, read again when it changes.
+  ([FEATURES](FEATURES.md#achievements))
+- Top lists (`LT`, after ENiGMA½'s top X): the top ten callers,
+  posters, uploaders, downloaders, gamers and earners this week, the
+  last 30 days and all time, side by side. Downloads are logged by
+  whom and when for it. ([FEATURES](FEATURES.md#top-lists))
 
 ## SysOp tools
 
@@ -763,6 +773,8 @@ All in [DOORS](DOORS.md).
 | `UT` | pick a screen theme |
 | `UK` | your SSH keys |
 | `UF` (+ handle) | finger someone |
+| `UA` | your achievements |
+| `LT` (+ `callers` `posters` `uploaders` `downloaders` `gamers` `points`, or 1-6) | the top lists |
 | `D0`, `D4` | door with no drop file, with DOOR32.SYS |
 | `*G` | security log and bans |
 | `*O` | logon sequence |
@@ -804,7 +816,9 @@ Details in [ARTWORK](ARTWORK.md).
 | `MHOT` TOP/MID/HIL/BOT | the Hot list |
 | `MSGRHELP` | the reader's help |
 | `CFGFAREA` TOP/MID/HIL/BOT | `*F`'s area list |
-| `FINGER` | a caller's profile (`~KA` karma) |
+| `FINGER` | a caller's profile (`~KA` karma, `~AC` achievements) |
+| `TOPL` TOP/MID/BOT | the top lists (`~CT`, `~YR`, `~R1`-`~V3`) |
+| `ACHV` TOP/MID/BOT | your achievements (`~EA`, `~EP`, `~AN`, `~AV`, `~AM`, `~AL`, `~AX`) |
 
 ### New markers in older screens
 

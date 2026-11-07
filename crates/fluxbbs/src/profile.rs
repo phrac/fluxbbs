@@ -6,7 +6,8 @@
 //! FINGER screen dresses it (`~UN` handle, `~LO` location, `~UO` note,
 //! `~FC` first call, `~LS` last seen, `~CA` calls, `~PO` posts, `~UL`
 //! uploads, `~DL` downloads, `~LP` latest post, `~LU` latest uploads,
-//! `~KA` karma, from pushes, `~FI` requests filled, `~P1`-`~P6` the plan);
+//! `~KA` karma, from pushes, `~FI` requests filled, `~AC` achievements,
+//! `~P1`-`~P6` the plan);
 //! without it, a plain one.
 
 use std::io;
@@ -100,6 +101,8 @@ impl Session {
         // New: requests they've filled, and the points.
         let (fills, fill_pts) = self.state.msgs.fills_of(u.id).map_err(io::Error::other)?;
         let fills = if fills == 0 { String::new() } else { self.strings().fmt("FingerFillsAre", &[&fills.to_string(), &fill_pts.to_string()]) };
+        // New: their achievements, how many and the latest.
+        let achieved = self.achieve_summary(u);
         // New: their real name, if they show it.
         let real = if u.show_real_name { u.real_name.clone() } else { String::new() };
         let mut w = vec![
@@ -117,6 +120,7 @@ impl Session {
             ("LU", latest_uploads.clone()),
             ("KA", karma.clone()),
             ("FI", fills.clone()),
+            ("AC", achieved.clone()),
         ];
         let plan_codes = ["P1", "P2", "P3", "P4", "P5", "P6"];
         for (i, code) in plan_codes.iter().enumerate() {
@@ -152,6 +156,9 @@ impl Session {
         ];
         if !fills.is_empty() {
             lines.push(format!("|U1 {} |U3{}", resize(s.get("FingerFills"), 11), squish(&fills, 66)));
+        }
+        if !achieved.is_empty() {
+            lines.push(format!("|U1 {} |U3{}", resize(s.get("FingerAchieved"), 11), squish(&achieved, 66)));
         }
         drop(s);
         for l in lines {

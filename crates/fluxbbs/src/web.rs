@@ -199,6 +199,7 @@ fn count_link(state: &BbsState, l: &Link, f: &crate::filebase::FileRec, u: &User
         state.users.merge_with(u, &paid, false)?;
     }
     state.sys.bump(crate::clock::now().date_naive(), crate::sysdata::Stat::Download { kb: kb as u64 })?;
+    state.sys.log_download(u.id, crate::clock::now().naive_local(), kb as u64)?;
     tracing::info!("{}: downloaded {} ({}) by link", l.handle, l.name, l.area);
     Ok(())
 }

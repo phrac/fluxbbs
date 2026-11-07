@@ -11,6 +11,7 @@ says what's new over Iniquity.
 - [QWK offline mail](#qwk-offline-mail)
 - [Infoforms and new user voting](#infoforms-and-new-user-voting)
 - [AI chat](#ai-chat)
+- [Achievements](#achievements) and [top lists](#top-lists)
 - [Message center](#message-center)
 - [MeshCore](#meshcore)
 - [FTN echomail](#ftn-echomail)
@@ -479,6 +480,7 @@ It shows:
 - since when, and when last on (or on now, unless invisible)
 - calls, posts, uploads and downloads
 - their latest post and uploads
+- their [achievements](#achievements): how many, and the latest
 - their plan: up to six lines they write in their profile
 - their ANSI header, if they've uploaded one
 - their real name, only if they choose to show it
@@ -571,7 +573,8 @@ A FINGER screen can dress the profile up with these markers:
 #### Lists and other features
 
 Oneliners, the automessage, last callers, history and statistics, the
-BBS list, user configuration and the user listing. New: rumors.
+BBS list, user configuration and the user listing; and new, [rumors](#rumors), the
+[top lists](#top-lists) and [achievements](#achievements).
 
 #### Rumors
 
@@ -1159,6 +1162,105 @@ pays and the most a day, the minutes a door point takes and the most a
 day, the most a caller may tip a day (0: no tips), a ticket's price (0:
 no lottery), tickets a day, and the house's part. File points must be
 on (File System).
+
+## Achievements
+
+Milestones callers earn as they use the board, after ENiGMA½'s. `UA`
+(`&` on the stock main menu, listed on more...) shows yours: each
+achievement on a line, with your figure, its tiers (`■` earned, `·` not),
+the latest you've earned and the next, with how far there is to go.
+Finger shows how many someone has and their latest.
+
+- **What counts.** `posts`, `uploads`, `downloads` and `calls` (as the
+  caller's record has them), `streak` (the most days in a row they've
+  called), `doors` (games played, the built-in ones too), `oneliners`
+  (added since achievements came; the oneliner file doesn't say whose a
+  line is), `votes` (voting booth questions answered and new users voted
+  on), `fills` (requests filled) and `days` (since the first call).
+  Door games played on a hidden call or while invisible aren't logged,
+  so they don't count.
+- **Earning one.** Each tier is earned once. It's worked out at the
+  menus, never in the middle of the editor, a door or a transfer, and
+  told on the menu's help line (or the line before its prompt):
+  "Achievement: Wordsmith (500 posts), +50 points". The other nodes get
+  a line too (`announce`), unless the caller is invisible or on a hidden
+  call. With `[files] use_file_points`, a tier's points are paid and
+  go in the points ledger (`achieve`).
+- **What was done before.** The first time a caller's figures are
+  looked at (their first call since achievements came, or since the
+  SysOp added one), whatever they've already reached is theirs, but
+  quietly: no points (unless `back_points = true`), no line to the other
+  nodes, and one line at their first menu, "You've 12 achievements for
+  what you'd done already". So a long-time caller isn't at zero, and
+  the board doesn't pay out thousands of points at once or flood the
+  nodes. It's settled at logon, before anything the call itself does,
+  which is earned as it happens. A new caller earns everything as it
+  happens.
+- **Streaks** are kept from each call on; a caller's first call since
+  achievements came starts from the days they're in the callers log.
+- **Bots** (flag `B`) earn none.
+
+### Setting them up
+
+`achievements.toml` (`[paths] achievements`) holds them; without it, the
+stock set. `fluxbbs achievements > achievements.toml` writes the stock
+set to start from. The board reads the file again when it changes, at
+the next menu, so it can be edited while the board runs (a file that
+doesn't parse is logged and the last good one kept). There's no editor
+for it in `*C`.
+
+```toml
+enabled = true      # false: no achievements (UA says so)
+announce = true     # tell the other nodes
+back_points = false # pay for what was done before, too
+
+[[achievement]]
+stat = "posts"
+name = "Poster"
+
+[[achievement.tier]]
+at = 1
+title = "First Words"
+points = 5
+
+[[achievement.tier]]
+at = 100
+title = "Prolific"
+points = 25
+```
+
+Earned tiers are kept by stat and figure: renaming a title doesn't give
+it again, and taking a tier out leaves those who have it with it (the
+list shows only the tiers there are now). A tier added below where a
+caller already is gets earned at their next menu, points and all.
+
+## Top lists
+
+`LT` (`^` on the stock main menu, listed on more...) shows the top ten
+callers, posters, uploaders, downloaders, gamers (time in doors) and
+point earners: this week, the last 30 days and all time, side by side,
+a category at a time. Left and right (or space), or the category's
+number, change it; `q`, Enter or Esc go back. `LT posts` (or a number)
+starts at one. Your own places are on top and marked `»` in the lists.
+In plain text, every category is listed one after another.
+
+- **Who's ranked.** Callers, not bots and not deleted accounts. Hidden
+  calls and invisible door games aren't logged, so they're in no week
+  or month.
+- **This week and this month** come from what's logged with a date:
+  the callers log, the messages (public ones, not anonymous, in the
+  areas you can read), the files' upload days (in the areas you can
+  see), door plays, the points ledger, and a download log kept since
+  the top lists came (`download_log`): downloads before it are only in
+  all time.
+- **All time** is each caller's own count (calls, posts, uploads,
+  downloads), the door log's minutes, and for points, the points each
+  caller holds now (the ledger began after points did, so what was
+  earned in all is not known).
+- **Points** is left out without `[files] use_file_points`.
+
+The TOPL screens dress it (TOP, MID, BOT; [markers](ARTWORK.md#top-lists-and-achievements)).
+The top fillers of requests are in the message center (`MF`).
 
 ## Casino
 

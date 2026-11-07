@@ -788,6 +788,23 @@ impl FileBase {
         Ok(rows)
     }
 
+    /// New: validated files uploaded to `areas` since `since` (by day),
+    /// by uploader's handle (the top lists).
+    pub fn uploads_by_handle(&self, areas: &[String], since: chrono::NaiveDateTime) -> anyhow::Result<Vec<(String, u64)>> {
+        if areas.is_empty() {
+            return Ok(Vec::new());
+        }
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let sql = format!(
+            "SELECT MAX(uploader), COUNT(*) FROM files WHERE valid AND uploader <> '' AND uploaded >= ? AND area IN ({}) GROUP BY uploader COLLATE NOCASE",
+            vec!["?"; areas.len()].join(",")
+        );
+        let day = since.date();
+        let p = rusqlite::params_from_iter(std::iter::once(&day as &dyn rusqlite::ToSql).chain(areas.iter().map(|a| a as &dyn rusqlite::ToSql)));
+        let rows = db.prepare(&sql)?.query_map(p, |r| Ok((r.get(0)?, r.get::<_, i64>(1)?.max(0) as u64)))?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// New: what the validated files in `areas` add up to, for the file
     /// menu's `%F?` codes. `since` counts the uploads on or after it.
     pub fn stats(&self, areas: &[String], since: Option<NaiveDate>) -> anyhow::Result<FileStats> {
@@ -1104,6 +1121,12 @@ mod tests {
         assert_eq!(s.random.len(), 3);
         assert!(s.random.iter().all(|f| f.area == "UTILS"));
         assert_eq!(fb.stats(&[], None).unwrap().files, 0);
+        // The top lists' uploaders: by day uploaded, validated, in the areas given.
+        let since = NaiveDate::from_ymd_opt(2026, 10, 1).unwrap().and_hms_opt(0, 0, 0).unwrap();
+        let mut up = fb.uploads_by_handle(&["utils".into()], since).unwrap();
+        up.sort();
+        assert_eq!(up, [("phrac".to_string(), 2)]);
+        assert!(fb.uploads_by_handle(&["secret".into()], since + chrono::Duration::days(30)).unwrap().is_empty());
     }
 
     #[test]

@@ -378,7 +378,9 @@ where the board draws things:
 - the file lister and gallery (`~TL`, `~FN`...);
 - the upload test (`~L0`-`~L9`, `~PI`);
 - lightbar menus (`~01^01`...) and prompt bars (`~HP`, `~PC`);
-- list screens (TOP/MID/HIL/BOT) and the user configuration screen.
+- list screens (TOP/MID/HIL/BOT), the top lists and achievements
+  (`TOPL`, `ACHV`), a caller's profile (`FINGER`, `~AC` their
+  achievements among them) and the user configuration screen.
 
 Each is listed with its screen in [ARTWORK.md](ARTWORK.md). The easy
 way is to copy the stock file and draw around its markers.

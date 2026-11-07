@@ -691,6 +691,7 @@ impl Session {
             self.bump(crate::sysdata::Stat::NewUser);
         }
         self.log_call();
+        self.achieve_logon();
         self.time_on = Instant::now();
         if let Err(e) = self.save_own_user() {
             tracing::error!("saving {}: {e}", self.user.handle);

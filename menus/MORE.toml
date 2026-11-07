@@ -67,6 +67,22 @@ on = "\u001b[0;30;45m (\u001b[0;1;37;45mr\u001b[0;30;45m) \u001b[0;1;37;45mrumor
 off = " \u001b[0;1;30m(\u001b[0;1;35mr\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;255;187;255mu\u001b[38;2;255;119;255mm\u001b[38;2;238;68;238mo\u001b[38;2;204;34;204mr\u001b[38;2;170;0;170ms                         \u001b[0m"
 
 [[command]]
+keys = "^"
+command = "LT"
+desc = "Top lists"
+help = "Top callers, posters, uploaders and gamers: this week, this month, all time"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m^\u001b[0;30;45m) \u001b[0;1;37;45mtop lists                      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m^\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;212;255mo\u001b[38;2;255;170;255mp \u001b[38;2;255;85;255ml\u001b[38;2;234;64;234mi\u001b[38;2;212;42;212ms\u001b[38;2;191;21;191mt\u001b[38;2;170;0;170ms                      \u001b[0m"
+
+[[command]]
+keys = "&"
+command = "UA"
+desc = "Achievements"
+help = "What you've earned, and what's next"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m&\u001b[0;30;45m) \u001b[0;1;37;45machievements                   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m&\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;224;255mc\u001b[38;2;255;193;255mh\u001b[38;2;255;162;255mi\u001b[38;2;255;131;255me\u001b[38;2;255;100;255mv\u001b[38;2;247;77;247me\u001b[38;2;232;62;232mm\u001b[38;2;216;46;216me\u001b[38;2;201;31;201mn\u001b[38;2;185;15;185mt\u001b[38;2;170;0;170ms                   \u001b[0m"
+
+[[command]]
 keys = "<"
 command = "-\\"
 param = "MAIN"

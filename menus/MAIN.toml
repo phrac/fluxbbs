@@ -289,6 +289,20 @@ on = "\u001b[0;30;45m (\u001b[0;1;37;45mg\u001b[0;30;45m) \u001b[0;1;37;45mgoodb
 off = " \u001b[0;1;30m(\u001b[0;1;35mg\u001b[0;1;30m) \u001b[38;2;255;255;255mg\u001b[38;2;255;198;255mo\u001b[38;2;255;142;255mo\u001b[38;2;255;85;255md\u001b[38;2;227;57;227mb\u001b[38;2;198;28;198my\u001b[38;2;170;0;170me           \u001b[0m"
 
 [[command]]
+keys = "^"
+command = "LT"
+desc = "Top lists"
+help = "Top callers, posters, uploaders and gamers"
+hidden = true
+
+[[command]]
+keys = "&"
+command = "UA"
+desc = "Achievements"
+help = "What you've earned, and what's next"
+hidden = true
+
+[[command]]
 keys = "I"
 command = "IN"
 acs = "s25"

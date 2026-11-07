@@ -34,7 +34,7 @@ MENUS = {
        ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('>', 'more...'), ('g', 'goodbye')])]),
  # The main menu's overflow: what's used least. Their keys still work
  # from the main menu too (hidden there).
- 'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('i', 'infoforms'), ('r', 'rumors'), ('<', 'back')])]),
+ 'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('i', 'infoforms'), ('r', 'rumors'), ('^', 'top lists'), ('&', 'achievements'), ('<', 'back')])]),
  'file': ('file menu', [('areas', [('a', 'change area'), ('j', 'join conference'), ('[', 'previous area'), (']', 'next area'), ('#', 'jump to area #')]),
        ('find', [('l', 'browse files'), ('f', 'search files'), ('h', 'hot files'), ('n', 'newscan'), ('s', 'set newscan date'), ('e', 'scan select')]),
        ('transfer', [('d', 'download'), ('u', 'upload'), ('+', 'flag for batch'), ('b', 'batch edit'), ('q', 'quit')])]),
@@ -108,12 +108,17 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
          # MRC: chat with callers on other boards (XR), beside the node chat.
          # Uploads waiting for a SysOp (*Q).
          ('sysop', '+'): {'keys': '+', 'command': '*Q', 'param': '', 'acs': 's250', 'desc': 'Held uploads', 'help': '[sysop] Uploads waiting to be checked: view, validate or delete them'},
+         # The top lists (LT) and your achievements (UA), on more...
+         ('more', '^'): {'keys': '^', 'command': 'LT', 'param': '', 'desc': 'Top lists', 'help': 'Top callers, posters, uploaders and gamers: this week, this month, all time'},
+         ('more', '&'): {'keys': '&', 'command': 'UA', 'param': '', 'desc': 'Achievements', 'help': "What you've earned, and what's next"},
          ('multinod', 'r'): {'keys': 'R', 'command': 'XR', 'param': '', 'desc': 'MRC chat', 'help': 'Chat live with callers on other BBSes (Multi Relay Chat)'},
 }
 # Options a menu gains off the bar (their keys work; the screen says so):
-# the doors menu's s, its full scoreboard.
-# and r, the reading room.
-HIDDEN_ADDED = {'door': [{'keys': 'S', 'command': '-F', 'param': 'DOORSTAT', 'desc': 'Scoreboard', 'help': 'Who played what, when and for how long', 'hidden': True},
+# main's ^ and & (top lists and achievements, on more...), the doors
+# menu's s, its full scoreboard, and r, the reading room.
+HIDDEN_ADDED = {'main': [{'keys': '^', 'command': 'LT', 'param': '', 'desc': 'Top lists', 'help': 'Top callers, posters, uploaders and gamers', 'hidden': True},
+                         {'keys': '&', 'command': 'UA', 'param': '', 'desc': 'Achievements', 'help': "What you've earned, and what's next", 'hidden': True}],
+                'door': [{'keys': 'S', 'command': '-F', 'param': 'DOORSTAT', 'desc': 'Scoreboard', 'help': 'Who played what, when and for how long', 'hidden': True},
                          {'keys': 'R', 'command': 'AB', 'param': '', 'desc': 'Reading room', 'help': "A shelf of textfiles by the fire, on a new theme every day", 'hidden': True}]}
 DROP_REST = {'door', 'more'}
 # Menus with no stock menu of their own: whose options they take, and

@@ -151,7 +151,7 @@ impl Session {
         } else {
             crate::session::find_ci(&cfg.resolve(&cfg.paths.stock_text), name).unwrap_or_else(|| path.clone())
         };
-        let _guard = self.state.text_lock.lock().unwrap_or_else(|e| e.into_inner());
+        let guard = self.state.text_lock.lock().unwrap_or_else(|e| e.into_inner());
         let mut lines: Vec<Vec<u8>> = match std::fs::read(&from) {
             Ok(b) => {
                 let b = b.split(|&c| c == 0x1a).next().unwrap_or_default().to_vec();
@@ -168,7 +168,13 @@ impl Session {
         }
         let mut out: Vec<u8> = lines.join(&b"\r\n"[..]);
         out.extend_from_slice(b"\r\n");
-        std::fs::write(&path, out)
+        std::fs::write(&path, out)?;
+        drop(guard);
+        // New: a oneliner, for achievements.
+        if self.logged_in && !self.input_string.trim().is_empty() {
+            self.achieve_oneliner();
+        }
+        Ok(())
     }
 
     // ---- last callers and history ------------------------------------------

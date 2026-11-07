@@ -131,6 +131,12 @@ impl FormStore {
         Ok(db.execute("DELETE FROM infoform_answers WHERE form = ?1", [form])? as u32)
     }
 
+    /// New: how many new users `voter` has voted on (achievements).
+    pub fn nuv_votes_by(&self, voter: u32) -> anyhow::Result<u64> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row("SELECT COUNT(*) FROM nuv_votes WHERE voter_id = ?1", [voter], |r| r.get::<_, i64>(0))?.max(0) as u64)
+    }
+
     pub fn has_voted(&self, voter: u32, candidate: u32) -> anyhow::Result<bool> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db

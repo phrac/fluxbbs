@@ -34,6 +34,16 @@ LISTS={
  'LASTC':('LASTCALLS.ans','35','last callers',
    [('today','%DC',4),('new','%DN',3),('calls','%TC',7)],
    [('#',3,'~CN',5,'n'),('handle',9,'~UN',20,'t'),('from',30,'~LO',18,'d'),('via',49,'~BR',6,'v'),('new',56,'~NU',3,'d'),('date',61,'~DT',8,'d'),('time',71,'~TI',7,'d')],'\r\n'),
+ # The top lists (LT): a category's three lists side by side, the
+ # category in the title (~CT), the caller's places (~YR) and the third
+ # list's head (~W3: all time, or points held now) filled in.
+ 'TOPL':(('menu', 'main'),'35','{16~CT',
+   [('you','~YR',14)],
+   [('#',3,'~R1',3,'n'),('this week',7,'~H1',12,'t'),('',20,'~V1',7,'v'),('#',29,'~R2',3,'n'),('last 30 days',33,'~H2',12,'t'),('',46,'~V2',7,'v'),('#',55,'~R3',3,'n'),('~W3',59,'~H3',12,'t'),('',72,'~V3',7,'v')],'\r\n'),
+ # Achievements (UA): one a row, earned and next.
+ 'ACHV':(('menu', 'main'),'35','achievements',
+   [('earned','~EA',7),('points','~EP',6)],
+   [('achievement',3,'~AN',15,'t'),('have',19,'~AV',7,'v'),('tiers',27,'~AM',6,'n'),('latest',34,'~AL',21,'d'),('next',56,'~AX',23,'d')],'\r\n'),
  'MSGL':('MSGLIST.ans','36','{30%MA',
    [('messages','%MT',6),('date','%DT',8)],
    [('#',3,'~MN',5,'n'),('from',9,'~SN',21,'t'),('to',31,'~RN',22,'d'),('subject',54,'~MT',25,'v')],'\r\n'),
@@ -96,7 +106,9 @@ def build(prefix):
     s=DG+'[ '+(' '+BR+'·'+' ').join(fade_text(l,accent)+' '+WH+'{%02d'%w+c for l,c,w in stats)+' '+DG+']'
     slen=4+sum(len(l)+1+w for l,c,w in stats)+3*(len(stats)-1)
     top.append(at(rr,79-slen)+s)
-    top.append(at(rr+1,1)+''.join(at(rr+1,c)+fade_text(h,accent) for h,c,_,_,_ in cols))
+    # A head can be a ~ code the board fills in, as wide as its column.
+    def head(h,w): return WH+'{%02d'%w+h if h.startswith('~') else fade_text(h,accent)
+    top.append(at(rr+1,1)+''.join(at(rr+1,c)+head(h,w or len(h)) for h,c,_,w,_ in cols))
     top.append(at(rr+2,1)+E+'0m')
     style={'n':RD,'t':GR,'v':BR,'d':DG}
     hstyle={'n':BR,'t':WH,'v':WH,'d':GR}

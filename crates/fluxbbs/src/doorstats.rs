@@ -66,6 +66,7 @@ impl Session {
             tracing::warn!("door play: {e}");
         }
         *self.door_stats.borrow_mut() = None;
+        self.achieve.due = true;
         minutes
     }
 
