@@ -75,13 +75,28 @@ pub fn parse_time(s: &str) -> Option<NaiveTime> {
     NaiveTime::parse_from_str(s.trim(), "%H:%M").ok()
 }
 
-/// Is `e` due at `now`, having last run on `last`? An event runs once a
-/// day, at its time (or within the scheduler's two-minute window after
-/// it), or any time later that day with `run_missed`.
-pub fn due(e: &Event, last: Option<NaiveDate>, now: NaiveDateTime) -> bool {
+/// Is `e` due at `now`, having last run on `last`, the scheduler having
+/// last looked at `prev`? An event runs once a day, at its time (or
+/// within the scheduler's two-minute window after it), or any time later
+/// that day with `run_missed`.
+/// New: a time the clock skipped (the hour lost when summer time starts)
+/// is due at the first look after it: `prev` was before it.
+pub fn due(e: &Event, last: Option<NaiveDate>, now: NaiveDateTime, prev: Option<NaiveDateTime>) -> bool {
     let Some(t) = parse_time(&e.time) else { return false };
     let at = now.date().and_time(t);
-    e.active && last != Some(now.date()) && now >= at && (e.run_missed || now - at < chrono::Duration::minutes(2))
+    // Only a short gap since the last look: a long one is the BBS down.
+    let crossed = prev.is_some_and(|p| p < at && now - p <= chrono::Duration::minutes(90));
+    e.active && last != Some(now.date()) && now >= at && (e.run_missed || now - at < chrono::Duration::minutes(2) || crossed)
+}
+
+/// What each event's last run is kept under: its description, and for a
+/// second event of the same description, `desc#2` and so on.
+fn event_key(list: &[Event], i: usize) -> String {
+    let desc = &list[i].desc;
+    match list[..i].iter().filter(|e| e.desc == *desc).count() {
+        0 => desc.clone(),
+        n => format!("{desc}#{}", n + 1),
+    }
 }
 
 /// How often the scheduler looks.
@@ -92,29 +107,33 @@ const FORCE_WAIT: Duration = Duration::from_secs(60);
 /// The scheduler: started with the server, runs for as long as it does.
 pub async fn scheduler(state: Arc<BbsState>) {
     let mut tick = tokio::time::interval(TICK);
+    let mut prev: Option<NaiveDateTime> = None;
     loop {
         tick.tick().await;
         // New: last night's lottery, drawn once the day's over.
         crate::points::draw_due(&state);
         let now = crate::clock::now().naive_local();
-        for e in state.events().list.iter() {
-            let last = match state.sys.event_last(&e.desc) {
+        let events = state.events();
+        for (i, e) in events.list.iter().enumerate() {
+            let key = event_key(&events.list, i);
+            let last = match state.sys.event_last(&key) {
                 Ok(l) => l,
                 Err(err) => {
                     tracing::error!("event {}: {err}", e.desc);
                     continue;
                 }
             };
-            if !due(e, last, now) {
+            if !due(e, last, now, prev) {
                 continue;
             }
             // Marked first, so a slow job isn't started twice.
-            if let Err(err) = state.sys.set_event_last(&e.desc, now.date()) {
+            if let Err(err) = state.sys.set_event_last(&key, now.date()) {
                 tracing::error!("event {}: {err}", e.desc);
                 continue;
             }
             tokio::spawn(run(state.clone(), e.clone()));
         }
+        prev = Some(now);
     }
 }
 
@@ -349,15 +368,29 @@ mod tests {
     fn when_events_are_due() {
         let e = ev("04:00", false);
         let yesterday = NaiveDate::from_ymd_opt(2026, 10, 16);
-        assert!(!due(&e, yesterday, at(3, 59)), "not yet");
-        assert!(due(&e, yesterday, at(4, 0)));
-        assert!(due(&e, yesterday, at(4, 1)), "within the window");
-        assert!(!due(&e, yesterday, at(9, 0)), "missed, and not run_missed");
-        assert!(!due(&e, Some(at(4, 0).date()), at(4, 1)), "already ran today");
-        assert!(due(&ev("04:00", true), yesterday, at(9, 0)), "run_missed catches up");
-        assert!(due(&ev("04:00", true), None, at(9, 0)), "never ran");
-        assert!(!due(&Event { active: false, ..e.clone() }, yesterday, at(4, 0)));
-        assert!(!due(&ev("25:00", true), yesterday, at(9, 0)), "a bad time never runs");
+        assert!(!due(&e, yesterday, at(3, 59), None), "not yet");
+        assert!(due(&e, yesterday, at(4, 0), None));
+        assert!(due(&e, yesterday, at(4, 1), None), "within the window");
+        assert!(!due(&e, yesterday, at(9, 0), None), "missed, and not run_missed");
+        assert!(!due(&e, Some(at(4, 0).date()), at(4, 1), None), "already ran today");
+        assert!(due(&ev("04:00", true), yesterday, at(9, 0), None), "run_missed catches up");
+        assert!(due(&ev("04:00", true), None, at(9, 0), None), "never ran");
+        assert!(!due(&Event { active: false, ..e.clone() }, yesterday, at(4, 0), None));
+        assert!(!due(&ev("25:00", true), yesterday, at(9, 0), None), "a bad time never runs");
+        // Summer time: 02:30 never comes, the clock going 01:59 to 03:00.
+        let gap = ev("02:30", false);
+        let before = at(1, 59) + chrono::Duration::seconds(50);
+        let after = at(3, 0) + chrono::Duration::seconds(10);
+        assert!(due(&gap, yesterday, after, Some(before)), "skipped, so due just after");
+        assert!(!due(&gap, yesterday, after + chrono::Duration::seconds(20), Some(after)), "but not on the looks after");
+        assert!(!due(&e, yesterday, at(9, 0), Some(at(3, 0))), "a long gap is the BBS down");
+    }
+
+    #[test]
+    fn same_names_keep_their_own_runs() {
+        let list = vec![ev("01:00", false), ev("02:00", false), Event { desc: "Other".into(), ..ev("03:00", false) }, ev("04:00", false)];
+        let keys: Vec<String> = (0..list.len()).map(|i| event_key(&list, i)).collect();
+        assert_eq!(keys, ["Nightly", "Nightly#2", "Other", "Nightly#3"]);
     }
 
     #[test]

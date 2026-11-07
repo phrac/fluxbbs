@@ -417,6 +417,10 @@ impl Session {
         if !self.points_on() || self.state.config().points.tip_daily == 0 {
             return Err(s.get("TipOff").to_string());
         }
+        // New: an anonymous post's author stays hidden.
+        if m.anonymous {
+            return Err(s.get("TipAnonymous").to_string());
+        }
         match self.state.users.get(m.from.user_id) {
             Ok(Some(u)) if m.from.user_id != 0 => Ok(u),
             _ => Err(s.get("TipNobody").to_string()),

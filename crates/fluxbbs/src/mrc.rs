@@ -321,7 +321,26 @@ async fn connection(state: &Arc<BbsState>) -> anyhow::Result<()> {
     send_line(&mut wr, &hello).await?;
     tracing::info!("mrc: connected to {host}:{port}{}", if tls { " (TLS)" } else { "" });
     let (tx, mut rx) = mpsc::unbounded_channel::<String>();
-    let mut rd = BufReader::new(rd);
+    // Lines are read in a task of their own: `read_line` isn't cancel-safe,
+    // and in the select below a send would drop half a line.
+    let (line_tx, mut lines) = mpsc::channel::<std::io::Result<Option<String>>>(64);
+    let reader = tokio::spawn(async move {
+        let mut rd = BufReader::new(rd);
+        loop {
+            let r = read_line(&mut rd).await;
+            let end = !matches!(r, Ok(Some(_)));
+            if line_tx.send(r).await.is_err() || end {
+                return;
+            }
+        }
+    });
+    struct AbortOnDrop(tokio::task::JoinHandle<()>);
+    impl Drop for AbortOnDrop {
+        fn drop(&mut self) {
+            self.0.abort();
+        }
+    }
+    let _reader = AbortOnDrop(reader);
     let pid = std::process::id().to_string();
     let mut announced = false;
     // The server pings every few minutes; ten without a word from it (what
@@ -330,8 +349,8 @@ async fn connection(state: &Arc<BbsState>) -> anyhow::Result<()> {
     loop {
         let deadline = heard + Duration::from_secs(600);
         tokio::select! {
-            line = read_line(&mut rd) => {
-                let Some(line) = line? else { return Ok(()) };
+            line = lines.recv() => {
+                let Some(Some(line)) = line.transpose()? else { return Ok(()) };
                 heard = tokio::time::Instant::now();
                 let Some(p) = Packet::parse(&line) else { continue };
                 if p.from_user != "SERVER" {

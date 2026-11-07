@@ -22,6 +22,11 @@ use crate::session::Session;
 const NAME_WIDTH: usize = 20;
 const ABOUT_WIDTH: usize = 40;
 
+/// How many caller boards `id` (`handle`) runs.
+fn boards_of(areas: &crate::msgareas::MsgAreas, id: u32, handle: &str) -> usize {
+    areas.areas.iter().filter(|a| !a.created.is_empty() && if a.sponsor_id != 0 { a.sponsor_id == id } else { a.sponsor.eq_ignore_ascii_case(handle) }).count()
+}
+
 impl Session {
     /// The caller may make boards (`board_create_acs`).
     pub(crate) fn may_create_board(&self) -> bool {
@@ -42,12 +47,9 @@ impl Session {
             self.note_say("BoardCreateNo").await?;
             return Ok(None);
         }
-        let limit = self.state.config().messages.boards_per_caller;
-        let mine = self.state.areas().areas.iter().filter(|a| !a.created.is_empty() && if a.sponsor_id != 0 { a.sponsor_id == self.user.id } else { a.sponsor.eq_ignore_ascii_case(&self.user.handle) }).count();
-        if mine >= limit as usize {
-            let s = self.strings().fmt("BoardLimit", &[&limit.to_string()]);
-            self.note(s).await?;
-            return Ok(None);
+        let limit = self.state.config().messages.boards_per_caller as usize;
+        if boards_of(&self.state.areas(), self.user.id, &self.user.handle) >= limit {
+            return self.board_limit(limit).await;
         }
         self.say_line("BoardIntro").await?;
         self.newline();
@@ -77,6 +79,11 @@ impl Session {
         let msgs = &state.msgs;
         let made = state
             .update_areas(|areas| -> anyhow::Result<Option<(u32, String)>> {
+                // Checked again here, with the list locked: two nodes at
+                // once could each have passed the check above.
+                if boards_of(areas, sponsor_id, &sponsor) >= limit {
+                    return Ok(Some((0, String::new())));
+                }
                 // Someone else may have taken the name meanwhile.
                 if areas.areas.iter().any(|a| a.name.eq_ignore_ascii_case(&name)) {
                     return Ok(None);
@@ -122,10 +129,19 @@ impl Session {
             self.note_say("BoardNameTaken").await?;
             return Ok(None);
         };
+        if n == 0 {
+            return self.board_limit(limit).await;
+        }
         tracing::info!("{}: made the board {name} ({file})", self.user.handle);
         let s = self.strings().fmt("BoardMade", &[&name]);
         self.note(s).await?;
         Ok(Some(n))
+    }
+
+    async fn board_limit(&mut self, limit: usize) -> io::Result<Option<u32>> {
+        let s = self.strings().fmt("BoardLimit", &[&limit.to_string()]);
+        self.note(s).await?;
+        Ok(None)
     }
 
     /// `o` in a board's thread list, for its moderator (or a co-SysOp):

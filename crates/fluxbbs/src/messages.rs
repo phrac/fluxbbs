@@ -108,8 +108,19 @@ impl Session {
         (!m.private && !m.deleted) || self.is_me(&m.to) || self.is_me(&m.from) || self.is_cosysop() || self.is_sponsor(a)
     }
 
+    /// A private post's recipient may delete it, but undelete it only if
+    /// they were the one who deleted it (not a moderator).
     pub(crate) fn ok_to_delete(&self, a: &AreaRef, m: &Message) -> bool {
-        self.is_cosysop() || self.is_sponsor(a) || (m.private && self.is_me(&m.to)) || (self.wrote(&m.from) && !self.banned_from(a))
+        self.is_cosysop()
+            || self.is_sponsor(a)
+            || (m.private && self.is_me(&m.to) && (!m.deleted || self.state.msgs.deleted_by(m.id).ok().flatten().is_some_and(|by| by.eq_ignore_ascii_case(&self.user.handle))))
+            || (self.wrote(&m.from) && !self.banned_from(a))
+    }
+
+    /// `d` on your own post (take back, retract, burn): not on a board
+    /// they're banned from.
+    pub(crate) fn may_regret(&self, a: &AreaRef, m: &Message) -> bool {
+        self.wrote(&m.from) && !self.banned_from(a)
     }
 
     pub(crate) fn ok_to_edit(&self, a: &AreaRef, m: &Message) -> bool {
@@ -172,9 +183,14 @@ impl Session {
     /// (number shown, area number) for each area the caller sees listed:
     /// with `compress_area_numbers`, listed areas are numbered 1, 2, 3...
     pub(crate) fn msg_area_labels(&self) -> Vec<(u32, u32)> {
+        self.msg_area_labels_in(&self.state.areas())
+    }
+
+    /// [`Self::msg_area_labels`] of one snapshot of the areas.
+    fn msg_area_labels_in(&self, areas: &crate::msgareas::MsgAreas) -> Vec<(u32, u32)> {
         let compress = self.state.config().messages.compress_area_numbers;
         let mut out = Vec::new();
-        for (i, a) in self.state.areas().areas.iter().enumerate() {
+        for (i, a) in areas.areas.iter().enumerate() {
             let n = i as u32 + 1;
             if self.acs(&a.acs) || a.unhidden {
                 out.push((if compress { out.len() as u32 + 1 } else { n }, n));
@@ -219,7 +235,7 @@ impl Session {
     pub async fn list_areas(&mut self, change: bool) -> io::Result<()> {
         let areas = self.state.areas();
         let rows: Vec<(u32, u32, MsgArea)> =
-            self.msg_area_labels().into_iter().map(|(label, n)| (label, n, areas.areas[n as usize - 1].clone())).collect();
+            self.msg_area_labels_in(&areas).into_iter().map(|(label, n)| (label, n, areas.areas[n as usize - 1].clone())).collect();
         if change {
             let mut bar = Vec::new();
             for (label, n, a) in &rows {
@@ -607,6 +623,12 @@ impl Session {
                 cur = n;
             }
             total = self.state.msgs.count(a.key()).map_err(io_err)?;
+            // Emptied (or deleted) by another node meanwhile.
+            if total == 0 {
+                self.newline();
+                self.say_line("MsgReadNoMsgs").await?;
+                return Ok(true);
+            }
             if let Some(n) = typed {
                 self.newline();
                 if let Some(found) = self.readable(a, n.clamp(1, total), false, total, &none)? {
@@ -641,7 +663,7 @@ impl Session {
                         continue;
                     }
                     if key == 'I' {
-                        self.state.msgs.set_lastread(self.user.id, a.key(), total).map_err(io_err)?;
+                        self.state.msgs.advance_lastread(self.user.id, a.key(), total).map_err(io_err)?;
                     }
                     return Ok(true);
                 }
@@ -673,7 +695,7 @@ impl Session {
                         self.newline();
                     }
                 }
-                'D' if !a.is_email() && self.wrote(&m.from) => {
+                'D' if !a.is_email() && self.may_regret(a, &m) => {
                     if self.regret(a, &m).await?
                         && let Some(now) = self.state.msgs.by_id(m.id).map_err(io_err)?
                     {
@@ -1066,6 +1088,13 @@ impl Session {
         };
         if done.anonymous {
             from.name = self.strings().get("Anonymous").to_string();
+        }
+        // New: the board went (deleted on another node) while this was
+        // written: not posted under a key nothing lists.
+        if !a.is_email() && !self.state.areas().areas.iter().any(|x| x.file.eq_ignore_ascii_case(a.key())) {
+            self.node.update(|n| n.activity = format!("Menu: {}", self.menu.current));
+            self.say_line("MsgAreaGone").await?;
+            return Ok(None);
         }
         let mut lines = done.lines;
         let mut sig_pos = 0;

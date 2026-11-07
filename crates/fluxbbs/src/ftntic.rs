@@ -196,15 +196,19 @@ fn by_name(dir: &Path, name: &str) -> Vec<PathBuf> {
 }
 
 /// A file's CRC, read once for each size and time it has (the tossers
-/// look at the same inbound files again and again).
+/// look at the same inbound files again and again). Its inode and change
+/// time too: binkp sets a received file's time to the sender's, so a file
+/// sent again (same size, same time, other bytes) would match the old.
 fn file_crc(p: &Path) -> std::io::Result<u32> {
     use std::collections::HashMap;
+    use std::os::unix::fs::MetadataExt;
     use std::sync::Mutex;
-    /// A file as it was: where, how long, when changed.
-    type Seen = (PathBuf, u64, std::time::SystemTime);
+    /// A file as it was: where, how long, when changed, which inode, and
+    /// when its inode changed (seconds, nanoseconds).
+    type Seen = (PathBuf, u64, std::time::SystemTime, u64, i64, i64);
     static CACHE: Mutex<Option<HashMap<Seen, u32>>> = Mutex::new(None);
     let meta = std::fs::metadata(p)?;
-    let key = (p.to_path_buf(), meta.len(), meta.modified()?);
+    let key = (p.to_path_buf(), meta.len(), meta.modified()?, meta.ino(), meta.ctime(), meta.ctime_nsec());
     if let Some(c) = CACHE.lock().unwrap_or_else(|e| e.into_inner()).as_ref().and_then(|m| m.get(&key)) {
         return Ok(*c);
     }
