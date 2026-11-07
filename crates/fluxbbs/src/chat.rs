@@ -144,6 +144,15 @@ impl Session {
     async fn page_mail(&mut self, matrix: bool, sysop: &str) -> io::Result<()> {
         let cfg = self.state.config();
         let (ask, acs) = (cfg.chat.ask_email, cfg.messages.acs_post_email.clone());
+        // New: from the matrix, a note as a visitor (`>F`) instead.
+        if matrix && ask && cfg.features.feedback && !self.logged_in {
+            drop(cfg);
+            self.say("PageLeaveFeedback").await?;
+            if self.yes_no(false).await? {
+                self.matrix_feedback("").await?;
+            }
+            return Ok(());
+        }
         if matrix || !ask || !self.acs(&acs) {
             return Ok(());
         }

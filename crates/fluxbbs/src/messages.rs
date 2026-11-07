@@ -931,6 +931,12 @@ impl Session {
         #[cfg_attr(not(feature = "ftn"), allow(unused_mut))]
         let mut netmail = false;
         let (to_party, default_subject) = match reply {
+            // New: feedback from the matrix has no one to answer.
+            Some(r) if crate::feedback::is_visitor(&r.from) => {
+                self.say_line("VisitorNoReply").await?;
+                self.prompt_key().await?;
+                return Ok(None);
+            }
             // Mail from elsewhere: netmail is answered as netmail; from
             // anywhere else there's nobody to answer.
             Some(r) if a.is_email() && r.from.user_id == 0 => {

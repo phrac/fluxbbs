@@ -129,6 +129,9 @@ pub struct Session {
     /// Set while asking whether the caller's time is unlimited: the ACS
     /// that decides it sees their own minutes, not a whole day.
     checking_time: std::cell::Cell<bool>,
+    /// New: the rumor `%RM` picked, and when: a screen showing it twice
+    /// (or measuring it first) shows the same one.
+    pub(crate) rumor_pick: std::cell::RefCell<Option<(std::time::Instant, String)>>,
     pub(crate) io: Box<dyn Stream>,
     pub(crate) screen: Screen,
     pub(crate) input: VecDeque<u8>,
@@ -509,6 +512,7 @@ impl Session {
             user,
             user_base: Default::default(),
             checking_time: Default::default(),
+            rumor_pick: Default::default(),
             io,
             screen,
             input: VecDeque::new(),

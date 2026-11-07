@@ -35,6 +35,8 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
         "UV" => "email",
         "WX" => "weather",
         "XR" => "mrc",
+        "RL" | "RA" | "RS" => "rumors",
+        ">F" => "feedback",
         _ => return None,
     })
 }

@@ -59,6 +59,14 @@ on = "\u001b[0;30;45m (\u001b[0;1;37;45mi\u001b[0;30;45m) \u001b[0;1;37;45minfof
 off = " \u001b[0;1;30m(\u001b[0;1;35mi\u001b[0;1;30m) \u001b[38;2;255;255;255mi\u001b[38;2;255;212;255mn\u001b[38;2;255;170;255mf\u001b[38;2;255;128;255mo\u001b[38;2;255;85;255mf\u001b[38;2;234;64;234mo\u001b[38;2;212;42;212mr\u001b[38;2;191;21;191mm\u001b[38;2;170;0;170ms                      \u001b[0m"
 
 [[command]]
+keys = "R"
+command = "RL"
+desc = "Rumors"
+help = "What callers whisper, unsigned: read the rumors, or start one"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mr\u001b[0;30;45m) \u001b[0;1;37;45mrumors                         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mr\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;255;187;255mu\u001b[38;2;255;119;255mm\u001b[38;2;238;68;238mo\u001b[38;2;204;34;204mr\u001b[38;2;170;0;170ms                         \u001b[0m"
+
+[[command]]
 keys = "<"
 command = "-\\"
 param = "MAIN"

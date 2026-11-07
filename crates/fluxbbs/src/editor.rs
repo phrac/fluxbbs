@@ -834,6 +834,10 @@ impl Session {
     /// What `@` may complete to: every other caller's handle, and the
     /// groups (`@all`...) if this caller may name them.
     fn mention_names(&self) -> Vec<String> {
+        // Not to a visitor at the matrix (`>F`): the handles aren't theirs to list.
+        if !self.logged_in {
+            return Vec::new();
+        }
         let mut names: Vec<String> = self.state.users.handles().unwrap_or_default().into_iter().filter(|h| !h.eq_ignore_ascii_case(&self.user.handle)).collect();
         if crate::mentions::may_group(&self.state, &self.user) {
             names.extend(crate::mentions::GROUPS.iter().map(|g| g.to_string()));

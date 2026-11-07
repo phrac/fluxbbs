@@ -5,7 +5,7 @@
 items=[('log on','>L','','you have an account. prove it.'),
        ('apply','>A','','new here? we will decide if you stay.'),
        ('page sysop','>C','','ring the bell. someone may answer.'),
-       ('feedback','EE','1;Matrix feedback;No','leave a note for the sysop.'),
+       ('feedback','>F','','leave a note for the sysop.'),
        ('hang up','>H','','the smart choice. no hard feelings.')]
 import os, sys
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

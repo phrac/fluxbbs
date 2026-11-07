@@ -69,6 +69,27 @@ each keystroke sent as it's typed.
 password, the pages per call and how long a page lasts. Outside the
 hours, or with no SysOp online, the caller is offered email instead.
 
+#### Feedback from the matrix
+
+`>F` (f on the stock matrix) lets someone who hasn't logged in leave
+the SysOp a note: any name they like, a way to reach them if they want
+an answer, a subject, and the text in the usual editor. It lands in
+the SysOp's email (user 1, or whoever the parameter names) from
+"*name* (visitor)", tied to no account, so it can't pass for a caller;
+its first lines say so and give the caller's address, how they came
+(SSH or telnet) and their node. Replying to it says it can't be
+answered instead. A SysOp who's on is told it came, as with a post on
+a board they follow; otherwise it waits in their email like any other.
+When a page from the matrix finds no SysOp, the caller is offered a
+note instead (`[chat] ask_email`).
+
+It comes after the bot check, and the board's per-address limits and
+bans hold as for any call. On top of them: two notes a day from one
+address and twenty from everyone, a name of 30 characters, a way to
+reach them of 60, a subject of 40, and the first 100 lines of the
+text. The user list's handles aren't offered in the editor (`@`).
+Logged in, `>F` is plain email (`EE`). `*C`, Features, P turns it off.
+
 ### Keeping bots out
 
 #### The bot check
@@ -550,7 +571,28 @@ A FINGER screen can dress the profile up with these markers:
 #### Lists and other features
 
 Oneliners, the automessage, last callers, history and statistics, the
-BBS list, user configuration and the user listing.
+BBS list, user configuration and the user listing. New: rumors.
+
+#### Rumors
+
+Callers start rumors: one line of up to 70 characters, unsigned, color
+codes allowed as in the oneliners (anything else shows as typed). The
+newest 100 are kept, a caller may start three a day, and the same
+rumor twice is turned away. Starting one pays no points (nor do
+oneliners).
+
+| Command | Does |
+|---|---|
+| `RL` | lists them, newest first, then offers to start one; a SysOp also sees who wrote each and when, and may delete one by number |
+| `RA` | starts one |
+| `RS` | shows one on a line (`RumorShow`), at random, or the newest with `new`; nothing if there are none |
+
+The `rumor` logon step (`*O`; in the stock sequence after who's
+online) runs `RS`. `%RM` puts a rumor at random on any screen, `%RL`
+the newest. `RL` uses RUMORTOP/MID/BOT if the board has them (`~NM`
+the number, `~RU` the rumor, and for SysOps `~AU` who and `~DT` when);
+otherwise a plain list. r on the stock more... menu is `RL`. `*C`,
+Features, O turns rumors off.
 
 #### The BBS list
 

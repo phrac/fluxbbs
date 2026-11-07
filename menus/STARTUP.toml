@@ -77,6 +77,13 @@ off = "|B0Show who's online"
 
 [[command]]
 keys = "FIRSTCMD"
+command = "RS"
+desc = "Show a rumor"
+on = "|B1Show a rumor"
+off = "|B0Show a rumor"
+
+[[command]]
+keys = "FIRSTCMD"
 command = "-P"
 desc = "[pause]"
 on = "|B1[pause]"

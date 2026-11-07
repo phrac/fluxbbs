@@ -581,6 +581,8 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('L', "Automessage", 3, "The automessage (AS AW AR).", Bool(|c| &mut c.features.automessage)),
             set('M', "Scripts", 3, "Python scripts from menus (-X).", Bool(|c| &mut c.features.scripts)),
             set('N', "Reading room", 3, "The reading room (AB).", Bool(|c| &mut c.features.library)),
+            set('O', "Rumors", 3, "Rumors: callers add them, one shows at logon (RL RA RS, %RM %RL).", Bool(|c| &mut c.features.rumors)),
+            set('P', "Matrix feedback", 3, "A note to the SysOp from the matrix, before logging in (>F).", Bool(|c| &mut c.features.feedback)),
         ]),
     ]
 }

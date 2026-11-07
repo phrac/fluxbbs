@@ -213,6 +213,10 @@ pub struct Features {
     pub automessage: bool,
     pub scripts: bool,
     pub library: bool,
+    /// New: rumors (`RL` `RA` `RS`, `%RM` `%RL`).
+    pub rumors: bool,
+    /// New: feedback from the matrix, before logging in (`>F`).
+    pub feedback: bool,
 }
 
 impl Default for Features {
@@ -233,13 +237,15 @@ impl Default for Features {
             automessage: true,
             scripts: true,
             library: true,
+            rumors: true,
+            feedback: true,
         }
     }
 }
 
 impl Features {
     /// Each feature's name (as in the TOML) and whether it's on.
-    pub fn all(&self) -> [(&'static str, bool); 14] {
+    pub fn all(&self) -> [(&'static str, bool); 16] {
         [
             ("tarot", self.tarot),
             ("slots", self.slots),
@@ -255,6 +261,8 @@ impl Features {
             ("automessage", self.automessage),
             ("scripts", self.scripts),
             ("library", self.library),
+            ("rumors", self.rumors),
+            ("feedback", self.feedback),
         ]
     }
 

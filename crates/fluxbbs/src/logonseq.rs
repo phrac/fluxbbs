@@ -43,7 +43,7 @@ pub struct Sequence {
 }
 
 /// The steps there are: kind, what the editor calls it.
-pub const KINDS: [(&str, &str); 18] = [
+pub const KINDS: [(&str, &str); 19] = [
     ("infoforms", "Infoforms to fill in"),
     ("mail", "Waiting mail"),
     ("newuser", "New users stop here (NEWUSER)"),
@@ -62,11 +62,12 @@ pub const KINDS: [(&str, &str); 18] = [
     ("email", "Email address, confirmed by a code ([email])"),
     ("lottery", "Last night's lottery draw, for those with tickets in it"),
     ("sixel", "Offer sixel pictures, once (SIXEL)"),
+    ("rumor", "A rumor at random (RS)"),
 ];
 
 /// STARTUP's stock order.
-const STOCK: [&str; 13] = [
-    "infoforms", "mail", "newuser", "voting", "callers", "pause", "mandatory", "newposts", "online", "pause",
+const STOCK: [&str; 14] = [
+    "infoforms", "mail", "newuser", "voting", "callers", "pause", "mandatory", "newposts", "online", "rumor", "pause",
     "automsg", "stats", "oneliners",
 ];
 
@@ -149,6 +150,7 @@ fn step_commands(s: &Step, menus: &[PathBuf], fallback: &str) -> Vec<Command> {
         "email" => vec![first("UV", "logon", "", "Email address and its code")],
         "lottery" => vec![first("!P", "draw", "", "Last night's lottery draw")],
         "sixel" => vec![first("UX", "", "", "Offer sixel pictures")],
+        "rumor" => vec![first("RS", "", "", "Show a rumor")],
         // New: a validated caller may go straight on to the main menu.
         "fastlogon" => vec![
             first("?N", "|u2:|u1:|u3: |u1Fast logon, straight to the main menu|u2? ", "s50", "Ask fast logon"),

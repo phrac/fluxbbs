@@ -117,6 +117,8 @@ impl Session {
             ">C" => self.page_sysop(true).await?,
             "CP" => self.page_sysop(false).await?,
             ">L" => self.logon_system().await?,
+            // New: a note to the SysOp before logging in (`feedback.rs`).
+            ">F" => self.matrix_feedback(param).await?,
 
             // -- logoff
             "HC" => {
@@ -322,6 +324,10 @@ impl Session {
             "AS" => self.show_automsg().await?,
             "AW" => self.write_automsg().await?,
             "AR" => self.reply_automsg().await?,
+            // New: rumors (`rumors.rs`).
+            "RL" => self.rumor_list().await?,
+            "RA" => self.rumor_add().await?,
+            "RS" => self.rumor_show(param).await?,
             "BA" => self.bbs_add().await?,
             "BL" => {
                 self.bbs_list().await?;

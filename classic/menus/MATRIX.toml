@@ -16,8 +16,9 @@ off = "|B0  |15l|07ogon |15t|07o |15b|07bs  "
 
 [[command]]
 keys = "2"
-command = "EE"
-param = "1;Matrix feedback;No"
+# New: `>F`, a visitor's note (the original ran `EE` here, as whoever
+# had not logged in).
+command = ">F"
 desc = " |15l|07eave |15f|07eedback "
 on = "|B1 |15l|07eave |15f|07eedback "
 off = "|B0 |15l|07eave |15f|07eedback "

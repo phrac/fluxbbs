@@ -218,6 +218,21 @@ pub struct Bbs {
     pub who_added: String,
 }
 
+/// New: a rumor (`rumors.rs`). Callers see only the text; the SysOp
+/// sees who wrote it.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Rumor {
+    pub id: i64,
+    pub at: NaiveDateTime,
+    pub user_id: u32,
+    pub handle: String,
+    pub text: String,
+}
+
+fn rumor_row(r: &rusqlite::Row) -> rusqlite::Result<Rumor> {
+    Ok(Rumor { id: r.get("id")?, at: r.get("at")?, user_id: r.get("user_id")?, handle: r.get("handle")?, text: r.get("text")? })
+}
+
 /// A door game played (new).
 #[derive(Debug, Clone, PartialEq)]
 pub struct Play {
@@ -380,7 +395,24 @@ pub fn migrate(db: &mut Connection, store: &str, schema: &str, steps: &[Step]) -
 }
 
 /// Columns added since a database was made.
-const STEPS: &[Step] = &[Step::Column("bbslist", "ssh", "TEXT NOT NULL DEFAULT ''")];
+const STEPS: &[Step] = &[
+    Step::Column("bbslist", "ssh", "TEXT NOT NULL DEFAULT ''"),
+    // New: rumors (`rumors.rs`), and feedback left at the matrix
+    // (`feedback.rs`), by address, for its limits.
+    Step::Sql(
+        "CREATE TABLE IF NOT EXISTS rumors (
+            id      INTEGER PRIMARY KEY,
+            at      TEXT NOT NULL,
+            user_id INTEGER NOT NULL,
+            handle  TEXT NOT NULL,
+            text    TEXT NOT NULL
+        );
+        CREATE TABLE IF NOT EXISTS visitor_feedback (
+            at TEXT NOT NULL,
+            ip TEXT NOT NULL
+        );",
+    ),
+];
 
 impl SysData {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
@@ -633,6 +665,76 @@ impl SysData {
             [when],
             |r| Ok((r.get(0)?, r.get(1)?)),
         )?)
+    }
+
+    // ---- rumors and matrix feedback (new) ----------------------------------
+
+    /// Add a rumor, keeping the newest `keep`.
+    pub fn add_rumor(&self, user_id: u32, handle: &str, text: &str, keep: usize) -> anyhow::Result<()> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.execute(
+            "INSERT INTO rumors (at, user_id, handle, text) VALUES (?1, ?2, ?3, ?4)",
+            params![crate::clock::now().naive_local(), user_id, handle, text],
+        )?;
+        db.execute("DELETE FROM rumors WHERE id NOT IN (SELECT id FROM rumors ORDER BY id DESC LIMIT ?1)", [keep.max(1) as i64])?;
+        Ok(())
+    }
+
+    /// Every rumor, newest first.
+    pub fn rumors(&self) -> anyhow::Result<Vec<Rumor>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT * FROM rumors ORDER BY id DESC")?;
+        let rows = stmt.query_map([], rumor_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
+    /// One rumor at random, or the newest.
+    pub fn rumor(&self, newest: bool) -> anyhow::Result<Option<Rumor>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let order = if newest { "id DESC" } else { "RANDOM()" };
+        Ok(db.query_row(&format!("SELECT * FROM rumors ORDER BY {order} LIMIT 1"), [], rumor_row).optional()?)
+    }
+
+    pub fn delete_rumor(&self, id: i64) -> anyhow::Result<bool> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.execute("DELETE FROM rumors WHERE id = ?1", [id])? > 0)
+    }
+
+    /// Rumors `user` has added since `when`.
+    pub fn rumors_since(&self, user: u32, when: NaiveDateTime) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row("SELECT COUNT(*) FROM rumors WHERE user_id = ?1 AND at > ?2", params![user, when], |r| r.get(0))?)
+    }
+
+    /// Feedback left at the matrix since `when`: from `ip`, and in all.
+    pub fn feedback_since(&self, ip: &str, when: NaiveDateTime) -> anyhow::Result<(u32, u32)> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row(
+            "SELECT COALESCE(SUM(ip = ?1), 0), COUNT(*) FROM visitor_feedback WHERE at > ?2",
+            params![ip, when],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?)
+    }
+
+    /// Count one more piece of feedback from `ip`, if that keeps it
+    /// within `per_ip` and everyone within `total` over the last day;
+    /// false (nothing counted) if not. Checked and counted at once, so
+    /// two nodes can't both take the last place.
+    pub fn take_feedback(&self, ip: &str, per_ip: u32, total: u32) -> anyhow::Result<bool> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let now = crate::clock::now().naive_local();
+        let day = now - chrono::Duration::days(1);
+        db.execute("DELETE FROM visitor_feedback WHERE at < ?1", [day])?;
+        let (mine, all): (u32, u32) = db.query_row(
+            "SELECT COALESCE(SUM(ip = ?1), 0), COUNT(*) FROM visitor_feedback WHERE at > ?2",
+            params![ip, day],
+            |r| Ok((r.get(0)?, r.get(1)?)),
+        )?;
+        if mine >= per_ip || all >= total {
+            return Ok(false);
+        }
+        db.execute("INSERT INTO visitor_feedback (at, ip) VALUES (?1, ?2)", params![now, ip])?;
+        Ok(true)
     }
 
     // ---- events -----------------------------------------------------------
@@ -1236,6 +1338,37 @@ mod tests {
         assert!(sd.scan_off(1, 'M').unwrap().is_empty());
         assert_eq!(sd.scan_all_on().unwrap(), 2);
         assert!(sd.scan_off(2, 'M').unwrap().is_empty());
+    }
+
+    #[test]
+    fn rumors_keep_the_newest() {
+        let sd = SysData::open_memory().unwrap();
+        assert!(sd.rumor(false).unwrap().is_none());
+        for i in 0..5 {
+            sd.add_rumor(2, "Bob", &format!("rumor {i}"), 3).unwrap();
+        }
+        let all = sd.rumors().unwrap();
+        assert_eq!(all.iter().map(|r| r.text.as_str()).collect::<Vec<_>>(), ["rumor 4", "rumor 3", "rumor 2"]);
+        assert_eq!(sd.rumor(true).unwrap().unwrap().text, "rumor 4");
+        assert!(sd.rumor(false).unwrap().unwrap().text.starts_with("rumor "));
+        let long_ago: NaiveDateTime = "2000-01-01T00:00:00".parse().unwrap();
+        assert_eq!(sd.rumors_since(2, long_ago).unwrap(), 3);
+        assert_eq!(sd.rumors_since(3, long_ago).unwrap(), 0);
+        assert!(sd.delete_rumor(all[0].id).unwrap());
+        assert!(!sd.delete_rumor(all[0].id).unwrap());
+        assert_eq!(sd.rumors().unwrap().len(), 2);
+    }
+
+    #[test]
+    fn feedback_limits_per_address_and_in_all() {
+        let sd = SysData::open_memory().unwrap();
+        assert!(sd.take_feedback("1.2.3.4", 2, 3).unwrap());
+        assert!(sd.take_feedback("1.2.3.4", 2, 3).unwrap());
+        assert!(!sd.take_feedback("1.2.3.4", 2, 3).unwrap(), "two from one address a day");
+        assert!(sd.take_feedback("5.6.7.8", 2, 3).unwrap());
+        assert!(!sd.take_feedback("9.9.9.9", 2, 3).unwrap(), "three from everyone");
+        let since = crate::clock::now().naive_local() - chrono::Duration::hours(1);
+        assert_eq!(sd.feedback_since("1.2.3.4", since).unwrap(), (2, 3));
     }
 
     #[test]

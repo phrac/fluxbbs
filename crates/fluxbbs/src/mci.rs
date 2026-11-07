@@ -289,6 +289,9 @@ impl Session {
             // The original printed the password; never do that.
             b"PW" => String::new(),
             b"RN" => u.real_name.clone(),
+            // New: a rumor at random, and the newest (`rumors.rs`).
+            b"RM" => self.rumor_code(false),
+            b"RL" => self.rumor_code(true),
             b"RT" => self.caller.term.clone(),
             b"SL" => u.sl.to_string(),
             b"SN" => cfg.sysop_alias.clone(),

@@ -132,7 +132,8 @@ Leave it alone at a menu for a while and the screen saver comes on.
 - FTN echomail, netmail and file echoes (TIC) over binkp, with AreaFix
   and FileFix, several networks at once.
 - QWK offline mail, request boards, @mentions, a voting booth,
-  oneliners, infoforms, new-user voting and profiles.
+  oneliners, rumors, infoforms, new-user voting and profiles, and
+  feedback to the SysOp from callers not yet logged in.
 - Screen themes callers can pick, animated screens, and plain text for
   screen readers and scripts.
 - Python scripting (`import fluxbbs`) in place of Iniquity's IPL.

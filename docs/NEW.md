@@ -687,6 +687,16 @@ All in [DOORS](DOORS.md).
 - Profiles: finger (`UF`, `f` in the reader, after the user list), with
   a plan written in user config. ([FEATURES](FEATURES.md#in-detail))
 - The BBS list keeps telnet and SSH addresses, not phone numbers.
+- Rumors, after ENiGMA½'s rumorz: callers add unsigned one-liners
+  (`RA`, or from the list, `RL`: r on more...), one shows at logon (the
+  `rumor` logon step, `RS`) and on any screen (`%RM` at random, `%RL`
+  the newest). SysOps see who wrote each and delete them in `RL`.
+  ([FEATURES](FEATURES.md#rumors))
+- Feedback from the matrix (`>F`), after ENiGMA½'s pre-auth feedback:
+  someone not logged in leaves the SysOp a note under any name, marked
+  as from a visitor and tied to no account, which can't be answered;
+  a few a day from an address and from everyone. The stock matrix's
+  feedback ran `EE` as nobody. ([FEATURES](FEATURES.md#feedback-from-the-matrix))
 - A JSON feed of who's on, last callers, new files and posts, and
   totals, for a website. ([SYSOP](SYSOP.md#website-feed))
 
@@ -759,6 +769,10 @@ All in [DOORS](DOORS.md).
 | `*W` | screen viewer: any screen or variant, as callers see it |
 | `*J` | font viewer: the board's names in every TheDraw font |
 | `*-` | the trash: deleted posts to restore or purge |
+| `>F` (+ who) | feedback from the matrix, as a visitor (logged in: `EE`) |
+| `RL` | rumors: the list, then (SysOps) delete one, and start one |
+| `RA` | start a rumor |
+| `RS` (+ `new`) | a rumor on a line: at random, or the newest |
 
 ### New display codes
 
@@ -770,6 +784,7 @@ Details in [CODES](CODES.md).
 | `%>` | right-align the rest of the line (screens) |
 | `%FT` `%FE` `%FZ` `%FY` `%FN` `%FU` `%FW` `%FG` `%FM` `%FX` `%FB` `%FL` `%FK` `%FQ` `%FR` `%FV` | the file base: totals, newest, most downloaded, biggest, top uploader, at random |
 | `%MG` `%MY` `%MB` `%MF` `%MD` `%MK` `%MH` `%MR` `%ML` `%MQ` `%MC` `%MX` `%MV` `%MJ` | the message base: totals, new for you, newest, most replied to, loudest area, top poster, at random |
+| `%RM` `%RL` | a rumor at random, the newest rumor |
 | `%GL` `%GW` `%GA` `%GP` `%GC` `%GK` `%GQ` `%GH` `%GN` `%GX` `%GJ` `%GZ` `%GO` `%GD` `%GG` `%GE` `%GF` `%GY` `%GU` `%GV` | door games: last played, most played, most time, longest play, who's in one now, gathering dust, untried, the caller's own |
 
 ### New screens

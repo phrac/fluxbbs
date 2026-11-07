@@ -103,6 +103,7 @@ mod vim;
 #[cfg(feature = "email")]
 mod emailver;
 mod extras;
+mod feedback;
 mod features;
 #[cfg(feature = "screensavers")]
 mod fontpick;
@@ -147,6 +148,7 @@ mod picture;
 mod sixeloffer;
 mod password;
 mod questions;
+mod rumors;
 mod qwk;
 mod scansel;
 #[cfg(feature = "python")]

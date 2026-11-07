@@ -35,8 +35,7 @@ off = "|B0|08[ |07|15p|07age sysop |08]"
 
 [[command]]
 keys = "F"
-command = "EE"
-param = "1;Matrix feedback;No"
+command = ">F"
 desc = "feedback"
 help = "|08> |07leave a note for the sysop."
 on = "|B4|12[ |15 feedback  |12]"

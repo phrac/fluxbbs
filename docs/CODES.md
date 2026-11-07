@@ -279,6 +279,16 @@ The caller's own mailbox. Mail counts as read once they've opened it.
 | `%EX` | whom they last wrote |
 | `%EY` | how long ago |
 
+### Rumors (new)
+
+Empty if there are none, or rumors are off. A screen showing `%RM`
+more than once shows the same one.
+
+| Code | Value |
+|---|---|
+| `%RM` | a rumor at random |
+| `%RL` | the newest rumor |
+
 ### Door games (new)
 
 From a log of every door played, worked out once a minute (and after
