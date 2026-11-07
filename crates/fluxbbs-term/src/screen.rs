@@ -555,7 +555,7 @@ impl Screen {
             Vec::new()
         } else {
             body.split(|&c| c == b';')
-                .map(|p| std::str::from_utf8(p).ok().and_then(|s| s.parse().ok()).unwrap_or(0))
+                .map(csi_param)
                 .collect()
         };
         let n = |i: usize| params.get(i).copied().filter(|&v| v > 0).unwrap_or(1);
@@ -609,7 +609,7 @@ impl Screen {
             vec![0]
         } else {
             body.split(|&c| c == b';')
-                .map(|p| std::str::from_utf8(p).ok().and_then(|s| s.parse().ok()).unwrap_or(0))
+                .map(csi_param)
                 .collect()
         };
         self.pen.apply(&params);
@@ -759,7 +759,7 @@ impl Screen {
         let params: Vec<u16> = if body.is_empty() {
             vec![0]
         } else {
-            body.split(|&c| c == b';').map(|p| std::str::from_utf8(p).ok().and_then(|s| s.parse().ok()).unwrap_or(0)).collect()
+            body.split(|&c| c == b';').map(csi_param).collect()
         };
         let mut k = 0;
         while k < params.len() {
@@ -860,6 +860,15 @@ const VGA: [[u8; 3]; 16] = [
     [255, 85, 85], [255, 85, 255], [255, 255, 85], [255, 255, 255],
 ];
 
+/// A CSI parameter: empty (or not a number) is 0; new: one too big for a
+/// `u16` is the most it holds, not 0 (a reset, or a move of one).
+fn csi_param(p: &[u8]) -> u16 {
+    if p.is_empty() || !p.iter().all(u8::is_ascii_digit) {
+        return 0;
+    }
+    std::str::from_utf8(p).ok().and_then(|s| s.parse::<u64>().ok()).map_or(u16::MAX, |v| v.min(u64::from(u16::MAX)) as u16)
+}
+
 /// RGB of an xterm 256-colour palette entry.
 /// Output without escape sequences or bells, for plain text.
 fn strip_escapes(b: &[u8]) -> Vec<u8> {
@@ -941,6 +950,15 @@ mod tests {
         let out = String::from_utf8(s.take_output()).unwrap();
         assert_eq!(out, format!("{}\r\nx", "x".repeat(80)));
         assert_eq!((s.where_x(), s.where_y()), (2, 2));
+    }
+
+    #[test]
+    fn huge_params_saturate() {
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.write_bytes(b"\x1b[70000B\x1b[18446744073709551616C");
+        assert_eq!((s.where_x(), s.where_y()), (80, 25));
+        s.write_bytes(b"\x1b[1;32m\x1b[99999999999999999999999m");
+        assert_eq!(s.color(), Color::new(10, 0), "not a reset");
     }
 
     #[test]

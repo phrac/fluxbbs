@@ -21,6 +21,10 @@ const MAX_WIDTH: usize = 1000;
 const SIDEWAYS: usize = 10;
 /// Rows a file may draw on, so a stray cursor move can't run away.
 const MAX_ROWS: usize = 10_000;
+/// New: the most of a file Markdown, web pages and code are drawn from
+/// (the rest isn't shown); with `MAX_ROWS`, what keeps a huge upload from
+/// taking the board's memory.
+const MAX_INPUT: usize = 1 << 20;
 
 /// A cell's colour: DOS foreground (0-15), background (0-7), and whether
 /// the background is bright (iCE, which `ESC[5m` means in DOS art).
@@ -80,6 +84,8 @@ pub fn trimmed(mut grid: Vec<Vec<Cell>>) -> Vec<Vec<Cell>> {
 /// than the screen where they need to be), source code in colors, and
 /// anything else as `render` draws it.
 pub fn render_named(text: &[u8], utf8: bool, name: &str, look: &crate::markup::Look) -> Vec<Vec<Cell>> {
+    let whole = text;
+    let text = &text[..text.len().min(MAX_INPUT)];
     // CP437 for the upper half only: newlines and tabs stay what they are.
     let plain = || if utf8 { String::from_utf8_lossy(text).into_owned() } else { text.iter().map(|&b| if b < 0x80 { b as char } else { cp437::TO_UNICODE[b as usize] }).collect() };
     if crate::markup::is_markdown(name) {
@@ -92,7 +98,7 @@ pub fn render_named(text: &[u8], utf8: bool, name: &str, look: &crate::markup::L
     if let Some(lang) = crate::markup::lang_for_name(name).filter(|_| !text.contains(&0x1b)) {
         return from_lines(&crate::markup::render_code(lang, &plain(), WIDTH), look);
     }
-    render(text, utf8)
+    render(whole, utf8)
 }
 
 /// Styled lines as rows of cells (each cut at the width).
@@ -103,6 +109,7 @@ pub fn from_lines(lines: &[crate::markup::Line], look: &crate::markup::Look) -> 
 fn cells_of(lines: &[crate::markup::Line], look: &crate::markup::Look, width: usize) -> Vec<Vec<Cell>> {
     lines
         .iter()
+        .take(MAX_ROWS)
         .map(|l| {
             let mut row = Vec::new();
             for s in l {
@@ -159,8 +166,8 @@ pub fn render(text: &[u8], utf8: bool) -> Vec<Vec<Cell>> {
                 let n = params.first().copied().unwrap_or(0).max(1);
                 match fin {
                     b'A' => y = y.saturating_sub(n),
-                    b'B' => y = (y + n).min(MAX_ROWS - 1),
-                    b'C' => x = (x + n).min(WIDTH - 1),
+                    b'B' => y = y.saturating_add(n).min(MAX_ROWS - 1),
+                    b'C' => x = x.saturating_add(n).min(WIDTH - 1),
                     b'D' => x = x.saturating_sub(n),
                     b'H' | b'f' => {
                         y = (params.first().copied().unwrap_or(1).max(1) - 1).min(MAX_ROWS - 1);
@@ -305,11 +312,11 @@ fn lead(l: &str) -> Option<usize> {
 /// The column a line ends at, drawn from the left edge: its characters
 /// and its cursor-rights.
 fn ends_at(l: &str) -> usize {
-    let mut col = 0;
+    let mut col: usize = 0;
     let mut chars = l.chars().peekable();
     while let Some(c) = chars.next() {
         if c != '\x1b' {
-            col += 1;
+            col = col.saturating_add(1);
             continue;
         }
         if chars.peek() != Some(&'[') {
@@ -323,7 +330,7 @@ fn ends_at(l: &str) -> usize {
                 continue;
             }
             if d == 'C' {
-                col += params.parse::<usize>().unwrap_or(1).max(1);
+                col = col.saturating_add(params.parse::<usize>().unwrap_or(1).max(1));
             }
             break;
         }
@@ -482,6 +489,20 @@ mod tests {
 
     fn text(grid: &[Vec<Cell>]) -> Vec<String> {
         grid.iter().map(|r| r.iter().map(|c| c.ch as char).collect::<String>().trim_end().to_string()).collect()
+    }
+
+    #[test]
+    fn huge_files_and_moves_stay_bounded() {
+        let g = render(b"a\x1b[18446744073709551615Bb\x1b[18446744073709551615Cc", false);
+        assert_eq!(g.len(), MAX_ROWS);
+        assert_eq!(ends_at("\x1b[18446744073709551615C\x1b[5Cx"), usize::MAX);
+        let look = crate::markup::Look { code: &crate::markup::THEMES[0], md: &crate::markup::THEMES[0], shade: String::new(), rgb: false };
+        let blank = vec![b'\n'; 10_000_000];
+        for name in ["a.md", "a.c", "a.htm"] {
+            assert!(render_named(&blank, false, name, &look).len() <= MAX_ROWS, "{name}");
+        }
+        let code = "x\n".repeat(50_000);
+        assert_eq!(render_named(code.as_bytes(), false, "a.c", &look).len(), MAX_ROWS);
     }
 
     #[test]

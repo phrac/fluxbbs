@@ -263,6 +263,8 @@ pub fn code_back(name: &str) -> (&'static str, &'static str, &'static str) {
 
 /// Columns a code block stands in from each side.
 const MARGIN: usize = 2;
+/// New: the most lines a file is drawn in (the viewer's `MAX_ROWS`).
+const MAX_ROWS: usize = 10_000;
 
 // ---- code ------------------------------------------------------------------
 
@@ -433,6 +435,8 @@ pub fn highlight(lang: Lang, line: &str, st: &mut CodeState, shade: bool) -> Lin
     let chars: Vec<char> = line.replace('\t', "    ").chars().collect();
     let mut out: Line = Vec::new();
     let text = |a: usize, b: usize| chars[a..b].iter().collect::<String>();
+    // Up to here the line is all indent.
+    let indent = chars.iter().position(|c| !c.is_whitespace()).unwrap_or(chars.len());
     let mut i = 0;
     while i < chars.len() {
         if let Some(end) = st.in_comment {
@@ -449,8 +453,7 @@ pub fn highlight(lang: Lang, line: &str, st: &mut CodeState, shade: bool) -> Lin
             continue;
         }
         let c = chars[i];
-        let at_start = chars[..i].iter().all(|c| c.is_whitespace());
-        if at_start && sx.pre == Some(c) {
+        if i <= indent && sx.pre == Some(c) {
             push(&mut out, &text(i, chars.len()), Ink::Pre, shade);
             break;
         }
@@ -521,7 +524,7 @@ pub fn highlight(lang: Lang, line: &str, st: &mut CodeState, shade: bool) -> Lin
 pub fn render_code(lang: Lang, text: &str, width: usize) -> Vec<Line> {
     let mut st = CodeState::default();
     let mut out = vec![block_line(Vec::new(), width)];
-    out.extend(text.lines().map(|l| code_line(Some(lang), l.trim_end_matches('\r'), &mut st, width)));
+    out.extend(text.lines().take(MAX_ROWS).map(|l| code_line(Some(lang), l.trim_end_matches('\r'), &mut st, width)));
     out.push(block_line(Vec::new(), width));
     out
 }
@@ -650,26 +653,46 @@ impl Inline {
     }
 }
 
-/// Whether `delim` stars come again in `rest` (closing what they'd open).
-fn star_run_ahead(rest: &[char], delim: usize) -> bool {
-    let mut i = 0;
-    while i < rest.len() {
-        if rest[i] == '*' {
-            let run = rest[i..].iter().take_while(|c| **c == '*').count();
-            if run >= delim && i > 0 && !rest[i - 1].is_whitespace() {
-                return true;
+/// New, so that a line takes time in step with its length: for each
+/// place in `chars`, the longest run of stars from there on that could
+/// close emphasis (one after something other than a space), and where
+/// the next `` ` ``, `]` and `)` are.
+struct Ahead {
+    stars: Vec<usize>,
+    tick: Vec<usize>,
+    close: Vec<usize>,
+    paren: Vec<usize>,
+}
+
+impl Ahead {
+    fn new(chars: &[char]) -> Ahead {
+        let n = chars.len();
+        let mut a = Ahead { stars: vec![0; n + 1], tick: vec![n; n + 1], close: vec![n; n + 1], paren: vec![n; n + 1] };
+        let mut run = 0;
+        for i in (0..n).rev() {
+            let c = chars[i];
+            a.tick[i] = if c == '`' { i } else { a.tick[i + 1] };
+            a.close[i] = if c == ']' { i } else { a.close[i + 1] };
+            a.paren[i] = if c == ')' { i } else { a.paren[i + 1] };
+            a.stars[i] = a.stars[i + 1];
+            if c == '*' {
+                run += 1;
+                // The run's first star: does what's before it let it close?
+                if i > 0 && chars[i - 1] != '*' && !chars[i - 1].is_whitespace() {
+                    a.stars[i] = a.stars[i].max(run);
+                }
+            } else {
+                run = 0;
             }
-            i += run;
-        } else {
-            i += 1;
         }
+        a
     }
-    false
 }
 
 /// Styled characters of one line's text.
 fn inline_chars(text: &str, base: Ink, st: &mut Inline) -> Vec<(char, Ink, bool)> {
     let chars: Vec<char> = text.chars().collect();
+    let ahead = Ahead::new(&chars);
     let mut out = Vec::new();
     let mut i = 0;
     let literal = |st: &Inline, out: &mut Vec<(char, Ink, bool)>, n: usize| {
@@ -679,11 +702,12 @@ fn inline_chars(text: &str, base: Ink, st: &mut Inline) -> Vec<(char, Ink, bool)
     while i < chars.len() {
         let c = chars[i];
         if st.stars > 0 && c != '*' {
-            let n = st.settle(Some(c), |d| star_run_ahead(&chars[i..], d));
+            // Runs after a character that isn't a star: whole runs.
+            let n = st.settle(Some(c), |d| ahead.stars[i + 1] >= d);
             literal(st, &mut out, n);
         }
         // A backtick opens code only if another closes it on the line.
-        if c == '`' && (st.code || chars[i + 1..].contains(&'`')) {
+        if c == '`' && (st.code || ahead.tick[i + 1] < chars.len()) {
             st.code = !st.code;
             st.before = Some(c);
             i += 1;
@@ -706,10 +730,9 @@ fn inline_chars(text: &str, base: Ink, st: &mut Inline) -> Vec<(char, Ink, bool)
         if c == '[' || (c == '!' && chars.get(i + 1) == Some(&'[')) {
             let img = c == '!';
             let open = i + usize::from(img);
-            if let Some(close) = (open + 1..chars.len()).find(|&k| chars[k] == ']')
-                && chars.get(close + 1) == Some(&'(')
-                && let Some(end) = (close + 2..chars.len()).find(|&k| chars[k] == ')')
-            {
+            let close = ahead.close[open + 1];
+            let end = if chars.get(close + 1) == Some(&'(') { ahead.paren[close + 2] } else { chars.len() };
+            if end < chars.len() {
                 let label: String = chars[open + 1..close].iter().collect();
                 let url: String = chars[close + 2..end].iter().collect();
                 let shown = if img { format!("[image: {label}]") } else { label };
@@ -806,6 +829,9 @@ pub fn render_markdown(text: &str, width: usize) -> Vec<Line> {
     let mut fence: Option<Option<Lang>> = None;
     let mut code = CodeState::default();
     for raw in text.lines() {
+        if out.len() >= MAX_ROWS {
+            break;
+        }
         let raw = raw.trim_end_matches('\r');
         if let Some(lang) = fence {
             if matches!(block_of(raw).0, Block::Fence(_)) {
@@ -818,6 +844,7 @@ pub fn render_markdown(text: &str, width: usize) -> Vec<Line> {
         }
         out.extend(markdown_line(raw, width, &mut fence, &mut code));
     }
+    out.truncate(MAX_ROWS);
     out
 }
 
@@ -977,7 +1004,9 @@ impl MdStream {
             let decided = head.trim_start().contains(' ') || head.chars().count() > 8;
             let fence_start = head.trim_start().starts_with("```") || head.trim_start().starts_with("~~~");
             let rule_start = head.trim_start().chars().all(|c| matches!(c, '-' | '*' | '_' | ' '));
-            if decided && !fence_start && !rule_start {
+            // New: a line that long is text whatever it starts with (so
+            // a run of dashes isn't looked over again for every one).
+            if (decided && !fence_start && !rule_start) || head.len() > 256 {
                 let h = self.head.take().unwrap_or_default();
                 self.start_line(&h, false, out);
             }
@@ -1256,6 +1285,26 @@ mod tests {
             assert!(render_markdown(s, 60)[0].iter().all(|sp| matches!(sp.ink, Ink::Text) && !sp.shade), "{s}");
         }
         assert!(render_markdown("an *it* and **bo**", 60)[0].iter().any(|s| s.text == "it" && s.ink == Ink::Italic));
+    }
+
+    #[test]
+    fn long_lines_take_time_in_step() {
+        let t = std::time::Instant::now();
+        let n = 200_000;
+        for line in ["[".repeat(n), "`".repeat(n), "a*".repeat(n / 2), format!("[a]{}", "[a](".repeat(n / 4))] {
+            render_markdown(&line, 80);
+        }
+        let mut st = CodeState::default();
+        highlight(Lang::C, &(" ".repeat(n) + "#x"), &mut st, false);
+        assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+        // Links, ticks and stars read as before.
+        let flat = |s: &str| render_markdown(s, 60)[0].iter().map(|s| s.text.as_str()).collect::<String>();
+        assert_eq!(flat("[a] [b](c) `x` **y**"), "[a] b <c> x y");
+        assert_eq!(flat("[a(b)"), "[a(b)");
+        // A file of a million empty lines is drawn in `MAX_ROWS`.
+        let blank = "\n".repeat(1_000_000);
+        assert_eq!(render_markdown(&blank, 80).len(), MAX_ROWS);
+        assert_eq!(render_code(Lang::C, &blank, 80).len(), MAX_ROWS + 2);
     }
 
     #[cfg(feature = "ai")]

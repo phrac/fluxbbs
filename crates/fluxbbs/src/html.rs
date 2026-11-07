@@ -22,6 +22,9 @@ const GAP: usize = 2;
 const MAX_WORD: usize = 30;
 /// The width a cell is measured at.
 const UNWRAPPED: usize = 10_000;
+/// New: the widest a table's row is made (the viewer shows no more), so
+/// one wide cell can't pad every other row out to its width.
+const MAX_LINE: usize = 1000;
 
 enum Node {
     Text(String),
@@ -569,6 +572,24 @@ fn center(lines: Vec<Line>, width: usize) -> Vec<Line> {
         .collect()
 }
 
+/// A line cut to `n` columns.
+fn cut(l: Line, n: usize) -> Line {
+    if width_of(&l) <= n {
+        return l;
+    }
+    let mut out: Line = Vec::new();
+    let mut used = 0;
+    for s in l {
+        let t: String = s.text.chars().take(n - used).collect();
+        used += t.chars().count();
+        push(&mut out, &t, s.ink, s.shade);
+        if used >= n {
+            break;
+        }
+    }
+    out
+}
+
 /// Without its trailing spaces.
 fn trim_end(mut l: Line) -> Line {
     while let Some(last) = l.last_mut() {
@@ -929,6 +950,7 @@ impl Render {
                 if c.centered() {
                     lines = center(lines, w);
                 }
+                let lines: Vec<Line> = lines.into_iter().map(|l| cut(l, MAX_LINE)).collect();
                 if s == 1 {
                     widths[col] = widths[col].max(lines.iter().map(width_of).max().unwrap_or(0));
                 }
@@ -952,6 +974,9 @@ impl Render {
                 let mut at = 0;
                 for (col, lines) in &cells {
                     let x = widths[..*col].iter().sum::<usize>() + GAP * col;
+                    if x >= MAX_LINE {
+                        break;
+                    }
                     if x > at {
                         push(&mut line, &" ".repeat(x - at), Ink::Text, false);
                         at = x;
@@ -964,7 +989,7 @@ impl Render {
                     }
                 }
                 // A spacer row (`&nbsp;`) is an empty line.
-                let line = trim_end(line);
+                let line = trim_end(cut(line, MAX_LINE));
                 out.lines.push(if text_line(&line).trim_matches([' ', '\u{a0}']).is_empty() { Vec::new() } else { line });
             }
             if height > 1 {
@@ -974,9 +999,9 @@ impl Render {
         out.flush(false);
         // Every row as wide as the table, so that centering it moves
         // the table as one.
-        let w = out.lines.iter().map(width_of).max().unwrap_or(0);
+        let w = out.lines.iter().map(width_of).max().unwrap_or(0).min(MAX_LINE);
         for l in out.lines.iter_mut().filter(|l| !l.is_empty()) {
-            let n = w - width_of(l);
+            let n = w.saturating_sub(width_of(l));
             push(l, &" ".repeat(n), Ink::Text, false);
         }
         tidy_gaps(out.lines)
@@ -1067,6 +1092,29 @@ mod tests {
         let deep = "<div>".repeat(5000) + "deep" + &"</div>".repeat(5000);
         assert_eq!(text(&deep, 80), ["deep"]);
         assert!(is_html("INDEX.HTM") && is_html("a.html") && !is_html("a.txt"));
+    }
+
+    #[test]
+    fn deep_and_wide_pages_stay_bounded() {
+        // Lists and tables as deep as the reader goes, on a smaller stack
+        // than the board's.
+        let lists = "<ul><li>".repeat(150) + "x";
+        let tables = "<table><tr><td>a<td>".repeat(150) + "x";
+        let mixed = "<table><tr><td>a<td><ul><li><blockquote>".repeat(60) + "x";
+        std::thread::Builder::new()
+            .stack_size(2 << 20)
+            .spawn(move || {
+                for page in [lists, tables, mixed] {
+                    assert!(!render(&page, 80).is_empty());
+                }
+            })
+            .unwrap()
+            .join()
+            .unwrap();
+        // One wide cell doesn't pad thousands of rows out to its width.
+        let page = format!("<table><tr><td><pre>{}</pre><td>b{}</table>", "w".repeat(200_000), "<tr><td>a<td>b".repeat(5000));
+        let lines = render(&page, 80);
+        assert!(lines.iter().all(|l| width_of(l) <= 2 * MAX_LINE), "{}", lines.iter().map(width_of).max().unwrap_or(0));
     }
 
     /// `HTML_IN=a.html:b.html` (or `HTML_LIST=` a file of them) `cargo test --features full -- --ignored html::tests::dump --nocapture`
