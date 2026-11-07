@@ -99,8 +99,11 @@ impl Draft {
         let row = self.row;
         let len = self.lines[row].len();
         if len >= WIDTH && (self.insert || self.col >= len) {
-            if self.col < len || self.row + 1 >= MAX_LINES {
-                return Redraw::Cursor; // full line, typing mid-line: ignore
+            // Full line, typing mid-line, or (new) a full message with no
+            // empty line below to wrap onto: ignore it rather than lose
+            // the last line.
+            if self.col < len || self.row + 1 >= MAX_LINES || (self.lines.len() >= MAX_LINES && !self.lines[row + 1].is_empty()) {
+                return Redraw::Cursor;
             }
             // Word wrap: carry the last word down.
             self.cur().push(c);
@@ -115,7 +118,6 @@ impl Draft {
                 self.lines[row + 1] = carry;
             } else {
                 self.lines.insert(row + 1, carry);
-                self.lines.truncate(MAX_LINES);
             }
             self.row += 1;
             self.col = self.lines[self.row].len();
@@ -146,6 +148,11 @@ impl Draft {
         }
         let row = self.row;
         let at = self.col.min(self.lines[row].len());
+        // New: in a full message the rest of the line goes onto the next
+        // one, so only if it fits there.
+        if self.lines.len() >= MAX_LINES && self.lines[row].len() - at + self.lines[row + 1].len() > WIDTH {
+            return Redraw::Cursor;
+        }
         let tail = self.lines[row].split_off(at);
         self.trim_cur();
         if self.lines.len() < MAX_LINES {
@@ -1283,6 +1290,30 @@ mod tests {
         assert_eq!(d.line(0).unwrap(), "word ".repeat(15).trim_end());
         assert_eq!(d.line(1).unwrap(), "abcde");
         assert_eq!((d.row, d.col), (1, 5));
+    }
+
+    #[test]
+    fn a_full_message_loses_nothing() {
+        let full = |first: &str| Draft::new(&std::iter::once(first.to_string()).chain((1..MAX_LINES).map(|i| format!("{i} {}", "z".repeat(70)))).collect::<Vec<_>>());
+        // A wrap would push the last line out: the key is refused.
+        let mut d = full(&("word ".repeat(15) + "abcd"));
+        d.col = WIDTH;
+        let before = d.text();
+        typed(&mut d, "e");
+        assert_eq!(d.text(), before);
+        assert_eq!(d.row, 0);
+        // Enter mid-line: the rest goes to the next line only if it fits.
+        let mut d = full(&"a".repeat(60));
+        d.col = 10;
+        assert_eq!(d.enter(), Redraw::Cursor);
+        assert_eq!(d.lines[0].len(), 60);
+        assert!(d.lines.iter().all(|l| l.len() <= WIDTH));
+        let mut d = full("abc def");
+        d.lines[1] = vec!['x'];
+        d.col = 3;
+        d.enter();
+        assert_eq!(d.line(0).unwrap(), "abc");
+        assert_eq!(d.line(1).unwrap(), " defx");
     }
 
     #[test]

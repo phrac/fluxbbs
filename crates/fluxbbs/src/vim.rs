@@ -810,7 +810,13 @@ struct Pat {
     bol: bool,
     eol: bool,
     icase: bool,
+    /// New: the steps matching may still take (`Vim::work`); with none
+    /// left, nothing matches.
+    left: std::cell::Cell<u64>,
 }
+
+/// New: the most pieces a pattern may have.
+const MAX_PIECES: usize = 100;
 
 #[derive(Debug, Clone)]
 enum Atom {
@@ -919,8 +925,11 @@ impl Pat {
                 x => Atom::Ch(x),
             };
             pieces.push((atom, 1, 1));
+            if pieces.len() > MAX_PIECES {
+                return None;
+            }
         }
-        Some(Pat { pieces, bol, eol, icase })
+        Some(Pat { pieces, bol, eol, icase, left: std::cell::Cell::new(u64::MAX) })
     }
 
     fn one(&self, a: &Atom, line: &[char], at: usize) -> bool {
@@ -979,6 +988,12 @@ impl Pat {
         while n < *hi && self.one(atom, line, pos + n) {
             n += 1;
         }
+        let cost = 1 + 2 * n as u64;
+        if self.left.get() < cost {
+            self.left.set(0);
+            return None;
+        }
+        self.left.set(self.left.get() - cost);
         if n < *lo {
             return None;
         }
@@ -993,11 +1008,33 @@ impl Pat {
         }
     }
 
+    fn memo(&self, line: &[char]) -> Vec<Option<Option<usize>>> {
+        vec![None; (self.pieces.len() + 1) * (line.len() + 1)]
+    }
+
     /// The first match in `line` starting at or after `from`.
+    #[cfg(test)]
     fn find(&self, line: &[char], from: usize) -> Option<(usize, usize)> {
+        self.find_in(line, from, &mut self.memo(line))
+    }
+
+    /// The first match at or after `from`, with a memo kept for `line`
+    /// (it holds whatever `from` is).
+    fn find_in(&self, line: &[char], from: usize, memo: &mut Vec<Option<Option<usize>>>) -> Option<(usize, usize)> {
         let last = if self.bol { 0 } else { line.len() };
-        let mut memo = vec![None; (self.pieces.len() + 1) * (line.len() + 1)];
-        (from..=last).find_map(|s| self.at(0, line, s, &mut memo).map(|e| (s, e)))
+        (from..=last).find_map(|s| self.at(0, line, s, memo).map(|e| (s, e)))
+    }
+
+    /// Where every match in `line` starts.
+    fn starts(&self, line: &[char]) -> Vec<usize> {
+        let last = if self.bol { 0 } else { line.len() };
+        let mut memo = self.memo(line);
+        (0..=last).filter(|&s| self.at(0, line, s, &mut memo).is_some()).collect()
+    }
+
+    /// Out of steps: what it found may not be all there is.
+    fn spent(&self) -> bool {
+        self.left.get() == 0
     }
 }
 
@@ -1058,15 +1095,29 @@ pub struct Vim {
     /// The last command failed (a motion that couldn't move...): a macro
     /// or `.` stops there, as in vim.
     failed: bool,
+    /// New: the work (characters copied, pattern steps) the typed key's
+    /// commands, macros and `.` may still do.
+    work: u64,
+    /// New: `"` is this register (after an append to it), not a copy.
+    unnamed: Option<char>,
 }
 
 /// The most keys a macro or `.` may run (or queue) for one key typed:
 /// `qq@qq` loops in vim too, until Ctrl-C.
 const REPLAY_MAX: usize = 50_000;
+/// New: the work one typed key may do ([`Vim::work`]): a macro run
+/// thousands of times over a full message stops here.
+const WORK_MAX: u64 = 50_000_000;
+/// New: the most a register holds, a whole message.
+const REG_MAX: usize = MAX_LINES * (WIDTH + 1);
+
+fn reg_size(r: &Reg) -> usize {
+    r.text.iter().map(|l| l.len() + 1).sum()
+}
 
 impl Vim {
     pub fn new() -> Self {
-        Vim::default()
+        Vim { work: WORK_MAX, ..Vim::default() }
     }
 
     /// `recording @a`, while a macro's being recorded.
@@ -1098,9 +1149,10 @@ impl Vim {
     fn run(&mut self, d: &mut Draft, s: Scr) -> VimDo {
         let mut out = Redraw::Cursor;
         let mut budget = REPLAY_MAX;
+        self.work = WORK_MAX;
         while let Some((c, replayed)) = self.queue.pop_front() {
             if replayed {
-                if budget == 0 || std::mem::take(&mut self.failed) {
+                if budget == 0 || self.work == 0 || std::mem::take(&mut self.failed) {
                     self.queue.retain(|q| !q.1);
                     self.pending.clear();
                     continue;
@@ -1493,12 +1545,15 @@ impl Vim {
         let (pat, fwd) = self.search.clone()?;
         let fwd = fwd != rev;
         let p = Pat::new(&pat)?;
-        let mut at = from;
-        for _ in 0..n {
-            at = find_pat(d, &p, at, fwd)?;
+        p.left.set(self.work);
+        let at = find_pat(d, &p, from, fwd, n);
+        self.work = p.left.get();
+        if p.spent() {
+            self.failed = true;
+            return None;
         }
         self.set_jump(d);
-        Some((at, Kind::Excl))
+        Some((at?, Kind::Excl))
     }
 
     // ---- text objects ---------------------------------------------------
@@ -1649,11 +1704,36 @@ impl Vim {
 
     // ---- registers, undo ------------------------------------------------
 
+    /// `n` more of the typed key's work done; false (stopping a macro or
+    /// `.`) once there's none left.
+    fn spend(&mut self, n: usize) -> bool {
+        match self.work.checked_sub(n as u64) {
+            Some(left) => {
+                self.work = left;
+                true
+            }
+            None => {
+                self.work = 0;
+                self.failed = true;
+                false
+            }
+        }
+    }
+
+    /// A register as it's kept (`"` may be another one).
+    fn reg(&self, n: char) -> Option<&Reg> {
+        match (n, self.unnamed) {
+            ('"', Some(r)) => self.regs.get(&r),
+            _ => self.regs.get(&n),
+        }
+    }
+
     /// A register's text, without the keys a macro may hold that aren't
     /// text (Esc, the arrows...).
-    fn get_reg(&self, name: Option<char>) -> Option<Reg> {
+    fn get_reg(&mut self, name: Option<char>) -> Option<Reg> {
         let n = name.unwrap_or('"').to_ascii_lowercase();
-        let mut r = self.regs.get(&n).cloned()?;
+        let mut r = self.reg(n).cloned()?;
+        self.spend(reg_size(&r));
         for l in &mut r.text {
             l.retain(|&c| is_text(c));
         }
@@ -1661,23 +1741,35 @@ impl Vim {
     }
 
     fn set_reg(&mut self, name: Option<char>, reg: Reg, yank: bool) {
+        self.spend(reg_size(&reg));
         match name {
             Some('_') => return,
+            // New: an append can't make a register more than a message
+            // holds (it fails, stopping a macro), and `"` is then that
+            // register itself, not a copy of it.
             Some(c) if c.is_ascii_uppercase() => {
-                let e = self.regs.entry(c.to_ascii_lowercase()).or_default();
+                let c = c.to_ascii_lowercase();
+                if self.regs.get(&c).map_or(0, reg_size) + reg_size(&reg) > REG_MAX {
+                    self.failed = true;
+                    return;
+                }
+                let e = self.regs.entry(c).or_default();
                 if e.lines || reg.lines {
                     e.lines = true;
-                    e.text.extend(reg.text.iter().cloned());
+                    e.text.extend(reg.text);
                 } else {
-                    let mut t = reg.text.clone();
-                    match e.text.last_mut() {
-                        Some(l) if !t.is_empty() => {
-                            l.extend(t.remove(0));
+                    let mut t = reg.text.into_iter();
+                    match (e.text.last_mut(), t.next()) {
+                        (Some(l), Some(first)) => {
+                            l.extend(first);
                             e.text.extend(t);
                         }
-                        _ => e.text = t,
+                        (_, first) => e.text = first.into_iter().chain(t).collect(),
                     }
                 }
+                self.regs.remove(&'"');
+                self.unnamed = Some(c);
+                return;
             }
             Some(c) if c != '"' => {
                 self.regs.insert(c, reg.clone());
@@ -1697,14 +1789,12 @@ impl Vim {
                 self.regs.insert('-', reg.clone());
             }
         }
-        let unnamed = match name {
-            Some(c) if c.is_ascii_uppercase() => self.regs.get(&c.to_ascii_lowercase()).cloned().unwrap_or(reg),
-            _ => reg,
-        };
-        self.regs.insert('"', unnamed);
+        self.unnamed = None;
+        self.regs.insert('"', reg);
     }
 
     fn snapshot(&mut self, d: &Draft) {
+        self.spend(d.lines.iter().map(|l| l.len() + 1).sum());
         self.push_undo((d.lines.clone(), d.row, d.col));
     }
 
@@ -1921,6 +2011,13 @@ impl Vim {
             Act::Record(None) => {
                 if let Some((r, mut keys)) = self.macro_rec.take() {
                     keys.pop();
+                    if self.unnamed == Some(r) {
+                        // `"` keeps what it was.
+                        self.unnamed = None;
+                        if let Some(old) = self.regs.get(&r).cloned() {
+                            self.regs.insert('"', old);
+                        }
+                    }
                     self.regs.insert(r, Reg { text: vec![keys], lines: false });
                 }
                 Edit(Redraw::Cursor)
@@ -1929,7 +2026,7 @@ impl Vim {
                 let r = if *r == '@' { self.last_macro } else { Some(r.to_ascii_lowercase()) };
                 let Some(r) = r else { return Edit(Redraw::Cursor) };
                 self.last_macro = Some(r);
-                let Some(reg) = self.regs.get(&r).cloned() else { return Edit(Redraw::Cursor) };
+                let Some(reg) = self.reg(r).cloned() else { return Edit(Redraw::Cursor) };
                 let mut keys: Vec<char> = Vec::new();
                 for (i, l) in reg.text.iter().enumerate() {
                     if i > 0 {
@@ -2545,6 +2642,7 @@ impl Vim {
     /// The line typed after `:`, `/` or `?` (None if Esc).
     pub fn prompted(&mut self, d: &mut Draft, kind: char, text: Option<String>, s: Scr) -> VimDo {
         self.failed = false;
+        self.work = WORK_MAX;
         let out = self.prompted_line(d, kind, text, s, true);
         self.settle(d);
         out
@@ -2728,19 +2826,28 @@ impl Vim {
             self.search = Some((pat.clone(), true));
             let Some(mut p) = Pat::new(&pat) else { return VimDo::Say("FsVimNoMatch", vec![pat]) };
             p.icase |= icase;
+            self.spend(d.lines.iter().map(|l| l.len() + 1).sum());
+            p.left.set(self.work);
             let before = d.lines.clone();
             let (mut hits, mut last_row) = (0, a);
             let mut r = a;
             let mut end = b;
-            while r <= end && r < nlines(d) {
+            // New: a line's memo serves all its matches, and a change
+            // that couldn't fit in a message, or matching out of steps,
+            // stops it (the message as it was).
+            while r <= end && r < nlines(d) && nlines(d) <= MAX_LINES {
                 let line = d.lines[r].clone();
+                let mut memo = p.memo(&line);
                 let mut out: Vec<char> = Vec::new();
                 let mut at = 0;
                 let mut changed = false;
                 while at <= line.len() {
-                    let Some((s0, e0)) = p.find(&line, at) else { break };
+                    let Some((s0, e0)) = p.find_in(&line, at, &mut memo) else { break };
                     out.extend_from_slice(&line[at..s0]);
                     out.extend(expand(&rep, &line[s0..e0]));
+                    if out.len() > REG_MAX || p.spent() {
+                        break;
+                    }
                     changed = true;
                     hits += 1;
                     if e0 == s0 {
@@ -2754,6 +2861,12 @@ impl Vim {
                     if !global {
                         break;
                     }
+                }
+                if out.len() > REG_MAX || p.spent() {
+                    self.work = p.left.get();
+                    self.failed = true;
+                    d.lines = before;
+                    return if p.spent() { VimDo::Say("FsVimNoMatch", vec![pat]) } else { VimDo::Say("FsVimFull", vec![]) };
                 }
                 if changed {
                     if at < line.len() {
@@ -2769,6 +2882,7 @@ impl Vim {
                 }
                 r += 1;
             }
+            self.work = p.left.get();
             if hits == 0 {
                 return VimDo::Say("FsVimNoMatch", vec![pat]);
             }
@@ -2847,46 +2961,36 @@ fn order(a: Pos, b: Pos) -> (Pos, Pos) {
     if a <= b { (a, b) } else { (b, a) }
 }
 
-/// The next match of a pattern from `at` (not at it), wrapping round.
-fn find_pat(d: &Draft, p: &Pat, at: Pos, fwd: bool) -> Option<Pos> {
-    let n = nlines(d);
-    if fwd {
-        for k in 0..=n {
-            let r = (at.0 + k) % n;
-            let from = if k == 0 { at.1 + 1 } else { 0 };
-            if k == n && from == 0 {
-                // Round to the cursor's own line again: only before it.
-                return p.find(&d.lines[r], 0).filter(|m| m.0 <= at.1).map(|m| (r, m.0));
-            }
-            if from <= d.lines[r].len()
-                && let Some((s, _)) = p.find(&d.lines[r], from)
-            {
+/// The `n`th match of a pattern from `at` (not at it), wrapping round.
+/// New: once round the whole message, the count goes round the matches
+/// found on the way instead of searching again.
+fn find_pat(d: &Draft, p: &Pat, at: Pos, fwd: bool, n: usize) -> Option<Pos> {
+    let rows = nlines(d);
+    let mut seen: Vec<Pos> = Vec::new();
+    for k in 0..=rows {
+        let r = if fwd { (at.0 + k) % rows } else { (at.0 + rows * 2 - k) % rows };
+        let starts = p.starts(&d.lines[r]);
+        if p.spent() {
+            return None;
+        }
+        // The cursor's line: after it at first, and before it (backward:
+        // at or after it) once round.
+        let keep = |s: &usize| match (k == 0, k == rows, fwd) {
+            (true, _, true) => *s > at.1,
+            (true, _, false) => *s < at.1,
+            (_, true, true) => *s <= at.1,
+            (_, true, false) => *s >= at.1,
+            _ => true,
+        };
+        let here: Vec<usize> = if fwd { starts.into_iter().filter(keep).collect() } else { starts.into_iter().rev().filter(keep).collect() };
+        for s in here {
+            seen.push((r, s));
+            if seen.len() == n {
                 return Some((r, s));
             }
         }
-        None
-    } else {
-        for k in 0..=n {
-            let r = (at.0 + n * 2 - k) % n;
-            let line = &d.lines[r];
-            let limit = if k == 0 { at.1 } else { line.len() + 1 };
-            let mut best = None;
-            let mut from = 0;
-            while from < limit {
-                match p.find(line, from) {
-                    Some((s, _)) if s < limit => {
-                        best = Some(s);
-                        from = s + 1;
-                    }
-                    _ => break,
-                }
-            }
-            if let Some(s) = best {
-                return Some((r, s));
-            }
-        }
-        None
     }
+    (!seen.is_empty()).then(|| seen[(n.max(1) - 1) % seen.len()])
 }
 
 /// `:s/pat/rep/flags`, the delimiter being the first character.
@@ -3485,6 +3589,64 @@ mod tests {
         assert_eq!(typed(&mut v, &mut d, "Gonew<esc>", S), VimDo::Edit(Redraw::Cursor));
         assert_eq!((nlines(&d), v.mode), (200, Mode::Normal));
         assert!(!text(&d)[199].contains("new"));
+        // Enter in insert mode: what's after the cursor must fit on the
+        // next line.
+        let mut v = Vim::new();
+        let mut d = lines(200, |_| "q".repeat(60));
+        typed(&mut v, &mut d, "ggwi<cr><esc>", S);
+        assert!(d.lines.iter().all(|l| l.len() <= WIDTH));
+        assert_eq!(text(&d)[0].len(), 60);
+    }
+
+    #[test]
+    fn appends_and_counts_stay_bounded() {
+        // `"A` in a macro run thousands of times: the register stops at a
+        // message's worth, and quickly.
+        let mut v = Vim::new();
+        let mut d = lines(200, |i| format!("{i} {}", "r".repeat(70)));
+        let t = std::time::Instant::now();
+        typed(&mut v, &mut d, "ggqq\"AyGq9999@q", S);
+        assert!(reg_size(&v.regs[&'a']) <= REG_MAX);
+        assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+        // `"` is what was appended to, with no copy made.
+        let mut v = Vim::new();
+        let mut d = draft(&["one", "two"]);
+        typed(&mut v, &mut d, "\"ayyj\"Ayyp", S);
+        assert_eq!(text(&d), ["one", "two", "one", "two"]);
+        typed(&mut v, &mut d, "qaqP", S);
+        assert_eq!(text(&d), ["one", "two", "one", "two", "one", "two"]);
+        // A count goes round the matches rather than the message again.
+        let mut v = Vim::new();
+        let mut d = draft(&["x a", "a", "y a"]);
+        typed(&mut v, &mut d, "/a<cr>", S);
+        assert_eq!((d.row, d.col), (0, 2));
+        typed(&mut v, &mut d, "3n", S);
+        assert_eq!((d.row, d.col), (0, 2));
+        typed(&mut v, &mut d, "4n", S);
+        assert_eq!((d.row, d.col), (1, 0));
+        typed(&mut v, &mut d, "9998n", S);
+        assert_eq!((d.row, d.col), (0, 2));
+        typed(&mut v, &mut d, "2N", S);
+        assert_eq!((d.row, d.col), (1, 0));
+        let mut d = lines(200, |_| "ab ".repeat(26));
+        let t = std::time::Instant::now();
+        typed(&mut v, &mut d, "/a*b<cr>qq9999n9999Nq9999@q", S);
+        assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
+        // A pattern as slow as they come runs out of steps, not time.
+        let mut d = lines(200, |_| "a".repeat(79));
+        let slow = ".*".repeat(50);
+        let t = std::time::Instant::now();
+        typed(&mut v, &mut d, &format!("/{slow}Q<cr>qqnq9999@q"), S);
+        assert!(t.elapsed().as_secs() < 10, "{:?}", t.elapsed());
+        assert!(Pat::new(&".".repeat(MAX_PIECES + 1)).is_none());
+        // `:s` with empty matches and a long replacement can't build more
+        // than a message.
+        let mut d = lines(200, |_| "a".repeat(79));
+        let t = std::time::Instant::now();
+        let out = typed(&mut v, &mut d, &format!(":%s/x*/{}/g<cr>", "&".repeat(60) + "yyyy"), S);
+        assert_eq!(out, VimDo::Say("FsVimFull", vec![]));
+        assert_eq!(text(&d)[0], "a".repeat(79));
+        assert!(t.elapsed().as_secs() < 5, "{:?}", t.elapsed());
     }
 
     #[test]
