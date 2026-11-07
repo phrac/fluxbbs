@@ -4,6 +4,7 @@
 pub mod codes;
 pub mod color;
 pub mod cp437;
+pub mod hyperlink;
 pub mod screen;
 
 pub use codes::{Control, Source, Token, defuse, lit, tokenize, tokenize_str, tokenize_user};

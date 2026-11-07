@@ -1183,13 +1183,19 @@ impl Session {
         self.screen.goto(x0, y0);
         self.set_slot(Slot::Border);
         self.write(&format!("┌─ {title} {}┐", "─".repeat(w - 5 - title.chars().count())));
+        // New: URLs clickable, one cut over lines still one link.
+        let links = self.links_on();
+        let shown: Vec<Vec<u8>> = lines.iter().map(|l| fluxbbs_term::Screen::text_bytes(l)).collect();
+        let rows: Vec<&[u8]> = shown.iter().map(Vec::as_slice).collect();
         for (i, line) in lines.iter().enumerate() {
             self.screen.goto(x0, y0 + 1 + i as u16);
             self.set_slot(Slot::Border);
             self.write("│ ");
             self.set_slot(Slot::Text);
             let pad = inner.saturating_sub(line.chars().count());
-            self.write(&format!("{line}{}", " ".repeat(pad)));
+            let spans = if links { fluxbbs_term::hyperlink::in_rows(&rows, i, inner) } else { Vec::new() };
+            self.screen.write_spans(rows[i], &spans);
+            self.write(&" ".repeat(pad));
             self.set_slot(Slot::Border);
             self.write(" │");
         }

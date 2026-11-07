@@ -46,6 +46,39 @@ terminal type. Zmodem works over it.
 - aixterm bright colors and iCE backgrounds.
 - 256-color and 24-bit color art passes through.
 
+#### Clickable links
+
+URLs (`http`, `https`, `ftp`, `ftps`, `gopher`, `telnet`, `ssh` and
+`mailto:`) go out as clickable links (OSC 8) where the terminal takes
+them:
+
+- in messages, in both readers, and their comments;
+- in file descriptions: the lister, the file info screen, the file
+  browser's popups;
+- in the text viewer (text, NFO, Markdown, web pages, code) and the
+  reading room;
+- in the short-lived HTTPS download links the file area gives (`W`).
+
+A URL cut over lines to fit the screen is one link, and one cut short
+in a list still goes to the whole address. The links take no room on
+screen; what's stored, quoted, exported (QWK, FTN) and edited is the
+text as it was.
+
+Which terminals get them, with "links" in user configuration on auto
+(`o` on the user config screen):
+
+| Terminal | Links |
+|---|---|
+| CTerm (SyncTERM) | when it answers yes to `ESC[=6n`, asked at logon |
+| IcyTerm | yes, known by its device attributes |
+| UTF-8, TERM in `[terminal] link_terms` (`xterm*`, `foot*`, `wezterm`, `alacritty`, `*ghostty`, `konsole*`, `vte*`, `tmux*`...) | yes |
+| anything else (DOS terminals, NetRunner, an unknown CP437 terminal) | no: an OSC it doesn't know could show as text |
+| plain text | never |
+
+On or off overrides auto (plain text still gets none). Only printable
+ASCII goes into a link, so text can't slip codes of its own into one, and
+URLs over 2,048 characters stay text.
+
 #### Nodes
 
 Each caller is on a node. Nodes give you who's online, node messages,

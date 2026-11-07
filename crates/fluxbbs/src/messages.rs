@@ -491,7 +491,8 @@ impl Session {
                 } else {
                     line.into_owned()
                 };
-                self.write_with_controls(&s);
+                // New: URLs clickable, where the terminal takes links.
+                self.write_linked(&s);
                 self.newline();
             }
             lines += 1;
@@ -501,7 +502,7 @@ impl Session {
         }
         // New: its pushes, to read (pushing is the message centre's `x`).
         for l in self.push_lines(m) {
-            self.write_with_controls(&l);
+            self.write_linked(&l);
             self.newline();
             lines += 1;
             if !self.more(&mut lines).await? {

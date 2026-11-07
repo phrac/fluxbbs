@@ -128,6 +128,7 @@ impl Session {
         }
 
         self.say("InitBBS").await?;
+        self.links_probe().await?;
         // When they were last on: the time, or (from before it was kept)
         // the start of that day.
         let previous_call = self.user.last_call_at.or_else(|| self.user.last_call.and_then(|d| d.and_hms_opt(0, 0, 0)));

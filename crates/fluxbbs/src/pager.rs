@@ -343,9 +343,23 @@ fn ends_at(l: &str) -> usize {
 /// them into whatever the caller's terminal shows without blinking; the
 /// code shade as `shade`.
 fn row_bytes(cells: &[Cell], shade: &str) -> Vec<u8> {
-    let mut out = Vec::new();
+    row_pieces(cells, shade, &[]).into_iter().flat_map(|(_, b)| b).collect()
+}
+
+/// New: [`row_bytes`] in pieces, with codes put in before columns
+/// (`marks`: a link's start or end, which go out untracked: `true`).
+fn row_pieces(cells: &[Cell], shade: &str, marks: &[(usize, Vec<u8>)]) -> Vec<(bool, Vec<u8>)> {
+    let mut pieces = vec![(false, Vec::new())];
+    let mark = |pieces: &mut Vec<(bool, Vec<u8>)>, at: usize| {
+        for (_, code) in marks.iter().filter(|m| m.0 == at) {
+            pieces.push((true, code.clone()));
+            pieces.push((false, Vec::new()));
+        }
+    };
     let mut cur: Option<Attr> = None;
-    for c in cells {
+    for (i, c) in cells.iter().enumerate() {
+        mark(&mut pieces, i);
+        let out = &mut pieces.last_mut().expect("a piece").1;
         if cur != Some(c.attr) {
             let a = c.attr;
             let back = if let Some([r, g, b]) = a.rgb_back {
@@ -364,8 +378,27 @@ fn row_bytes(cells: &[Cell], shade: &str) -> Vec<u8> {
         }
         out.push(c.ch);
     }
-    out.extend_from_slice(b"\x1b[0m");
-    out
+    mark(&mut pieces, cells.len());
+    pieces.last_mut().expect("a piece").1.extend_from_slice(b"\x1b[0m");
+    pieces
+}
+
+/// New: the link codes for row `k` of `grid` as shown from column `left`
+/// (`row_pieces`' marks); a URL cut at the edge of a full row goes on in
+/// the next.
+fn grid_links(grid: &[Vec<Cell>], k: usize, left: usize) -> Vec<(usize, Vec<u8>)> {
+    let (lo, hi) = (k.saturating_sub(32), (k + 33).min(grid.len()));
+    let shown: Vec<Vec<u8>> = grid[lo..hi].iter().map(|r| r.iter().map(|c| c.ch).collect()).collect();
+    let rows: Vec<&[u8]> = shown.iter().map(Vec::as_slice).collect();
+    let mut marks = Vec::new();
+    for s in fluxbbs_term::hyperlink::in_rows(&rows, k - lo, WIDTH) {
+        let (a, b) = (s.start.max(left), s.end.min(left + WIDTH));
+        if a < b {
+            marks.push((a - left, s.open()));
+            marks.push((b - left, fluxbbs_term::hyperlink::CLOSE.to_vec()));
+        }
+    }
+    marks
 }
 
 impl Session {
@@ -426,10 +459,15 @@ impl Session {
                 let title: String = title.chars().take(room).collect();
                 let s = self.strings().fmt("ViewerTitle", &[&title, &range]);
                 self.show(&s).await?;
+                // New: URLs clickable, where the terminal takes links.
+                let links = self.links_on();
                 for (k, line) in grid.iter().skip(top).take(height).enumerate() {
                     self.screen.goto(1, 2 + k as u16);
                     let line = &line[left.min(line.len())..(left + WIDTH).min(line.len())];
-                    self.screen.write_bytes(&row_bytes(line, &shade));
+                    let marks = if links { grid_links(grid, top + k, left) } else { Vec::new() };
+                    for (raw, b) in row_pieces(line, &shade, &marks) {
+                        if raw { self.screen.write_raw(&b) } else { self.screen.write_bytes(&b) }
+                    }
                 }
                 self.screen.goto(1, rows as u16);
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
@@ -503,6 +541,29 @@ mod tests {
         }
         let code = "x\n".repeat(50_000);
         assert_eq!(render_named(code.as_bytes(), false, "a.c", &look).len(), MAX_ROWS);
+    }
+
+    #[test]
+    fn links_in_rows_and_cut_over_them() {
+        let url = format!("https://example.com/{}", "x".repeat(70));
+        let g = render(format!("see {url} \x1b[1mhere\r\nftp://a.org/\x1b[31mred\r\n").as_bytes(), false);
+        // The URL runs over the edge into the second row: one link, the
+        // whole URL in each piece.
+        let (m0, m1) = (grid_links(&g, 0, 0), grid_links(&g, 1, 0));
+        assert_eq!(m0.len(), 2);
+        assert_eq!(m0[0].0, 4);
+        assert_eq!(m0[1], (80, fluxbbs_term::hyperlink::CLOSE.to_vec()));
+        assert!(m0[0].1 == m1[0].1 && String::from_utf8_lossy(&m0[0].1).contains(&url) && String::from_utf8_lossy(&m0[0].1).contains("id="));
+        assert_eq!(m1[1].0, url.len() - 76);
+        // Colors inside a URL don't end it; the codes go out on their own.
+        let m2 = grid_links(&g, 2, 0);
+        assert_eq!((m2[0].0, m2[1].0), (0, 15));
+        let pieces = row_pieces(&g[2], "", &m2);
+        assert_eq!(pieces.iter().filter(|p| p.0).count(), 2);
+        let text: Vec<u8> = pieces.iter().filter(|p| !p.0).flat_map(|p| p.1.clone()).collect();
+        assert_eq!(text, row_bytes(&g[2], ""));
+        // Scrolled sideways past its start, it's still a link from the left.
+        assert_eq!(grid_links(&g, 0, 10)[0].0, 0);
     }
 
     #[test]

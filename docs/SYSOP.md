@@ -603,3 +603,12 @@ means 24-bit. The log shows the answers ("the terminal answers ...").
 A terminal that doesn't answer, or says nothing of color (Qodem,
 `ansi-bbs`), gets 16 colors: 256 and 24-bit color as the nearest DOS
 color, the iCE blink bit for bright backgrounds, and no animation.
+
+URLs go out as clickable links (OSC 8) to terminals known to take them:
+a CTerm that answers yes to `ESC[=6n` (SyncTERM; one known by its TERM
+is asked at logon), IcyTerm, and UTF-8 terminals whose TERM is in
+`[terminal] link_terms` (`*` at either end matches anything; by default
+`xterm*`, `foot*`, `wezterm`, `alacritty`, `*ghostty`, `contour`,
+`konsole*`, `vte*`, `tmux*`, `rio`). Others get the text alone. Callers
+can turn links on or off in user configuration
+([FEATURES](FEATURES.md#clickable-links)).

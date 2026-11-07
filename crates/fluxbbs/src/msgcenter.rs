@@ -1556,9 +1556,7 @@ impl Session {
                 self.screen.goto(1, body_top + k as u16);
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                 self.screen.clear_eol();
-                if let Some(l) = lines.get(scroll + k) {
-                    self.reader_line(l);
-                }
+                self.reader_line_at(&lines, scroll + k);
             }
             for y in (rows + 1).saturating_sub(bar_lines).max(1)..=rows {
                 self.screen.goto(1, y);
@@ -2130,6 +2128,22 @@ impl Session {
             self.set_slot(Slot::TextHi);
             self.write_with_controls(&crate::editor::printable(l));
         }
+    }
+
+    /// New: line `k` of the reader's `lines`, its URLs clickable where the
+    /// terminal takes links; one cut over lines to fit is one link.
+    pub(crate) fn reader_line_at(&mut self, lines: &[String], k: usize) {
+        let Some(l) = lines.get(k) else { return };
+        if l.contains('\x1b') || !self.links_on() {
+            return self.reader_line(l);
+        }
+        let (lo, hi) = (k.saturating_sub(32), (k + 33).min(lines.len()));
+        // ANSI lines (art, code) don't go on into others.
+        let shown: Vec<Vec<u8>> = lines[lo..hi].iter().map(|l| if l.contains('\x1b') { Vec::new() } else { crate::session::visible_text(&crate::editor::printable(l)) }).collect();
+        let rows: Vec<&[u8]> = shown.iter().map(Vec::as_slice).collect();
+        let spans = fluxbbs_term::hyperlink::in_rows(&rows, k - lo, 79);
+        self.set_slot(Slot::TextHi);
+        self.write_controls_spans(&crate::editor::printable(l), &spans);
     }
 }
 

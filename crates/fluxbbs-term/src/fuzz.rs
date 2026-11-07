@@ -135,3 +135,73 @@ fn fuzz_color() {
         let _ = d.transition(c);
     });
 }
+
+const URLS: &[&[u8]] = &[
+    b"see https://example.com/a?b=c&d=e#f. and (http://x.org/w/Foo_(bar))",
+    b"mailto:sysop@example.com, telnet://bbs.example.com:23 ssh://me@host gopher://g.net/1/ ftp://f.net",
+    b"|09http://a.com|04/b\x1b[1;31mhttps://c.com\x1b]8;;x\x1b\\\x9c\x07HTTPS://D.COM\xb0",
+];
+
+const URL_DICT: &[&[u8]] = &[b"http://", b"https://", b"mailto:", b"telnet://", b"ssh://", b"ftp://", b"gopher://", b"@", b"(", b")", b"[", b"]", b".", b"?", b"#", b"\x1b]8;;", b"\x1b\\", b"\x07", b"\x9c", b"\x1b["];
+
+/// URLs found and linked: whatever the text, each link is clean (its URL
+/// printable ASCII and closed), and what's on screen is as without links.
+#[test]
+#[ignore]
+fn fuzz_links() {
+    Target::new("links", URLS).dict(URL_DICT).run(|input, rng| {
+        let mut last = 0;
+        for (a, b) in crate::hyperlink::find(input) {
+            assert!(last <= a && a < b && b <= input.len(), "{a}..{b} after {last}");
+            last = b;
+            let url = &input[a..b];
+            assert!(url.len() <= crate::hyperlink::MAX_URL);
+            assert!(url.iter().all(|&c| (0x21..=0x7E).contains(&c) && c != b'|'), "{url:?}");
+            assert_eq!(crate::hyperlink::open(url), [b"\x1b]8;;", url, b"\x1b\\"].concat());
+        }
+        // Cut into rows: each piece of a URL is in it, with the whole URL.
+        let width = 1 + rng.below(90);
+        let rows: Vec<&[u8]> = input.split(|&c| c == b'\n').collect();
+        for k in 0..rows.len() {
+            for s in crate::hyperlink::in_rows(&rows, k, width) {
+                assert!(s.start < s.end && s.end <= rows[k].len(), "{s:?} in row {k}");
+                let piece = &rows[k][s.start..s.end];
+                assert!(s.url.windows(piece.len()).any(|w| w == piece), "{s:?}");
+                assert!(s.url.len() <= crate::hyperlink::MAX_URL && s.url.iter().all(|&c| (0x21..=0x7E).contains(&c)));
+                assert_eq!(s.id.is_some(), s.url != piece);
+            }
+        }
+        let charset = if rng.one_in(2) { Charset::Cp437 } else { Charset::Utf8 };
+        let rows = 1 + rng.below(60) as u16;
+        let (mut a, mut b) = (Screen::new(charset, rows), Screen::new(charset, rows));
+        let (mut out_a, mut out_b) = (Vec::new(), Vec::new());
+        for piece in chunks(input, rng) {
+            a.write_linked(piece, true);
+            b.write_linked(piece, false);
+            assert_eq!((a.where_x(), a.where_y(), a.text_lines()), (b.where_x(), b.where_y(), b.text_lines()));
+            out_a.extend(a.take_output());
+            out_b.extend(b.take_output());
+        }
+        for y in 1..=rows {
+            for x in 1..=COLUMNS {
+                assert_eq!(a.shown(x, y), b.shown(x, y), "cell {x},{y}");
+            }
+        }
+        // Take the links out and it's what went without them (unless the
+        // text held an `ESC ] 8` of its own, which is never a link here).
+        if !input.windows(2).any(|w| w == b"\x1b]") {
+            let mut stripped = Vec::new();
+            let mut i = 0;
+            while i < out_a.len() {
+                if out_a[i..].starts_with(b"\x1b]8;;") {
+                    let end = out_a[i..].windows(2).position(|w| w == b"\x1b\\").expect("an open link ends");
+                    i += end + 2;
+                    continue;
+                }
+                stripped.push(out_a[i]);
+                i += 1;
+            }
+            assert_eq!(stripped, out_b);
+        }
+    });
+}

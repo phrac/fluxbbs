@@ -749,6 +749,7 @@ fn convert_user(l: &LegacyUser) -> User {
         file_popups: false,
         sixel: false,
         sixel_asked: false,
+        links: String::new(),
         text_mode: String::new(),
         code_bg: String::new(),
         code_theme: String::new(),

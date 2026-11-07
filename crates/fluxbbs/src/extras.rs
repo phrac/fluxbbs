@@ -740,7 +740,8 @@ impl Session {
     /// `~XY`: X is the field (A password .. O zip code; new: P SSH keys,
     /// Q the profile, R time zone, S text mode, T-V code and Markdown
     /// colors, W animations, X the screen saver, Y the email address, Z
-    /// the editor's keys, 1 file popups, 2 sixel pictures), Y the key that edits
+    /// the editor's keys, 1 file popups, 2 sixel pictures, 3 clickable
+    /// links), Y the key that edits
     /// it. `~**` is where the command key is read.
     pub async fn user_config(&mut self) -> io::Result<()> {
         self.user_config_screen("USERCFG").await
@@ -871,6 +872,12 @@ impl Session {
                 (false, true) => "off (yours can)".into(),
                 (false, false) => "off".into(),
             },
+            // New: URLs as clickable links: auto (and what it gives), on or off.
+            '3' => match u.links.as_str() {
+                "on" | "off" => u.links.clone(),
+                _ if self.links_seen() => "auto (on)".into(),
+                _ => "auto (off)".into(),
+            },
             'X' => match crate::sysconfig::SAVERS.iter().find(|s| s.0 == u.saver) {
                 Some(s) => s.0.into(),
                 None => "board's".into(),
@@ -936,6 +943,14 @@ impl Session {
             'Z' => self.user.editor_keys = if self.user.editor_keys == "vim" { String::new() } else { "vim".into() },
             '1' => self.user.file_popups = !self.user.file_popups,
             '2' => self.user.sixel = !self.user.sixel,
+            '3' => {
+                self.user.links = match self.user.links.as_str() {
+                    "" => "on",
+                    "on" => "off",
+                    _ => "",
+                }
+                .into()
+            }
             // Change or confirm it (`UV`).
             #[cfg(feature = "email")]
             'Y' if self.email_on() => self.email_check("").await?,
@@ -1041,6 +1056,7 @@ impl Session {
             ('Z', 'I', "Editor keys"),
             ('1', 'F', "File popups"),
             ('2', 'J', "Sixel pictures"),
+            ('3', 'K', "Clickable links"),
         ]
         .to_vec();
         // New: the email address, where the board asks for one.
@@ -1098,6 +1114,7 @@ fn revert_config_fields(u: &mut crate::user::User, original: &crate::user::User)
     u.editor_keys = o.editor_keys;
     u.file_popups = o.file_popups;
     u.sixel = o.sixel;
+    u.links = o.links;
     u.saver = o.saver;
     u.yes_no_bars = o.yes_no_bars;
     u.expert = o.expert;

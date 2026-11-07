@@ -289,6 +289,51 @@ impl Screen {
         }
     }
 
+    /// New: [`Self::write_bytes`], with the URLs in `bytes` as clickable
+    /// links (OSC 8) when `links`. The link's codes go out untracked, so
+    /// the cursor, wrapping and what's shown are as without them; a URL
+    /// wrapped at the edge stays one link.
+    pub fn write_linked(&mut self, bytes: &[u8], links: bool) {
+        if !links || self.plain {
+            return self.write_bytes(bytes);
+        }
+        let spans: Vec<crate::hyperlink::Span> = crate::hyperlink::find(bytes).into_iter().map(|(a, b)| crate::hyperlink::Span { start: a, end: b, url: bytes[a..b].to_vec(), id: None }).collect();
+        self.write_spans(bytes, &spans);
+    }
+
+    /// New: [`Self::write_bytes`] with links round `spans` (byte ranges
+    /// of `bytes`, in order, with the URLs they go to), untracked as in
+    /// [`Self::write_linked`]. Nothing in plain text.
+    pub fn write_spans(&mut self, bytes: &[u8], spans: &[crate::hyperlink::Span]) {
+        let mut at = 0;
+        let spans = if self.plain { &[] } else { spans };
+        for s in spans {
+            let (a, b) = (s.start.max(at).min(bytes.len()), s.end.min(bytes.len()));
+            if a >= b {
+                continue;
+            }
+            self.write_bytes(&bytes[at..a]);
+            // Not inside an escape sequence the text left open.
+            let link = self.esc.is_none();
+            if link {
+                self.raw(&s.open());
+            }
+            self.write_bytes(&bytes[a..b]);
+            if link {
+                self.raw(crate::hyperlink::CLOSE);
+            }
+            at = b;
+        }
+        self.write_bytes(&bytes[at..]);
+    }
+
+    /// New: the bytes [`Self::write_text`] writes for `s`.
+    pub fn text_bytes(s: &str) -> Vec<u8> {
+        let mut b = cp437::encode(&s.replace('\u{2022}', "\u{2219}"));
+        b.retain(|&c| c >= 0x20 && c != 0x7F);
+        b
+    }
+
     /// Write a Rust string; characters outside CP437 become `?`.
     pub fn write_str(&mut self, s: &str) {
         self.write_bytes(&cp437::encode(s));
@@ -298,9 +343,7 @@ impl Screen {
     /// CP437's glyphs for them, which encode to the control bytes (`•`
     /// becomes `∙`, as it looks the same).
     pub fn write_text(&mut self, s: &str) {
-        let mut b = cp437::encode(&s.replace('\u{2022}', "\u{2219}"));
-        b.retain(|&c| c >= 0x20 && c != 0x7F);
-        self.write_bytes(&b);
+        self.write_bytes(&Self::text_bytes(s));
     }
 
     pub fn newline(&mut self) {
@@ -944,6 +987,28 @@ mod tests {
         let mut s = Screen::new(Charset::Utf8, 25);
         s.write_bytes(&[0xB0, 0x10]);
         assert_eq!(String::from_utf8(s.take_output()).unwrap(), "░►");
+    }
+
+    #[test]
+    fn links_take_no_room() {
+        let url = format!("https://example.com/{}", "x".repeat(70));
+        let text = format!("go {url} now");
+        let (mut a, mut b) = (Screen::new(Charset::Utf8, 25), Screen::new(Charset::Utf8, 25));
+        a.write_linked(text.as_bytes(), true);
+        b.write_linked(text.as_bytes(), false);
+        assert_eq!((a.where_x(), a.where_y()), (b.where_x(), b.where_y()));
+        assert_eq!(a.text_lines(), b.text_lines());
+        assert!((1..=80).all(|x| a.shown(x, 1) == b.shown(x, 1) && a.shown(x, 2) == b.shown(x, 2)));
+        let (linked, plain) = (String::from_utf8(a.take_output()).unwrap(), String::from_utf8(b.take_output()).unwrap());
+        assert_eq!(plain, format!("go https://example.com/{}\r\n{} now", "x".repeat(57), "x".repeat(13)));
+        // One link round the URL, the wrap inside it.
+        assert_eq!(linked, format!("go \x1b]8;;{url}\x1b\\https://example.com/{}\r\n{}\x1b]8;;\x1b\\ now", "x".repeat(57), "x".repeat(13)));
+        // Never in plain text.
+        let mut p = Screen::new(Charset::Cp437, 25);
+        p.set_plain(true);
+        p.take_output();
+        p.write_linked(b"see http://a.com", true);
+        assert_eq!(p.take_output(), b"see http://a.com");
     }
 
     #[test]

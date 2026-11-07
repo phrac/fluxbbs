@@ -592,7 +592,7 @@ impl Session {
         if self.show_file_with("FILEINFO", &w).await? {
             if !has_desc {
                 for l in &f.description {
-                    self.write_with_controls(&format!("|U1 {l}"));
+                    self.write_linked(&format!("|U1 {l}"));
                     self.newline();
                 }
             }
@@ -619,7 +619,7 @@ impl Session {
                 self.newline();
             }
             for l in &f.description {
-                self.write_with_controls(&format!("|U1 {l}"));
+                self.write_linked(&format!("|U1 {l}"));
                 self.newline();
             }
         }
@@ -709,9 +709,11 @@ impl Session {
                 let s = self.strings().fmt("FaLinkName", &[&f.name]);
                 self.show_line(&s).await?;
             }
-            // The address as it is, so it can be copied whole.
+            // The address as it is, so it can be copied whole; new:
+            // clickable, where the terminal takes links.
             self.screen.set_color(fluxbbs_term::Color::new(15, 0));
-            self.screen.write_text(&url);
+            let links = self.links_on();
+            self.screen.write_linked(&fluxbbs_term::Screen::text_bytes(&url), links);
             self.screen.set_color(fluxbbs_term::Color::DEFAULT);
             self.newline();
             tracing::info!("{}: download link for {} ({})", self.user.handle, f.name, a.area.name);
@@ -1227,7 +1229,7 @@ impl Session {
                         room = room.saturating_sub(label.len() + 1);
                     }
                     self.screen.set_color(l.cl[0]);
-                    self.write_with_controls(&squish(d, room));
+                    self.write_linked_cut(d, &squish(d, room));
                 }
             }
             rows.push(Row { idx, y: y - below as u16 });

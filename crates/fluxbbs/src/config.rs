@@ -1298,6 +1298,10 @@ pub struct Terminal {
     /// New: CP437 terminals with xterm's 256 colours but not 24-bit: 24-bit
     /// colour goes to them as the nearest of the 256.
     pub palette256_terms: Vec<String>,
+    /// New: UTF-8 terminals (by TERM; `*` at either end matches any
+    /// characters) that get URLs as clickable links (OSC 8) unless the
+    /// caller turned them off. SyncTERM and IcyTerm are asked instead.
+    pub link_terms: Vec<String>,
     /// New: seconds idle on a lightbar menu before the screen saver (0:
     /// none); only where menus animate.
     pub screensaver_seconds: u64,
@@ -1823,6 +1827,10 @@ impl Default for Terminal {
             truecolor_terms: vec!["syncterm".into()],
             // NetRunner: 256 colours, no 24-bit.
             palette256_terms: vec!["ansi-256color".into()],
+            // What GNOME Terminal, Konsole, Windows Terminal, iTerm2,
+            // kitty, foot, WezTerm, Alacritty and Ghostty send; each
+            // takes links or passes them over.
+            link_terms: ["xterm*", "foot*", "wezterm", "alacritty", "*ghostty", "contour", "konsole*", "vte*", "tmux*", "rio"].map(String::from).to_vec(),
             screensaver_seconds: 60,
             screensaver_font: String::new(),
             screensaver_face: String::new(),
@@ -2022,6 +2030,22 @@ fn renamed(dir: &Path, new: &str, old: &str) -> PathBuf {
     if !n.exists() && o.exists() { o } else { n }
 }
 
+/// New: is `term` in `list` (any case; a `*` at either end of an entry
+/// matches any characters)?
+pub fn term_listed(list: &[String], term: &str) -> bool {
+    let term = term.to_ascii_lowercase();
+    list.iter().any(|p| {
+        let p = p.to_ascii_lowercase();
+        match (p.strip_prefix('*'), p.strip_suffix('*')) {
+            _ if p == "*" => true,
+            (Some(rest), _) if rest.ends_with('*') => term.contains(&rest[..rest.len() - 1]),
+            (Some(rest), _) => term.ends_with(rest),
+            (_, Some(start)) => term.starts_with(start),
+            _ => term == p,
+        }
+    })
+}
+
 
 
 /// Does `s` read as an FTN address? Without echomail built in (`ftn`),
@@ -2039,6 +2063,14 @@ fn ftn_address(s: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn terms_match_with_stars() {
+        let l = Terminal::default().link_terms;
+        assert!(term_listed(&l, "xterm-256color") && term_listed(&l, "XTERM") && term_listed(&l, "xterm-ghostty") && term_listed(&l, "foot-extra"));
+        assert!(!term_listed(&l, "ansi") && !term_listed(&l, "syncterm") && !term_listed(&l, "linux") && !term_listed(&l, "vt100") && !term_listed(&l, ""));
+        assert!(term_listed(&["*kit*".into()], "xterm-kitty") && !term_listed(&["kit".into()], "xterm-kitty"));
+    }
 
     #[test]
     fn names_fall_back_short_then_super_short() {

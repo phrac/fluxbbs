@@ -72,8 +72,8 @@ a seed corpus with no nightly needed.
 
 The parsers and renderers (telnet, keys and terminal answers, the
 screen model and display codes, the display engine, MCI codes, pager,
-ANSI snapshots, picture encoding, Markdown and code, HTML, vim keys,
-the editor, MRC lines and chat, the bot check) use
+ANSI snapshots, picture encoding, Markdown and code, HTML, URLs and
+links, vim keys, the editor, MRC lines and chat, the bot check) use
 `crates/fluxbbs-term/src/fuzzkit.rs`, which the server crate includes
 too:
 
