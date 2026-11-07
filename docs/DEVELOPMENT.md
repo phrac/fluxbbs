@@ -67,13 +67,15 @@ file.
 
 ### Fuzzing
 
-The parsers and renderers have `#[ignore]`d `fuzz_*` tests (telnet,
-keys and terminal answers, the screen model and display codes, the
-display engine, MCI codes, pager, ANSI snapshots, pictures and sixels,
-Markdown and code, HTML, vim keys, the editor, MRC lines and chat, the
-bot check), mutation fuzzers on a seed corpus with no nightly needed
-(`crates/fluxbbs-term/src/fuzzkit.rs`, which the server crate includes
-too):
+There are two sets of `#[ignore]`d `fuzz_*` tests, mutation fuzzers on
+a seed corpus with no nightly needed.
+
+The parsers and renderers (telnet, keys and terminal answers, the
+screen model and display codes, the display engine, MCI codes, pager,
+ANSI snapshots, picture encoding, Markdown and code, HTML, vim keys,
+the editor, MRC lines and chat, the bot check) use
+`crates/fluxbbs-term/src/fuzzkit.rs`, which the server crate includes
+too:
 
     FUZZ_SECS=600 FUZZ_ITERS=100000000 nice -n 19 \
         cargo test --release --features full fuzz_ -- --ignored --test-threads=4
@@ -85,7 +87,18 @@ slower: hence the looser time limits). `FUZZ_SEED` picks another run;
 a panic or a slow call fails the test with its input, made smaller,
 and the seed its own PRNG had. `FUZZ_INPUT=file FUZZ_INPUT_SEED=n`
 runs that input alone; a call stuck past `FUZZ_HANG_S` writes its input
-to `$TMPDIR/fuzz-hang-NAME.bin` and aborts. Add what's found as a normal
+to `$TMPDIR/fuzz-hang-NAME.bin` and aborts.
+
+What comes from elsewhere (FTN packets, message text, nodelists, TICs,
+binkp frames and sessions, QWK replies, ZIPs, tars, SAUCE, pictures,
+the old `.DAT` files) uses `crates/fluxbbs/src/fuzzcorpus.rs` (which
+iniquity-legacy includes too): those fail on a panic, a slow input or
+an allocation over 256 MB, and a failure is cut down, saved in
+`$TMPDIR/fluxbbs-fuzz` (`FUZZ_OUT`) and printed. The same commands run
+both sets; `INIQUITY_STOCK=original/stock` seeds the `.DAT` fuzzer with
+the stock files.
+
+Add what's found as a normal
 test beside the fix.
 
 ### Live tests

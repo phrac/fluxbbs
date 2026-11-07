@@ -43,13 +43,12 @@ pub fn from_char(c: char) -> u8 {
     if c.is_ascii() {
         return c as u8;
     }
-    TO_UNICODE
-        .iter()
-        .skip(0x80)
-        .position(|&u| u == c)
-        .map(|i| (i + 0x80) as u8)
-        .or_else(|| TO_UNICODE[1..0x20].iter().position(|&u| u == c).map(|i| (i + 1) as u8))
-        .unwrap_or(b'?')
+    // The high half's glyphs first, then the control bytes' (new: looked
+    // up, not searched for, as every screen sent goes through here).
+    static FROM: std::sync::OnceLock<std::collections::HashMap<char, u8>> = std::sync::OnceLock::new();
+    // (Inserted backwards: the first byte for a glyph is the one kept.)
+    let from = FROM.get_or_init(|| (0x80..=0xffu8).chain(1..0x20).rev().map(|b| (TO_UNICODE[b as usize], b)).collect());
+    from.get(&c).copied().unwrap_or(b'?')
 }
 
 /// Encode a Rust string as CP437 bytes (dropping `codes::lit` markers).
@@ -89,6 +88,20 @@ pub fn dos_art(b: &[u8]) -> std::borrow::Cow<'_, [u8]> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The lookup gives what searching the table did.
+    #[test]
+    fn from_char_as_searched() {
+        let searched = |c: char| {
+            if c.is_ascii() {
+                return c as u8;
+            }
+            TO_UNICODE.iter().skip(0x80).position(|&u| u == c).map(|i| (i + 0x80) as u8).or_else(|| TO_UNICODE[1..0x20].iter().position(|&u| u == c).map(|i| (i + 1) as u8)).unwrap_or(b'?')
+        };
+        for c in TO_UNICODE.iter().copied().chain(['é', 'ì', '€', '\u{fffd}', 'x', '\0']) {
+            assert_eq!(from_char(c), searched(c), "{c:?}");
+        }
+    }
 
     #[test]
     fn modern_art_becomes_dos_art() {

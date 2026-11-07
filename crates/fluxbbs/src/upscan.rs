@@ -535,3 +535,159 @@ mod tests {
         assert_eq!(human_size(52 << 20), "52 MB");
     }
 }
+
+#[cfg(test)]
+pub(crate) mod fuzz {
+    use super::*;
+    use crate::fuzzcorpus;
+    use std::io::Write;
+
+    pub(crate) const DICT: &[&[u8]] = &[b"PK\x03\x04", b"PK\x01\x02", b"PK\x05\x06", b"PK\x06\x06", b"PK\x06\x07", b"\x1f\x8b\x08", b"ustar\x0000", b"ustar  \x00", b"FILE_ID.DIZ", b"../", b"/", b"\\", b"SAUCE00", b"COMNT", b"\x1a"];
+
+    /// An ANSI piece with a SAUCE record and a comment.
+    pub(crate) fn art() -> Vec<u8> {
+        let mut a = b"\x1b[1;31mhello\x1b[0m\r\n\x1a".to_vec();
+        a.extend(b"COMNT");
+        a.extend(format!("{:<64}", "a comment line").as_bytes());
+        let mut rec = vec![b' '; 128];
+        rec[..7].copy_from_slice(b"SAUCE00");
+        rec[7..12].copy_from_slice(b"Title");
+        rec[42..47].copy_from_slice(b"Artst");
+        rec[62..67].copy_from_slice(b"Group");
+        rec[82..90].copy_from_slice(b"19970401");
+        rec[104] = 1;
+        a.extend(rec);
+        a
+    }
+
+    pub(crate) fn zips() -> Vec<Vec<u8>> {
+        let make = |files: &[(&str, &[u8], zip::CompressionMethod)]| {
+            let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+            for (name, body, how) in files {
+                let opts = zip::write::SimpleFileOptions::default().compression_method(*how).last_modified_time(zip::DateTime::from_date_and_time(1997, 4, 1, 12, 0, 0).unwrap());
+                if name.ends_with('/') {
+                    z.add_directory(*name, opts).unwrap();
+                } else {
+                    z.start_file(*name, opts).unwrap();
+                    z.write_all(body).unwrap();
+                }
+            }
+            z.finish().unwrap().into_inner()
+        };
+        let art = art();
+        let (d, s) = (zip::CompressionMethod::Deflated, zip::CompressionMethod::Stored);
+        vec![
+            make(&[("FILE_ID.DIZ", b"The release\r\nline two\r\n", d), ("art/", b"", s), ("art/PIECE.ANS", &art, d), ("README.NFO", b"info", s)]),
+            make(&[("ONLY.ANS", &art, s)]),
+            make(&[("big.txt", &[b'a'; 100_000], d), ("pic.gif", b"GIF89a", s), ("sub/dir/x.asc", b"x", d)]),
+        ]
+    }
+
+    pub(crate) fn tars() -> Vec<Vec<u8>> {
+        let mut b = tar::Builder::new(Vec::new());
+        for (name, body) in [("./art/PIECE.ANS", art()), ("README.TXT", b"readme\n".to_vec()), ("dir/sub/x.nfo", b"nfo".to_vec())] {
+            let mut h = tar::Header::new_gnu();
+            h.set_size(body.len() as u64);
+            h.set_mode(0o644);
+            h.set_mtime(860_000_000);
+            h.set_cksum();
+            b.append_data(&mut h, name, body.as_slice()).unwrap();
+        }
+        let tar = b.into_inner().unwrap();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&tar).unwrap();
+        vec![tar, gz.finish().unwrap()]
+    }
+
+    fn limits() -> Limits {
+        Limits { max_ratio: 100, max_unpacked: 64 << 20, refuse_unsafe: true, keep_names: 5 }
+    }
+
+    /// Where a test's archive goes: its own temp directory.
+    pub(crate) fn place(name: &str) -> std::path::PathBuf {
+        let dir = std::env::temp_dir().join(format!("fluxbbs-fuzz-{name}-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    /// A ZIP upload: screened, tested, its description read, files out
+    /// of it, all within the cap.
+    #[test]
+    #[ignore]
+    fn fuzz_zip_upload() {
+        let dir = place("zip");
+        let path = dir.join("UPLOAD.ZIP");
+        let names = vec!["FILE_ID.DIZ".to_string(), "DESC.SDI".to_string()];
+        fuzzcorpus::run("zip_upload", zips(), DICT, 20_000, |d| {
+            std::fs::write(&path, d).unwrap();
+            let cap = limits().cap(d.len() as u64);
+            let _ = check_contents(&path, Kind::Zip);
+            let _ = scan(&path, Kind::Zip, &limits());
+            if let Ok(entries) = crate::upltest::zip_entries(&path, cap) {
+                for (name, _) in entries.iter().take(20) {
+                    let mut out = Vec::new();
+                    if let Ok(n) = crate::archview::copy_entry(&path, Kind::Zip, name, cap, &mut out) {
+                        assert!(n <= cap && out.len() as u64 == n);
+                    }
+                }
+            }
+            let _ = crate::files::zip_description(&path, &names);
+            let _ = crate::files::nfo_description(&path);
+            let _ = crate::files::art_description(&path, &names);
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Tars, tar.gz and .gz: screened, listed and read within the cap.
+    #[test]
+    #[ignore]
+    fn fuzz_tar_upload() {
+        let dir = place("tar");
+        let mut corpus = tars();
+        let mut gz = flate2::write::GzEncoder::new(Vec::new(), flate2::Compression::default());
+        gz.write_all(&art()).unwrap();
+        corpus.push(gz.finish().unwrap());
+        fuzzcorpus::run("tar_upload", corpus, DICT, 20_000, |d| {
+            let kind = match d.first() {
+                Some(0x1f) => Kind::TarGz,
+                _ => Kind::Tar,
+            };
+            for kind in [kind, Kind::Gzip] {
+                let path = dir.join(if kind == Kind::Gzip { "up.ans.gz" } else { "up.tar" });
+                std::fs::write(&path, d).unwrap();
+                let cap = limits().cap(d.len() as u64);
+                let _ = check_contents(&path, kind);
+                let _ = scan(&path, kind, &limits());
+                if let Ok(list) = tar_listing(&path, kind, cap) {
+                    for (name, _, _) in list.iter().take(20) {
+                        let mut out = Vec::new();
+                        if let Ok(n) = crate::archview::copy_entry(&path, kind, name, cap, &mut out) {
+                            assert!(n <= cap);
+                        }
+                    }
+                }
+            }
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// Text uploads: their kind, lines and look.
+    #[test]
+    #[ignore]
+    fn fuzz_text_upload() {
+        let dir = place("text");
+        let path = dir.join("up.txt");
+        fuzzcorpus::run("text_upload", vec![art(), b"plain text\nlines\r\n".to_vec()], DICT, 20_000, |d| {
+            std::fs::write(&path, d).unwrap();
+            let _ = check_contents(&path, Kind::Text);
+            let _ = scan(&path, Kind::Text, &limits());
+            let _ = looks_like_text(d);
+            let s = String::from_utf8_lossy(d);
+            let _ = kind_of(&s);
+            let _ = type_allowed(&["zip".into(), ".tar.gz".into(), String::new()], &s);
+            let _ = unsafe_path(&s);
+            let _ = human_size(d.iter().fold(0u64, |a, &b| a.rotate_left(8) ^ b as u64));
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

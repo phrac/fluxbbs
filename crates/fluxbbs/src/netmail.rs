@@ -335,3 +335,31 @@ mod tests {
         assert_eq!(route(&board(false), Addr::parse("46:1/100").unwrap(), None).unwrap_err(), Refused::NoNodelist("agoranet".into()));
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzcorpus;
+
+    #[test]
+    #[ignore]
+    fn fuzz_netmail_addresses() {
+        let corpus: Vec<Vec<u8>> = ["Nick Boel@46:1/100", "Nick Boel@46:1/100@agoranet", "a@b@21:1/5.3@fsxnet", "x@1:2/3", "21:1/100@fsxnet", "@@@"].iter().map(|s| s.as_bytes().to_vec()).collect();
+        fuzzcorpus::run("netmail_addr", corpus, &[b"@", b":", b"/", b".", b" "], 100_000, |d| {
+            let s = String::from_utf8_lossy(d);
+            if let Some((name, a)) = parse(&s) {
+                assert!(!name.is_empty() && a.zone != 0 && a.net != 0);
+            }
+            let _ = parse_domain(&s);
+            let _ = domain_of(&s);
+            // Split anywhere into a name and a note.
+            let cut = d.first().map_or(0, |&b| b as usize % (s.len() + 1));
+            let cut = (0..=cut).rev().find(|&i| s.is_char_boundary(i)).unwrap_or(0);
+            let p = Party { name: s[..cut].to_string(), note: s[cut..].to_string(), ..Party::default() };
+            if let Some((name, _, _)) = sender(&p) {
+                assert!(!name.trim().is_empty());
+            }
+            let _ = sender(&Party { name: s.to_string(), ..Party::default() });
+        });
+    }
+}

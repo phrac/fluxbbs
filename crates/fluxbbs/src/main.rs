@@ -9,6 +9,8 @@
 mod acs;
 mod ambient;
 mod clock;
+#[cfg(test)]
+mod fuzzcorpus;
 #[cfg(feature = "ai")]
 mod aiboard;
 #[cfg(feature = "ai")]

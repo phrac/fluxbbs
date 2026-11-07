@@ -29,6 +29,8 @@ use crate::upscan::Kind;
 const ART: [&str; 11] = ["ans", "ice", "asc", "txt", "nfo", "diz", "cia", "art", "pic", "pix", "vt"];
 /// The largest piece read into memory.
 const MAX_PIECE: u64 = 8 << 20;
+/// The most a pack's listing reads of its pieces for their SAUCE.
+const SAUCE_BUDGET: u64 = 64 << 20;
 /// The most files a search lists (new): its best.
 const MAX_FOUND: usize = 500;
 /// Play speeds to cycle through (bits per second; 0 = all at once).
@@ -336,37 +338,39 @@ fn list(place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
         Place::Area(_) | Place::Areas | Place::Found(_) | Place::Hot => {}
         Place::Zip { zip, prefix } => {
             let mut z = zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(io::Error::other)?;
-            let mut seen = Vec::new();
+            let mut seen = std::collections::HashSet::new();
+            let mut sauce_left = SAUCE_BUDGET;
             for i in 0..z.len() {
                 let Ok(mut f) = z.by_index(i) else { continue };
                 let when = f.last_modified().and_then(|d| NaiveDate::from_ymd_opt(d.year() as i32, d.month() as u32, d.day() as u32));
                 let Some(full) = zip_shown_name(&f) else { continue };
                 let Some(rest) = full.strip_prefix(prefix.as_str()) else { continue };
                 if let Some((dir, _)) = rest.split_once('/') {
-                    if !seen.contains(&dir.to_string()) {
-                        seen.push(dir.to_string());
+                    if seen.insert(dir.to_string()) {
                         let place = Place::Zip { zip: zip.clone(), prefix: format!("{prefix}{dir}/") };
                         folders.push(Item::Folder { name: dir.to_string(), place, pack: false, rec: None, when: None });
                     }
                 } else if !f.is_dir() && (is_image(rest) || mode.all && !is_art(rest)) {
                     art.push(Item::Art { name: rest.to_string(), size: f.size(), sauce: None, src: Src::Zip(zip.clone(), full), rec: None, when });
                 } else if !f.is_dir() && is_art(rest) {
-                    // Reading the piece for its SAUCE: art files are small.
+                    // Reading the piece for its SAUCE: art files are small,
+                    // but a pack can hold thousands, or point thousands of
+                    // entries at one big piece: so much in all, then none.
                     let mut data = Vec::new();
-                    let _ = (&mut f).take(MAX_PIECE).read_to_end(&mut data);
+                    let _ = (&mut f).take(MAX_PIECE.min(sauce_left)).read_to_end(&mut data);
+                    sauce_left = sauce_left.saturating_sub(data.len() as u64);
                     art.push(Item::Art { name: rest.to_string(), size: f.size(), sauce: parse_sauce(&data), src: Src::Zip(zip.clone(), full), rec: None, when });
                 }
             }
         }
         Place::Tar { tar, kind, prefix } => {
-            let mut seen = Vec::new();
+            let mut seen = std::collections::HashSet::new();
             for (full, size, when) in crate::upscan::tar_listing(tar, *kind, mode.cap)? {
                 // Tars often name everything "./something".
                 let shown = full.trim_start_matches("./");
                 let Some(rest) = shown.strip_prefix(prefix.as_str()) else { continue };
                 if let Some((dir, _)) = rest.split_once('/') {
-                    if !seen.contains(&dir.to_string()) {
-                        seen.push(dir.to_string());
+                    if seen.insert(dir.to_string()) {
                         let place = Place::Tar { tar: tar.clone(), kind: *kind, prefix: format!("{prefix}{dir}/") };
                         folders.push(Item::Folder { name: dir.to_string(), place, pack: false, rec: None, when: None });
                     }
@@ -1992,6 +1996,43 @@ mod tests {
         std::fs::remove_dir_all(dir).unwrap();
     }
 
+    /// A pack whose many entries all point at one big piece (nothing
+    /// stops a ZIP doing so) is listed at once: SAUCEs are read up to a
+    /// budget, not each piece in full.
+    #[test]
+    fn packs_of_one_piece_many_times_list_quickly() {
+        let mut z = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        z.start_file("a0000.ans", zip::write::SimpleFileOptions::default()).unwrap();
+        z.write_all(&vec![b' '; MAX_PIECE as usize]).unwrap();
+        let mut b = z.finish().unwrap().into_inner();
+        let eocd = b.len() - 22;
+        let at = u32::from_le_bytes(b[eocd + 16..eocd + 20].try_into().unwrap()) as usize;
+        let rec = b[at..eocd].to_vec();
+        b.truncate(at);
+        let n = u16::MAX;
+        for i in 0..n {
+            let mut r = rec.clone();
+            r[46..51].copy_from_slice(format!("{i:05}").as_bytes());
+            b.extend(r);
+        }
+        b.extend(b"PK\x05\x06\0\0\0\0");
+        b.extend(n.to_le_bytes());
+        b.extend(n.to_le_bytes());
+        b.extend((rec.len() as u32 * n as u32).to_le_bytes());
+        b.extend((at as u32).to_le_bytes());
+        b.extend([0, 0]);
+        let dir = std::env::temp_dir().join(format!("iqgal-bomb{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let zip = dir.join("bomb.zip");
+        std::fs::write(&zip, &b).unwrap();
+        let start = std::time::Instant::now();
+        let items = list(&Place::Zip { zip, prefix: String::new() }, Mode { all: false, cap: u64::MAX }).unwrap();
+        assert_eq!(items.len(), n as usize);
+        // (Reading every one took 33 s, optimized.)
+        assert!(start.elapsed() < std::time::Duration::from_secs(if cfg!(debug_assertions) { 60 } else { 10 }), "{:?}", start.elapsed());
+        std::fs::remove_dir_all(dir).unwrap();
+    }
+
     /// The help line sits on the bottom row: 80 columns there would scroll
     /// the screen on every key.
     #[test]
@@ -2061,5 +2102,84 @@ mod tests {
         sort_items(&mut items, Order::Name);
         assert_eq!(names(&items), ["packs", "a.png", "b.ans", "c.ans", "d.gif"]);
         assert_eq!(Order::Size.next(), Order::Name, "the orders go round");
+    }
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzcorpus;
+    use crate::upscan::fuzz::{DICT, art, place, tars, zips};
+
+    /// Packs opened as folders in the gallery and the archive browser:
+    /// listed, each folder opened, each piece read and drawn.
+    #[test]
+    #[ignore]
+    fn fuzz_gallery_packs() {
+        let dir = place("gallery");
+        let mut corpus = zips();
+        corpus.extend(tars());
+        fuzzcorpus::run("gallery_packs", corpus, DICT, 10_000, |d| {
+            let (place, path) = if d.starts_with(b"PK") {
+                let p = dir.join("pack.zip");
+                (Place::Zip { zip: p.clone(), prefix: String::new() }, p)
+            } else {
+                let p = dir.join("pack.tgz");
+                let kind = if d.first() == Some(&0x1f) { Kind::TarGz } else { Kind::Tar };
+                (Place::Tar { tar: p.clone(), kind, prefix: String::new() }, p)
+            };
+            std::fs::write(&path, d).unwrap();
+            let mode = Mode { all: d.len() % 2 == 0, cap: 1 << 20 };
+            let Ok(items) = list(&place, mode) else { return };
+            let mut pieces = Vec::new();
+            for item in items.iter().take(20) {
+                match item {
+                    Item::Folder { place, .. } => {
+                        if let Ok(inner) = list(place, mode) {
+                            pieces.extend(inner.into_iter().filter_map(|i| match i {
+                                Item::Art { src, .. } => Some(src),
+                                _ => None,
+                            }));
+                        }
+                    }
+                    Item::Art { src, .. } => pieces.push(src.clone()),
+                }
+            }
+            for src in pieces.iter().take(20) {
+                if let Ok(data) = read_limited(src, 1 << 20) {
+                    assert!(data.len() <= 1 << 20);
+                    let _ = parse_sauce(&data);
+                    let _ = sauce_description(&data, 45, 10);
+                    let _ = playable(&data);
+                }
+            }
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// SAUCE records and comment blocks, and art made fit to play.
+    #[test]
+    #[ignore]
+    fn fuzz_sauce() {
+        let dir = place("sauce");
+        let path = dir.join("piece.ans");
+        fuzzcorpus::run("sauce", vec![art(), b"\x1b[2J\x1b[5;5H\x1b[?25l\x1b]0;x\x07\x00plain".to_vec()], DICT, 100_000, |d| {
+            if let Some(s) = parse_sauce(d) {
+                let _ = byline(&s);
+            }
+            let _ = sauce_comments(d);
+            if let Some(lines) = sauce_description(d, 45, 10) {
+                assert!(lines.len() <= 10 && lines.iter().all(|l| l.chars().count() <= 45));
+            }
+            let p = playable(d);
+            assert!(!p.contains(&0x1a) && p.len() <= d.len() + 1);
+            std::fs::write(&path, d).unwrap();
+            assert_eq!(disk_sauce(&path), parse_sauce(d).filter(|_| d.len() >= 128));
+            let _ = crate::files::text_lines(d);
+            let desc = crate::files::parse_description(d);
+            assert!(desc.len() <= crate::files::MAX_DESC_LINES);
+            let _ = is_art(&String::from_utf8_lossy(d));
+        });
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }
