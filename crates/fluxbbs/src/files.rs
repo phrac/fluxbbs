@@ -75,8 +75,9 @@ pub fn zip_description(path: &Path, names: &[String]) -> Option<Vec<String>> {
     let file = std::fs::File::open(path).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
     for want in names {
-        let idx = (0..zip.len()).find(|&i| zip.by_index(i).is_ok_and(|e| e.name().is_ok_and(|n| n.rsplit('/').next().is_some_and(|n| n.eq_ignore_ascii_case(want)))))?;
-        let entry = zip.by_index(idx).ok()?;
+        // Not there: the next name may be.
+        let Some(idx) = (0..zip.len()).find(|&i| zip.by_index(i).is_ok_and(|e| e.name().is_ok_and(|n| n.rsplit('/').next().is_some_and(|n| n.eq_ignore_ascii_case(want))))) else { continue };
+        let Ok(entry) = zip.by_index(idx) else { continue };
         let mut raw = Vec::new();
         io::Read::read_to_end(&mut io::Read::take(entry, MAX_DESC_READ), &mut raw).ok()?;
         let lines = parse_description(&raw);
@@ -2546,6 +2547,13 @@ mod tests {
         w.finish().unwrap();
         let got = zip_description(&path, &["FILE_ID.DIZ".into()]).unwrap();
         assert_eq!(got, vec!["Line one", "Line two"]);
+        // Found while fuzzing: a ZIP without the first name never got to
+        // the second.
+        let mut w = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        w.start_file("DESC.SDI", zip::write::SimpleFileOptions::default()).unwrap();
+        io::Write::write_all(&mut w, b"From the SDI\r\n").unwrap();
+        w.finish().unwrap();
+        assert_eq!(zip_description(&path, &["FILE_ID.DIZ".into(), "DESC.SDI".into()]).unwrap(), vec!["From the SDI"]);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

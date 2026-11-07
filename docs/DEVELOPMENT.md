@@ -65,6 +65,22 @@ each on its own). Don't run `cargo fmt`: the
 code has never been rustfmt'd, and a format pass would rewrite every
 file.
 
+### Fuzzing
+
+The parsers of what comes from elsewhere (FTN packets, message text,
+nodelists, TICs, binkp frames and sessions, QWK replies, ZIPs, tars,
+SAUCE, pictures, the old `.DAT` files) have fuzzers: `#[ignore]`d tests
+named `fuzz_*`, each mutating good inputs and failing on a panic, a
+slow input or a huge allocation (`crates/fluxbbs/src/fuzzkit.rs` has the
+settings). They need no nightly toolchain:
+
+    FUZZ_ITERS=200000 nice -n 19 cargo test --release --features full fuzz_ -- --ignored --test-threads=4
+    FUZZ_SECS=180 cargo test --features full fuzz_ -- --ignored --test-threads=4   # debug: overflow checks
+
+`FUZZ_SEED` picks another run; a failure is cut down, saved in
+`$TMPDIR/fluxbbs-fuzz` and printed. Add what one finds as an ordinary
+test beside the fix.
+
 ### Live tests
 
 Run the server and drive it with the scripted callers in `tools/`. Each

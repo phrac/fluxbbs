@@ -45,6 +45,8 @@ pub struct Tic {
 const STALE_DAYS: u64 = 3;
 /// Description lines kept.
 const MAX_DESC: usize = 20;
+/// `Replaces` lines taken from one TIC.
+const MAX_REPLACES: usize = 32;
 
 /// An address as a TIC may write it (FSC-0087): `zone:net/node`, with
 /// `.point`, `@domain`, or `domain#` in front.
@@ -73,7 +75,8 @@ pub fn parse(data: &[u8]) -> Result<Tic, String> {
             "area" => t.area = val.split_whitespace().next().unwrap_or("").to_ascii_uppercase(),
             "file" => t.file = val,
             "fullname" | "lfile" => t.lfile = val,
-            "replaces" if !val.is_empty() => t.replaces.push(val),
+            // New: so many at most (each is matched against the whole area).
+            "replaces" if !val.is_empty() && t.replaces.len() < MAX_REPLACES => t.replaces.push(val),
             "desc" => t.desc.push(val),
             "ldesc" => t.ldesc.push(val),
             "size" => t.size = val.parse().ok(),
@@ -544,7 +547,7 @@ mod tests {
         assert_eq!(crc32(b"123456789"), 0xCBF43926);
     }
 
-    fn board() -> (std::sync::Arc<BbsState>, PathBuf) {
+    pub(super) fn board() -> (std::sync::Arc<BbsState>, PathBuf) {
         let dir = std::env::temp_dir().join(format!("inq-tic-{}-{:?}", std::process::id(), std::thread::current().id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -581,7 +584,7 @@ mod tests {
     }
 
     /// A TIC as HTick sends a link one.
-    fn tic_text(area: &str, name: &str, body: &[u8], extra: &str, pw: &str) -> String {
+    pub(super) fn tic_text(area: &str, name: &str, body: &[u8], extra: &str, pw: &str) -> String {
         format!(
             "Created by HTick, written by Gabriel Plutzar\r\nFile {name}\r\nArea {area}\r\nDesc The AgoraNet nodelist\r\n{extra}From 46:1/100\r\nTo 46:1/115\r\nOrigin 46:1/100\r\nSize {}\r\nCrc {:08X}\r\nPath 46:1/100 1793375139\r\nSeenby 46:1/115\r\nPw {pw}\r\n",
             body.len(),
@@ -688,5 +691,120 @@ mod tests {
         // The TIC and its file wait for the next toss.
         assert!(inbound.join("a1.tic").exists() && inbound.join("AGORANET.Z04").exists());
         let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit;
+
+    const DICT: &[&[u8]] = &[
+        b"\r\nArea ",
+        b"\r\nFile ",
+        b"\r\nLfile ",
+        b"\r\nFullname ",
+        b"\r\nReplaces ",
+        b"\r\nDesc ",
+        b"\r\nLdesc ",
+        b"\r\nSize ",
+        b"\r\nCrc ",
+        b"\r\nFrom ",
+        b"\r\nTo ",
+        b"\r\nOrigin ",
+        b"\r\nPw ",
+        b"46:1/100",
+        b"agoranet#",
+        b"@agoranet",
+        b"0x",
+        b"*",
+        b"?",
+        b"../",
+        b"\\",
+    ];
+
+    fn corpus() -> Vec<Vec<u8>> {
+        vec![
+            tests::tic_text("AGN_NODE", "AGORANET.Z04", b"list four", "", "TICPW").into_bytes(),
+            tests::tic_text("AGN_NODE", "AGORANET.Z04", b"list four", "Replaces AGORANET.Z*\r\nReplaces *\r\nLfile agoranet nodelist.z04\r\nLdesc a long one\r\n", "ticpw").into_bytes(),
+            tests::tic_text("AGN_NODE", "AGORANET.Z04", b"list four", "", "TICPW").replace("To 46:1/115", "To SysOp, agoranet#46:1/115@agoranet").into_bytes(),
+            b"; comment\nArea x\nFile y\nCrc 0XDEADBEEF\nSize 99999999999999999999\n".to_vec(),
+        ]
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_tic_parse() {
+        fuzzkit::run("tic_parse", corpus(), DICT, 50_000, |d| {
+            let Ok(t) = parse(d) else { return };
+            let desc = description(&t);
+            assert!(desc.len() <= MAX_DESC);
+            for name in [&t.file, &t.lfile] {
+                if let Some(n) = usable_name(name) {
+                    assert!(!has_path(&n) && !n.starts_with('.'));
+                }
+                let r = received_form(name);
+                assert!(!r.contains(['/', '\\']));
+            }
+            for m in &t.replaces {
+                if mask_usable(m) {
+                    let _ = mask_matches(m, &t.file);
+                    let _ = mask_matches(m, &t.lfile);
+                }
+            }
+            for s in [&t.pw, &t.area] {
+                let _ = tic_addr(s);
+            }
+        });
+    }
+
+    /// Masks against names: in one pass, never slow, never a panic.
+    #[test]
+    #[ignore]
+    fn fuzz_tic_masks() {
+        let corpus: Vec<Vec<u8>> = ["AGORANET.Z*|AGORANET.Z04", "*a*a*a*a*a*b|aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "??*.*|x.y", "Ä*|äb", "*|"].iter().map(|s| s.as_bytes().to_vec()).collect();
+        fuzzkit::run("tic_masks", corpus, &[b"*", b"?", b"|", b"."], 100_000, |d| {
+            let s = String::from_utf8_lossy(d);
+            let (mask, name) = s.split_once('|').unwrap_or((&s, "name"));
+            // As tossing does: only usable masks, against names a file
+            // can have.
+            if mask_usable(mask) && usable_name(name).is_some() {
+                let _ = mask_matches(mask, name);
+            }
+            let _ = tic_addr(name);
+        });
+    }
+
+    /// TICs tossed beside their file: whatever's in one, the toss goes on
+    /// and leaves nothing half-done in the area.
+    #[test]
+    #[ignore]
+    fn fuzz_tic_toss() {
+        // A fresh board every so often: an area holding every file tossed
+        // so far would make each toss slower than the last.
+        let board = std::cell::RefCell::new(tests::board());
+        let calls = std::cell::Cell::new(0u32);
+        fuzzkit::run("tic_toss", corpus(), DICT, 5_000, |d| {
+            calls.set(calls.get() + 1);
+            if calls.get().is_multiple_of(2000) {
+                *board.borrow_mut() = tests::board();
+            }
+            let b = board.borrow();
+            let (state, dir) = (&b.0, &b.1);
+            let nets = crate::ftntoss::networks_for_tests(state);
+            let inbound = crate::ftntoss::inbound_dir(state, "agoranet");
+            let (_, _, bad) = crate::ftntoss::dirs(state);
+            let area = dir.join("files/agnnode");
+            let _ = std::fs::remove_dir_all(&inbound);
+            let _ = std::fs::remove_dir_all(&bad);
+            std::fs::create_dir_all(&inbound).unwrap();
+            std::fs::write(inbound.join("AGORANET.Z04"), b"list four").unwrap();
+            std::fs::write(inbound.join("a1.tic"), d).unwrap();
+            let mut t = Tossed::default();
+            toss_dir(state, &inbound, &nets, &mut t).unwrap();
+            let half: Vec<_> = std::fs::read_dir(&area).into_iter().flatten().flatten().filter(|e| e.file_name().to_string_lossy().starts_with(".tic-")).collect();
+            assert!(half.is_empty(), "{half:?}");
+        });
+        let _ = std::fs::remove_dir_all(&board.borrow().1);
     }
 }

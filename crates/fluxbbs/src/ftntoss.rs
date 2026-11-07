@@ -99,6 +99,11 @@ fn networks(state: &BbsState) -> anyhow::Result<Vec<(FtnNetwork, Addr, Addr)>> {
     Ok(nets)
 }
 
+#[cfg(test)]
+pub(crate) fn networks_for_tests(state: &BbsState) -> Vec<(FtnNetwork, Addr, Addr)> {
+    networks(state).unwrap()
+}
+
 /// The network called `name` (any case).
 pub fn network(state: &BbsState, name: &str) -> anyhow::Result<FtnNetwork> {
     let nets = state.config().ftn.networks();
@@ -870,7 +875,7 @@ mod tests {
         assert_eq!(held_echo("stray.pkt"), None);
     }
 
-    fn board() -> (std::sync::Arc<BbsState>, PathBuf) {
+    pub(super) fn board() -> (std::sync::Arc<BbsState>, PathBuf) {
         let dir = std::env::temp_dir().join(format!("inq-ftn-{}-{:?}", std::process::id(), std::thread::current().id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
@@ -1273,5 +1278,66 @@ mod tests {
         assert_eq!(names, ["one", "four"]);
         let p = ftn.problems().join("\n");
         assert!(p.contains("\"two\" left out") && p.contains("session password") && p.contains("\"three\" left out") && p.contains("domain"), "{p}");
+    }
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit;
+
+    /// Packets tossed whole, as from the hub: whatever's in them, a toss
+    /// never panics, and never fails on the board's side (that would
+    /// leave the packet in inbound, to fail again every toss).
+    #[test]
+    #[ignore]
+    fn fuzz_ftn_toss() {
+        let (state, dir) = tests::board();
+        let nets = networks(&state).unwrap();
+        let (inbound, _, bad) = dirs(&state);
+        let unknown = inbound.parent().unwrap().join("unknown");
+        let mut corpus = ftn::fuzz::packets();
+        let netmail = Parts { kludges: vec![("INTL".into(), "21:1/999 21:1/5".into()), ("MSGID".into(), "21:1/5 0000aaaa".into()), ("TZUTC".into(), "-0500".into())], body: vec!["for you".into()], ..Default::default() };
+        let pkt = Packet {
+            orig: Addr::parse("21:1/100").unwrap(),
+            dest: Addr::parse("21:1/999").unwrap(),
+            password: "PKTPW".into(),
+            created: crate::clock::now().naive_local(),
+            msgs: vec![
+                PackedMsg { orig_node: 5, dest_node: 999, orig_net: 1, dest_net: 1, datetime: "20 Oct 26  12:00:00".into(), to: "SysOp".into(), from: "Al".into(), subject: "hi".into(), text: ftn::join_text(&netmail), ..Default::default() },
+                PackedMsg { orig_node: 5, dest_node: 999, orig_net: 1, dest_net: 1, datetime: "20 Oct 26  12:00:00".into(), to: "12".into(), from: "Al".into(), subject: "num".into(), text: ftn::join_text(&netmail), ..Default::default() },
+            ],
+        };
+        corpus.push(pkt.to_bytes());
+        fuzzkit::run("ftn_toss", corpus, ftn::fuzz::DICT, 20_000, |d| {
+            let mut t = Tossed::default();
+            match toss_packet(&state, d, &nets, &mut t) {
+                Ok(()) | Err(Fault::Bad(_)) => {}
+                Err(Fault::Board(e)) => panic!("board-side failure: {e:#}"),
+            }
+            let _ = std::fs::remove_dir_all(&unknown);
+            let _ = std::fs::remove_dir_all(&bad);
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_ftn_names_and_zones() {
+        let corpus: Vec<Vec<u8>> = ["-0500", "+1300", "0100", "9f156a94.mo0", "9f156a94-12.su9", "agoranet~AGN_NEW-9f156a94-1.pkt", "FSX_GEN"].iter().map(|s| s.as_bytes().to_vec()).collect();
+        fuzzkit::run("ftn_names", corpus, &[b"~", b"-", b".", b"+"], 100_000, |d| {
+            let s = String::from_utf8_lossy(d);
+            if let Some(m) = tzutc_minutes(&s) {
+                assert!(m.abs() <= 14 * 60 + 59);
+            }
+            let _ = bundle_name(&s.to_ascii_lowercase());
+            let _ = held_echo(&s);
+            let tag = safe_tag(&s);
+            assert!(!tag.is_empty() && !tag.contains(['/', '\\', '~', '-']));
+            let m = PackedMsg { datetime: s.to_string(), ..Default::default() };
+            let parts = Parts { kludges: vec![("TZUTC".into(), s.to_string())], ..Default::default() };
+            let _ = posted(&m, &parts);
+            let _ = defused(&s);
+        });
     }
 }

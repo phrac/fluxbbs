@@ -390,12 +390,17 @@ fn text_lines(text: &[u8]) -> Vec<&[u8]> {
 /// (`ESC[nC`, ANSI art's spacing) are kept, so nothing from the network
 /// moves the cursor, clears the screen or talks to the caller's terminal.
 fn decode_line(raw: &[u8], cs: Charset) -> String {
+    // A DOS page's high half by index, not walked to for every byte.
+    let table: Vec<char> = match cs {
+        Charset::Dos(high) => high.chars().collect(),
+        _ => Vec::new(),
+    };
     let decode = |b: &[u8]| match cs {
         Charset::Utf8 => String::from_utf8_lossy(b).into_owned(),
         Charset::Latin1 => b.iter().map(|&c| c as char).collect(),
         Charset::Cp1252 => b.iter().filter_map(|&c| if (0x80..0xa0).contains(&c) { Some(CP1252_HIGH[c as usize - 0x80]).filter(|&h| h != '\0') } else { Some(c as char) }).collect(),
         Charset::Cp437 => fluxbbs_term::cp437::decode(b),
-        Charset::Dos(high) => b.iter().filter_map(|&c| if c < 0x80 { Some(c as char) } else { high.chars().nth(c as usize - 0x80) }).collect(),
+        Charset::Dos(_) => b.iter().filter_map(|&c| if c < 0x80 { Some(c as char) } else { table.get(c as usize - 0x80).copied() }).collect(),
     };
     // The column, for tabs: escapes take none, nor do UTF-8's
     // continuation bytes.
@@ -522,8 +527,10 @@ pub fn join_text(p: &Parts) -> Vec<u8> {
     }
     for l in &p.body {
         // A line of text mustn't pass for the control line (GoldED's way).
+        // Nor, first of all, for an echo's AREA line.
         match l.strip_prefix("SEEN-BY:") {
             Some(rest) => line(&mut out, false, &format!("SEEN+BY:{rest}")),
+            None if out.is_empty() && l.starts_with("AREA:") => line(&mut out, false, &format!(" {l}")),
             None => line(&mut out, false, l),
         }
     }
@@ -700,5 +707,154 @@ mod tests {
         // Colours and cursor-right are kept; other escapes and controls go.
         assert_eq!(split_text(b"\x1b[1;31mred\x1b[0m\x1b[5C!\x1b[2J\x1b[H\x07\x1b]0;title\r").body, ["\x1b[1;31mred\x1b[0m\x1b[5C!]0;title"]);
         assert_eq!(split_text(b"a\tb\r").body, ["a       b"]);
+    }
+
+    /// Found by fuzzing: netmail whose words start "AREA:" (after a PATH,
+    /// which comes last) was written as echomail.
+    #[test]
+    fn text_first_cant_pass_for_an_area_line() {
+        let p = split_text(b"\x01PATH\rAREA:");
+        assert_eq!((p.area.as_deref(), p.body.as_slice()), (None, &["AREA:".to_string()][..]));
+        assert_eq!(split_text(&join_text(&p)).area, None);
+    }
+}
+
+#[cfg(test)]
+pub(crate) mod fuzz {
+    use super::*;
+    use crate::fuzzkit;
+
+    pub(crate) const DICT: &[&[u8]] = &[
+        b"AREA:",
+        b"\x01MSGID: 21:1/100 1234abcd\r",
+        b"\x01REPLY: ",
+        b"\x01CHRS: UTF-8 4\r",
+        b"\x01CHRS: LATIN-1 2\r",
+        b"\x01CHRS: CP866 2\r",
+        b"\x01CHRS: CP1252 2\r",
+        b"\x01CHRS: CP850 2\r",
+        b"\x01INTL 21:1/999 21:1/100\r",
+        b"\x01FMPT 65535\r",
+        b"\x01TOPT 5\r",
+        b"\x01TZUTC: -1400\r",
+        b"\x01PATH: 1/100 1/5\r",
+        b"SEEN-BY: 1/100 999\r",
+        b" * Origin: somewhere (21:1/100.5@fsxnet)\r",
+        b"--- tear\r",
+        b"\x1b[1;31m",
+        b"\x1b[",
+        b"\t",
+        b"\r\n",
+        b"\x8d",
+        b"\x02\x00",
+        b"\x00\x00",
+    ];
+
+    fn msg(text: Vec<u8>, to: &str, from: &str, subject: &str, date: &str) -> PackedMsg {
+        PackedMsg { orig_node: 5, dest_node: 999, orig_net: 1, dest_net: 1, datetime: date.into(), to: to.into(), from: from.into(), subject: subject.into(), text, ..Default::default() }
+    }
+
+    /// Echomail and netmail texts, in several character sets.
+    pub(crate) fn texts() -> Vec<Vec<u8>> {
+        let echo = Parts {
+            area: Some("FSX_GEN".into()),
+            kludges: vec![("MSGID".into(), "21:1/5 0000abcd".into()), ("REPLY".into(), "21:1/7 00001111".into()), ("TZUTC".into(), "1300".into()), ("PID".into(), "x 1.0".into())],
+            body: vec!["Hello there,".into(), "".into(), "> quoted\tline".into(), "--- flux/bbs".into(), " * Origin: far away (21:1/5)".into()],
+            seen_by: (1..40).map(|n| format!("1/{n}")).collect(),
+            path: vec!["1/5".into(), "1/100".into()],
+        };
+        let net = Parts {
+            area: None,
+            kludges: vec![("INTL".into(), "21:1/999 21:1/5".into()), ("FMPT".into(), "3".into()), ("TOPT".into(), "0".into()), ("MSGID".into(), "21:1/5.3 deadbeef".into())],
+            body: vec!["private words".into()],
+            ..Default::default()
+        };
+        vec![
+            join_text(&echo),
+            join_text(&net),
+            b"AREA:UTF\r\x01CHRS: UTF-8 4\r\xc3\xa9t\xc3\xa9 \xe2\x96\x88\r\x1b[1;33mansi\x1b[0m\x1b[10C!\r".to_vec(),
+            b"\x01CHRS: LATIN-1 2\rcaf\xe9 \x85\x9f\r\x01CHARSET: CP866\r\x80\x81\xff\r".to_vec(),
+            b"AREA:LF\n\x01MSGID: 1:2/3 4\nlf only\nSEEN-BY: 1/2\n".to_vec(),
+            b"\x01CHRS: CP1252 2\r\x80\x81\x9f\x8d\r\x01CHRS: CP850 2\r\xb0\xff\r".to_vec(),
+        ]
+    }
+
+    /// Packets as they come: Type 2+, a point's, plain Type 2.
+    pub(crate) fn packets() -> Vec<Vec<u8>> {
+        let t = texts();
+        let created = chrono::NaiveDate::from_ymd_opt(2026, 10, 20).unwrap().and_hms_opt(12, 0, 0).unwrap();
+        let mut out = Vec::new();
+        let p = Packet {
+            orig: Addr::parse("21:1/100").unwrap(),
+            dest: Addr::parse("21:1/999").unwrap(),
+            password: "PKTPW".into(),
+            created,
+            msgs: vec![msg(t[0].clone(), "All", "Bob", "Hi", "20 Oct 26  12:00:00"), msg(t[1].clone(), "SysOp", "Al", "Psst", "Tue 20 Oct 26 12:00"), msg(t[2].clone(), "All", "Zoë", "Ünïcode", "01 Jan 99  00:00:00")],
+        };
+        out.push(p.to_bytes());
+        let point = Packet { orig: Addr::parse("21:1/100.7").unwrap(), msgs: vec![msg(t[3].clone(), "x", "y", "z", "31 Dec 126 23:59:59"), msg(t[4].clone(), "", "", "", "")], ..p.clone() };
+        out.push(point.to_bytes());
+        let mut plain = Packet { msgs: vec![msg(t[5].clone(), "a", "b", "c", "garbage date")], ..p }.to_bytes();
+        plain[40..46].fill(0);
+        out.push(plain);
+        out
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_ftn_packet() {
+        fuzzkit::run("ftn_packet", packets(), DICT, 20_000, |d| {
+            let Ok(p) = Packet::parse(d) else { return };
+            for m in &p.msgs {
+                let parts = split_text(&m.text);
+                let _ = parts.origin_addr();
+                let _ = parse_fts_date(&m.datetime);
+                let _ = split_text(&join_text(&parts));
+            }
+            // What's kept for later is written again and must read back.
+            let again = Packet::parse(&p.to_bytes()).expect("a packet written here reads back");
+            assert_eq!(again.msgs.len(), p.msgs.len());
+            assert_eq!(again.msgs.iter().map(|m| &m.text).collect::<Vec<_>>(), p.msgs.iter().map(|m| &m.text).collect::<Vec<_>>());
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_ftn_text() {
+        fuzzkit::run("ftn_text", texts(), DICT, 50_000, |d| {
+            let parts = split_text(d);
+            let _ = parts.origin_addr();
+            let _ = parts.kludge("MSGID");
+            let again = split_text(&join_text(&parts));
+            // (Its words may change: CP437 has no `ì` that survives.)
+            assert_eq!(again.area.is_some(), parts.area.is_some());
+            // join_text writes CP437, as the board's own posts are: text in
+            // another set (still naming it) isn't what it's for.
+            if charset(&text_lines(d)).is_none() {
+                assert_eq!(again.kludges.len(), parts.kludges.len());
+            }
+            for l in &parts.body {
+                let _ = text_bytes(l);
+            }
+        });
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_ftn_addresses_and_dates() {
+        let corpus: Vec<Vec<u8>> = ["21:1/100", "21:1/100.5@fsxnet", "46:1/115@agoranet", "1:154/10", "65535:65535/65535.65535", "20 Oct 26  12:00:00", "Tue 20 Oct 26 12:00", "31 Dec 126 23:59:59", "01 Jan 80  00:00"]
+            .iter()
+            .map(|s| s.as_bytes().to_vec())
+            .collect();
+        fuzzkit::run("ftn_addr", corpus, &[b":", b"/", b".", b"@", b" ", b"Jan", b"99999"], 100_000, |d| {
+            let s = String::from_utf8_lossy(d);
+            if let Some(a) = Addr::parse(&s) {
+                assert_eq!(Addr::parse(&a.to_string()), Some(a));
+                let _ = a.net_node();
+            }
+            if let Some(t) = parse_fts_date(&s) {
+                assert!(parse_fts_date(&fts_date(t)).is_some());
+            }
+        });
     }
 }
