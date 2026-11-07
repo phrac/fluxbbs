@@ -130,18 +130,21 @@ impl Session {
         Ok(())
     }
 
-    fn rumor_waves(&self, r: &Rumor, n: usize, sysop: bool) -> Waves {
+    fn rumor_waves(&self, r: &Rumor, n: usize, sysop: bool, au: bool) -> Waves {
         let when = if sysop { self.local(r.at).format("%m/%d/%y %H:%M").to_string() } else { String::new() };
-        waves([("NM", n.to_string()), ("RU", r.text.clone()), ("AU", if sysop { r.handle.clone() } else { String::new() }), ("DT", when)])
+        // A SysOp sees who started it ahead of the rumor itself, where a
+        // screen has no ~AU of its own.
+        let text = if sysop && !au { format!("|08{}|07: {}", lit(&r.handle), r.text) } else { r.text.clone() };
+        waves([("NM", n.to_string()), ("RU", text), ("AU", if sysop { r.handle.clone() } else { String::new() }), ("DT", when)])
     }
 
     async fn rumor_rows(&mut self, list: &[Rumor], sysop: bool) -> io::Result<()> {
-        let mut rep = self.repeat_begin("RUMOR", false).await?;
+        let mut rep = self.repeat_begin_with("RUMOR", false, &waves([("RC", list.len().to_string())])).await?;
         if rep.is_none() {
             self.clear_screen();
             self.newline();
             self.set_slot(Slot::Info);
-            let head = if sysop { " Num  When            Who              Rumor" } else { " Num  Rumor" };
+            let head = if sysop { " Num  Rumor (who, when)" } else { " Num  Rumor" };
             self.show_line(&format!("|U4{head}")).await?;
             self.rule().await?;
         }
@@ -149,18 +152,21 @@ impl Session {
         for (i, r) in list.iter().enumerate() {
             let more = match rep.as_mut() {
                 Some(rp) => {
-                    let w = self.rumor_waves(r, i + 1, sysop);
+                    let au = rp.mid.windows(3).any(|w| w == b"~AU");
+                    let w = self.rumor_waves(r, i + 1, sysop, au);
                     self.repeat_row(rp, &w, false).await?
                 }
                 None => {
-                    let who = if sysop {
-                        format!("|U5{} |U6{} ", resize(&self.local(r.at).format("%m/%d/%y %H:%M").to_string(), 15), lit(&resize(&r.handle, 16)))
-                    } else {
-                        String::new()
-                    };
-                    let line = format!("|U3 {} {who}|U1{}", resize(&(i + 1).to_string(), 4), defuse(&r.text));
+                    let line = format!("|U3 {} |U1{}", resize(&(i + 1).to_string(), 4), defuse(&r.text));
                     self.show_line(&line).await?;
                     lines += 1;
+                    // A SysOp gets who and when on a line of its own, so a
+                    // long rumor keeps to one.
+                    if sysop {
+                        let who = format!("|U5      {}, {}", lit(&r.handle), self.local(r.at).format("%m/%d/%y %H:%M"));
+                        self.show_line(&who).await?;
+                        lines += 1;
+                    }
                     self.more(&mut lines).await?
                 }
             };

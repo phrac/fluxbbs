@@ -40,10 +40,14 @@ LISTS={
  'TOPL':(('menu', 'main'),'35','{16~CT',
    [('you','~YR',14)],
    [('#',3,'~R1',3,'n'),('this week',7,'~H1',12,'t'),('',20,'~V1',7,'v'),('#',29,'~R2',3,'n'),('last 30 days',33,'~H2',12,'t'),('',46,'~V2',7,'v'),('#',55,'~R3',3,'n'),('~W3',59,'~H3',12,'t'),('',72,'~V3',7,'v')],'\r\n'),
+ # Rumors (RL): newest first; a SysOp sees who started each, first.
+ 'RUMOR':(('menu', 'main'),'35','rumors',
+   [('kept','~RC',4)],
+   [('#',3,'~NM',3,'n'),('rumor',7,'~RU',72,'t')],'\r\n'),
  # Achievements (UA): one a row, earned and next.
  'ACHV':(('menu', 'main'),'35','achievements',
    [('earned','~EA',7),('points','~EP',6)],
-   [('achievement',3,'~AN',15,'t'),('have',19,'~AV',7,'v'),('tiers',27,'~AM',6,'n'),('latest',34,'~AL',21,'d'),('next',56,'~AX',23,'d')],'\r\n'),
+   [('achievement',3,'~AN',15,'t'),('have',19,'~AV',6,'v'),('tiers',26,'~AM',6,'n'),('latest',33,'~AL',18,'d'),('next',52,'~AX',27,'d')],'\r\n'),
  'MSGL':('MSGLIST.ans','36','{30%MA',
    [('messages','%MT',6),('date','%DT',8)],
    [('#',3,'~MN',5,'n'),('from',9,'~SN',21,'t'),('to',31,'~RN',22,'d'),('subject',54,'~MT',25,'v')],'\r\n'),

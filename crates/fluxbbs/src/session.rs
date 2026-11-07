@@ -81,7 +81,7 @@ const BAR_SLOT: usize = 6;
 
 pub struct Repeat {
     prefix: String,
-    mid: Vec<u8>,
+    pub(crate) mid: Vec<u8>,
     hil: Option<Vec<u8>>,
     lines: u16,
     /// Lines the BOT screen takes.

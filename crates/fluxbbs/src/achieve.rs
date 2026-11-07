@@ -145,7 +145,7 @@ impl Achievements {
             announce: true,
             back_points: false,
             list: vec![
-                a(Stat::Posts, "Poster", &[(1, "First Words", 5), (10, "Regular", 10), (100, "Prolific", 25), (500, "Wordsmith", 50), (1000, "Legend of the Boards", 100)]),
+                a(Stat::Posts, "Poster", &[(1, "First Words", 5), (10, "Regular", 10), (100, "Prolific", 25), (500, "Wordsmith", 50), (1000, "Board Legend", 100)]),
                 a(Stat::Uploads, "Uploader", &[(1, "Sharer", 5), (10, "Courier", 15), (50, "Archivist", 40), (100, "Curator", 75)]),
                 a(Stat::Downloads, "Downloader", &[(1, "First Grab", 0), (25, "Collector", 0), (100, "Hoarder", 0), (500, "Data Vault", 0)]),
                 a(Stat::Calls, "Caller", &[(10, "Familiar Face", 10), (50, "Regular Caller", 20), (100, "Fixture", 40), (500, "Furniture", 100), (1000, "Part of the Board", 150)]),

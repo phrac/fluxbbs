@@ -447,7 +447,7 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 | Screens | Markers |
 |---|---|
 | `TOPL` (the top lists, `LT`) | TOP: `~CT` the category ("top posters"), `~YR` your places ("#3 - #12"), `~W1` `~W2` `~W3` the lists' heads (the third is "held now" for points). MID, a row of all three lists: `~R1` `~H1` `~V1` place, handle and figure this week (`»` before the place on your own row), `~R2` `~H2` `~V2` the last 30 days, `~R3` `~H3` `~V3` all time. Ten rows; the keys go on the line under BOT |
-| `ACHV` (your achievements, `UA`) | TOP: `~EA` earned of all ("12/41"), `~EP` points from them. MID, an achievement a row: `~AN` its name, `~AV` your figure, `~AM` its tiers (`■` earned, `·` not), `~AL` the latest earned, `~AX` the next and how far ("Wordsmith, 370 to go") |
+| `ACHV` (your achievements, `UA`) | TOP: `~EA` earned of all ("12/41"), `~EP` points from them. MID, an achievement a row: `~AN` its name, `~AV` your figure, `~AM` its tiers (`■` earned, `·` not), `~AL` the latest earned, `~AX` the next and how far ("Wordsmith: 370 more") |
 
 Both are made by `art/listsgen.py`, under the main menu's logo.
 

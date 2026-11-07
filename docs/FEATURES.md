@@ -626,9 +626,10 @@ oneliners).
 
 The `rumor` logon step (`*O`; in the stock sequence after who's
 online) runs `RS`. `%RM` puts a rumor at random on any screen, `%RL`
-the newest. `RL` uses RUMORTOP/MID/BOT if the board has them (`~NM`
-the number, `~RU` the rumor, and for SysOps `~AU` who and `~DT` when);
-otherwise a plain list. r on the stock more... menu is `RL`. `*C`,
+the newest. `RL` uses RUMORTOP/MID/BOT (stock ones are made by
+`art/listsgen.py`; `~RC` how many are kept, `~NM` the number, `~RU` the
+rumor, and for SysOps `~AU` who and `~DT` when; without `~AU` a SysOp
+sees who ahead of the rumor); without them, a plain list. r on the stock more... menu is `RL`. `*C`,
 Features, O turns rumors off.
 
 #### The BBS list
