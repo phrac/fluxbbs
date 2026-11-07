@@ -59,6 +59,16 @@ impl Themes {
 }
 
 /// Screens in a theme directory.
+/// A theme's own directory under `root`, safe to delete: one plain name
+/// (not blank, `..` or a path, which would be the root or beyond it).
+fn own_dir(root: &std::path::Path, dir: &str) -> Option<PathBuf> {
+    let mut parts = std::path::Path::new(dir).components();
+    match (parts.next(), parts.next()) {
+        (Some(std::path::Component::Normal(_)), None) => Some(root.join(dir)),
+        _ => None,
+    }
+}
+
 fn count_files(dir: &std::path::Path) -> usize {
     std::fs::read_dir(dir).map(|rd| rd.filter_map(Result::ok).filter(|e| e.path().is_file()).count()).unwrap_or(0)
 }
@@ -159,9 +169,9 @@ impl Session {
                     }
                     let Some(which) = self.cfg_ask_number("Delete which theme?", 1, n).await? else { continue };
                     let gone = themes.list.remove(which as usize - 1);
+                    let shared = themes.list.iter().any(|t| t.dir.eq_ignore_ascii_case(&gone.dir));
                     self.state.set_themes(themes).map_err(io_err)?;
-                    let dir = root.join(&gone.dir);
-                    if dir.is_dir() {
+                    if let Some(dir) = own_dir(&root, &gone.dir).filter(|d| !shared && d.is_dir()) {
                         self.show(&format!("|U1Also delete |U3{}|U1 and its {} screens? ", dir.display(), count_files(&dir))).await?;
                         if self.yes_no(false).await? {
                             std::fs::remove_dir_all(&dir)?;
@@ -193,7 +203,7 @@ impl Session {
             let mut themes = (*self.state.themes()).clone();
             let n = themes.list.len() as u32;
             let idx = num as usize - 1;
-            let mut t = themes.list[idx].clone();
+            let Some(mut t) = themes.list.get(idx).cloned() else { return Ok(()) };
             let mut f = Form::new(&format!("{} Theme Editor", self.state.config().bbs.name));
             f.label("Current theme", 12, format!("{num} of {n}{}", if num == 1 { " (default)" } else { "" }));
             f.item('A', "Description", 36, &t.desc, "What callers see when picking a theme.");
@@ -273,6 +283,15 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn only_a_themes_own_directory_is_deleted() {
+        let root = std::path::Path::new("/t");
+        assert_eq!(own_dir(root, "dark"), Some(PathBuf::from("/t/dark")));
+        for bad in ["", ".", "..", "../x", "a/b", "/etc"] {
+            assert_eq!(own_dir(root, bad), None, "{bad}");
+        }
+    }
 
     #[test]
     fn users_get_their_theme_or_the_first() {

@@ -90,11 +90,7 @@ impl Sequence {
             toml::to_string_pretty(self).expect("sequence serializes")
         );
         let path = cfg.resolve(&cfg.paths.logon);
-        let tmp = path.with_extension("toml.new");
-        std::fs::write(&tmp, text)?;
-        crate::keep_mode(&path, &tmp);
-        std::fs::rename(&tmp, &path)?;
-        Ok(())
+        crate::write_atomic(&path, &text)
     }
 
     /// The start menu's commands: each step that's on, then the menu's

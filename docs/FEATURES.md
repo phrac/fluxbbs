@@ -502,8 +502,8 @@ files", "new, seems fine, vouch for more access". Open them with `*N`
 dated, with who wrote it; `-N` removes note N.
 
 Notes are for SysOps only. A SysOp sees the latest few under a
-caller's profile. The AI chat is given them too, to suit how it treats
-the caller, and is told never to reveal, quote or hint at them.
+caller's profile. The AI chat isn't given them: told not to, a model
+can still be talked into repeating what's in its prompt.
 
 #### Bots
 

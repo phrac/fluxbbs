@@ -120,6 +120,39 @@ fn move_before<T>(v: &mut Vec<T>, from: usize, before: usize) {
     v.insert(to, item);
 }
 
+/// Where the area with storage key `before` is (the end without one, or
+/// if it's gone).
+fn area_pos(list: &[MsgArea], before: Option<&str>) -> usize {
+    before.and_then(|k| list.iter().position(|a| a.file.eq_ignore_ascii_case(k))).unwrap_or(list.len())
+}
+
+/// `*A` insert, by key into the list as it is now: a fresh area before
+/// `before`.
+fn insert_area(ar: &mut MsgAreas, before: Option<&str>) {
+    let used = ar.areas.iter().map(|a| a.file.as_str()).chain(std::iter::once(ar.email.file.as_str()));
+    let fresh = MsgArea::new("New Message Area", &unused_key(used, "NEWAREA"));
+    let at = area_pos(&ar.areas, before);
+    ar.areas.insert(at, fresh);
+}
+
+/// `*A` delete, by key: None if it's gone, or the last one.
+fn delete_area(ar: &mut MsgAreas, key: &str) -> Option<MsgArea> {
+    let i = ar.areas.iter().position(|a| a.file.eq_ignore_ascii_case(key))?;
+    (ar.areas.len() > 1).then(|| ar.areas.remove(i))
+}
+
+/// `*A` move, by key: false if it's gone.
+fn move_area(ar: &mut MsgAreas, from: &str, before: Option<&str>) -> bool {
+    if before.is_some_and(|b| b.eq_ignore_ascii_case(from)) {
+        return ar.areas.iter().any(|a| a.file.eq_ignore_ascii_case(from));
+    }
+    let Some(i) = ar.areas.iter().position(|a| a.file.eq_ignore_ascii_case(from)) else { return false };
+    let item = ar.areas.remove(i);
+    let at = area_pos(&ar.areas, before);
+    ar.areas.insert(at, item);
+    true
+}
+
 impl Session {
     /// Area numbers in the download batch go stale when areas or files
     /// are reordered, so the original cleared it first.
@@ -144,9 +177,8 @@ impl Session {
 
     fn save_confs(&self, msg: bool, confs: Vec<Conf>) -> io::Result<()> {
         if msg {
-            let mut a = (*self.state.areas()).clone();
-            a.confs = confs;
-            self.state.set_areas(a).map_err(io_err)
+            // Into the areas as they are now (callers' boards).
+            self.state.update_areas(|a| a.confs = confs).map_err(io_err)
         } else {
             let mut a = (*self.state.fareas()).clone();
             a.confs = confs;
@@ -241,7 +273,8 @@ impl Session {
             let mut confs = self.confs(msg);
             let n = confs.len() as u32;
             let idx = num as usize - 1;
-            let mut c = confs[idx].clone();
+            // Another node may have shortened the list meanwhile.
+            let Some(mut c) = confs.get(idx).cloned() else { return Ok(()) };
             let mut f = Form::new(&format!("{} {kind} Conference Editor", self.state.config().bbs.name));
             f.label("Current conference", 12, format!("{num} of {n}"));
             f.item('A', "Key", 1, c.key.to_string(), "Key used to select and identify this conference.");
@@ -290,16 +323,12 @@ impl Session {
 
     // ---- *A: message areas (CONFIG5) ----------------------------------------
 
-    fn save_areas(&self, areas: MsgAreas) -> io::Result<()> {
-        self.state.set_areas(areas).map_err(io_err)
-    }
-
     /// `cfgMsgAreaEditor`: list, insert, delete, edit and move message
     /// areas. (Email is its own area and isn't listed.)
     pub async fn msg_area_editor(&mut self) -> io::Result<()> {
         tracing::info!("{}: message area edit", self.user.handle);
         loop {
-            let mut areas = (*self.state.areas()).clone();
+            let areas = (*self.state.areas()).clone();
             self.clear_screen();
             self.set_slot(Slot::Text);
             self.write(" Num  Description                Key       ACS    Post   Msgs");
@@ -338,6 +367,8 @@ impl Session {
                         self.msg_area_edit(num).await?;
                     }
                 }
+                // By storage key, into the list as it is then: callers make
+                // and remove boards while the prompts wait.
                 'D' => {
                     self.newline();
                     let n = areas.areas.len() as u32;
@@ -347,11 +378,22 @@ impl Session {
                         continue;
                     }
                     let Some(which) = self.cfg_ask_number("Delete which message area?", 1, n).await? else { continue };
-                    let gone = areas.areas.remove(which as usize - 1);
-                    let shared = areas.areas.iter().any(|a| a.file.eq_ignore_ascii_case(&gone.file)) || areas.email.file.eq_ignore_ascii_case(&gone.file);
+                    let key = areas.areas[which as usize - 1].file.clone();
+                    let done = self
+                        .state
+                        .update_areas(|ar| {
+                            let gone = delete_area(ar, &key)?;
+                            let shared = ar.areas.iter().any(|a| a.file.eq_ignore_ascii_case(&gone.file)) || ar.email.file.eq_ignore_ascii_case(&gone.file);
+                            Some((gone, shared))
+                        })
+                        .map_err(io_err)?;
+                    let Some((gone, shared)) = done else {
+                        self.show_line("|U0That area has gone meanwhile, or is the last one.").await?;
+                        self.prompt_key().await?;
+                        continue;
+                    };
                     let msgs = self.state.msgs.count(&gone.file).map_err(io_err)?;
-                    self.save_areas(areas)?;
-                    tracing::info!("{}: deleted message area {which} ({})", self.user.handle, gone.name);
+                    tracing::info!("{}: deleted message area {} ({})", self.user.handle, gone.file, gone.name);
                     if msgs > 0 && !shared {
                         self.show(&format!("|U1Delete this area's {msgs} messages? ")).await?;
                         if self.yes_no(false).await? {
@@ -360,17 +402,29 @@ impl Session {
                         }
                     }
                 }
-                _ => {
-                    let fresh = |list: &[MsgArea]| {
-                        let used = list.iter().map(|a| a.file.as_str()).chain(std::iter::once(areas.email.file.as_str()));
-                        MsgArea::new("New Message Area", &unused_key(used, "NEWAREA"))
-                    };
-                    let mut list = areas.areas.clone();
-                    if self.list_change(&mut list, cmd, "message area", fresh).await? {
-                        areas.areas = list;
-                        self.save_areas(areas)?;
+                'I' => {
+                    self.newline();
+                    let n = areas.areas.len() as u32;
+                    let Some(at) = self.cfg_ask_number("Insert before which message area?", 1, n + 1).await? else { continue };
+                    let before = areas.areas.get(at as usize - 1).map(|a| a.file.clone());
+                    self.state.update_areas(|ar| insert_area(ar, before.as_deref())).map_err(io_err)?;
+                }
+                'M' => {
+                    self.newline();
+                    let n = areas.areas.len() as u32;
+                    if n <= 1 {
+                        continue;
+                    }
+                    let Some(from) = self.cfg_ask_number("Move which message area?", 1, n).await? else { continue };
+                    let Some(before) = self.cfg_ask_number("Move before which message area?", 1, n + 1).await? else { continue };
+                    let from = areas.areas[from as usize - 1].file.clone();
+                    let before = areas.areas.get(before as usize - 1).map(|a| a.file.clone());
+                    if !self.state.update_areas(|ar| move_area(ar, &from, before.as_deref())).map_err(io_err)? {
+                        self.show_line("|U0That area has gone meanwhile.").await?;
+                        self.prompt_key().await?;
                     }
                 }
+                _ => {}
             }
         }
     }
@@ -390,7 +444,8 @@ impl Session {
             let mut areas = (*self.state.areas()).clone();
             let n = areas.areas.len() as u32;
             let idx = num as usize - 1;
-            let mut a = areas.areas[idx].clone();
+            // Callers' boards may have gone meanwhile.
+            let Some(mut a) = areas.areas.get(idx).cloned() else { return Ok(()) };
             // Saved by its key into the list as it is then: callers make,
             // change and remove boards while this is open.
             let (opened, mut stored_key) = (a.clone(), a.file.clone());
@@ -438,15 +493,13 @@ impl Session {
                         } else {
                             self.state.msgs.rename_area(&a.file, &v).map_err(io_err)?;
                             // Echoes tossed into it follow it.
-                            let old = (*self.state.config()).clone();
-                            if old.ftn.areas.iter().any(|m| m.area.eq_ignore_ascii_case(&a.file)) {
-                                let mut cfg = old.clone();
-                                for m in cfg.ftn.areas.iter_mut().filter(|m| m.area.eq_ignore_ascii_case(&a.file)) {
-                                    m.area = v.clone();
-                                }
-                                crate::sysconfig::save_changes(&self.config_path(), &old, &cfg).map_err(io_err)?;
-                                self.state.set_config(cfg);
-                            }
+                            self.state
+                                .update_config(|cfg| {
+                                    for m in cfg.ftn.areas.iter_mut().filter(|m| m.area.eq_ignore_ascii_case(&a.file)) {
+                                        m.area = v.clone();
+                                    }
+                                })
+                                .map_err(io_err)?;
                             if a.qwk_name.eq_ignore_ascii_case(&a.file) {
                                 a.qwk_name = v.clone();
                                 self.cfg_set(&mut f, 'L', &a.qwk_name);
@@ -922,7 +975,7 @@ impl Session {
         loop {
             let mut areas = (*self.state.fareas()).clone();
             let idx = num as usize - 1;
-            let mut a = areas.areas[idx].clone();
+            let Some(mut a) = areas.areas.get(idx).cloned() else { return Ok(num) };
             let files = self.state.files.count(&a.file).map_err(io_err)?;
             let mut f = Form::new(&format!("{} File Area Editor", self.state.config().bbs.name));
             f.label("Current area", 12, format!("{num} of {n}"));
@@ -974,16 +1027,9 @@ impl Session {
                                 // networks whose nodelist comes to it: after
                                 // the areas are saved, so a config that
                                 // can't be written leaves only this behind.
-                                let old = (*self.state.config()).clone();
-                                let mut cfg = old.clone();
-                                if crate::sysconfig::file_area_renamed(&mut cfg.ftn, &was, &v) {
-                                    match crate::sysconfig::save_changes(&self.config_path(), &old, &cfg) {
-                                        Ok(()) => self.state.set_config(cfg),
-                                        Err(e) => {
-                                            tracing::error!("file echoes and nodelists in {was} not moved to {v}: {e:#}");
-                                            self.cfg_info(&mut f, "Saved, but the file echoes into it couldn't be moved: see the log.");
-                                        }
-                                    }
+                                if let Err(e) = self.state.update_config(|cfg| crate::sysconfig::file_area_renamed(&mut cfg.ftn, &was, &v)) {
+                                    tracing::error!("file echoes and nodelists in {was} not moved to {v}: {e:#}");
+                                    self.cfg_info(&mut f, "Saved, but the file echoes into it couldn't be moved: see the log.");
                                 }
                             }
                         }
@@ -1647,7 +1693,7 @@ impl Session {
             let mut list = self.state.protocols().list.clone();
             let n = list.len() as u32;
             let idx = num as usize - 1;
-            let mut p = list[idx].clone();
+            let Some(mut p) = list.get(idx).cloned() else { return Ok(()) };
             let mut f = Form::new(&format!("{} Protocol Editor", self.state.config().bbs.name));
             f.value_col(25);
             f.label("Current protocol", 12, format!("{num} of {n}"));
@@ -1773,7 +1819,7 @@ impl Session {
             let mut list = self.state.archivers().list.clone();
             let n = list.len() as u32;
             let idx = num as usize - 1;
-            let mut a = list[idx].clone();
+            let Some(mut a) = list.get(idx).cloned() else { return Ok(()) };
             let mut f = Form::new(&format!("{} Archiver Editor", self.state.config().bbs.name));
             f.value_col(25);
             f.label("Current archiver", 12, format!("{num} of {n}"));
@@ -1874,6 +1920,27 @@ impl Session {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn area_changes_go_by_key() {
+        let mut ar = MsgAreas { confs: vec![], email: MsgArea::new("Email", "EMAIL"), areas: vec![MsgArea::new("A", "A"), MsgArea::new("B", "B"), MsgArea::new("C", "C")] };
+        let keys = |ar: &MsgAreas| ar.areas.iter().map(|a| a.file.clone()).collect::<Vec<_>>().join(",");
+        // A caller's board went meanwhile: B is still B.
+        ar.areas.remove(0);
+        assert_eq!(delete_area(&mut ar, "b").map(|a| a.file), Some("B".into()));
+        assert_eq!(delete_area(&mut ar, "B"), None, "gone already");
+        assert_eq!(delete_area(&mut ar, "C"), None, "the last one stays");
+        ar.areas.push(MsgArea::new("D", "D"));
+        insert_area(&mut ar, Some("D"));
+        assert_eq!(keys(&ar), "C,NEWAREA,D");
+        insert_area(&mut ar, Some("GONE"));
+        assert_eq!(keys(&ar), "C,NEWAREA,D,NEWAREA2");
+        assert!(move_area(&mut ar, "D", Some("C")));
+        assert_eq!(keys(&ar), "D,C,NEWAREA,NEWAREA2");
+        assert!(move_area(&mut ar, "D", None));
+        assert_eq!(keys(&ar), "C,NEWAREA,NEWAREA2,D");
+        assert!(!move_area(&mut ar, "GONE", None));
+    }
 
     #[test]
     fn sorting_a_level_leaves_the_rest_in_place() {

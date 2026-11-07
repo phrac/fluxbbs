@@ -636,7 +636,7 @@ All in [DOORS](DOORS.md).
 - An AI-kept memory of each caller's interests (opt-in, up to 2,000
   characters), updated after each call, which they can see and turn off; SysOps' private caller notes
   (`*N`); flag `B` for bots, which get neither. The AI chat suits
-  itself to both. ([FEATURES](FEATURES.md#what-the-board-remembers))
+  itself to the memory (not the notes, which stay with SysOps). ([FEATURES](FEATURES.md#what-the-board-remembers))
 - Menu hints: what's waiting for the caller, in the help line when a
   menu opens. ([FEATURES](FEATURES.md#menu-hints))
 - A guide for AI agents that call in as the SysOp's assistant: filling

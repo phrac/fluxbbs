@@ -7,6 +7,12 @@
 use crate::machine::Machine;
 use crate::video::Screen;
 
+/// Batch files calling batch files, at most this deep.
+const MAX_DEPTH: usize = 32;
+/// Built-in lines run between two programs, at most: past it the batch
+/// file is going round with nothing to do (`:a` `goto a`).
+const MAX_STEPS: usize = 10_000;
+
 struct Frame {
     lines: Vec<String>,
     pc: usize,
@@ -43,6 +49,9 @@ impl Batch {
     fn push(&mut self, m: &mut Machine, cmd: &str) -> Result<(), String> {
         let (prog, rest) = split_command(cmd);
         let args: Vec<String> = rest.split_whitespace().map(String::from).collect();
+        if self.frames.len() >= MAX_DEPTH {
+            return Err(format!("{prog}: batch files call each other too deep"));
+        }
         if prog.to_ascii_uppercase().ends_with(".BAT") {
             // Found like a program: the current directory, then C:\.
             let (host, _) = m.sys.dos.find_program(&prog).ok_or_else(|| format!("{prog}: not found"))?;
@@ -100,7 +109,7 @@ impl Batch {
     /// Run built-in commands until a program needs running (returned as
     /// `program`, `args`) or the batch is finished.
     pub fn next(&mut self, m: &mut Machine) -> Result<Option<(String, String)>, String> {
-        loop {
+        for _ in 0..MAX_STEPS {
             let Some(frame) = self.frames.last_mut() else { return Ok(None) };
             let Some(raw) = frame.lines.get(frame.pc).cloned() else {
                 self.frames.pop();
@@ -121,6 +130,7 @@ impl Batch {
                 return Ok(Some(run));
             }
         }
+        Err("the batch file runs on without running anything".into())
     }
 
     /// One line: `Some` means the host runs it as a program.
@@ -184,8 +194,8 @@ impl Batch {
                 }
             }
             _ if up.len() == 2 && up.ends_with(':') => {
-                let d = (up.as_bytes()[0] - b'A') as usize;
-                if !m.sys.dos.set_drive(d) {
+                let d = up.as_bytes()[0];
+                if !d.is_ascii_uppercase() || !m.sys.dos.set_drive((d - b'A') as usize) {
                     Self::say(m, "Invalid drive specification\r\n");
                 }
             }
@@ -254,6 +264,19 @@ mod tests {
         assert_eq!(b.next(&mut m).unwrap(), None);
         assert!(Batch::new(&mut m, "NOPE.BAT").is_err());
         let _ = Path::new(&dir);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn endless_batches_end() {
+        // Three files: the directory is named by the count.
+        let (mut m, dir) = machine(&[("LOOP.BAT", "@echo off\r\n:a\r\ngoto a\r\n"), ("SELF.BAT", "@echo off\r\ncall self.bat\r\n"), ("D.BAT", "1:\r\n")]);
+        let mut b = Batch::new(&mut m, "LOOP.BAT").unwrap();
+        assert!(b.next(&mut m).is_err());
+        let mut b = Batch::new(&mut m, "SELF.BAT").unwrap();
+        assert!(b.next(&mut m).is_err());
+        let mut b = Batch::new(&mut m, "D.BAT").unwrap();
+        assert_eq!(b.next(&mut m).unwrap(), None, "1: is an invalid drive, not a crash");
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

@@ -207,7 +207,7 @@ pub async fn complete_with_web(cfg: &Ai, system: &str, prompt: &str) -> anyhow::
                 "read_page" if cfg.read_pages => {
                     let u = args["url"].as_str().unwrap_or_default();
                     tracing::info!("ai: read {u:?}");
-                    crate::aichat::read_page(&client, u).await.unwrap_or_else(|e| format!("Couldn't read it ({e})."))
+                    crate::aichat::read_page(u).await.unwrap_or_else(|e| format!("Couldn't read it ({e})."))
                 }
                 _ => format!("No tool called {name}."),
             };

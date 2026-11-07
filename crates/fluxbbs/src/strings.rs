@@ -54,10 +54,16 @@ impl Strings {
     /// The strings that differ from stock, in stock order (what
     /// strings.toml holds).
     pub fn overrides(&self) -> Vec<(String, String)> {
-        stock_names()
+        let mut out: Vec<(String, String)> = stock_names()
             .into_iter()
             .filter_map(|n| self.map.get(n).filter(|v| self.stock.get(n) != Some(*v)).map(|v| (n.to_string(), v.clone())))
-            .collect()
+            .collect();
+        // Names this build doesn't know (another version's) stay, after.
+        let mut unknown: Vec<(String, String)> =
+            self.map.iter().filter(|(k, _)| !self.stock.contains_key(*k)).map(|(k, v)| (k.clone(), v.clone())).collect();
+        unknown.sort();
+        out.extend(unknown);
+        out
     }
 
     /// `mStr`: a string by its original name (`strPause` -> `"Pause"`).
@@ -109,6 +115,17 @@ pub fn to_toml(entries: &[(String, String)]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn unknown_names_are_kept() {
+        let dir = std::env::temp_dir().join(format!("fluxbbs-strings-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("strings.toml");
+        std::fs::write(&path, "FromANewerVersion = \"hi\"\n").unwrap();
+        let s = Strings::load(&path).unwrap();
+        assert_eq!(s.overrides(), [("FromANewerVersion".to_string(), "hi".to_string())]);
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
 
     #[test]
     fn stock_strings_parse() {

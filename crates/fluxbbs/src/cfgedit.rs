@@ -654,16 +654,13 @@ impl Session {
     }
 
     fn set_flag_about(&mut self, c: char, what: &str) -> anyhow::Result<()> {
-        let old = (*self.state.config()).clone();
-        let mut cfg = old.clone();
-        if what.is_empty() {
-            cfg.flags.remove(&c.to_string());
-        } else {
-            cfg.flags.insert(c.to_string(), what.to_string());
-        }
-        crate::sysconfig::save_changes(&self.config_path(), &old, &cfg)?;
-        self.state.set_config(cfg);
-        Ok(())
+        self.state.update_config(|cfg| {
+            if what.is_empty() {
+                cfg.flags.remove(&c.to_string());
+            } else {
+                cfg.flags.insert(c.to_string(), what.to_string());
+            }
+        })
     }
 
     /// Where each flag is tested: menu commands, message and file areas and
