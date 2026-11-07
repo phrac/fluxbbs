@@ -293,7 +293,8 @@ pub fn parse_index(html: &str) -> Page {
         if !relative(&href) {
             continue;
         }
-        let name = percent_decode(&href);
+        // A directory's link may end in `/` (as `relative` allows).
+        let name = percent_decode(href.strip_suffix('/').unwrap_or(&href));
         // Checked again decoded: `%2E%2E%2F` is `../`.
         if !safe_component(&name) {
             continue;
@@ -910,9 +911,11 @@ mod tests {
 <TR><TD><A HREF="a%5Cb.txt">d</A><TD> 10<TD> bad
 <TR><TD><A HREF="%2E%2E">e</A><TD> 10<TD> bad
 <TR><TD><A HREF="ok%20name.txt">f</A><TD> 10<TD> good
+<TR><TD><A HREF="SUB/">g</A><TD> a directory
+<TR><TD><A HREF="%2E%2E/">h</A><TD> bad
 </TABLE>"#;
         let names: Vec<String> = parse_index(html).entries.into_iter().map(|e| e.name).collect();
-        assert_eq!(names, ["ok name.txt"]);
+        assert_eq!(names, ["ok name.txt", "SUB"]);
         let listing = r#"<pre><a href="%2E%2E%2F">x</a>  -
 <a href="sub%2F..%2F..%2F/">y</a>  -
 <a href="fine.txt">fine.txt</a>  01-Jan-1990 00:00  12

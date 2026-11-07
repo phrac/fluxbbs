@@ -86,11 +86,14 @@ impl Zone {
             b'-' => (-1, &off[1..]),
             _ => (1, off),
         };
+        // One or two digits only: no second sign (`+-5`, `5:-30`), and
+        // nothing big enough to overflow.
+        let num = |s: &str| (1..=2).contains(&s.len()).then_some(()).filter(|_| s.bytes().all(|b| b.is_ascii_digit())).and_then(|_| s.parse::<i32>().ok());
         let (h, m) = match digits.split_once(':') {
-            Some((h, m)) => (h.parse::<i32>().ok()?, m.parse::<i32>().ok()?),
+            Some((h, m)) => (num(h)?, num(m)?),
             // (Digits only: "aéb" is four bytes too, and cutting it at 2 panicked.)
-            None if digits.len() == 4 && digits.bytes().all(|b| b.is_ascii_digit()) => (digits[..2].parse().ok()?, digits[2..].parse().ok()?),
-            None => (digits.parse().ok()?, 0),
+            None if digits.len() == 4 && digits.bytes().all(|b| b.is_ascii_digit()) => (num(&digits[..2])?, num(&digits[2..])?),
+            None => (num(digits)?, 0),
         };
         if h > 14 || m > 59 {
             return None;
@@ -134,11 +137,20 @@ impl Zone {
     /// The offset from UTC at a local time (the earlier one when the
     /// clocks went back; the offset after a gap when they went forward).
     pub fn offset_local(&self, local: NaiveDateTime) -> FixedOffset {
+        // In a gap: the offset before it (a day back), then the one at
+        // the instant that is, which is past the change.
+        fn after_gap(at: impl Fn(NaiveDateTime) -> FixedOffset, local: NaiveDateTime) -> FixedOffset {
+            let before = at(local - chrono::Duration::days(1));
+            at(local - chrono::Duration::seconds(before.local_minus_utc() as i64))
+        }
         match self {
-            Zone::Host => Local.offset_from_local_datetime(&local).earliest().map_or_else(|| Local::now().offset().fix(), |o| o.fix()),
+            Zone::Host => Local
+                .offset_from_local_datetime(&local)
+                .earliest()
+                .map_or_else(|| after_gap(|u| Local.offset_from_utc_datetime(&u).fix(), local), |o| o.fix()),
             Zone::Named(tz) => match tz.offset_from_local_datetime(&local).earliest() {
                 Some(o) => o.fix(),
-                None => tz.offset_from_utc_datetime(&local).fix(),
+                None => after_gap(|u| tz.offset_from_utc_datetime(&u).fix(), local),
             },
             Zone::Fixed(o) => *o,
         }
@@ -228,6 +240,9 @@ mod tests {
         assert_eq!(Zone::parse(""), None);
         assert_eq!(Zone::parse("Mars/Olympus"), None);
         assert_eq!(Zone::parse("+15"), None);
+        for bad in ["+-999999", "UTC+5:-30", "--5", "+-5", "+123", "5:300", "+5:"] {
+            assert_eq!(Zone::parse(bad), None, "{bad}");
+        }
     }
 
     #[test]
@@ -243,5 +258,11 @@ mod tests {
         assert_eq!(utc.utc_to_local(central.local_to_utc(winter)), winter + chrono::Duration::hours(6));
         assert_eq!(Zone::parse("+05:30").unwrap().utc_to_local(winter), winter + chrono::Duration::minutes(330));
         assert_eq!(central.short().len(), "CDT -05:00".len());
+        // 02:30 never comes on 8 Mar 2026 in Chicago: it's CDT after.
+        let gap = NaiveDate::from_ymd_opt(2026, 3, 8).unwrap().and_hms_opt(2, 30, 0).unwrap();
+        assert_eq!(central.offset_local(gap), FixedOffset::west_opt(5 * 3600).unwrap());
+        let east = Zone::parse("Australia/Sydney").unwrap();
+        let gap = NaiveDate::from_ymd_opt(2026, 10, 4).unwrap().and_hms_opt(2, 30, 0).unwrap();
+        assert_eq!(east.offset_local(gap), FixedOffset::east_opt(11 * 3600).unwrap());
     }
 }

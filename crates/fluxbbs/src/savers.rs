@@ -23,7 +23,7 @@ const BLACK: [u8; 3] = [0, 0, 0];
 
 /// The message's cells, centered across the screen with its middle at
 /// `at` of the way down: set in a font (`word`), or as spaced plain
-/// letters.
+/// letters. Only what's on the screen (80 across, `rows` down).
 fn place(rows: u16, at: f32, plain: &str, word: Option<(Vec<FontCell>, u16, u16)>) -> Vec<WordCell> {
     let mid = (rows as f32 * at) as u16;
     match word {
@@ -32,21 +32,32 @@ fn place(rows: u16, at: f32, plain: &str, word: Option<(Vec<FontCell>, u16, u16)
             let y0 = mid.saturating_sub(h / 2).max(1);
             cells
                 .iter()
-                .filter(|c| y0 + c.y <= rows && x0 + c.x <= 80)
-                .map(|c| (x0 + c.x, y0 + c.y, c.ch, Some(crate::tdf::rgb(c.fg))))
+                .map(|c| (x0.saturating_add(c.x), y0.saturating_add(c.y), c.ch, Some(crate::tdf::rgb(c.fg))))
+                .filter(|&(x, y, ..)| y <= rows && x <= 80)
                 .collect()
         }
         _ => {
             let spaced = plain.to_lowercase().chars().map(String::from).collect::<Vec<_>>().join(" ");
             let text = fluxbbs_term::cp437::encode(spaced.trim());
-            let x0 = (80usize.saturating_sub(text.len()) / 2 + 1) as u16;
+            let x0 = 80usize.saturating_sub(text.len()) / 2 + 1;
+            let y = mid.max(1);
+            if y > rows {
+                return Vec::new();
+            }
             text.iter()
                 .enumerate()
+                .take(80usize.saturating_sub(x0 - 1))
                 .filter(|(_, c)| **c != b' ')
-                .map(|(i, &c)| (x0 + i as u16, mid.max(1), c, None))
+                .map(|(i, &c)| ((x0 + i) as u16, y, c, None))
                 .collect()
         }
     }
+}
+
+/// The grid index of a message cell (1-based x, y), if it's on it.
+fn word_index(grid: &[Option<Shown>], x: u16, y: u16) -> Option<usize> {
+    let i = (y as usize).checked_sub(1)? * 80 + (x as usize).checked_sub(1)?;
+    (x <= 80 && i < grid.len()).then_some(i)
 }
 
 fn scale(c: [u8; 3], k: f32) -> [u8; 3] {
@@ -120,6 +131,7 @@ impl Stars {
     pub fn new(rows: u16, plain: &str, word: Option<(Vec<FontCell>, u16, u16)>, palette: [[u8; 3]; 6]) -> Stars {
         let mut rnd = Rnd(0x51A2_7E35);
         let stars = (0..170).map(|_| [rnd.next() * 2.0 - 1.0, rnd.next() * 2.0 - 1.0, 0.05 + rnd.next() * 0.95]).collect();
+        let rows = rows.max(1);
         Stars { rows, stars, word: place(rows, 0.5, plain, word), tint: palette[0], sent: vec![None; 80 * rows as usize], t: 0.0, rnd }
     }
 
@@ -161,8 +173,9 @@ impl Stars {
         // The message, over the stars: fading in, then breathing.
         let k = (self.t / 1.5).min(1.0) * (0.88 + 0.12 * (self.t * 1.8).sin());
         for &(x, y, ch, own) in &self.word {
-            let i = (y as usize - 1) * 80 + x as usize - 1;
-            grid[i] = Some((ch, scale(own.unwrap_or(self.tint), k), BLACK));
+            if let Some(i) = word_index(&grid, x, y) {
+                grid[i] = Some((ch, scale(own.unwrap_or(self.tint), k), BLACK));
+            }
         }
         emit(&grid, &mut self.sent, self.rows)
     }
@@ -205,6 +218,7 @@ fn flame(v: f32) -> [u8; 3] {
 
 impl Fire {
     pub fn new(rows: u16, plain: &str, word: Option<(Vec<FontCell>, u16, u16)>, palette: [[u8; 3]; 6]) -> Fire {
+        let rows = rows.max(1);
         let h = rows as usize * 2;
         let top = h - (h as f32 * 0.55) as usize;
         Fire {
@@ -262,8 +276,9 @@ impl Fire {
         // The message, lit by the fire's flicker.
         let k = (self.t / 1.2).min(1.0) * (0.82 + 0.18 * ((self.t * 9.0).sin() * (self.t * 3.7).sin()).abs());
         for &(x, y, ch, own) in &self.word {
-            let i = (y as usize - 1) * 80 + x as usize - 1;
-            grid[i] = Some((ch, scale(mix(own.unwrap_or(self.tint), [255, 200, 120], 0.15), k), BLACK));
+            if let Some(i) = word_index(&grid, x, y) {
+                grid[i] = Some((ch, scale(mix(own.unwrap_or(self.tint), [255, 200, 120], 0.15), k), BLACK));
+            }
         }
         emit(&grid, &mut self.sent, self.rows)
     }
@@ -455,6 +470,7 @@ impl Rain {
     /// `word`: the name set in a font (its cells, width and height), or
     /// None for plain spaced letters.
     fn new(rows: u16, name: &str, word: Option<(Vec<crate::tdf::Cell>, u16, u16)>, palette: [[u8; 3]; 6]) -> Rain {
+        let rows = rows.max(1);
         let mut seed = 0x9E37_79B9u32;
         let mut rnd = move || {
             seed ^= seed << 13;
@@ -477,8 +493,14 @@ impl Rain {
             }
             _ => {
                 let text: Vec<u8> = fluxbbs_term::cp437::encode(name.to_lowercase().split("").collect::<Vec<_>>().join(" ").trim());
-                let x0 = (80usize.saturating_sub(text.len()) / 2 + 1) as u16;
-                text.iter().enumerate().filter(|(_, c)| **c != b' ').map(|(i, &c)| (x0 + i as u16, rows / 2, c, None, NEVER)).collect()
+                let x0 = 80usize.saturating_sub(text.len()) / 2 + 1;
+                // Only what fits: a cell off the screen would never fill.
+                text.iter()
+                    .enumerate()
+                    .take(80usize.saturating_sub(x0 - 1))
+                    .filter(|(_, c)| **c != b' ')
+                    .map(|(i, &c)| ((x0 + i) as u16, (rows / 2).max(1), c, None, NEVER))
+                    .collect()
             }
         };
         Rain { rows, drops, glyphs, sent: vec![None; 80 * rows as usize], word, palette, filling: true, filled_at: 0.0, t: 0.0, seed: 0x1234_5678 }
@@ -614,6 +636,17 @@ mod tests {
         let mut still = Stars::new(23, "disflux", None, PAL);
         still.step(0.0);
         assert!(still.step(0.0).len() < first.len());
+    }
+
+    #[test]
+    fn tiny_screens_and_long_names_stay_on_the_grid() {
+        let long = "a very long board name that goes well past eighty columns once spaced";
+        for rows in [0, 1, 2] {
+            Stars::new(rows, long, None, PAL).step(0.1);
+            Rain::new(rows, long, None, PAL).step(0.1);
+            Fire::new(rows, long, None, PAL).step(0.1);
+        }
+        assert!(place(2, 0.5, long, None).iter().all(|&(x, y, ..)| (1..=80).contains(&x) && (1..=2).contains(&y)));
     }
 
     #[test]

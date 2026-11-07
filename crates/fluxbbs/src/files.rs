@@ -75,8 +75,9 @@ pub fn zip_description(path: &Path, names: &[String]) -> Option<Vec<String>> {
     let file = std::fs::File::open(path).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
     for want in names {
-        let idx = (0..zip.len()).find(|&i| zip.by_index(i).is_ok_and(|e| e.name().is_ok_and(|n| n.rsplit('/').next().is_some_and(|n| n.eq_ignore_ascii_case(want)))))?;
-        let entry = zip.by_index(idx).ok()?;
+        // Not there: the next name may be.
+        let Some(idx) = (0..zip.len()).find(|&i| zip.by_index(i).is_ok_and(|e| e.name().is_ok_and(|n| n.rsplit('/').next().is_some_and(|n| n.eq_ignore_ascii_case(want))))) else { continue };
+        let Ok(entry) = zip.by_index(idx) else { continue };
         let mut raw = Vec::new();
         io::Read::read_to_end(&mut io::Read::take(entry, MAX_DESC_READ), &mut raw).ok()?;
         let lines = parse_description(&raw);
@@ -690,7 +691,8 @@ impl Session {
 
     /// New: links to fetch these files over HTTPS instead (`web.rs`):
     /// shown, each good for `[web] link_minutes` and `link_uses` fetches,
-    /// counted as a download when first fetched whole.
+    /// checked (points, limits, ratios) as each fetch starts, and counted
+    /// and charged once, when one first sends the whole file.
     async fn give_links(&mut self, files: &[(FAreaRef, FileRec)]) -> io::Result<()> {
         let (base, minutes, uses) = {
             let web = &self.state.config().web;
@@ -719,6 +721,15 @@ impl Session {
 
     /// Credit a completed download.
     pub(crate) fn count_download(&mut self, f: &mut FileRec) -> io::Result<()> {
+        // Counted in place: `f` was read before the transfer, and a SysOp
+        // may have edited or renamed it meanwhile.
+        f.downloads = self.state.files.add_download(f).map_err(io_err)?.unwrap_or(f.downloads + 1);
+        self.credit_download(f)
+    }
+
+    /// New: a completed download on the caller's side (their counts,
+    /// points, the day's figures), the file's own count apart.
+    pub(crate) fn credit_download(&mut self, f: &FileRec) -> io::Result<()> {
         let kb = (f.size / 1024) as u32;
         let u = &mut self.user;
         u.downloads += 1;
@@ -728,9 +739,6 @@ impl Session {
         if self.state.config().files.use_file_points {
             u.file_points = u.file_points.saturating_sub(f.points);
         }
-        // Counted in place: `f` was read before the transfer, and a SysOp
-        // may have edited or renamed it meanwhile.
-        f.downloads = self.state.files.add_download(f).map_err(io_err)?.unwrap_or(f.downloads + 1);
         let area = self.state.fareas().areas.iter().find(|a| a.file.eq_ignore_ascii_case(&f.area)).map_or_else(|| f.area.clone(), |a| crate::editor::strip_colours(&a.name));
         *self.seen.downloads.entry(area).or_default() += 1;
         self.bump(crate::sysdata::Stat::Download { kb: kb as u64 });
@@ -2546,6 +2554,13 @@ mod tests {
         w.finish().unwrap();
         let got = zip_description(&path, &["FILE_ID.DIZ".into()]).unwrap();
         assert_eq!(got, vec!["Line one", "Line two"]);
+        // Found while fuzzing: a ZIP without the first name never got to
+        // the second.
+        let mut w = zip::ZipWriter::new(std::fs::File::create(&path).unwrap());
+        w.start_file("DESC.SDI", zip::write::SimpleFileOptions::default()).unwrap();
+        io::Write::write_all(&mut w, b"From the SDI\r\n").unwrap();
+        w.finish().unwrap();
+        assert_eq!(zip_description(&path, &["FILE_ID.DIZ".into(), "DESC.SDI".into()]).unwrap(), vec!["From the SDI"]);
         let _ = std::fs::remove_dir_all(dir);
     }
 }

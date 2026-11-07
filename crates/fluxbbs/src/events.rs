@@ -45,6 +45,11 @@ pub struct Event {
     /// A shell command, `pack-messages` / `pack-files` / `backup [DAYS]
     /// [DIR]`, or `dos COMMAND`.
     pub command: String,
+    /// New: what its last run is kept under, given when it's made (and to
+    /// older events by [`assign_ids`]), so editing the list doesn't hand
+    /// one event's last run to another.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub id: String,
 }
 
 fn yes() -> bool {
@@ -89,14 +94,58 @@ pub fn due(e: &Event, last: Option<NaiveDate>, now: NaiveDateTime, prev: Option<
     e.active && last != Some(now.date()) && now >= at && (e.run_missed || now - at < chrono::Duration::minutes(2) || crossed)
 }
 
-/// What each event's last run is kept under: its description, and for a
-/// second event of the same description, `desc#2` and so on.
+/// What each event's last run is kept under: `id:ID`; for an older event
+/// without one, its description, and for a second event of the same
+/// description, `desc#2` and so on.
 fn event_key(list: &[Event], i: usize) -> String {
+    if !list[i].id.is_empty() {
+        return format!("id:{}", list[i].id);
+    }
     let desc = &list[i].desc;
     match list[..i].iter().filter(|e| e.desc == *desc).count() {
         0 => desc.clone(),
         n => format!("{desc}#{}", n + 1),
     }
+}
+
+/// An id no event in `list` has.
+fn new_id(list: &[Event]) -> String {
+    let mut n = chrono::Utc::now().timestamp_millis().max(0) as u64;
+    loop {
+        let id = format!("{n:x}");
+        if !list.iter().any(|e| e.id == id) {
+            return id;
+        }
+        n += 1;
+    }
+}
+
+/// Give events made before ids one each, taking their last runs along
+/// from where they were kept (by place in the list as it is, which is
+/// what the scheduler used). False if all had one.
+fn give_ids(list: &mut [Event], sys: &crate::sysdata::SysData) -> anyhow::Result<bool> {
+    if list.iter().all(|e| !e.id.is_empty()) {
+        return Ok(false);
+    }
+    let old: Vec<String> = (0..list.len()).map(|i| event_key(list, i)).collect();
+    for i in 0..list.len() {
+        if list[i].id.is_empty() {
+            list[i].id = new_id(list);
+            if let Some(day) = sys.event_last(&old[i])? {
+                sys.set_event_last(&event_key(list, i), day)?;
+            }
+        }
+    }
+    Ok(true)
+}
+
+/// [`give_ids`] to the board's events, saved.
+pub fn assign_ids(state: &BbsState) -> anyhow::Result<()> {
+    let mut list = state.events().list.clone();
+    if give_ids(&mut list, &state.sys)? {
+        state.set_events(Events { list })?;
+    }
+    Ok(())
 }
 
 /// How often the scheduler looks.
@@ -108,6 +157,9 @@ const FORCE_WAIT: Duration = Duration::from_secs(60);
 pub async fn scheduler(state: Arc<BbsState>) {
     let mut tick = tokio::time::interval(TICK);
     let mut prev: Option<NaiveDateTime> = None;
+    if let Err(e) = assign_ids(&state) {
+        tracing::error!("events: giving events ids: {e}");
+    }
     loop {
         tick.tick().await;
         // New: last night's lottery, drawn once the day's over.
@@ -233,6 +285,7 @@ impl Session {
     /// `cfgEventEditor` (`*V`).
     pub async fn event_editor(&mut self) -> io::Result<()> {
         tracing::info!("{}: event edit", self.user.handle);
+        assign_ids(&self.state).map_err(io::Error::other)?;
         loop {
             let mut events = self.state.events().list.clone();
             self.clear_screen();
@@ -275,6 +328,7 @@ impl Session {
                 force: false,
                 run_missed: true,
                 command: String::new(),
+                id: new_id(list),
             };
             if self.list_change(&mut events, cmd, "event", fresh).await? {
                 self.state.set_events(Events { list: events }).map_err(io::Error::other)?;
@@ -291,7 +345,7 @@ impl Session {
             let mut f = Form::new(&format!("{} Event Editor", self.state.config().bbs.name));
             f.value_col(25);
             f.label("Current event", 12, format!("{num} of {n}"));
-            f.item('A', "Description", 30, &e.desc, "What this event does (also how its last run is remembered).");
+            f.item('A', "Description", 30, &e.desc, "What this event does.");
             f.item('B', "Active", 3, yes_no(e.active), "Run this event?");
             f.item('C', "Time", 5, &e.time, "When to run it each day [format: HH:MM, 24-hour].");
             f.item('D', "Force callers off", 3, yes_no(e.force), "Disconnect everyone before it runs?");
@@ -361,7 +415,7 @@ mod tests {
     }
 
     fn ev(time: &str, run_missed: bool) -> Event {
-        Event { desc: "Nightly".into(), active: true, time: time.into(), force: false, run_missed, command: String::new() }
+        Event { desc: "Nightly".into(), active: true, time: time.into(), force: false, run_missed, command: String::new(), id: String::new() }
     }
 
     #[test]
@@ -391,6 +445,24 @@ mod tests {
         let list = vec![ev("01:00", false), ev("02:00", false), Event { desc: "Other".into(), ..ev("03:00", false) }, ev("04:00", false)];
         let keys: Vec<String> = (0..list.len()).map(|i| event_key(&list, i)).collect();
         assert_eq!(keys, ["Nightly", "Nightly#2", "Other", "Nightly#3"]);
+    }
+
+    #[test]
+    fn ids_keep_last_runs_with_their_events() {
+        let state = crate::tests::state();
+        let mut list = vec![ev("01:00", false), ev("02:00", false)];
+        let day = NaiveDate::from_ymd_opt(2026, 11, 1).unwrap();
+        state.sys.set_event_last("Nightly#2", day).unwrap();
+        assert!(give_ids(&mut list, &state.sys).unwrap());
+        assert!(!give_ids(&mut list, &state.sys).unwrap(), "once");
+        assert!(list.iter().all(|e| !e.id.is_empty()) && list[0].id != list[1].id);
+        assert_eq!(state.sys.event_last(&event_key(&list, 1)).unwrap(), Some(day));
+        assert_eq!(state.sys.event_last(&event_key(&list, 0)).unwrap(), None);
+        // The first deleted: the second keeps its own last run.
+        list.remove(0);
+        assert_eq!(state.sys.event_last(&event_key(&list, 0)).unwrap(), Some(day));
+        let back: Events = toml::from_str(&Events { list: list.clone() }.to_toml()).unwrap();
+        assert_eq!(back.list, list);
     }
 
     #[test]

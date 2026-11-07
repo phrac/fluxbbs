@@ -160,14 +160,14 @@ fn safe_name(name: &str) -> String {
     if n.is_empty() || n.starts_with('.') {
         n.insert(0, 'x');
     }
+    if n.ends_with(".part") {
+        n.push('_');
+    }
     if n.len() > 64 {
         let ext = n.rsplit_once('.').map(|(_, e)| e).filter(|e| e.len() <= 8).unwrap_or("").to_string();
         n.truncate(63 - ext.len());
         n.push('.');
         n.push_str(&ext);
-    }
-    if n.ends_with(".part") {
-        n.push('_');
     }
     n
 }
@@ -873,6 +873,9 @@ mod tests {
         assert_eq!(safe_name("../../etc/passwd"), "x....etcpasswd");
         assert_eq!(safe_name("0000abcd.su0"), "0000abcd.su0");
         assert_eq!(safe_name("evil.part"), "evil.part_");
+        // Found by fuzzing: a long name ending `.part` came out 65 long.
+        let long_part = safe_name(&format!("{}.part", "a".repeat(100)));
+        assert!(long_part.len() <= 64 && !long_part.ends_with(".part"), "{long_part}");
         let long = safe_name(&format!("{}.pkt", "a".repeat(300)));
         assert!(long.len() <= 64 && long.ends_with(".pkt"));
         // A garbled challenge is refused, never a panic.
@@ -1083,6 +1086,119 @@ mod tests {
         board.await.unwrap();
         assert_eq!(files, ["00000002.pkt"], "only agoranet's mail");
         assert!(crate::ftntoss::outbound_dir(&state, "fsxnet").join("00000001.pkt").exists());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzcorpus;
+
+    const DICT: &[&[u8]] = &[b"\x80\x00", b"\x80\x01\x05", b"\x7f\xff", b"\xff\xff", b"\x00\x00", b" 0 ", b" -1", b" 1762000000 ", b"\\x2e", b"\\x2f", b".part", b"CRAM-MD5-", b"OPT "];
+
+    /// Frames as a hub sends them in a session: files coming (whole, cut
+    /// short, too big, to resume), and answers about ours.
+    fn sessions() -> Vec<Vec<u8>> {
+        let file = |name: &str, body: &[u8], offset: &str| {
+            let mut v = cmd(M_FILE, &format!("{name} {} 1762000000 {offset}", body.len()));
+            for c in body.chunks(7) {
+                v.extend(data(c));
+            }
+            v
+        };
+        let mut a = file("0000abcd.pkt", b"a packet's bytes, a few of them", "0");
+        a.extend(cmd(M_GOT, "out.pkt 5 1762000000"));
+        a.extend(cmd(M_EOB, ""));
+        let mut b = cmd(M_GET, "out.pkt 5 1762000000 3");
+        b.extend(file("..\\x2f..\\x2fetc.part", b"", "0"));
+        b.extend(cmd(M_FILE, "big.zip 999999999999 1 0"));
+        b.extend(cmd(M_FILE, "resume.pkt 10 1 -1"));
+        b.extend(cmd(M_SKIP, "out.pkt 5 1762000000"));
+        b.extend(data(b"stray data"));
+        b.extend(cmd(M_EOB, ""));
+        let mut c = file("x.tic", b"Area AGN_NODE\r\n", "0");
+        c.extend(cmd(M_GET, "out.pkt 5 1762000000 99999999999999"));
+        c.extend(cmd(M_GET, "out.pkt 5 1762000000 4"));
+        c.extend(cmd(M_GOT, "out.pkt"));
+        c.extend(cmd(M_NUL, "OPT CRAM-MD5-abcd"));
+        c.extend(cmd(M_EOB, ""));
+        vec![a, b, c, cmd(M_ERR, "go away")]
+    }
+
+    /// A stream of frames read to its end: never a panic, never a frame
+    /// longer than the header says.
+    #[test]
+    #[ignore]
+    fn fuzz_binkp_frames() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap();
+        fuzzcorpus::run("binkp_frames", sessions(), DICT, 100_000, |d| {
+            rt.block_on(async {
+                let mut rd: &[u8] = d;
+                let clock = AtomicU64::new(now_ms());
+                while let Ok(f) = read_frame(&mut rd, &clock).await {
+                    match f {
+                        Frame::Data(b) => assert!(b.len() < 0x8000),
+                        Frame::Cmd(_, s) => {
+                            let _ = cram_offer(&s);
+                            let _ = cram_md5("pw", &s);
+                            let n = safe_name(&s);
+                            assert!(!n.is_empty() && n.len() <= 64 && !n.starts_with('.') && !n.ends_with(".part") && n.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)), "{n:?}");
+                            let _ = file_time(&s);
+                            let _ = with_port(&s);
+                            let hub = Addr::parse("46:1/100").unwrap();
+                            let _ = is_hub(&s, hub, Some("agoranet"), &["fsxnet".into()]);
+                            let _ = is_hub(&s, hub, None, &[]);
+                            let _ = same_secret(&s, "CRAM-MD5-0123");
+                        }
+                    }
+                }
+            })
+        });
+    }
+
+    /// A session's file exchange, the hub's side fuzzed: it ends (the
+    /// stream does), never panics, and writes only safe names to inbound.
+    #[test]
+    #[ignore]
+    fn fuzz_binkp_exchange() {
+        let rt = tokio::runtime::Builder::new_multi_thread().worker_threads(2).enable_all().build().unwrap();
+        let dir = std::env::temp_dir().join(format!("fluxbbs-fuzz-binkp-{}", std::process::id()));
+        let (outbound, inbound) = (dir.join("out"), dir.join("in"));
+        // One listener for every session: a new port each time runs out.
+        let listener = Arc::new(rt.block_on(tokio::net::TcpListener::bind("127.0.0.1:0")).unwrap());
+        let addr = listener.local_addr().unwrap();
+        // Files written (and each one received synced) take what they take.
+        fuzzcorpus::run_panics_only("binkp_exchange", sessions(), DICT, 3_000, |d| {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&outbound).unwrap();
+            std::fs::write(outbound.join("out.pkt"), b"ours!").unwrap();
+            let d = d.to_vec();
+            rt.block_on(async {
+                let listener = listener.clone();
+                let hub = tokio::spawn(async move {
+                    let (s, _) = listener.accept().await.unwrap();
+                    let (mut rd, mut wr) = s.into_split();
+                    // What we send is read and dropped.
+                    let drain = tokio::spawn(async move {
+                        let mut buf = vec![0u8; 1 << 16];
+                        while rd.read(&mut buf).await.is_ok_and(|n| n > 0) {}
+                    });
+                    let _ = wr.write_all(&d).await;
+                    let _ = wr.shutdown().await;
+                    let _ = drain.await;
+                });
+                let mut link = Link::new(TcpStream::connect(addr).await.unwrap()).unwrap();
+                let r = tokio::time::timeout(Duration::from_secs(20), exchange(&mut link, std::slice::from_ref(&outbound), &inbound)).await;
+                assert!(r.is_ok(), "the exchange never ended");
+                link.abort();
+                let _ = hub.await;
+            });
+            for e in std::fs::read_dir(&inbound).into_iter().flatten().flatten() {
+                let n = e.file_name().to_string_lossy().into_owned();
+                assert!(n.chars().all(|c| c.is_ascii_alphanumeric() || "._-".contains(c)) && !n.starts_with('.'), "{n:?}");
+            }
+        });
         let _ = std::fs::remove_dir_all(&dir);
     }
 }

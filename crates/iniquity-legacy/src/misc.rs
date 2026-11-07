@@ -5,7 +5,7 @@ use crate::pascal::{Reader, check};
 
 pub const STATS_SIZE: usize = 1055;
 pub const HISTORY_SIZE: usize = 25;
-pub const CALL_SIZE: usize = 109;
+pub const CALL_SIZE: usize = 110;
 pub const BBS_SIZE: usize = 243;
 
 #[derive(Debug, Clone)]
@@ -292,6 +292,31 @@ mod tests {
         assert_eq!(lib.files, [("MAIN.ANS".to_string(), b"abc".to_vec()), ("LOGOFF.ANS".to_string(), b"de".to_vec())]);
         let names = [pstr("DARK", 8), pstr("LIGHT", 8)].concat();
         assert_eq!(text_lib_names(&names), ["DARK", "LIGHT"]);
+    }
+
+    /// Found by fuzzing: `tCallRec` is 110 bytes (testcol.pas), not 109;
+    /// any CALLERS.DAT panicked the import, reading past each record.
+    #[test]
+    fn callers() {
+        let pstr = |s: &str, max: usize| {
+            let mut v = vec![s.len() as u8];
+            v.extend(s.bytes());
+            v.resize(max + 1, 0);
+            v
+        };
+        let mut rec = 42i32.to_le_bytes().to_vec();
+        rec.extend(pstr("phrac", 36));
+        rec.extend(3u16.to_le_bytes());
+        rec.extend(pstr("Halifax, NS", 40));
+        rec.extend(14400i32.to_le_bytes());
+        rec.extend(pstr("10/31/97", 8));
+        rec.extend(pstr("11:59pm", 7));
+        rec.push(1);
+        rec.extend(pstr("902", 3));
+        assert_eq!(rec.len(), CALL_SIZE);
+        let calls = LegacyCall::parse_file(&[rec.clone(), rec].concat());
+        assert_eq!(calls.len(), 2);
+        assert_eq!((calls[1].call_num, calls[1].user_name.as_str(), calls[1].baud, calls[1].new_user, calls[1].area_code.as_str()), (42, "phrac", 14400, true, "902"));
     }
 
     #[test]

@@ -63,16 +63,24 @@ impl Session {
         let mut loaded = usize::MAX;
         // Which way to step past a file with no faces we show.
         let mut step: isize = 1;
+        // Files passed over in a row: a whole round of them, nothing to show.
+        let mut skipped = 0usize;
         loop {
             if loaded != file {
                 faces = crate::tdf::read(&files[file]).into_iter().filter(|f| f.kind != 0).collect();
                 loaded = file;
             }
             if faces.is_empty() {
+                skipped += 1;
+                if skipped >= files.len() {
+                    let s = self.strings().fmt("FontViewNoFaces", &[&cfg.paths.fonts.display().to_string()]);
+                    return self.show_line(&s).await;
+                }
                 file = (file as isize + step).rem_euclid(files.len() as isize) as usize;
                 face = if step < 0 { usize::MAX } else { 0 };
                 continue;
             }
+            skipped = 0;
             face = face.min(faces.len() - 1);
             let name = files[file].file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
             let title = format!("{name} · {} ({}/{}) · file {}/{}", faces[face].name, face + 1, faces.len(), file + 1, files.len());

@@ -9,6 +9,8 @@
 mod acs;
 mod ambient;
 mod clock;
+#[cfg(test)]
+mod fuzzcorpus;
 #[cfg(feature = "ai")]
 mod aiboard;
 #[cfg(feature = "ai")]
@@ -370,6 +372,18 @@ impl BbsState {
     pub fn set_levels(&self, new: extprog::Levels) -> anyhow::Result<()> {
         let path = self.config().resolve(&self.config().paths.levels);
         store(&self.levels, &path, &new.to_toml(), new)
+    }
+
+    /// Change the levels as they are now, in one go (nothing else saved
+    /// can come between reading and writing them).
+    pub fn update_levels(&self, f: impl FnOnce(&mut extprog::Levels)) -> anyhow::Result<()> {
+        let path = self.config().resolve(&self.config().paths.levels);
+        let mut held = self.levels.write().unwrap_or_else(|e| e.into_inner());
+        let mut new = (**held).clone();
+        f(&mut new);
+        write_atomic(&path, &new.to_toml())?;
+        *held = Arc::new(new);
+        Ok(())
     }
 
     pub fn themes(&self) -> Arc<themes::Themes> {
@@ -884,6 +898,10 @@ async fn run() -> anyhow::Result<()> {
         }
     }
 }
+
+#[cfg(test)]
+#[path = "../../fluxbbs-term/src/fuzzkit.rs"]
+pub(crate) mod fuzzkit;
 
 #[cfg(test)]
 pub mod tests {

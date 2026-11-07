@@ -205,3 +205,53 @@ Region,2,Region_Two,There,Them,-Unpublished-,300\r
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzcorpus;
+
+    const LIST: &str = ";A AgoraNet Nodelist for Friday, October 30, 2026 -- Day number 303 : 12345\r\n\
+Zone,46,AgoraNet,Somewhere_USA,Nick_Boel,-Unpublished-,300,CM,IBN\r\n\
+Host,1,Net_1,USA,Nick_Boel,-Unpublished-,300,CM\r\n\
+,100,The_Pharcyde,USA,Nick_Boel,-Unpublished-,300,CM,IBN:pharcyde.org\r\n\
+Hub,2,Hub_Two,USA,Someone,-Unpublished-,300\r\n\
+Pvt,115,disflux,USA,phrac,-Unpublished-,300,IBN\r\n\
+Down,7,Gone,There,Nobody,-Unpublished-,300\r\n\
+Region,10,Region_Ten,Here,RC,000-000,9600\r\n\x1a";
+
+    #[test]
+    #[ignore]
+    fn fuzz_nodelist() {
+        let corpus = vec![LIST.as_bytes().to_vec(), b"Zone,1,x,y,z\nHold,65535,a,b,c,d\n".to_vec()];
+        fuzzcorpus::run("nodelist", corpus, &[b",", b"\r\n", b"Zone,", b"Host,", b"Down,", b"_", b";"], 30_000, |d| {
+            let list = Nodelist::parse(&fluxbbs_term::cp437::decode(d));
+            for (&(zone, net, node), e) in list.entries.iter().take(50) {
+                assert_eq!(list.find(Addr { zone, net, node, point: 9 }), Some(e));
+                let _ = e.down();
+            }
+        });
+    }
+
+    /// As the newest file of a nodelist area: the file itself, or zipped.
+    #[test]
+    #[ignore]
+    fn fuzz_nodelist_files() {
+        let dir = std::env::temp_dir().join(format!("fluxbbs-fuzz-nodelist-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        let mut zipped = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        zipped.start_file("agoranet.303", zip::write::SimpleFileOptions::default()).unwrap();
+        std::io::Write::write_all(&mut zipped, LIST.as_bytes()).unwrap();
+        let zipped = zipped.finish().unwrap().into_inner();
+        let n = std::cell::Cell::new(0u32);
+        fuzzcorpus::run("nodelist_files", vec![zipped, LIST.as_bytes().to_vec()], &[b"PK\x03\x04", b"PK\x01\x02", b"PK\x05\x06"], 5_000, |d| {
+            let _ = std::fs::remove_dir_all(&dir);
+            std::fs::create_dir_all(&dir).unwrap();
+            // A new name each time: a version is read once.
+            n.set(n.get() + 1);
+            std::fs::write(dir.join(format!("agoranet.z{:02}", n.get() % 100)), d).unwrap();
+            let _ = read_dir(&dir);
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

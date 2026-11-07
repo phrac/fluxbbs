@@ -29,7 +29,15 @@ pub(crate) fn copy_entry(path: &Path, kind: Kind, name: &str, cap: u64, out: &mu
             for e in tar::Archive::new(reader.take(cap)).entries()? {
                 let mut e = e?;
                 if e.path().is_ok_and(|p| p.to_string_lossy() == name) {
-                    return io::copy(&mut e, out);
+                    // New: the stream's cap can cut an entry short, and it
+                    // would look whole; short of its header's size and of
+                    // the cap, it's past the limit (too big).
+                    let size = e.size();
+                    let n = io::copy(&mut (&mut e).take(cap), out)?;
+                    if n < size && n < cap {
+                        return Err(io::Error::other(format!("past the {cap}-byte unpack limit")));
+                    }
+                    return Ok(n);
                 }
             }
             Err(io::ErrorKind::NotFound.into())
@@ -86,5 +94,26 @@ mod tests {
         }
         assert_eq!(read_entry(&zip, Kind::Zip, "a/readme.txt", 5).unwrap(), b"hello", "capped");
         let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_tar_entry_cut_short_by_the_cap_is_too_big() {
+        let tar = std::env::temp_dir().join(format!("iqarchcut{}.tar", std::process::id()));
+        {
+            let mut t = tar::Builder::new(std::fs::File::create(&tar).unwrap());
+            for (n, body) in [("1.txt", &[b'x'; 100][..]), ("2.txt", &[b'y'; 50][..])] {
+                let mut h = tar::Header::new_gnu();
+                h.set_size(body.len() as u64);
+                h.set_cksum();
+                t.append_data(&mut h, n, body).unwrap();
+            }
+            t.finish().unwrap();
+        }
+        // 2.txt's data starts at 1536: a cap of 1550 reaches 14 bytes of it.
+        let mut out = Vec::new();
+        assert!(copy_entry(&tar, Kind::Tar, "2.txt", 1550, &mut out).is_err(), "not 14 bytes passed off as the file");
+        assert_eq!(read_entry(&tar, Kind::Tar, "2.txt", 1 << 20).unwrap(), [b'y'; 50]);
+        assert!(read_entry(&tar, Kind::Tar, "1.txt", 600).is_err(), "88 of 100 bytes is too big, not the file");
+        let _ = std::fs::remove_file(&tar);
     }
 }

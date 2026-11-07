@@ -490,6 +490,12 @@ impl Session {
     /// changed since it last loaded or saved it, onto the record as it is
     /// now; so a SysOp's edit meanwhile (their daily time, say) stays.
     pub(crate) fn save_own_user(&self) -> anyhow::Result<()> {
+        // New: once another node has taken the account over, its session
+        // owns the record.
+        if self.node.lost(self.user.id) {
+            tracing::info!("{}: not saved, the account was taken over by another node", self.user.handle);
+            return Ok(());
+        }
         let base = self.user_base.borrow().clone().filter(|b| b.id == self.user.id);
         match base {
             Some(base) => {

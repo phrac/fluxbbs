@@ -111,11 +111,11 @@ impl Font {
                 for (x, &(ch, attr)) in row.iter().take(g.width as usize).enumerate() {
                     let (fg, bg) = (attr & 15, (attr >> 4) & 7);
                     if ch != 0 && (ch != b' ' || bg != 0) {
-                        cells.push((letter - 1, Cell { x: x0 + x as u16, y: y as u16, ch, fg, bg }));
+                        cells.push((letter - 1, Cell { x: x0.saturating_add(x as u16), y: y as u16, ch, fg, bg }));
                     }
                 }
             }
-            x0 = x0.saturating_add(g.width as u16 + if gi + 1 < glyphs.len() { self.spacing as u16 } else { 0 });
+            x0 = x0.saturating_add(g.width as u16).saturating_add(if gi + 1 < glyphs.len() { self.spacing as u16 } else { 0 });
         }
         if cells.is_empty() {
             return (cells, 0, 0);
@@ -125,8 +125,8 @@ impl Font {
             c.x -= left;
             c.y -= top;
         }
-        let w = cells.iter().map(|c| c.1.x).max().unwrap_or(0) + 1;
-        let h = cells.iter().map(|c| c.1.y).max().unwrap_or(0) + 1;
+        let w = cells.iter().map(|c| c.1.x).max().unwrap_or(0).saturating_add(1);
+        let h = cells.iter().map(|c| c.1.y).max().unwrap_or(0).saturating_add(1);
         (cells, w, h)
     }
 }

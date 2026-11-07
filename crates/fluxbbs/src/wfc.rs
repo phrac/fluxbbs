@@ -743,14 +743,11 @@ impl Session {
             self.newline();
             return self.pause().await;
         };
-        // New: not while the SysOp's account is on another node.
-        if let Err(other) = self.node.claim(u.id) {
-            self.write(&format!("{} is on node {other}; one node at a time.", u.handle));
-            self.newline();
-            return self.pause().await;
-        }
+        // A console job isn't a call, so it doesn't claim the account (the
+        // SysOp may be on a node meanwhile). Its copy's base is taken after
+        // the adjustments below, so a save writes only what the job itself
+        // changed, never the online session's time or areas.
         self.user = u;
-        *self.user_base.borrow_mut() = Some(self.user.clone());
         self.logged_in = true;
         self.time_on = Instant::now();
         self.user.time_today = self.user.time_today.max(self.user.time_per_day);
@@ -759,6 +756,7 @@ impl Session {
         self.user.conf_file = self.user.conf_file.clamp(1, self.state.fareas().confs.len().max(1) as u32);
         self.find_area_with_access();
         self.find_farea_with_access();
+        *self.user_base.borrow_mut() = Some(self.user.clone());
         let (handle, location) = (self.user.handle.clone(), self.user.location.clone());
         self.node.update(|n| {
             n.user = handle;

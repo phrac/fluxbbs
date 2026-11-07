@@ -1460,3 +1460,86 @@ mod tests {
         assert!(mention_matches(&names, &d).1.is_empty(), "the cursor has moved on");
     }
 }
+
+#[cfg(test)]
+pub(crate) mod fuzz {
+    use super::*;
+    use crate::fuzzkit::Target;
+
+    /// A draft within its limits, the cursor on it.
+    pub(crate) fn check(d: &Draft) {
+        assert!(!d.lines.is_empty() && d.lines.len() <= MAX_LINES, "{} lines", d.lines.len());
+        assert!(d.lines.iter().all(|l| l.len() <= WIDTH), "a line of {}", d.lines.iter().map(Vec::len).max().unwrap_or(0));
+        assert!(d.row < d.lines.len(), "row {} of {}", d.row, d.lines.len());
+        assert!(d.col <= d.lines[d.row].len(), "col {} of {}", d.col, d.lines[d.row].len());
+    }
+
+    /// The plain editor's keys in any order, on drafts of any size.
+    #[test]
+    #[ignore]
+    fn fuzz_editor() {
+        let corpus: &[&[u8]] = &[b"hello world\r\x08\x7fabc\x01\x02\x03\x04\x05\x06\x07", b"\x0e\x0f\x10\x11\x12\x13\x14\x15\x16\x17\x18\x19\x1a", &[b'x'; 300]];
+        Target::new("editor", corpus).max_len(4096).run(|input, rng| {
+            let n = *rng.pick(&[0, 1, 5, MAX_LINES - 1, MAX_LINES, MAX_LINES + 3]);
+            let text: Vec<String> = (0..n).map(|i| "w".repeat((i * 13) % (WIDTH + 3))).collect();
+            let mut d = Draft::new(&text);
+            for _ in 0..rng.below(MAX_LINES) {
+                d.down();
+            }
+            for &b in input {
+                let _ = match b % 20 {
+                    0 => d.enter(),
+                    1 => d.backspace(),
+                    2 => d.delete(),
+                    3 => d.delete_line(b & 0x20 != 0),
+                    4 => d.paste(),
+                    5 => d.break_line(),
+                    6 => d.tab(),
+                    7 => {
+                        d.left();
+                        Redraw::Cursor
+                    }
+                    8 => {
+                        d.right();
+                        Redraw::Cursor
+                    }
+                    9 => {
+                        d.up();
+                        Redraw::Cursor
+                    }
+                    10 => {
+                        d.down();
+                        Redraw::Cursor
+                    }
+                    11 => {
+                        d.home();
+                        Redraw::Cursor
+                    }
+                    12 => {
+                        d.end();
+                        Redraw::Cursor
+                    }
+                    13 => {
+                        d.page(*rng.pick(&[-1000, -20, 20, 1000, isize::MIN / 2, isize::MAX / 2]));
+                        Redraw::Cursor
+                    }
+                    14 => {
+                        let lines: Vec<String> = (0..rng.below(300)).map(|_| "q".repeat(rng.below(100))).collect();
+                        d.insert_lines(&lines);
+                        Redraw::Cursor
+                    }
+                    15 => {
+                        d.insert = !d.insert;
+                        Redraw::Cursor
+                    }
+                    _ => d.type_char(fluxbbs_term::cp437::TO_UNICODE[b as usize]),
+                };
+                check(&d);
+            }
+            let t = d.text();
+            assert!(t.len() <= MAX_LINES);
+            let s = String::from_utf8_lossy(input);
+            let _ = (strip_codes(&s), strip_pipes(&s), strip_colours(&s), printable(&s), on_screen(&s), ansi_bytes(&s), strip_escapes(input));
+        });
+    }
+}

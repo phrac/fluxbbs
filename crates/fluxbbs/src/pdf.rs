@@ -44,22 +44,46 @@ pub(crate) fn prune_cache(dir: &Path, keep: &Path) {
     prune_to(dir, CACHE_BYTES, keep)
 }
 
+/// New: a PDF copied out of an archive is kept this long after its last
+/// use however full the cache is (a caller may be reading it), and a
+/// copy still being made (`.part…`) this long.
+const PDF_IN_USE: std::time::Duration = std::time::Duration::from_secs(3600);
+const PART_IN_USE: std::time::Duration = std::time::Duration::from_secs(24 * 3600);
+
+/// New: mark a cache file used now (its access time: the modified time
+/// is part of a copy's [`cache_key`]), so pruning takes it last.
+pub(crate) fn touch(path: &Path) {
+    if let Ok(f) = std::fs::File::options().write(true).open(path) {
+        let _ = f.set_times(std::fs::FileTimes::new().set_accessed(std::time::SystemTime::now()));
+    }
+}
+
+/// When a cache file was last made or used.
+fn last_used(m: &std::fs::Metadata) -> std::time::SystemTime {
+    let made = m.modified().unwrap_or(std::time::UNIX_EPOCH);
+    m.accessed().map_or(made, |a| a.max(made))
+}
+
 fn prune_to(dir: &Path, max: u64, keep: &Path) {
     let Ok(rd) = std::fs::read_dir(dir) else { return };
+    let now = std::time::SystemTime::now();
     let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = rd
         .filter_map(Result::ok)
         .filter_map(|e| {
             let m = e.metadata().ok()?;
-            m.is_file().then(|| (m.modified().unwrap_or(std::time::UNIX_EPOCH), m.len(), e.path()))
+            m.is_file().then(|| (last_used(&m), m.len(), e.path()))
         })
         .collect();
     let mut total: u64 = files.iter().map(|f| f.1).sum();
     files.sort();
-    for (_, len, path) in files {
+    for (used, len, path) in files {
         if total <= max {
             break;
         }
-        if path != keep && std::fs::remove_file(&path).is_ok() {
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_ascii_lowercase();
+        let age = now.duration_since(used).unwrap_or_default();
+        let in_use = (ext.starts_with("part") && age < PART_IN_USE) || (ext == "pdf" && age < PDF_IN_USE);
+        if path != keep && !in_use && std::fs::remove_file(&path).is_ok() {
             total -= len;
         }
     }
@@ -143,7 +167,12 @@ pub fn page_png_wide(path: &Path, n: u32, dir: &Path, width: u32) -> io::Result<
 fn render(path: &Path, n: u32, dir: &Path, stem: &str, size: &[String]) -> io::Result<Vec<u8>> {
     let root = dir.join(stem);
     let png = root.with_extension("png");
-    if !png.exists() {
+    if path.starts_with(dir) {
+        touch(path);
+    }
+    if png.exists() {
+        touch(&png);
+    } else {
         std::fs::create_dir_all(dir)?;
         let n = n.to_string();
         let mut args: Vec<&std::ffi::OsStr> = vec!["-f".as_ref(), n.as_ref(), "-l".as_ref(), n.as_ref(), "-png".as_ref(), "-singlefile".as_ref()];
@@ -179,7 +208,10 @@ impl Session {
     pub(crate) async fn pdf_text(&mut self, name: &str, path: &Path) -> io::Result<Option<char>> {
         let cached = self.pdf_cache().join(format!("{}.txt", cache_key(path)));
         let text = match std::fs::read_to_string(&cached) {
-            Ok(t) => Ok(t),
+            Ok(t) => {
+                touch(&cached);
+                Ok(t)
+            }
             Err(_) => {
                 let p = path.to_path_buf();
                 let got = tokio::task::spawn_blocking(move || text(&p)).await.map_err(io::Error::other)?;
@@ -338,15 +370,37 @@ mod tests {
         let dir = std::env::temp_dir().join(format!("fluxbbs-prune-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(&dir).unwrap();
-        for (i, n) in ["a", "b", "c"].iter().enumerate() {
+        let names = ["a", "b", "c", "d.pdf", "e.part9-1-0", "f.pdf"];
+        for (i, n) in names.iter().enumerate() {
             let p = dir.join(n);
             std::fs::write(&p, [0u8; 100]).unwrap();
             let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000 + i as u64);
-            std::fs::File::options().write(true).open(&p).unwrap().set_modified(t).unwrap();
+            let t = if n.starts_with('d') || n.starts_with('e') { std::time::SystemTime::now() } else { t };
+            let times = std::fs::FileTimes::new().set_modified(t).set_accessed(t);
+            std::fs::File::options().write(true).open(&p).unwrap().set_times(times).unwrap();
         }
         prune_to(&dir, 150, &dir.join("a"));
-        let left: Vec<bool> = ["a", "b", "c"].iter().map(|n| dir.join(n).exists()).collect();
-        assert_eq!(left, [true, false, false], "oldest go first, the one kept stays");
+        let left: Vec<bool> = names.iter().map(|n| dir.join(n).exists()).collect();
+        assert_eq!(left, [true, false, false, true, true, false], "oldest go first; the one kept, a PDF in use and a copy being made stay");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn a_cache_hit_goes_last() {
+        let dir = std::env::temp_dir().join(format!("fluxbbs-touch-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        for (i, n) in ["x.png", "y.png"].iter().enumerate() {
+            let p = dir.join(n);
+            std::fs::write(&p, [0u8; 100]).unwrap();
+            let t = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000 + i as u64);
+            std::fs::File::options().write(true).open(&p).unwrap().set_times(std::fs::FileTimes::new().set_modified(t).set_accessed(t)).unwrap();
+        }
+        touch(&dir.join("x.png"));
+        let m = std::fs::metadata(dir.join("x.png")).unwrap();
+        assert!(m.modified().unwrap() < std::time::UNIX_EPOCH + std::time::Duration::from_secs(2_000_000), "a copy's key stays");
+        prune_to(&dir, 100, &dir.join("none"));
+        assert!(dir.join("x.png").exists() && !dir.join("y.png").exists(), "the one used just now stays");
         let _ = std::fs::remove_dir_all(&dir);
     }
 

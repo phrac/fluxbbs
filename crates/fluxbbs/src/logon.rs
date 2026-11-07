@@ -236,20 +236,47 @@ impl Session {
     }
 
     /// New: one account, one node. Claim the account for this node, or,
-    /// when it's on another already, say so and end the call (the other
-    /// session goes on as it was).
+    /// when it's on another already, offer to end that call (a link that
+    /// died without a hangup holds it for minutes otherwise). No (the
+    /// default), or plain text or a bot, ends this call instead. Called
+    /// once the caller has proved the account.
     pub(crate) async fn claim_account(&mut self) -> io::Result<bool> {
-        match self.node.claim(self.user.id) {
-            Ok(()) => Ok(true),
-            Err(other) => {
-                tracing::info!("{}: already on node {other}, second login refused", self.user.handle);
-                self.login_at = None;
-                self.newline();
-                self.say_line("AlreadyOnline").await?;
-                self.hangup = true;
-                Ok(false)
+        let other = match self.node.claim(self.user.id) {
+            Ok(()) => return Ok(true),
+            Err(other) => other,
+        };
+        if !self.plain() && !crate::aimemory::is_bot(&self.user) {
+            self.newline();
+            let ask = self.strings().fmt("AskTakeOver", &[&other.to_string()]);
+            self.show(&ask).await?;
+            if self.yes_no(false).await? {
+                self.take_over_account(other).await?;
+                return Ok(true);
             }
         }
+        tracing::info!("{}: already on node {other}, second login refused", self.user.handle);
+        self.login_at = None;
+        self.newline();
+        self.say_line("AlreadyOnline").await?;
+        self.hangup = true;
+        Ok(false)
+    }
+
+    /// New: end the call on node `other` that has this account and claim
+    /// it here: asked to go (a kick) first, then its line cut; if it still
+    /// hasn't let go, the claim is taken anyway, and that session's saves
+    /// are dropped. The record is read again, with what it saved.
+    pub(crate) async fn take_over_account(&mut self, other: usize) -> io::Result<()> {
+        let text = self.strings().get("TakenOver").to_string();
+        let ask = self.strings().fmt("TakingOver", &[&other.to_string()]);
+        self.show_line(&ask).await?;
+        self.flush().await?;
+        take_over(&self.node, self.user.id, &self.user.handle, other, &text, TAKEOVER_WAIT).await;
+        if let Ok(Some(u)) = self.state.users.get(self.user.id) {
+            *self.user_base.borrow_mut() = Some(u.clone());
+            self.user = u;
+        }
+        Ok(())
     }
 
     /// `enforce_at_login`: a password that breaks the rules is changed
@@ -1032,6 +1059,42 @@ pub fn has_codes(name: &str) -> bool {
         .any(|t| !matches!(t, fluxbbs_term::Token::Text(_)))
 }
 
+/// How long a takeover waits: (before cutting the old line, before
+/// taking the claim regardless).
+const TAKEOVER_WAIT: (std::time::Duration, std::time::Duration) = (std::time::Duration::from_secs(2), std::time::Duration::from_secs(6));
+
+/// [`Session::take_over_account`]'s claim: kick node `other`, cut its
+/// line after `wait.0`, take the claim after `wait.1`. True if it let go
+/// by itself.
+async fn take_over(node: &crate::nodes::NodeGuard, id: u32, handle: &str, other: usize, text: &str, wait: (std::time::Duration, std::time::Duration)) -> bool {
+    let (me, nodes) = (node.number(), node.nodes().clone());
+    tracing::info!("{handle}: node {me} takes the account over from node {other}");
+    nodes.end_account(other, id, text, false);
+    let start = tokio::time::Instant::now();
+    let mut cut = false;
+    loop {
+        if node.claim(id).is_ok() {
+            tracing::info!("{handle}: node {other} let go after {:.1}s; claimed on node {me}", start.elapsed().as_secs_f64());
+            return true;
+        }
+        let waited = start.elapsed();
+        if !cut && waited >= wait.0 {
+            // A session blocked on a dead link: its I/O fails now.
+            if let Some(n) = nodes.account_node(id).filter(|&n| n != me) {
+                tracing::info!("{handle}: node {n} still has the account; cutting its line");
+                nodes.end_account(n, id, "", true);
+            }
+            cut = true;
+        }
+        if waited >= wait.1 {
+            let from = node.take_over(id);
+            tracing::warn!("{handle}: node(s) {from:?} didn't let go; claim taken over by node {me}, their saves of the account dropped");
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1055,10 +1118,65 @@ mod tests {
         let mut first = Session::for_test(state.clone(), u.clone());
         let mut second = Session::for_test(state, u);
         assert!(first.claim_account().await.unwrap());
-        assert!(!second.claim_account().await.unwrap());
+        second.screen.set_plain(true);
+        assert!(!second.claim_account().await.unwrap(), "plain text isn't asked");
         assert!(second.hangup && !first.hangup, "the second call ends; the first goes on");
+        second.screen.set_plain(false);
+        second.hangup = false;
+        second.input.extend(b"n");
+        assert!(!second.claim_account().await.unwrap(), "no: refused as before");
+        assert!(second.hangup && first.node.take_kick().is_none(), "and the first isn't touched");
         drop(first);
         second.hangup = false;
         assert!(second.claim_account().await.unwrap(), "free once the first hangs up");
+    }
+
+    #[tokio::test]
+    async fn yes_ends_the_other_call_and_logs_in_here() {
+        let state = crate::tests::state();
+        let mut u = User { handle: "phrac".into(), ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        let first = Session::for_test(state.clone(), u.clone());
+        let mut second = Session::for_test(state.clone(), u.clone());
+        assert!(first.node.claim(u.id).is_ok());
+        // Someone on the line, reading what's said.
+        let (io, _peer) = tokio::io::duplex(1 << 16);
+        second.io = Box::new(io);
+        second.input.extend(b"y");
+        let old = async move {
+            // A live session: sees the kick at its next key wait and goes.
+            for _ in 0..500 {
+                if let Some(text) = first.node.take_kick() {
+                    assert!(text.contains("another node"));
+                    break;
+                }
+                tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            }
+            drop(first);
+        };
+        let (ok, ()) = tokio::join!(second.claim_account(), old);
+        assert!(ok.unwrap() && !second.hangup);
+        assert_eq!(state.nodes.account_node(u.id), Some(second.node.number()));
+    }
+
+    #[tokio::test]
+    async fn a_session_that_wont_go_loses_the_account() {
+        use std::time::Duration;
+        let state = crate::tests::state();
+        let mut u = User { handle: "phrac".into(), ..Default::default() };
+        state.users.insert(&mut u).unwrap();
+        let mut stuck = Session::for_test(state.clone(), u.clone());
+        let second = Session::for_test(state.clone(), u.clone());
+        assert!(stuck.node.claim(u.id).is_ok());
+        let line = stuck.node.line();
+        let let_go = take_over(&second.node, u.id, "phrac", stuck.node.number(), "bye", (Duration::from_millis(50), Duration::from_millis(200))).await;
+        assert!(!let_go, "it never let go");
+        assert!(line.is_cut(), "its line was cut");
+        assert!(stuck.node.lost(u.id) && !second.node.lost(u.id));
+        assert_eq!(state.nodes.account_node(u.id), Some(second.node.number()));
+        // Its saves are dropped now: the record stays as the new session has it.
+        stuck.user.handle = "stale".into();
+        stuck.save_own_user().unwrap();
+        assert_eq!(state.users.get(u.id).unwrap().unwrap().handle, "phrac");
     }
 }

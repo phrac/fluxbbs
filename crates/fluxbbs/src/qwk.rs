@@ -999,3 +999,93 @@ mod tests {
         assert_ne!(fingerprint(b"a"), fingerprint(b"b"));
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzcorpus;
+
+    const DICT: &[&[u8]] = &[b"\xe3", b"\xe2", b"\xe1", b"To: ", b"Subject: ", b"From: ", b"999999", b"     1", b"*", b"+", b"\x1b[1m"];
+
+    /// A REP as readers write it: a BBSID block, then each reply's header
+    /// and its text in 128-byte blocks.
+    fn rep(replies: &[(u32, &str, &str, bool, &[&str])]) -> Vec<u8> {
+        let mut d = vec![b' '; BLOCK];
+        d[..8].copy_from_slice(b"INIQUITY");
+        for (conf, to, subj, private, lines) in replies {
+            let body = body_blocks(&lines.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+            let posted = chrono::NaiveDate::from_ymd_opt(2026, 10, 17).unwrap().and_hms_opt(21, 30, 0).unwrap();
+            let h = Header { private: *private, num: *conf, posted, to, from: "PHRAC", subject: subj, blocks: 1 + body.len() / BLOCK, conf: *conf as u16, seq: 1, refer: 7 };
+            d.extend(h.encode());
+            d.extend(body);
+        }
+        d
+    }
+
+    fn corpus() -> Vec<Vec<u8>> {
+        let long = "word ".repeat(100);
+        vec![
+            rep(&[(3, "ALL", "Hi", false, &["line one", "", "line three"]), (0, "FIEND", "Psst", true, &["secret", &long])]),
+            rep(&[(1, "A VERY LONG NAME THAT IS C", "A subject that runs on pa", false, &["To: A VERY LONG NAME THAT IS CUT", "Subject: A subject that runs on past", "From: PHRAC", "", "body \u{2190}[1mbold"])]),
+            rep(&[(65535, "", "", false, &[])]),
+        ]
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_qwk_rep() {
+        fuzzcorpus::run("qwk_rep", corpus(), DICT, 30_000, |d| {
+            for r in parse_rep(d).into_iter().take(MAX_REPLIES) {
+                assert!(r.lines.len() <= MAX_REPLY_LINES + 1);
+                let lines = fit(r.lines);
+                assert!(lines.iter().all(|l| l.chars().count() <= MAX_LINE));
+                let _ = title_case(&r.to);
+            }
+            let _ = fingerprint(d);
+        });
+    }
+
+    /// What's packed reads back as it went: number, names, subject, text.
+    #[test]
+    #[ignore]
+    fn fuzz_qwk_round_trip() {
+        let corpus: Vec<Vec<u8>> = vec![b"1|ALL|Hi|line one\nline two".to_vec(), b"65535|SOMEONE WITH A LONG NAME|re: subj|\n\nx".to_vec(), "0|Zoë|Ünï|ç\u{2588}".as_bytes().to_vec()];
+        fuzzcorpus::run("qwk_round_trip", corpus, &[b"|", b"\n", b"\xe3"], 50_000, |d| {
+            let s = String::from_utf8_lossy(d);
+            let mut f = s.splitn(4, '|');
+            let (Some(n), Some(to), Some(subj), Some(body)) = (f.next(), f.next(), f.next(), f.next()) else { return };
+            let Ok(conf) = n.parse::<u16>() else { return };
+            let lines: Vec<String> = body.split('\n').map(String::from).collect();
+            let data = rep(&[(conf as u32, to, subj, true, &lines.iter().map(String::as_str).collect::<Vec<_>>())]);
+            assert_eq!(data.len() % BLOCK, 0);
+            let back = parse_rep(&data);
+            // A number field of 0 falls back to the binary one: the same.
+            assert_eq!(back.len(), 1, "{data:?}");
+            assert_eq!(back[0].conf, conf as u32);
+            assert!(back[0].private);
+        });
+    }
+
+    /// A REP upload as the ZIP it comes in.
+    #[test]
+    #[ignore]
+    fn fuzz_qwk_rep_zip() {
+        let dir = std::env::temp_dir().join(format!("fluxbbs-fuzz-qwk-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("INIQUITY.REP");
+        let zipped: Vec<Vec<u8>> = corpus()
+            .into_iter()
+            .map(|msg| {
+                zip_files(&path, &[("INIQUITY.MSG".into(), msg)]).unwrap();
+                std::fs::read(&path).unwrap()
+            })
+            .collect();
+        fuzzcorpus::run("qwk_rep_zip", zipped, &[b"PK\x03\x04", b"PK\x01\x02", b"PK\x05\x06", b".MSG"], 10_000, |d| {
+            std::fs::write(&path, d).unwrap();
+            if let Ok(data) = rep_messages(&path) {
+                let _ = parse_rep(&data);
+            }
+        });
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+}

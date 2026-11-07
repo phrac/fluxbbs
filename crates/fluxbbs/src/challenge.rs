@@ -368,3 +368,40 @@ mod tests {
         assert!(flipped[0] && !flipped[2]);
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit::{Target, chunks};
+    use std::sync::Arc;
+
+    /// Answers to both checks, typed any way, from anywhere on screen.
+    #[test]
+    #[ignore]
+    fn fuzz_challenge() {
+        let rt = tokio::runtime::Builder::new_current_thread().enable_time().start_paused(true).build().unwrap();
+        let state = crate::tests::state();
+        let s = std::cell::RefCell::new(Session::for_test(state.clone(), crate::user::User::default()));
+        let corpus: &[&[u8]] = &[b"K7\x1b", b"abc\x08\x08\x7fxyz\r", b"\x1b[3~\x1b[A123", b"TL7"];
+        Target::new("challenge", corpus).max_len(512).run(|input, rng| {
+            let mut cfg = (*state.config()).clone();
+            cfg.security.challenge = true;
+            cfg.security.challenge_visual = rng.one_in(2);
+            cfg.security.challenge_keys = rng.number() as u8;
+            cfg.security.challenge_tries = rng.below(4) as u8;
+            cfg.security.challenge_seconds = rng.number() as u16;
+            *state.config.write().unwrap_or_else(|e| e.into_inner()) = Arc::new(cfg);
+            let mut s = s.borrow_mut();
+            s.io = Box::new(crate::input::fuzz::Pieces(chunks(input, rng).into_iter().map(|c| c.to_vec()).collect()));
+            s.input.clear();
+            s.screen.set_rows(1 + rng.below(60) as u16);
+            s.screen.goto(1 + rng.below(80) as u16, 1 + rng.below(60) as u16);
+            let _ = rt.block_on(s.bot_check());
+            let _ = s.screen.take_output();
+            let chars: Vec<char> = (0..3).map(|_| rng.pick(FONT).0).collect();
+            let tops: Vec<u16> = chars.iter().map(|_| rng.below(3) as u16).collect();
+            let flip: Vec<usize> = input.iter().map(|&b| b as usize * 7 % (FIELD_W * FIELD_H) as usize).collect();
+            assert_eq!(field_cells(&chars, &tops, &flip).len(), (FIELD_W * FIELD_H) as usize);
+        });
+    }
+}

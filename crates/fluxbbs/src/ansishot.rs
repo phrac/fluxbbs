@@ -12,6 +12,8 @@ const W: usize = 8;
 const H: usize = 16;
 /// The tallest picture made, in rows of text.
 const MAX_ROWS: usize = 120;
+/// A CSI parameter past this is taken as this (`ESC[99999999999B`).
+const MAX_PARAM: usize = 9999;
 
 const DOS: [[u8; 3]; 16] = [
     [0, 0, 0], [0, 0, 170], [0, 170, 0], [0, 170, 170], [170, 0, 0], [170, 0, 170], [170, 85, 0], [170, 170, 170],
@@ -73,7 +75,7 @@ pub fn png(data: &[u8]) -> Option<Vec<u8>> {
             0x1B if body.get(i) == Some(&b'[') => {
                 let start = i + 1;
                 let Some(end) = body[start..].iter().position(|c| (0x40..=0x7E).contains(c)).map(|p| start + p) else { break };
-                let params: Vec<usize> = std::str::from_utf8(&body[start..end]).unwrap_or("").split(';').map(|p| p.trim_start_matches('?').parse().unwrap_or(0)).collect();
+                let params: Vec<usize> = std::str::from_utf8(&body[start..end]).unwrap_or("").split(';').map(|p| p.trim_start_matches('?').parse::<usize>().map_or(0, |v| v.min(MAX_PARAM))).collect();
                 let n = |k: usize, d: usize| params.get(k).copied().filter(|&v| v > 0).unwrap_or(d);
                 match body[end] {
                     b'H' | b'f' => {
@@ -81,8 +83,8 @@ pub fn png(data: &[u8]) -> Option<Vec<u8>> {
                         x = (n(1, 1) - 1).min(cols - 1);
                     }
                     b'A' => y = y.saturating_sub(n(0, 1)),
-                    b'B' => y += n(0, 1),
-                    b'C' => x = (x + n(0, 1)).min(cols - 1),
+                    b'B' => y = y.saturating_add(n(0, 1)),
+                    b'C' => x = x.saturating_add(n(0, 1)).min(cols - 1),
                     b'D' => x = x.saturating_sub(n(0, 1)),
                     b's' => saved = (x, y),
                     b'u' => (x, y) = saved,
@@ -241,5 +243,32 @@ mod tests {
     fn shot() {
         let data = std::fs::read(std::env::var("ANSISHOT_IN").unwrap()).unwrap();
         std::fs::write(std::env::var("ANSISHOT_OUT").unwrap(), png(&data).unwrap()).unwrap();
+    }
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit::Target;
+    use crate::pager::fuzz::{ART, DICT};
+
+    #[test]
+    #[ignore]
+    fn fuzz_ansishot() {
+        Target::new("ansishot", ART).dict(DICT).max_len(8192).run(|input, rng| {
+            let mut data = input.to_vec();
+            if rng.one_in(4) {
+                // A SAUCE record with a width in it.
+                let mut sauce = vec![0u8; 128];
+                sauce[..7].copy_from_slice(b"SAUCE00");
+                sauce[94] = 1;
+                sauce[96..98].copy_from_slice(&(rng.number() as u16).to_le_bytes());
+                data.push(0x1a);
+                data.extend(sauce);
+            }
+            if let Some(p) = png(&data) {
+                assert!(p.len() < 32 << 20, "{} byte PNG", p.len());
+            }
+        });
     }
 }

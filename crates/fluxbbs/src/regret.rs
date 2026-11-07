@@ -28,13 +28,22 @@ impl Session {
         if !self.comments_only(a) {
             self.say_line("RegretEcho").await?;
         }
-        let fresh = cfg.take_back_minutes > 0 && (now - m.posted).num_minutes() < cfg.take_back_minutes as i64;
-        if fresh && !retracted && !m.deleted && self.state.msgs.responses(m.id).map_err(io_err)? == 0 {
+        // Asked again after the answer: a reply may come while it waits.
+        let can_take_back = |s: &Session| -> io::Result<bool> {
+            let now = crate::clock::now().naive_local();
+            let fresh = cfg.take_back_minutes > 0 && (now - m.posted).num_minutes() < cfg.take_back_minutes as i64;
+            Ok(fresh && !m.deleted && s.state.msgs.retracted(m.id).map_err(io_err)?.is_none() && s.state.msgs.responses(m.id).map_err(io_err)? == 0)
+        };
+        if can_take_back(self)? {
             self.say("RegretTakeBack").await?;
-            if self.yes_no(false).await? {
-                return self.burn_post(a, m, "took back").await;
+            if !self.yes_no(false).await? {
+                return Ok(false);
             }
-            return Ok(false);
+            if !can_take_back(self)? {
+                self.say_line("RegretTooLate").await?;
+                return Ok(false);
+            }
+            return self.burn_post(a, m, "took back").await;
         }
         let points = if self.state.config().files.use_file_points { cfg.burn_points } else { 0 };
         let burn = if points > 0 { self.strings().fmt("RegretBurnCost", &[&points.to_string()]) } else { String::new() };

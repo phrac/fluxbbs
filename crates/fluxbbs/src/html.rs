@@ -25,6 +25,10 @@ const UNWRAPPED: usize = 10_000;
 /// New: the widest a table's row is made (the viewer shows no more), so
 /// one wide cell can't pad every other row out to its width.
 const MAX_LINE: usize = 1000;
+/// New: the most lists and quotes indented one inside another; deeper
+/// ones go in no further (each level copied every line under it again:
+/// a page of thousands, nested, took seconds).
+const MAX_INDENTS: usize = 12;
 
 enum Node {
     Text(String),
@@ -538,6 +542,8 @@ struct Render {
     links: Vec<String>,
     tables: usize,
     lists: usize,
+    /// Lists and quotes indenting what's being drawn.
+    indents: usize,
 }
 
 /// `lines` with `first` before the first and `next` before the rest.
@@ -623,6 +629,24 @@ fn tidy_gaps(lines: Vec<Line>) -> Vec<Line> {
 }
 
 impl Render {
+    /// `n` columns of indent, or none past `MAX_INDENTS`.
+    fn pad(&self, n: usize) -> usize {
+        if self.indents >= MAX_INDENTS { 0 } else { n }
+    }
+
+    /// [`indent`], unless it's too deep to.
+    fn indented(&self, lines: Vec<Line>, first: Line, next: Line) -> Vec<Line> {
+        if self.indents >= MAX_INDENTS { lines } else { indent(lines, first, next) }
+    }
+
+    /// Lines drawn a level further in.
+    fn sub_in(&mut self, e: &El, width: usize, st: Style) -> Vec<Line> {
+        self.indents += 1;
+        let lines = self.sub(e, width, st, false);
+        self.indents -= 1;
+        lines
+    }
+
     fn link(&mut self, href: &str) -> usize {
         match self.links.iter().position(|l| l == href) {
             Some(n) => n + 1,
@@ -734,7 +758,7 @@ impl Render {
                     return;
                 }
                 if h == "h1" || h == "h2" {
-                    let w = lines.iter().map(width_of).max().unwrap_or(0).clamp(3, width);
+                    let w = lines.iter().map(width_of).max().unwrap_or(0).clamp(3, width.max(3));
                     lines.push(vec![span((if h == "h1" { "═" } else { "─" }).repeat(w), Ink::Dim, false)]);
                 }
                 out.gap();
@@ -748,10 +772,14 @@ impl Render {
                 out.gap();
             }
             "blockquote" => {
-                let lines = self.sub(e, width.saturating_sub(3), st, false);
+                let deep = self.pad(3) == 0;
+                let lines = self.sub_in(e, width.saturating_sub(self.pad(3)), st);
                 let bar = vec![span(" │ ", Ink::Dim, false)];
                 out.gap();
                 out.block(tidy_gaps(lines).into_iter().map(|l| {
+                    if deep {
+                        return l;
+                    }
                     let mut b = bar.clone();
                     b.extend(l);
                     b
@@ -770,8 +798,8 @@ impl Render {
             }
             "li" => {
                 // One outside a list.
-                let lines = self.sub(e, width.saturating_sub(4), st, false);
-                out.block(indent(tidy_gaps(lines), vec![span("  ∙ ", Ink::Bullet, false)], vec![span("    ", Ink::Text, false)]));
+                let lines = self.sub_in(e, width.saturating_sub(self.pad(4)), st);
+                out.block(self.indented(tidy_gaps(lines), vec![span("  ∙ ", Ink::Bullet, false)], vec![span("    ", Ink::Text, false)]));
             }
             "dl" => {
                 out.gap();
@@ -782,9 +810,9 @@ impl Render {
                             out.block(lines);
                         }
                         Node::El(d) if d.tag == "dd" => {
-                            let lines = self.sub(d, width.saturating_sub(4), st, false);
+                            let lines = self.sub_in(d, width.saturating_sub(self.pad(4)), st);
                             let pad = vec![span("    ", Ink::Text, false)];
-                            out.block(indent(tidy_gaps(lines), pad.clone(), pad));
+                            out.block(self.indented(tidy_gaps(lines), pad.clone(), pad));
                         }
                         Node::Text(t) => out.text(t, st),
                         Node::El(d) => self.node(d, out, st),
@@ -820,7 +848,11 @@ impl Render {
         let ordered = e.tag == "ol";
         let mut n: i64 = e.attr("start").and_then(|s| s.trim().parse().ok()).unwrap_or(1);
         let items = e.kids.iter().filter(|k| matches!(k, Node::El(li) if li.tag == "li")).count() as i64;
-        let pad = if ordered { format!("{}", (n + items).max(1)).len() + 4 } else { 4 };
+        let pad = if ordered { format!("{}", n.saturating_add(items).max(1)).len() + 4 } else { 4 };
+        // Too deep to go in further: items one under another, unmarked.
+        let deep = self.pad(pad) == 0;
+        let inner = width.saturating_sub(self.pad(pad));
+        self.indents += 1;
         let mut out = Out::new(width, false);
         for k in &e.kids {
             match k {
@@ -828,31 +860,32 @@ impl Render {
                     if let Some(v) = li.attr("value").and_then(|v| v.trim().parse().ok()) {
                         n = v;
                     }
-                    let lines = tidy_gaps(self.sub(li, width.saturating_sub(pad), st, false));
+                    let lines = tidy_gaps(self.sub(li, inner, st, false));
                     let mark = if ordered { format!("  {:>w$}. ", n, w = pad - 4) } else { "  ∙ ".to_string() };
-                    out.block(indent(lines, vec![span(mark, Ink::Bullet, false)], vec![span(" ".repeat(pad), Ink::Text, false)]));
-                    n += 1;
+                    out.block(if deep { lines } else { indent(lines, vec![span(mark, Ink::Bullet, false)], vec![span(" ".repeat(pad), Ink::Text, false)]) });
+                    n = n.saturating_add(1);
                 }
                 Node::Text(t) if t.trim().is_empty() => {}
                 // A list straight in a list, or words outside an item:
                 // in as far as an item's.
                 Node::El(other) => {
-                    let mut tmp = Out::new(width.saturating_sub(pad), false);
+                    let mut tmp = Out::new(inner, false);
                     self.node(other, &mut tmp, st);
                     tmp.flush(false);
                     let p = vec![span(" ".repeat(pad), Ink::Text, false)];
-                    out.block(indent(tidy_gaps(tmp.lines), p.clone(), p));
+                    out.block(if deep { tidy_gaps(tmp.lines) } else { indent(tidy_gaps(tmp.lines), p.clone(), p) });
                 }
                 Node::Text(t) => {
                     let p = vec![span(" ".repeat(pad), Ink::Text, false)];
-                    let mut tmp = Out::new(width.saturating_sub(pad), false);
+                    let mut tmp = Out::new(inner, false);
                     tmp.text(t, st);
                     tmp.flush(false);
-                    out.block(indent(tmp.lines, p.clone(), p));
+                    out.block(if deep { tmp.lines } else { indent(tmp.lines, p.clone(), p) });
                 }
             }
         }
         out.flush(false);
+        self.indents -= 1;
         self.lists -= 1;
         out.lines
     }
@@ -1011,7 +1044,7 @@ impl Render {
 /// A page's lines, `width` wide (but for what can't be wrapped).
 pub fn render(src: &str, width: usize) -> Vec<Line> {
     let (root, title) = parse(src);
-    let mut r = Render { links: Vec::new(), tables: 0, lists: 0 };
+    let mut r = Render { links: Vec::new(), tables: 0, lists: 0, indents: 0 };
     let mut out = Out::new(width, false);
     r.kids(&root, &mut out, Style::default());
     out.flush(false);
@@ -1021,7 +1054,7 @@ pub fn render(src: &str, width: usize) -> Vec<Line> {
     if !title.is_empty() && !body.iter().take(5).any(|l| text_line(l).trim() == title) {
         let t: Vec<(char, Ink, bool)> = title.chars().map(|c| (c, Ink::Heading, false)).collect();
         lines = wrap(&t, width, &Vec::new(), &Vec::new());
-        let w = lines.iter().map(width_of).max().unwrap_or(0).clamp(3, width);
+        let w = lines.iter().map(width_of).max().unwrap_or(0).clamp(3, width.max(3));
         lines.push(vec![span("═".repeat(w), Ink::Dim, false)]);
         lines.push(Vec::new());
     }
@@ -1117,6 +1150,33 @@ mod tests {
         assert!(lines.iter().all(|l| width_of(l) <= 2 * MAX_LINE), "{}", lines.iter().map(width_of).max().unwrap_or(0));
     }
 
+    /// Found by fuzzing: lists nested past `MAX_DEPTH` with thousands of
+    /// items at the bottom were indented (every line copied) a hundred
+    /// times: a megabyte page took over 20 seconds. Indents stop at
+    /// `MAX_INDENTS`.
+    #[test]
+    fn deep_lists_draw_quickly() {
+        let t = std::time::Instant::now();
+        for page in ["one<ol>".repeat(20_000), "<ol><li>a</>one".repeat(20_000), "<blockquote>;".repeat(20_000)] {
+            assert!(!render(&page, 80).is_empty());
+        }
+        assert!(t.elapsed().as_secs() < 10, "{:?}", t.elapsed());
+        // The first levels still go in, and a huge start number is fine.
+        let lines = render(&format!("<ol start={}><li>a<li>b</ol><ul><li>x<ul><li>y</ul></ul>", i64::MAX), 80);
+        let text: Vec<String> = lines.iter().map(text_line).collect();
+        assert!(text.iter().any(|l| l.contains(&format!("{}. a", i64::MAX))), "{text:?}");
+        assert!(text.iter().any(|l| l.starts_with("      ∙ y")), "{text:?}");
+    }
+
+    /// Found by fuzzing: a heading (or a title) with under 3 columns left,
+    /// deep in quotes, panicked on its underline's `clamp`.
+    #[test]
+    fn headings_with_no_room() {
+        let deep = "<blockquote>".repeat(30) + "<h1>Deep</h1><h2>Er</h2>";
+        assert!(!render(&deep, 80).is_empty());
+        assert!(!render("<title>Title</title><p>x", 2).is_empty());
+    }
+
     /// `HTML_IN=a.html:b.html` (or `HTML_LIST=` a file of them) `cargo test --features full -- --ignored html::tests::dump --nocapture`
     #[test]
     #[ignore]
@@ -1136,5 +1196,34 @@ mod tests {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit::Target;
+
+    const PAGES: &[&[u8]] = &[
+        b"<!DOCTYPE html><html><head><title>T &amp; t</title><style>p{}</style><script>if (a<b) x()</script></head><body><h1>Head</h1><p>Para <b>bold</b> <i>it</i> <a href=\"x.html\">link</a> &copy; &#169; &#xA9; &nbsp;&bogus; &</p>",
+        b"<ul><li>one<ol><li>a</li><li>b</ol></li><li>two</ul><dl><dt>t<dd>d</dl><blockquote><pre>  pre\n  text</pre></blockquote><hr><br/><img alt='pic' src=x>",
+        b"<table border=1><tr><th>A</th><th colspan=2>B</th></tr><tr><td>1</td><td><table><tr><td>in</td></tr></table></td><td rowspan=3>3</td></tr></table><center>mid</center>",
+        b"<div><div><div><span>deep</span></div></div></div><p>unclosed <b>bold <i>both</b> it</i><!-- comment --><![CDATA[x]]><?pi?><textarea><b></textarea>",
+    ];
+    const DICT: &[&[u8]] = &[b"<", b">", b"</", b"/>", b"<table>", b"<tr>", b"<td>", b"</td>", b"<th colspan=99999>", b"<li>", b"<ul>", b"<ol>", b"<pre>", b"<p>", b"<br>", b"<h2>", b"<a href=", b"&", b"&#", b";", b"\"", b"=", b"<!--", b"-->", b"<script>", b"</script>", b"<div>", b"<center>", b"<blockquote>"];
+
+    #[test]
+    #[ignore]
+    fn fuzz_html() {
+        Target::new("html", PAGES).dict(DICT).run(|input, rng| {
+            let src = decode(input);
+            let width = if rng.one_in(16) { rng.below(4) } else { 10 + rng.below(190) };
+            let lines = render(&src, width);
+            let total: usize = lines.iter().map(width_of).sum();
+            assert!(total <= (src.chars().count() + 8) * (width.max(MAX_LINE) + 8), "{total} for {}", src.len());
+            let e = entities(&src);
+            assert!(e.chars().count() <= src.chars().count());
+            let _ = (is_html(&src), text_of(&src), attrs(&src));
+        });
     }
 }

@@ -3,8 +3,14 @@
 //! also send each other messages and chat (NODES.PAS's node data file).
 
 use std::collections::VecDeque;
+use std::io;
+use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
+use std::task::{Context, Poll};
 
+use futures_util::task::AtomicWaker;
+use tokio::io::{AsyncRead, AsyncWrite, ReadBuf};
 use tokio::sync::Notify;
 
 /// Something sent to a node.
@@ -65,6 +71,105 @@ pub struct NodeInfo {
     /// New: the account logged in here (its user id; 0 before login),
     /// claimed by [`NodeGuard::claim`] so it's on one node at a time.
     pub account: u32,
+    /// New: an account taken over from this node by a login elsewhere
+    /// (its id): this session's saves of it are dropped from then on.
+    pub lost: u32,
+    /// New: this node's line, for cutting it (a takeover).
+    pub cut: Cut,
+}
+
+/// New: a node's line, cut from elsewhere (an account taken over): its
+/// reads and writes fail from then on, so a session blocked writing to a
+/// dead link ends too, not just one waiting for a key.
+#[derive(Clone, Default)]
+pub struct Cut(Arc<CutInner>);
+
+#[derive(Default)]
+struct CutInner {
+    done: AtomicBool,
+    read: AtomicWaker,
+    write: AtomicWaker,
+    notify: Notify,
+}
+
+impl std::fmt::Debug for Cut {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "Cut({})", self.is_cut())
+    }
+}
+
+impl Cut {
+    pub fn cut(&self) {
+        self.0.done.store(true, Ordering::SeqCst);
+        self.0.read.wake();
+        self.0.write.wake();
+        self.0.notify.notify_waiters();
+    }
+
+    pub fn is_cut(&self) -> bool {
+        self.0.done.load(Ordering::SeqCst)
+    }
+
+    /// Returns once the line is cut.
+    pub async fn wait(&self) {
+        loop {
+            let n = self.0.notify.notified();
+            let mut n = std::pin::pin!(n);
+            n.as_mut().enable();
+            if self.is_cut() {
+                return;
+            }
+            n.await;
+        }
+    }
+
+    fn check(&self, waker: &AtomicWaker, cx: &Context<'_>) -> Option<io::Error> {
+        if !self.is_cut() {
+            waker.register(cx.waker());
+        }
+        self.is_cut().then(|| io::Error::new(io::ErrorKind::ConnectionReset, "line cut: account logged in elsewhere"))
+    }
+}
+
+/// A connection that a [`Cut`] can end.
+pub struct CutStream<S> {
+    inner: S,
+    cut: Cut,
+}
+
+impl<S> CutStream<S> {
+    pub fn new(inner: S, cut: Cut) -> Self {
+        Self { inner, cut }
+    }
+}
+
+impl<S: AsyncRead + Unpin> AsyncRead for CutStream<S> {
+    fn poll_read(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &mut ReadBuf<'_>) -> Poll<io::Result<()>> {
+        if let Some(e) = self.cut.check(&self.cut.0.read, cx) {
+            return Poll::Ready(Err(e));
+        }
+        Pin::new(&mut self.inner).poll_read(cx, buf)
+    }
+}
+
+impl<S: AsyncWrite + Unpin> AsyncWrite for CutStream<S> {
+    fn poll_write(mut self: Pin<&mut Self>, cx: &mut Context<'_>, buf: &[u8]) -> Poll<io::Result<usize>> {
+        if let Some(e) = self.cut.check(&self.cut.0.write, cx) {
+            return Poll::Ready(Err(e));
+        }
+        Pin::new(&mut self.inner).poll_write(cx, buf)
+    }
+
+    fn poll_flush(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        if let Some(e) = self.cut.check(&self.cut.0.write, cx) {
+            return Poll::Ready(Err(e));
+        }
+        Pin::new(&mut self.inner).poll_flush(cx)
+    }
+
+    fn poll_shutdown(mut self: Pin<&mut Self>, cx: &mut Context<'_>) -> Poll<io::Result<()>> {
+        Pin::new(&mut self.inner).poll_shutdown(cx)
+    }
 }
 
 pub struct Nodes {
@@ -135,6 +240,31 @@ impl Nodes {
         }
     }
 
+    /// New: the node account `id` is claimed on, if any.
+    pub fn account_node(&self, id: u32) -> Option<usize> {
+        let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+        slots.iter().position(|s| id != 0 && s.as_ref().is_some_and(|n| n.account == id)).map(|i| i + 1)
+    }
+
+    /// New: end the call on node `n` if account `id` is still claimed
+    /// there: a `Kick` showing `text`, and with `cut` its line cut as
+    /// well. False if it isn't there now.
+    pub fn end_account(&self, n: usize, id: u32, text: &str, cut: bool) -> bool {
+        let line = {
+            let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
+            match slots.get(n.wrapping_sub(1)) {
+                Some(Some(info)) if id != 0 && info.account == id => info.cut.clone(),
+                _ => return false,
+            }
+        };
+        if cut {
+            line.cut();
+        } else {
+            self.send(n, NodeEvent::Kick { text: text.into() });
+        }
+        true
+    }
+
     pub fn online(&self) -> Vec<(usize, NodeInfo)> {
         let slots = self.slots.lock().unwrap_or_else(|e| e.into_inner());
         slots.iter().enumerate().filter_map(|(i, s)| s.clone().map(|n| (i + 1, n))).collect()
@@ -177,6 +307,39 @@ impl NodeGuard {
             info.account = id;
         }
         Ok(())
+    }
+
+    /// New: claim account `id` for this node even if another node has it
+    /// (a takeover whose old session didn't end in time): that node loses
+    /// it, and its saves of the account are dropped from then on. Returns
+    /// the nodes it was taken from.
+    pub fn take_over(&self, id: u32) -> Vec<usize> {
+        let mut slots = self.nodes.slots.lock().unwrap_or_else(|e| e.into_inner());
+        let mut from = Vec::new();
+        for (i, s) in slots.iter_mut().enumerate() {
+            if let Some(info) = s.as_mut().filter(|n| i != self.index && id != 0 && n.account == id) {
+                info.account = 0;
+                info.lost = id;
+                from.push(i + 1);
+            }
+        }
+        if let Some(info) = slots[self.index].as_mut() {
+            info.account = id;
+            if info.lost == id {
+                info.lost = 0;
+            }
+        }
+        from
+    }
+
+    /// New: has another node taken account `id` over from this one?
+    pub fn lost(&self, id: u32) -> bool {
+        id != 0 && self.nodes.slots.lock().unwrap_or_else(|e| e.into_inner())[self.index].as_ref().is_some_and(|n| n.lost == id)
+    }
+
+    /// New: this node's line, for [`CutStream`].
+    pub fn line(&self) -> Cut {
+        self.nodes.slots.lock().unwrap_or_else(|e| e.into_inner())[self.index].as_ref().map(|n| n.cut.clone()).unwrap_or_default()
     }
 
     /// Events waiting for this node, oldest first. With `chat` false,
@@ -306,6 +469,51 @@ mod tests {
         assert_eq!(n.acquire("ssh").unwrap().claim(0), Ok(()), "nobody yet never collides");
         drop(a);
         assert_eq!(b.claim(7), Ok(()), "free once node 1 hangs up");
+    }
+
+    #[test]
+    fn an_account_can_be_taken_over() {
+        let n = Nodes::new(3);
+        let old = n.acquire("ssh").unwrap();
+        let new = n.acquire("telnet").unwrap();
+        old.claim(7).unwrap();
+        assert_eq!(n.account_node(7), Some(1));
+        assert!(!n.end_account(1, 8, "bye", false), "not that account's node");
+        assert!(n.end_account(1, 7, "bye", false));
+        assert_eq!(old.take_kick().as_deref(), Some("bye"));
+        let line = old.line();
+        assert!(!line.is_cut());
+        assert!(n.end_account(1, 7, "", true));
+        assert!(line.is_cut());
+        assert_eq!(new.claim(7), Err(1), "still claimed until it lets go");
+        assert_eq!(new.take_over(7), vec![1]);
+        assert!(old.lost(7) && !new.lost(7));
+        assert_eq!(n.account_node(7), Some(2));
+        assert_eq!(old.claim(7), Err(2), "the old node can't take it back");
+        assert!(!n.end_account(1, 7, "bye", false), "nothing to end there now");
+        drop(old);
+        assert_eq!(new.claim(7), Ok(()));
+        assert!(!n.acquire("ssh").unwrap().line().is_cut(), "a fresh node has a fresh line");
+    }
+
+    #[tokio::test]
+    async fn a_cut_line_fails_reads_and_writes() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let (a, _b) = tokio::io::duplex(16);
+        let cut = Cut::default();
+        let mut s = CutStream::new(a, cut.clone());
+        s.write_all(b"0123456789abcdef").await.unwrap();
+        // The pipe is full: this write waits until the cut ends it.
+        let c = cut.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            c.cut();
+        });
+        let e = s.write_all(b"more").await.unwrap_err();
+        assert_eq!(e.kind(), io::ErrorKind::ConnectionReset);
+        let mut buf = [0u8; 4];
+        assert!(s.read(&mut buf).await.is_err());
+        tokio::time::timeout(std::time::Duration::from_secs(1), cut.wait()).await.expect("wait returns once cut");
     }
 
     #[test]
