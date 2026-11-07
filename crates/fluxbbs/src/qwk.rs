@@ -32,6 +32,9 @@ const EOL: u8 = 0xE3;
 const BLOCK: usize = 128;
 /// Message lines are kept to this width.
 const WIDTH: usize = 79;
+/// The longest line a reply keeps whole (a long URL), and the most text.
+const MAX_LINE: usize = 255;
+const MAX_REPLY_CHARS: usize = 64 << 10;
 
 /// Most replies taken from one REP, and lines kept of one reply.
 const MAX_REPLIES: usize = 500;
@@ -276,8 +279,34 @@ pub fn parse_rep(data: &[u8]) -> Vec<Reply> {
 /// Lines longer than the message width, wrapped at spaces, what doesn't
 /// fit going on with the next line of its paragraph (quotes keep their
 /// lead; a word too long, a URL, stays whole) rather than left alone.
+/// New: a reply is cut at `MAX_REPLY_CHARS` first (flowing one huge line
+/// costs its length squared), and a word longer than `MAX_LINE` is cut.
 fn fit(lines: Vec<String>) -> Vec<String> {
-    crate::messages::flow(&lines, WIDTH)
+    let mut left = MAX_REPLY_CHARS;
+    let mut kept = Vec::new();
+    for l in lines {
+        if left == 0 {
+            break;
+        }
+        let n = l.chars().count();
+        if n > left {
+            kept.push(l.chars().take(left).collect());
+            left = 0;
+        } else {
+            left -= n;
+            kept.push(l);
+        }
+    }
+    let mut out = Vec::new();
+    for l in crate::messages::flow(&kept, WIDTH) {
+        if l.chars().count() <= MAX_LINE {
+            out.push(l);
+        } else {
+            let chars: Vec<char> = l.chars().collect();
+            out.extend(chars.chunks(WIDTH).map(|c| c.iter().collect::<String>()));
+        }
+    }
+    out
 }
 
 /// A stable fingerprint of a REP's replies (FNV-1a), to spot a packet
@@ -337,8 +366,10 @@ struct Packed {
 impl Session {
     /// Can a QWK packet include this area? `all`: in any conference, not
     /// just the current one (`mandMsg`).
+    /// New: its folders' ACS too (`MsgAreas::open_acs`).
     fn qwk_area_ok(&self, a: &AreaRef, all: bool) -> bool {
-        a.area.password.is_empty() && self.qwk_acs(&[&a.area.acs], all)
+        let need = self.state.areas().open_acs(&a.area);
+        a.area.password.is_empty() && self.qwk_acs(&need.iter().map(String::as_str).collect::<Vec<_>>(), all)
     }
 
     /// Do these ACS strings all pass, in the current conference or (`all`)
@@ -729,7 +760,10 @@ impl Session {
             self.acs(&self.state.config().messages.acs_post_email)
         } else {
             // In whichever conference the packet took it from.
-            a.area.password.is_empty() && self.qwk_acs(&[&a.area.acs, &a.area.post_acs], true)
+            // New: its folders' too, and not on a board they're banned from.
+            let mut need = self.state.areas().open_acs(&a.area);
+            need.push(a.area.post_acs.clone());
+            a.area.password.is_empty() && !self.banned_from(&a) && self.qwk_acs(&need.iter().map(String::as_str).collect::<Vec<_>>(), true)
         };
         // Marked private where that isn't allowed: refused, not posted in
         // public (in an echo area it would go out to the network).
@@ -739,6 +773,10 @@ impl Session {
         // A reply to a message in the packet joins its thread, and goes to
         // its writer: QWK's 25-character To can't hold every handle.
         let parent = if r.refer > 0 { self.state.msgs.get(&a.area.file, r.refer)?.filter(|p| self.ok_to_read(&a, p)) } else { None };
+        // As in `post`: on a request board, bots answer and don't ask.
+        if !email && a.area.requests && parent.is_none() && crate::aimemory::is_bot(&self.user) {
+            return Ok(false);
+        }
         let to_parent = parent.as_ref().filter(|p| {
             let (want, name) = (r.to.trim().to_ascii_uppercase(), crate::editor::strip_codes(&p.from.name).to_ascii_uppercase());
             !want.is_empty() && name.starts_with(&want)
@@ -952,6 +990,12 @@ mod tests {
         assert_eq!(out[0], "short");
         assert!(out.len() > 2 && out.iter().all(|l| l.chars().count() <= WIDTH));
         assert_eq!(title_case("JOHN DOE"), "John Doe");
+        // A huge word is cut, and the whole reply capped.
+        let out = fit(vec!["x".repeat(7 << 20)]);
+        assert!(out.iter().all(|l| l.chars().count() <= MAX_LINE));
+        assert_eq!(out.iter().map(|l| l.len()).sum::<usize>(), MAX_REPLY_CHARS);
+        let url = format!("see https://{}", "a".repeat(150));
+        assert_eq!(fit(vec![url.clone()]).last().unwrap(), &url[4..]);
         assert_ne!(fingerprint(b"a"), fingerprint(b"b"));
     }
 }

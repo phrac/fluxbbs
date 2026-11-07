@@ -195,6 +195,16 @@ impl MsgAreas {
         }
         out
     }
+
+    /// The ACS a caller must pass to open `area`: its own and every
+    /// folder's above it (just its own if it isn't here, e.g. email).
+    pub fn open_acs(&self, area: &MsgArea) -> Vec<String> {
+        let mut out = vec![area.acs.clone()];
+        if let Some(i) = self.areas.iter().position(|a| a.file.eq_ignore_ascii_case(&area.file)) {
+            out.extend(self.lineage(i as u32 + 1).iter().skip(1).filter_map(|&p| self.get(p)).map(|p| p.acs.clone()));
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -224,6 +234,11 @@ mod tests {
         };
         assert_eq!(a.tree(), vec![(1, 0), (3, 0), (2, 1), (4, 0)]);
         assert_eq!(a.lineage(2), vec![2, 3]);
+        let mut c = a.clone();
+        c.areas[1].acs = "s20".into();
+        c.areas[2].acs = "s50".into();
+        assert_eq!(c.open_acs(&c.areas[1]), vec!["s20", "s50"]);
+        assert_eq!(c.open_acs(&c.email), vec![c.email.acs.clone()]);
         let b: MsgAreas = toml::from_str(&a.to_toml()).unwrap();
         assert_eq!(b.areas[1].parent, "CALLERS");
         assert!(!a.to_toml().contains("parent = \"\""));

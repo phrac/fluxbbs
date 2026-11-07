@@ -275,7 +275,7 @@ impl Session {
             }
         }
         if n > last {
-            self.state.msgs.set_lastread(self.user.id, key, n).map_err(io_err)?;
+            self.state.msgs.advance_lastread(self.user.id, key, n).map_err(io_err)?;
             self.state.msgs.forget_seen(self.user.id, key, n).map_err(io_err)?;
         }
         Ok(())
@@ -286,7 +286,7 @@ impl Session {
     pub(crate) fn catch_up(&self, a: &AreaRef) -> io::Result<usize> {
         let new = self.area_view(a)?.new_count();
         let last = self.state.msgs.count(a.key()).map_err(io_err)?;
-        self.state.msgs.set_lastread(self.user.id, a.key(), last).map_err(io_err)?;
+        self.state.msgs.advance_lastread(self.user.id, a.key(), last).map_err(io_err)?;
         self.state.msgs.forget_seen(self.user.id, a.key(), last).map_err(io_err)?;
         Ok(new)
     }
@@ -1560,12 +1560,12 @@ impl Session {
                     self.reader_line(l);
                 }
             }
-            for y in rows + 1 - bar_lines..=rows {
+            for y in (rows + 1).saturating_sub(bar_lines).max(1)..=rows {
                 self.screen.goto(1, y);
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                 self.screen.clear_eol();
             }
-            self.screen.goto(1, rows + 1 - bar_lines);
+            self.screen.goto(1, (rows + 1).saturating_sub(bar_lines).max(1));
             let note = if scroll < last_scroll {
                 self.strings().get("MsgReaderMore").to_string()
             } else if attached {
@@ -1736,7 +1736,7 @@ impl Session {
                         redraw = true;
                     }
                     // New: your own post: take it back, retract or burn it.
-                    Some('D') if !a.is_email() && self.wrote(&m.from) => {
+                    Some('D') if !a.is_email() && self.may_regret(a, &m) => {
                         self.reader_prompt_area();
                         self.regret(a, &m).await?;
                         cur = None;

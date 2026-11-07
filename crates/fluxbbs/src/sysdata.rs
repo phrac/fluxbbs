@@ -758,7 +758,7 @@ impl SysData {
             .query_map([], |r| Ok(Question { id: r.get(0)?, text: r.get(1)?, author: r.get(2)?, user_add: r.get(3)?, answers: Vec::new() }))?
             .collect::<Result<_, _>>()?;
         let mut stmt = db.prepare(
-            "SELECT a.id, a.text, (SELECT COUNT(*) FROM votes v WHERE v.answer = a.id) FROM vote_answers a WHERE a.question = ?1 ORDER BY a.id",
+            "SELECT a.id, a.text, (SELECT COUNT(*) FROM votes v WHERE v.answer = a.id AND v.question = a.question) FROM vote_answers a WHERE a.question = ?1 ORDER BY a.id",
         )?;
         for q in &mut qs {
             q.answers = stmt.query_map([q.id], |r| Ok(Answer { id: r.get(0)?, text: r.get(1)?, votes: r.get(2)? }))?.collect::<Result<_, _>>()?;
@@ -781,10 +781,15 @@ impl SysData {
         Ok(id)
     }
 
+    /// The new answer's id; 0 if the question has gone (deleted on another
+    /// node meanwhile).
     pub fn add_answer(&self, question: i64, text: &str) -> anyhow::Result<i64> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        db.execute("INSERT INTO vote_answers (question, text) VALUES (?1, ?2)", params![question, text])?;
-        Ok(db.last_insert_rowid())
+        let n = db.execute(
+            "INSERT INTO vote_answers (question, text) SELECT ?1, ?2 WHERE EXISTS (SELECT 1 FROM vote_questions WHERE id = ?1)",
+            params![question, text],
+        )?;
+        Ok(if n == 0 { 0 } else { db.last_insert_rowid() })
     }
 
     pub fn delete_question(&self, id: i64) -> anyhow::Result<()> {
@@ -803,9 +808,16 @@ impl SysData {
         Ok(db.query_row("SELECT answer FROM votes WHERE user_id = ?1 AND question = ?2", params![user, question], |r| r.get(0)).optional()?)
     }
 
+    /// Only for an answer that's still the question's: answer ids are
+    /// reused once the newest are deleted, so a vote left behind by a
+    /// question deleted meanwhile would count for another's.
     pub fn vote(&self, user: u32, question: i64, answer: i64) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
-        db.execute("INSERT OR REPLACE INTO votes (user_id, question, answer) VALUES (?1, ?2, ?3)", params![user, question, answer])?;
+        db.execute(
+            "INSERT OR REPLACE INTO votes (user_id, question, answer)
+             SELECT ?1, ?2, ?3 WHERE EXISTS (SELECT 1 FROM vote_answers WHERE id = ?3 AND question = ?2)",
+            params![user, question, answer],
+        )?;
         Ok(())
     }
 
@@ -1132,6 +1144,14 @@ mod tests {
         sd.delete_question(q).unwrap();
         assert!(sd.questions().unwrap().is_empty());
         assert_eq!(sd.my_vote(1, q).unwrap(), None);
+        // A vote or answer for a question deleted meanwhile goes nowhere,
+        // and doesn't count for the next question's reused answer ids.
+        sd.vote(5, q, usurper).unwrap();
+        assert_eq!(sd.add_answer(q, "Late").unwrap(), 0);
+        let q2 = sd.add_question("Best game?", "SysOp", true, &["A".into(), "B".into(), "C".into()]).unwrap();
+        assert!(sd.questions().unwrap()[0].answers.iter().all(|a| a.votes == 0));
+        sd.vote(1, q2, lord).unwrap();
+        assert_eq!(sd.questions().unwrap()[0].answers.iter().map(|a| a.votes).sum::<u32>(), 1);
     }
 
     #[test]

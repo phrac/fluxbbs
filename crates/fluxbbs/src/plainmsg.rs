@@ -271,7 +271,7 @@ impl Session {
             } else {
                 self.plain_line("Only its author or a moderator edits a message.");
             }
-        } else if !a.is_email() && self.wrote(&m.from) {
+        } else if !a.is_email() && self.may_regret(a, &m) {
             // The reader shows the post again; here, a line says what changed
             // (taking back and burning say "Gone." themselves).
             if self.regret(a, &m).await? && self.state.msgs.by_id(m.id).map_err(io_err)?.is_some_and(|x| !x.deleted) {
@@ -480,7 +480,7 @@ impl Session {
         }
         let now = crate::clock::now().naive_local();
         if let Some(last) = self.state.msgs.last_push_at(self.user.id).map_err(io_err)?
-            && (now - last).num_seconds() < PUSH_GAP
+            && (0..PUSH_GAP).contains(&(now - last).num_seconds())
         {
             return self.say_line("PushTooFast").await;
         }

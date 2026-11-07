@@ -43,12 +43,15 @@ pub fn run(state: &BbsState, days: u64, dir: Option<&Path>) -> anyhow::Result<Pa
     std::fs::create_dir_all(&dir).with_context(|| format!("creating {}", dir.display()))?;
     // They hold the host keys and every account: the owner's alone.
     let _ = std::fs::set_permissions(&dir, std::fs::Permissions::from_mode(0o700));
-    // To the second, and the process: two runs never share a file.
+    // To the second; the working files by process and run too, so two
+    // runs in the same second never share (or remove) each other's.
+    static RUNS: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let run = RUNS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let stamp = crate::clock::now().format("%Y-%m-%d-%H%M%S");
-    let out = dir.join(format!("fluxbbs-{stamp}.tar.gz"));
+    let mut out = dir.join(format!("fluxbbs-{stamp}.tar.gz"));
     let db = cfg.db_path().canonicalize().context("the database")?;
-    let snapshot = dir.join(format!(".snapshot-{stamp}-{}.db", std::process::id()));
-    let part = dir.join(format!(".fluxbbs-{stamp}-{}.part", std::process::id()));
+    let snapshot = dir.join(format!(".snapshot-{stamp}-{}-{run}.db", std::process::id()));
+    let part = dir.join(format!(".fluxbbs-{stamp}-{}-{run}.part", std::process::id()));
     let made = (|| {
         let conn = rusqlite::Connection::open(&db)?;
         conn.busy_timeout(std::time::Duration::from_secs(30))?;
@@ -80,7 +83,9 @@ pub fn run(state: &BbsState, days: u64, dir: Option<&Path>) -> anyhow::Result<Pa
         let mut files = 1;
         add_dir(&mut tar, &root, Path::new(""), &skip, &db_name, &mut files)?;
         tar.into_inner()?.finish()?;
-        std::fs::rename(&part, &out)?;
+        // A link, which won't replace a backup made the same second: that
+        // one keeps its name and this gets `-2` (and so on).
+        out = put_beside(&part, &dir, &format!("fluxbbs-{stamp}"))?;
         anyhow::Ok(files)
     })();
     let _ = std::fs::remove_file(&snapshot);
@@ -90,6 +95,20 @@ pub fn run(state: &BbsState, days: u64, dir: Option<&Path>) -> anyhow::Result<Pa
     tracing::info!("backup: {} ({files} files, {})", out.display(), crate::upscan::human_size(size));
     prune(&dir, days);
     Ok(out)
+}
+
+/// Link `part` into `dir` as `{base}.tar.gz`, or `{base}-2.tar.gz`... if
+/// that's taken; returns the name used.
+fn put_beside(part: &Path, dir: &Path, base: &str) -> anyhow::Result<PathBuf> {
+    for n in 1..1000 {
+        let out = dir.join(if n == 1 { format!("{base}.tar.gz") } else { format!("{base}-{n}.tar.gz") });
+        match std::fs::hard_link(part, &out) {
+            Ok(()) => return Ok(out),
+            Err(e) if e.kind() == std::io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e.into()),
+        }
+    }
+    anyhow::bail!("no free name for {base}.tar.gz")
 }
 
 /// The board directory's files, in tar under their relative paths.
@@ -158,5 +177,18 @@ mod tests {
         assert_eq!(parse(&["14"]).unwrap(), (14, None));
         assert_eq!(parse(&["30", "/mnt/nas/bbs"]).unwrap(), (30, Some(PathBuf::from("/mnt/nas/bbs"))));
         assert!(parse(&["0"]).is_err());
+    }
+
+    #[test]
+    fn same_second_backups_keep_both() {
+        let dir = std::env::temp_dir().join(format!("inq-backup-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (a, b) = (dir.join("a.part"), dir.join("b.part"));
+        std::fs::write(&a, "one").unwrap();
+        std::fs::write(&b, "two").unwrap();
+        assert_eq!(put_beside(&a, &dir, "fluxbbs-x").unwrap(), dir.join("fluxbbs-x.tar.gz"));
+        assert_eq!(put_beside(&b, &dir, "fluxbbs-x").unwrap(), dir.join("fluxbbs-x-2.tar.gz"));
+        assert_eq!(std::fs::read_to_string(dir.join("fluxbbs-x.tar.gz")).unwrap(), "one");
+        std::fs::remove_dir_all(&dir).unwrap();
     }
 }

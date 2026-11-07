@@ -41,19 +41,22 @@ fn env_for(state: &BbsState, u: &User) -> AcsEnv {
     }
 }
 
-/// Could `u`, not necessarily on, read `area`? Its ACS, in their current
-/// conference or any other they may join; never a passworded area.
+/// Could `u`, not necessarily on, read `area`? Its ACS and its folders'
+/// (`MsgAreas::open_acs`), in their current conference or any other they
+/// may join; never a passworded area.
 pub fn may_read(state: &BbsState, u: &User, area: &MsgArea) -> bool {
     if !area.password.is_empty() {
         return false;
     }
+    let areas = state.areas();
+    let need = areas.open_acs(area);
     let env = env_for(state, u);
-    if acs::check(&area.acs, &env) {
+    if need.iter().all(|a| acs::check(a, &env)) {
         return true;
     }
-    state.areas().confs.iter().enumerate().any(|(i, c)| {
+    areas.confs.iter().enumerate().any(|(i, c)| {
         let env = AcsEnv { conf_msg: i as u32 + 1, ..env.clone() };
-        acs::check(&c.acs, &env) && acs::check(&area.acs, &env)
+        acs::check(&c.acs, &env) && need.iter().all(|a| acs::check(a, &env))
     })
 }
 

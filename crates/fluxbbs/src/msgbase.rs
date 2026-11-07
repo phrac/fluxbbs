@@ -837,6 +837,12 @@ impl MsgBase {
         Ok(())
     }
 
+    /// Who deleted a message (blank if it isn't deleted).
+    pub fn deleted_by(&self, id: i64) -> anyhow::Result<Option<String>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row("SELECT deleted_by FROM messages WHERE id = ?1", [id], |r| r.get(0)).optional()?)
+    }
+
     /// `Z` in the reader: a new date for a message.
     pub fn set_posted(&self, id: i64, posted: NaiveDateTime) -> anyhow::Result<()> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
@@ -977,6 +983,19 @@ impl MsgBase {
         db.execute(
             "INSERT INTO lastread (user_id, area, num) VALUES (?1, ?2, ?3)
              ON CONFLICT (user_id, area) DO UPDATE SET num = excluded.num",
+            params![user, area, num],
+        )?;
+        Ok(())
+    }
+
+    /// Like `set_lastread`, but never moves the mark back (another node
+    /// may have moved it further meanwhile).
+    pub fn advance_lastread(&self, user: u32, area: &str, num: u32) -> anyhow::Result<()> {
+        self.changed();
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        db.execute(
+            "INSERT INTO lastread (user_id, area, num) VALUES (?1, ?2, ?3)
+             ON CONFLICT (user_id, area) DO UPDATE SET num = MAX(num, excluded.num)",
             params![user, area, num],
         )?;
         Ok(())
@@ -1890,6 +1909,8 @@ mod tests {
         assert_eq!(mb.lastread(1, "GENERAL").unwrap(), 0);
         mb.set_lastread(1, "GENERAL", 5).unwrap();
         mb.set_lastread(1, "GENERAL", 7).unwrap();
+        mb.advance_lastread(1, "GENERAL", 6).unwrap();
+        assert_eq!(mb.lastread(1, "GENERAL").unwrap(), 7);
         assert_eq!(mb.lastread(1, "general").unwrap(), 7);
         assert_eq!(mb.lastread(2, "GENERAL").unwrap(), 0);
     }
