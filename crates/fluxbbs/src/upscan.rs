@@ -253,9 +253,13 @@ pub fn scan(path: &Path, kind: Kind, limits: &Limits) -> io::Result<Result<Optio
         Kind::Other => {
             // libarchive reads most other archive formats (RAR, 7Z, LHA,
             // tar.bz2 and .xz); without it there's just no summary.
-            match std::process::Command::new("bsdtar").arg("-tf").arg(path).stderr(std::process::Stdio::null()).output() {
-                Ok(out) if out.status.success() => (|| {
-                    for name in String::from_utf8_lossy(&out.stdout).lines().filter(|l| !l.is_empty()) {
+            // New: within LIST_SECS and LIST_BYTES of listing, or killed:
+            // an .xz bomb would otherwise keep a core busy past the call.
+            let mut cmd = std::process::Command::new("bsdtar");
+            cmd.arg("-tf").arg(path);
+            match run_bounded(cmd, std::time::Duration::from_secs(LIST_SECS), LIST_BYTES) {
+                Some(out) => (|| {
+                    for name in String::from_utf8_lossy(&out).lines().filter(|l| !l.is_empty()) {
                         if name.ends_with('/') {
                             continue;
                         }
@@ -263,11 +267,95 @@ pub fn scan(path: &Path, kind: Kind, limits: &Limits) -> io::Result<Result<Optio
                     }
                     Ok(Some(()))
                 })(),
-                _ => Ok(None),
+                None => Ok(None),
             }
         }
     };
     Ok(result.map(|got| got.map(|_| seen.scan)))
+}
+
+/// How long `bsdtar -t` may list an archive, and how much it may print.
+const LIST_SECS: u64 = 30;
+const LIST_BYTES: u64 = 4 << 20;
+
+/// What `cmd` prints, if it ends well within `limit` and `max` bytes of
+/// output; otherwise it's killed and there's nothing.
+pub(crate) fn run_bounded(cmd: std::process::Command, limit: std::time::Duration, max: u64) -> Option<Vec<u8>> {
+    run_limited(cmd, limit, max).ok().filter(|(st, _, _)| st.success()).map(|(_, out, _)| out)
+}
+
+/// Why [`run_limited`] has nothing.
+#[derive(Debug)]
+pub(crate) enum RunError {
+    Spawn(io::Error),
+    TooLong,
+    TooMuch,
+}
+
+impl std::fmt::Display for RunError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            RunError::Spawn(e) => write!(f, "{e}"),
+            RunError::TooLong => write!(f, "it took too long"),
+            RunError::TooMuch => write!(f, "it gave too much"),
+        }
+    }
+}
+
+/// New: run `cmd` (no input), killing it past `limit` or `max` bytes of
+/// output: how it ended, its output and the start of its errors.
+pub(crate) fn run_limited(mut cmd: std::process::Command, limit: std::time::Duration, max: u64) -> Result<(std::process::ExitStatus, Vec<u8>, Vec<u8>), RunError> {
+    use std::process::Stdio;
+    use std::time::{Duration, Instant};
+    let mut child = cmd.stdin(Stdio::null()).stdout(Stdio::piped()).stderr(Stdio::piped()).spawn().map_err(RunError::Spawn)?;
+    let read = |r: Option<Box<dyn Read + Send>>, cap: u64, drain: bool| {
+        std::thread::spawn(move || {
+            let mut buf = Vec::new();
+            if let Some(r) = r {
+                let mut r = r.take(cap + 1);
+                let _ = r.read_to_end(&mut buf);
+                // Errors past the cap are drained, so the tool never blocks on them.
+                if drain {
+                    let _ = io::copy(&mut r.into_inner(), &mut io::sink());
+                }
+            }
+            buf
+        })
+    };
+    let out = read(child.stdout.take().map(|o| Box::new(o) as Box<dyn Read + Send>), max, false);
+    let err = read(child.stderr.take().map(|e| Box::new(e) as Box<dyn Read + Send>), 4096, true);
+    let deadline = Instant::now() + limit;
+    let ended = loop {
+        match child.try_wait() {
+            Ok(Some(st)) => break Ok(st),
+            Ok(None) if Instant::now() >= deadline => break Err(RunError::TooLong),
+            // Past the cap, the reader stops: the tool would block on its output.
+            Ok(None) if out.is_finished() => {
+                std::thread::sleep(Duration::from_millis(100));
+                match child.try_wait() {
+                    Ok(Some(st)) => break Ok(st),
+                    _ => break Err(RunError::TooMuch),
+                }
+            }
+            Ok(None) => std::thread::sleep(Duration::from_millis(20)),
+            Err(e) => break Err(RunError::Spawn(e)),
+        }
+    };
+    let st = match ended {
+        Ok(st) => st,
+        // The readers are left to end with the pipes (anything the tool
+        // started may still hold them).
+        Err(e) => {
+            let _ = child.kill();
+            let _ = child.wait();
+            return Err(e);
+        }
+    };
+    let (out, err) = (out.join().unwrap_or_default(), err.join().unwrap_or_default());
+    if out.len() as u64 > max {
+        return Err(RunError::TooMuch);
+    }
+    Ok((st, out, err))
 }
 
 /// A tar, tar.gz or gzip file's contents for the viewer: (name, size,
@@ -314,6 +402,22 @@ pub fn human_size(n: u64) -> String {
 mod tests {
     use super::*;
     use std::io::Write;
+
+    #[test]
+    fn listings_are_bounded() {
+        use std::process::Command;
+        use std::time::{Duration, Instant};
+        let sh = |c: &str| {
+            let mut cmd = Command::new("sh");
+            cmd.arg("-c").arg(c);
+            cmd
+        };
+        assert_eq!(run_bounded(sh("echo hi"), Duration::from_secs(5), 100).as_deref(), Some(&b"hi\n"[..]));
+        let t = Instant::now();
+        assert!(run_bounded(sh("sleep 10"), Duration::from_millis(200), 100).is_none());
+        assert!(run_bounded(sh("yes"), Duration::from_secs(10), 1000).is_none());
+        assert!(t.elapsed() < Duration::from_secs(5), "killed, not waited for");
+    }
 
     fn limits() -> Limits {
         Limits { max_ratio: 100, max_unpacked: 0, refuse_unsafe: true, keep_names: 2 }

@@ -196,7 +196,10 @@ impl Session {
         if zip {
             self.light(screen, b"L0").await?;
             let cap = crate::upscan::Limits::from_config(&f).cap(size);
-            match zip_entries(path, cap) {
+            // Off the async threads: it inflates the whole archive.
+            let p = path.to_path_buf();
+            let tested = tokio::task::spawn_blocking(move || zip_entries(&p, cap)).await.map_err(io::Error::other)?;
+            match tested {
                 Ok(e) => {
                     entries = e;
                     self.light_done(screen, b"L0", true);

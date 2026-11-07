@@ -175,7 +175,9 @@ pub struct Session {
     /// Message number being read (`%MN`).
     pub menu_msg: u32,
     /// Files flagged for download: (area, file number).
-    pub batch: Vec<(u32, u32)>,
+    /// (area number, file id): an id, as a record's number changes when
+    /// another node removes a file before it.
+    pub batch: Vec<(u32, i64)>,
     /// The caller applied as a new user on this call.
     pub new_user: bool,
     /// `XI` in the matrix: this call stays out of the callers list.

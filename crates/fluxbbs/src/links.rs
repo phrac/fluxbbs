@@ -47,13 +47,13 @@ fn file_line(name: &str, size: &str, area: &str, desc: &str) -> String {
 }
 
 impl Session {
-    /// A file area by storage key, if the caller may see into it (its ACS,
-    /// and no password unless it's the area they're in).
+    /// A file area by storage key, if the caller may see into it (its ACS
+    /// and its parents', and no password unless it's the area they're in).
     pub(crate) fn linked_farea(&self, key: &str) -> Option<FAreaRef> {
         let areas = self.state.fareas();
         let n = areas.areas.iter().position(|a| a.file.eq_ignore_ascii_case(key))? as u32 + 1;
         let a = self.farea(n)?;
-        (self.acs(&a.area.acs) && (a.area.password.is_empty() || n == self.user.cur_file_area)).then_some(a)
+        (self.farea_visible(n) && (a.area.password.is_empty() || n == self.user.cur_file_area)).then_some(a)
     }
 
     /// A message's text and the comments under it, where links are.

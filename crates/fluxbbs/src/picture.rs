@@ -94,11 +94,20 @@ pub fn load(data: &[u8], cols: usize, rows: usize, lim: Limits) -> Result<Pictur
     decode(data, lim, |w, h, _| fit(w, h, cols, rows))
 }
 
+const SIXEL_SIDE: u32 = 2048;
+const SIXEL_ZOOM: u32 = 4;
+
 /// New: as [`load`], in sixels fitting `pw` by `ph` pixels. A GIF is
 /// drawn no bigger than it is, and an animation in 64 colors: each frame
 /// is a whole picture, and these keep one to about 100 KB.
 pub fn load_sixel(data: &[u8], pw: u32, ph: u32, lim: Limits) -> Result<Picture, String> {
-    let mut p = decode(data, lim, |w, h, gif| if gif { fit_pixels(w, h, pw.min(w), ph.min(h)) } else { fit_pixels(w, h, pw, ph) })?;
+    // At most SIXEL_SIDE a side and SIXEL_ZOOM times the picture: the
+    // cell size and rows come from the caller's terminal.
+    let (pw, ph) = (pw.clamp(1, SIXEL_SIDE), ph.clamp(1, SIXEL_SIDE));
+    let mut p = decode(data, lim, |w, h, gif| {
+        let zoom = if gif { 1 } else { SIXEL_ZOOM };
+        fit_pixels(w, h, pw.min(w.saturating_mul(zoom)), ph.min(h.saturating_mul(zoom)))
+    })?;
     let colors = if p.frames.len() > 1 { 64 } else { 256 };
     for f in &mut p.frames {
         f.sixel = sixel(&std::mem::take(&mut f.px), f.w, f.h, colors);
@@ -301,6 +310,15 @@ mod tests {
     }
 
     const ANY: Limits = Limits { max_bytes: 0, max_pixels: 0, max_frames: 0 };
+
+    #[test]
+    fn sixel_targets_are_capped() {
+        let mut png = Vec::new();
+        RgbaImage::from_pixel(10, 10, image::Rgba([255, 0, 0, 255])).write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
+        // Cells of 64x128 and 200 rows: 5120x25600 asked for.
+        let p = load_sixel(&png, 80 * 64, 200 * 128, ANY).unwrap();
+        assert_eq!((p.frames[0].w, p.frames[0].h), (40, 40), "four times the picture at most");
+    }
 
     #[test]
     fn animated_gifs_fit_the_screen() {

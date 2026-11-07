@@ -66,14 +66,19 @@ fn page_back(files: &[FileRec], end: usize, l: &Layout) -> usize {
     first
 }
 
+/// The most of a description file (FILE_ID.DIZ, an .nfo) read: far more
+/// than the lines kept, and a packed bomb can claim gigabytes.
+pub(crate) const MAX_DESC_READ: u64 = 64 << 10;
+
+/// A description from a ZIP's FILE_ID.DIZ (or whichever of `names` it has).
 pub fn zip_description(path: &Path, names: &[String]) -> Option<Vec<String>> {
     let file = std::fs::File::open(path).ok()?;
     let mut zip = zip::ZipArchive::new(file).ok()?;
     for want in names {
         let idx = (0..zip.len()).find(|&i| zip.by_index(i).is_ok_and(|e| e.name().is_ok_and(|n| n.rsplit('/').next().is_some_and(|n| n.eq_ignore_ascii_case(want)))))?;
-        let mut entry = zip.by_index(idx).ok()?;
+        let entry = zip.by_index(idx).ok()?;
         let mut raw = Vec::new();
-        io::Read::read_to_end(&mut entry, &mut raw).ok()?;
+        io::Read::read_to_end(&mut io::Read::take(entry, MAX_DESC_READ), &mut raw).ok()?;
         let lines = parse_description(&raw);
         if !lines.is_empty() {
             return Some(lines);
@@ -87,9 +92,9 @@ pub fn zip_description(path: &Path, names: &[String]) -> Option<Vec<String>> {
 pub fn nfo_description(path: &Path) -> Option<Vec<String>> {
     let mut zip = zip::ZipArchive::new(std::fs::File::open(path).ok()?).ok()?;
     let idx = (0..zip.len()).find(|&i| zip.by_index(i).is_ok_and(|e| e.name().is_ok_and(|n| n.to_ascii_lowercase().ends_with(".nfo"))))?;
-    let mut entry = zip.by_index(idx).ok()?;
+    let entry = zip.by_index(idx).ok()?;
     let mut raw = Vec::new();
-    io::Read::read_to_end(&mut entry, &mut raw).ok()?;
+    io::Read::read_to_end(&mut io::Read::take(entry, MAX_DESC_READ), &mut raw).ok()?;
     let lines = parse_description(&raw);
     (!lines.is_empty()).then_some(lines)
 }
@@ -192,6 +197,67 @@ pub(crate) struct MenuBar {
     pub(crate) off: Vec<bool>,
     pub(crate) pos: usize,
     pub(crate) xs: Vec<u16>,
+}
+
+/// The points, daily limits and ratios `faReqDownload` checks, for `f` on
+/// top of `add` (files, kb, points) already picked: the string and its
+/// arguments if `u` can't have it. Also checked when a web link is
+/// first fetched (`web.rs`).
+pub(crate) fn over_limits(fc: &crate::config::Files, u: &crate::user::User, f: &FileRec, add: (u32, u64, u32)) -> Option<(&'static str, Vec<String>)> {
+    let (files, kb, points) = add;
+    if fc.use_file_points && f.points + points > u.file_points {
+        Some(("FaNoFilePts", vec![u.file_points.to_string(), f.points.to_string(), f.name.clone()]))
+    } else if fc.use_daily_limit && u.today_dl + files >= u.limit_dl {
+        Some(("FaOverDLlimit", vec![u.limit_dl.to_string(), f.name.clone()]))
+    } else if fc.use_daily_kb_limit && u.today_dl_kb as u64 + kb >= u.dl_kb_allowance() {
+        Some(("FaOverDLkbLimit", vec![u.dl_kb_allowance().to_string(), f.name.clone()]))
+    } else if fc.use_ratio && u.downloads + files >= u.uploads * u.uldl_ratio + u.uldl_ratio {
+        Some(("FaULDLratioBad", vec![f.name.clone()]))
+    } else if fc.use_kb_ratio && u.download_kb + kb >= u.upload_kb * u.kb_ratio as u64 + u.kb_ratio as u64 {
+        Some(("FaKBratioBad", vec![f.name.clone()]))
+    } else {
+        None
+    }
+}
+
+/// Move an upload at `from` into `dir` as `name`, or as `name-1.ext`,
+/// `name-2.ext`... if that's on disk or `taken` (has a record), never
+/// replacing a file: the name it got.
+pub(crate) fn place_upload(from: &Path, dir: &Path, name: &str, taken: impl Fn(&str) -> bool) -> io::Result<String> {
+    let (stem, ext) = match name.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() => (s, format!(".{e}")),
+        _ => (name, String::new()),
+    };
+    for i in 0..1000 {
+        let n = if i == 0 { name.to_string() } else { format!("{stem}-{i}{ext}") };
+        if taken(&n) {
+            continue;
+        }
+        let dest = dir.join(&n);
+        // A link fails if the name is there; across filesystems, a copy
+        // into a file that must be new.
+        match std::fs::hard_link(from, &dest) {
+            Ok(()) => {
+                let _ = std::fs::remove_file(from);
+                return Ok(n);
+            }
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(_) => {}
+        }
+        let mut out = match std::fs::OpenOptions::new().write(true).create_new(true).open(&dest) {
+            Ok(f) => f,
+            Err(e) if e.kind() == io::ErrorKind::AlreadyExists => continue,
+            Err(e) => return Err(e),
+        };
+        if let Err(e) = io::copy(&mut std::fs::File::open(from)?, &mut out) {
+            drop(out);
+            let _ = std::fs::remove_file(&dest);
+            return Err(e);
+        }
+        let _ = std::fs::remove_file(from);
+        return Ok(n);
+    }
+    Err(io::Error::new(io::ErrorKind::AlreadyExists, format!("no free name for {name}")))
 }
 
 /// One file shown on the current page.
@@ -306,8 +372,13 @@ impl Session {
         out
     }
 
+    /// May the caller see into file area `n`: its access and that of every
+    /// area above it, as [`Session::visible_fareas`] has it. Every check of
+    /// one file area goes through here (a sub-area's own ACS isn't enough).
     pub(crate) fn farea_visible(&self, n: u32) -> bool {
-        self.visible_fareas().iter().any(|&(m, _)| m == n)
+        let fa = self.state.fareas();
+        let line = fa.lineage(n);
+        !line.is_empty() && line.iter().all(|&m| fa.get(m).is_some_and(|a| self.acs(&a.acs)))
     }
 
     /// Visible sub-areas directly under `of` (top-level areas for `None`).
@@ -445,9 +516,10 @@ impl Session {
     async fn search_file(&mut self, name: &str) -> io::Result<Option<(FAreaRef, FileRec)>> {
         let mut order: Vec<u32> = vec![self.user.cur_file_area];
         order.extend((1..=self.farea_count()).filter(|&n| n != self.user.cur_file_area));
+        let visible: std::collections::HashSet<u32> = self.visible_fareas().into_iter().map(|(n, _)| n).collect();
         for n in order {
             let Some(a) = self.farea(n) else { continue };
-            if !self.acs(&a.area.acs) || (n != self.user.cur_file_area && !a.area.password.is_empty()) {
+            if !visible.contains(&n) || (n != self.user.cur_file_area && !a.area.password.is_empty()) {
                 continue;
             }
             let files = self.state.files.list(&a.area.file).map_err(io_err)?;
@@ -562,15 +634,12 @@ impl Session {
 
     /// `faReqDownload`: may this file be downloaded, on top of `add`
     /// (seconds, files, kb, points) already selected?
-    async fn may_download(&mut self, a: &FAreaRef, f: &FileRec, add: (u64, u32, u64, u32)) -> io::Result<bool> {
+    pub(crate) async fn may_download(&mut self, a: &FAreaRef, f: &FileRec, add: (u64, u32, u64, u32)) -> io::Result<bool> {
         // New: points others gave us while we've been on count.
         self.sync_points();
-        let fc = &self.state.config().files;
-        let (use_points, use_limit, use_kb_limit, use_ratio, use_kb_ratio) =
-            (fc.use_file_points, fc.use_daily_limit, fc.use_daily_kb_limit, fc.use_ratio, fc.use_kb_ratio);
         let u = self.user.clone();
         let fail = |key: &'static str, args: Vec<String>| (key, args);
-        let problem = if !self.acs(&a.area.acs) || !self.acs(&a.area.download_acs) {
+        let problem = if !self.farea_visible(a.num) || !self.acs(&a.area.download_acs) {
             Some(fail("FaDLaccessDenied", vec![f.name.clone()]))
         } else if !self.farea_dir(&a.area).join(&f.name).is_file() {
             Some(fail("FaFileNotThere", vec![f.name.clone()]))
@@ -578,18 +647,8 @@ impl Session {
             Some(fail("FaFileNotValid", vec![f.name.clone()]))
         } else if (self.minutes_left() as u64 * 60).saturating_sub(add.0) < self.xfer_secs(f.size) {
             Some(fail("FaNoTimeForDL", vec![f.name.clone()]))
-        } else if use_points && f.points + add.3 > u.file_points {
-            Some(fail("FaNoFilePts", vec![u.file_points.to_string(), f.points.to_string(), f.name.clone()]))
-        } else if use_limit && u.today_dl + add.1 >= u.limit_dl {
-            Some(fail("FaOverDLlimit", vec![u.limit_dl.to_string(), f.name.clone()]))
-        } else if use_kb_limit && u.today_dl_kb as u64 + add.2 >= u.dl_kb_allowance() {
-            Some(fail("FaOverDLkbLimit", vec![u.dl_kb_allowance().to_string(), f.name.clone()]))
-        } else if use_ratio && u.downloads + add.1 >= u.uploads * u.uldl_ratio + u.uldl_ratio {
-            Some(fail("FaULDLratioBad", vec![f.name.clone()]))
-        } else if use_kb_ratio && u.download_kb + add.2 >= u.upload_kb * u.kb_ratio as u64 + u.kb_ratio as u64 {
-            Some(fail("FaKBratioBad", vec![f.name.clone()]))
         } else {
-            None
+            over_limits(&self.state.config().files, &u, f, (add.1, add.2, add.3))
         };
         if let Some((key, args)) = problem {
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
@@ -659,7 +718,7 @@ impl Session {
     }
 
     /// Credit a completed download.
-    fn count_download(&mut self, f: &mut FileRec) -> io::Result<()> {
+    pub(crate) fn count_download(&mut self, f: &mut FileRec) -> io::Result<()> {
         let kb = (f.size / 1024) as u32;
         let u = &mut self.user;
         u.downloads += 1;
@@ -669,11 +728,12 @@ impl Session {
         if self.state.config().files.use_file_points {
             u.file_points = u.file_points.saturating_sub(f.points);
         }
-        f.downloads += 1;
+        // Counted in place: `f` was read before the transfer, and a SysOp
+        // may have edited or renamed it meanwhile.
+        f.downloads = self.state.files.add_download(f).map_err(io_err)?.unwrap_or(f.downloads + 1);
         let area = self.state.fareas().areas.iter().find(|a| a.file.eq_ignore_ascii_case(&f.area)).map_or_else(|| f.area.clone(), |a| crate::editor::strip_colours(&a.name));
         *self.seen.downloads.entry(area).or_default() += 1;
         self.bump(crate::sysdata::Stat::Download { kb: kb as u64 });
-        self.state.files.update(f).map_err(io_err)?;
         self.save_own_user().map_err(io_err)?;
         Ok(())
     }
@@ -769,10 +829,8 @@ impl Session {
         self.newline();
         let mut picked: Vec<(FAreaRef, FileRec)> = Vec::new();
         let (mut secs, mut kb, mut pts, mut size) = (0u64, 0u64, 0u32, 0u64);
-        for (an, fnum) in self.batch.clone() {
-            let (Some(a), Some(f)) = (self.farea(an), self.farea(an).and_then(|a| self.state.files.get(&a.area.file, fnum).ok().flatten())) else {
-                continue;
-            };
+        for (an, id) in self.batch.clone() {
+            let Some((a, f)) = self.batch_file(an, id) else { continue };
             if self.may_download(&a, &f, (secs, picked.len() as u32, kb, pts)).await? {
                 secs += self.xfer_secs(f.size);
                 kb += f.size / 1024;
@@ -826,22 +884,30 @@ impl Session {
     // ---- the batch ------------------------------------------------------
 
     /// 0 added, 1 full, 2 already there (`faAddToBatch`).
-    fn add_to_batch(&mut self, area: u32, num: u32) -> u8 {
-        if self.batch.contains(&(area, num)) {
+    fn add_to_batch(&mut self, area: u32, f: &FileRec) -> u8 {
+        if self.batch.contains(&(area, f.id)) {
             2
         } else if self.batch.len() >= if self.is_sysop() { SYSOP_BATCH } else { MAX_BATCH } {
             1
         } else {
-            self.batch.push((area, num));
+            self.batch.push((area, f.id));
             0
         }
+    }
+
+    /// A batch entry's area and file as they are now; None if it's gone
+    /// (or moved to another area).
+    fn batch_file(&self, an: u32, id: i64) -> Option<(FAreaRef, FileRec)> {
+        let a = self.farea(an)?;
+        let f = self.state.files.by_id(id).ok().flatten().filter(|f| f.area.eq_ignore_ascii_case(&a.area.file))?;
+        Some((a, f))
     }
 
     /// `faBatchAdd` (`F+`).
     pub async fn flag_file(&mut self, param: &str) -> io::Result<()> {
         self.newline();
         let Some((a, f)) = self.locate_file(param, "FaBatchAskAdd").await? else { return Ok(()) };
-        let key = match self.add_to_batch(a.num, f.num) {
+        let key = match self.add_to_batch(a.num, &f) {
             0 => {
                 let s = self.strings().fmt("FaBatchAdded", &[&f.name]);
                 return self.show_line(&s).await;
@@ -862,9 +928,8 @@ impl Session {
             // The heading and rule are two lines of this page.
             let mut lines: u16 = 2;
             self.nonstop = false;
-            for (i, (an, fnum)) in self.batch.clone().into_iter().enumerate() {
-                let Some(a) = self.farea(an) else { continue };
-                let Some(f) = self.state.files.get(&a.area.file, fnum).map_err(io_err)? else { continue };
+            for (i, (an, id)) in self.batch.clone().into_iter().enumerate() {
+                let Some((a, f)) = self.batch_file(an, id) else { continue };
                 let line = format!("|U1 {} {} {} {}", resize(&(i + 1).to_string(), 4), resize(&f.name, 26), resize(&commas(f.size), 13), a.area.name);
                 self.show_line(&line).await?;
                 lines += 1;
@@ -891,8 +956,8 @@ impl Session {
                     let n: usize = self.read_string(ReadOpts::new(2).allowed(DIGITS)).await?.parse().unwrap_or(0);
                     self.newline();
                     if (1..=self.batch.len()).contains(&n) {
-                        let (an, fnum) = self.batch.remove(n - 1);
-                        let name = self.farea(an).and_then(|a| self.state.files.get(&a.area.file, fnum).ok().flatten()).map(|f| f.name).unwrap_or_default();
+                        let (an, id) = self.batch.remove(n - 1);
+                        let name = self.batch_file(an, id).map(|(_, f)| f.name).unwrap_or_default();
                         let s = self.strings().fmt("s285", &[&name]);
                         self.show_line(&s).await?;
                     }
@@ -927,7 +992,7 @@ impl Session {
                 None => wildcard(spec, &f.name),
             };
             if hit {
-                match self.add_to_batch(a.num, f.num) {
+                match self.add_to_batch(a.num, f) {
                     0 => added += 1,
                     1 => {
                         full = true;
@@ -956,14 +1021,11 @@ impl Session {
         self.show("|U1Delete the files themselves from disk too? ").await?;
         let disk = self.yes_no(false).await?;
         self.newline();
-        // Highest numbers first in each area: removing a record renumbers
-        // the ones after it.
-        let mut items = self.batch.clone();
-        items.sort_by(|x, y| x.0.cmp(&y.0).then(y.1.cmp(&x.1)));
+        // Each looked up as it is now: removing a record renumbers the
+        // ones after it.
         let (mut gone, mut erased) = (0, 0);
-        for (an, fnum) in items {
-            let Some(a) = self.farea(an) else { continue };
-            let Some(f) = self.state.files.get(&a.area.file, fnum).map_err(io_err)? else { continue };
+        for (an, id) in self.batch.clone() {
+            let Some((a, f)) = self.batch_file(an, id) else { continue };
             if disk {
                 let path = self.state.config().resolve(&a.area.path).join(&f.name);
                 if path.is_file() && std::fs::remove_file(&path).is_ok() {
@@ -1124,7 +1186,7 @@ impl Session {
                 break;
             }
             let y = l.top + used as u16;
-            let flagged = self.batch.contains(&(area, f.num));
+            let flagged = self.batch.contains(&(area, f.id));
             if let Some(x) = l.num_x {
                 self.screen.goto(x, y);
                 self.screen.set_color(l.cl[0]);
@@ -1250,7 +1312,7 @@ impl Session {
                 let info = self.strings().get(if bar.is_some() { "FaListInfoBar" } else { "FaListInfo" }).to_string();
                 self.lister_info(&l, &info).await?;
                 if let Some(b) = bar {
-                    self.lister_name(&l, &files[rows[b].idx], rows[b].y, true, self.batch.contains(&(a.num, files[rows[b].idx].num)));
+                    self.lister_name(&l, &files[rows[b].idx], rows[b].y, true, self.batch.contains(&(a.num, files[rows[b].idx].id)));
                 }
             }
             self.lister_park(&l);
@@ -1268,7 +1330,7 @@ impl Session {
                     }
                     if let Some(b) = bar {
                         let f = &files[rows[b].idx];
-                        self.lister_name(&l, f, rows[b].y, false, self.batch.contains(&(a.num, f.num)));
+                        self.lister_name(&l, f, rows[b].y, false, self.batch.contains(&(a.num, f.id)));
                     }
                     // New: past the page's first or last file the bar goes
                     // on to the page before or after (round from either
@@ -1302,7 +1364,7 @@ impl Session {
                     }
                     if let Some(b) = bar {
                         let f = &files[rows[b].idx];
-                        self.lister_name(&l, f, rows[b].y, true, self.batch.contains(&(a.num, f.num)));
+                        self.lister_name(&l, f, rows[b].y, true, self.batch.contains(&(a.num, f.id)));
                     }
                     if menu_was_bar != bar.is_some() {
                         let m = if bar.is_some() { &mut barm } else { &mut list };
@@ -1342,7 +1404,7 @@ impl Session {
             if key == Key::Esc
                 && let Some(b) = bar.take() {
                     let f = &files[rows[b].idx];
-                    self.lister_name(&l, f, rows[b].y, false, self.batch.contains(&(a.num, f.num)));
+                    self.lister_name(&l, f, rows[b].y, false, self.batch.contains(&(a.num, f.id)));
                     self.lister_menu(&l, &mut list);
                     let info = self.strings().get("FaListInfo").to_string();
                     self.lister_info(&l, &info).await?;
@@ -1398,7 +1460,7 @@ impl Session {
                 "flag" => {
                     match selected {
                         Some(f) => {
-                            let key = match self.add_to_batch(a.num, f.num) {
+                            let key = match self.add_to_batch(a.num, &f) {
                                 0 => None,
                                 1 => Some("FaBatchFull"),
                                 _ => Some("FaBatchAlready"),
@@ -1415,7 +1477,7 @@ impl Session {
                                 bar = if b + 1 < rows.len() { Some(b + 1) } else { None };
                                 if let Some(nb) = bar {
                                     let nf = &files[rows[nb].idx];
-                                    self.lister_name(&l, nf, rows[nb].y, true, self.batch.contains(&(a.num, nf.num)));
+                                    self.lister_name(&l, nf, rows[nb].y, true, self.batch.contains(&(a.num, nf.id)));
                                 } else {
                                     self.lister_menu(&l, &mut list);
                                 }
@@ -1537,7 +1599,7 @@ impl Session {
     /// `FL`: `Ask` prompts for a filespec; otherwise lists everything.
     pub async fn list_files_cmd(&mut self, param: &str) -> io::Result<()> {
         let Some(a) = self.current_farea() else { return Ok(()) };
-        if !self.acs(&a.area.acs) {
+        if !self.farea_visible(a.num) {
             return Ok(());
         }
         let mut files = self.state.files.list(&a.area.file).map_err(io_err)?;
@@ -1582,7 +1644,8 @@ impl Session {
         let mut scanned = false;
         for n in areas {
             let Some(a) = self.farea(n) else { continue };
-            if !self.acs(&a.area.acs) || off.contains(&a.area.file) {
+            // All of them came from the visible list; one asked for by number, checked.
+            if (!all && !self.farea_visible(n)) || off.contains(&a.area.file) {
                 continue;
             }
             if news.as_ref().is_some_and(|c| !c.contains_key(&a.area.file.to_lowercase())) {
@@ -1639,7 +1702,7 @@ impl Session {
         let areas: Vec<FAreaRef> = areas
             .into_iter()
             .filter_map(|n| self.farea(n))
-            .filter(|a| self.acs(&a.area.acs) && (a.area.password.is_empty() || a.num == self.user.cur_file_area))
+            .filter(|a| (all || self.farea_visible(a.num)) && (a.area.password.is_empty() || a.num == self.user.cur_file_area))
             .collect();
         // One query over every area (the original read each area's list,
         // naming it as it went; with an archive's hundreds that's a
@@ -1705,7 +1768,7 @@ impl Session {
         match crate::upscan::kind_of(&f.name) {
             crate::upscan::Kind::Text => self.view_text_file(&path, &f.name, &a.area.name).await,
             k @ (crate::upscan::Kind::Zip | crate::upscan::Kind::TarGz | crate::upscan::Kind::Tar | crate::upscan::Kind::Gzip) => {
-                self.browse_archive(&path, &f.name, k).await
+                self.browse_archive(&path, &f.name, k, Some((a.num, f.clone()))).await
             }
             // Not an archive we know: text if it reads as text, whatever
             // it's called (a textfile archive has `.ana`, `.hum`, no
@@ -1762,7 +1825,9 @@ impl Session {
                 let got: Vec<PathBuf> = std::fs::read_dir(&dir).ok()?.filter_map(Result::ok).map(|e| e.path()).collect();
                 names.iter().find_map(|want| {
                     let p = got.iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(want)))?;
-                    let lines = parse_description(&std::fs::read(p).ok()?);
+                    let mut raw = Vec::new();
+                    io::Read::read_to_end(&mut io::Read::take(std::fs::File::open(p).ok()?, MAX_DESC_READ), &mut raw).ok()?;
+                    let lines = parse_description(&raw);
                     (!lines.is_empty()).then_some(lines)
                 })
             }
@@ -1928,7 +1993,7 @@ impl Session {
         // stays on screen. New; the original scrolled.
         let y = self.screen.where_y();
         let Some(a) = self.current_farea() else { return Ok(()) };
-        if !self.acs(&a.area.upload_acs) {
+        if !self.farea_visible(a.num) || !self.acs(&a.area.upload_acs) {
             self.upload_line(y);
             return self.say_line("FaULnoAccess").await;
         }
@@ -2082,11 +2147,15 @@ impl Session {
             let s = self.strings().fmt("FaULaddingFile", &[&name]);
             self.upload_note(&s).await?;
             let meta = std::fs::metadata(&path)?;
-            let dest = dir.join(&name);
-            if dest.exists() || std::fs::rename(&path, &dest).is_err() {
-                std::fs::copy(&path, &dest)?;
-                let _ = std::fs::remove_file(&path);
+            // New: never over a file already there (another node's upload
+            // of the same name since it was checked, or one with no
+            // record): the next free name instead.
+            let taken = |n: &str| self.state.files.find(&a.area.file, n).ok().flatten().is_some();
+            let placed = place_upload(&path, &dir, &name, taken)?;
+            if placed != name {
+                tracing::info!("{}: upload {name} is {placed}: the name was taken", self.user.handle);
             }
+            let name = placed;
             let mut rec = FileRec {
                 id: 0,
                 area: a.area.file.clone(),
@@ -2345,6 +2414,55 @@ fn without_sauce(bytes: &[u8]) -> &[u8] {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn sub_areas_need_their_parents_access() {
+        let state = crate::tests::state();
+        let mut fa = (*state.fareas()).clone();
+        let mut sub = fa.areas[0].clone();
+        fa.areas[0].acs = "s100".into();
+        sub.file = "SUB".into();
+        sub.acs = String::new();
+        sub.parent = fa.areas[0].file.clone();
+        fa.areas.push(sub);
+        *state.fareas.write().unwrap_or_else(|e| e.into_inner()) = std::sync::Arc::new(fa);
+        let mut s = crate::session::Session::for_test(state, crate::user::User { sl: 10, ..Default::default() });
+        assert!(!s.farea_visible(2) && s.linked_farea("SUB").is_none());
+        #[cfg(feature = "ai")]
+        assert!(s.ai_visible_file_areas().is_empty());
+        s.user.sl = 100;
+        assert!(s.farea_visible(2) && s.linked_farea("SUB").is_some());
+        #[cfg(feature = "ai")]
+        assert_eq!(s.ai_visible_file_areas().len(), 2);
+    }
+
+    #[test]
+    fn uploads_never_replace_a_file() {
+        let dir = std::env::temp_dir().join(format!("fluxbbs-place-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(dir.join("in")).unwrap();
+        std::fs::write(dir.join("a.zip"), b"first").unwrap();
+        std::fs::write(dir.join("in/a.zip"), b"second").unwrap();
+        let got = place_upload(&dir.join("in/a.zip"), &dir, "a.zip", |n| n == "a-1.zip").unwrap();
+        assert_eq!(got, "a-2.zip", "past the file on disk and the name with a record");
+        assert_eq!(std::fs::read(dir.join("a.zip")).unwrap(), b"first");
+        assert_eq!(std::fs::read(dir.join("a-2.zip")).unwrap(), b"second");
+        assert!(!dir.join("in/a.zip").exists());
+        std::fs::write(dir.join("in/README"), b"x").unwrap();
+        assert_eq!(place_upload(&dir.join("in/README"), &dir, "README", |_| false).unwrap(), "README");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn limits_count_what_is_picked() {
+        let fc = crate::config::Files { use_file_points: true, use_daily_limit: true, use_daily_kb_limit: false, use_ratio: false, use_kb_ratio: false, ..Default::default() };
+        let u = crate::user::User { file_points: 10, limit_dl: 3, today_dl: 1, ..Default::default() };
+        let mut f = FileRec { id: 0, area: "A".into(), num: 1, name: "x".into(), size: 0, date: None, uploader: String::new(), uploaded: None, downloads: 0, points: 6, valid: true, description: Vec::new() };
+        assert!(over_limits(&fc, &u, &f, (0, 0, 0)).is_none());
+        assert_eq!(over_limits(&fc, &u, &f, (0, 0, 5)).map(|p| p.0), Some("FaNoFilePts"));
+        f.points = 0;
+        assert_eq!(over_limits(&fc, &u, &f, (2, 0, 0)).map(|p| p.0), Some("FaOverDLlimit"));
+    }
 
     #[test]
     fn art_descriptions_from_one_piece() {

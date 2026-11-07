@@ -90,8 +90,9 @@ pub fn with_summary(f: &FileRec, words: String) -> Vec<String> {
 #[cfg_attr(not(feature = "ai"), allow(dead_code))]
 pub fn evidence(path: &Path, f: &FileRec, area: &str) -> String {
     let mut out = vec![format!("File name: {}", f.name), format!("Size: {} bytes", f.size), format!("File area: {area}")];
-    let data = std::fs::read(path).unwrap_or_default();
-    if let Some(s) = crate::gallery::parse_sauce(&data) {
+    // Only what's used: the start, and the SAUCE record at the end.
+    let (data, tail) = head_and_tail(path, 16 * 1024, 128);
+    if let Some(s) = crate::gallery::parse_sauce(&tail) {
         let mut parts = Vec::new();
         for (k, v) in [("title", &s.title), ("author", &s.author), ("group", &s.group), ("date", &s.date)] {
             if !v.is_empty() {
@@ -123,10 +124,25 @@ pub fn evidence(path: &Path, f: &FileRec, area: &str) -> String {
         }
     } else if crate::picture::is_image(&f.name) {
         out.push("It is a picture: see it attached.".into());
-    } else if let Some(words) = words_of(&data[..data.len().min(16 * 1024)]) {
+    } else if let Some(words) = words_of(&data) {
         out.push(format!("The start of its text: {words}"));
     }
     out.join("\n")
+}
+
+/// Up to `head` bytes from the start of a file and its last `tail` bytes.
+#[cfg_attr(not(feature = "ai"), allow(dead_code))]
+fn head_and_tail(path: &Path, head: u64, tail: u64) -> (Vec<u8>, Vec<u8>) {
+    use std::io::{Read, Seek, SeekFrom};
+    let Ok(mut f) = std::fs::File::open(path) else { return Default::default() };
+    let len = f.metadata().map(|m| m.len()).unwrap_or(0);
+    let mut start = Vec::new();
+    let _ = (&mut f).take(head).read_to_end(&mut start);
+    let mut end = Vec::new();
+    if f.seek(SeekFrom::Start(len.saturating_sub(tail))).is_ok() {
+        let _ = f.take(tail).read_to_end(&mut end);
+    }
+    (start, end)
 }
 
 /// The words in some text, up to 1,500 characters: escapes and drawing
@@ -614,6 +630,31 @@ mod tests {
         assert!(!is_bare(&rec("a.ans", &["skull by pi", "2026-10-30", "[ text, 59 lines ]"])));
         let f = rec("fluxgirl2.ans", &["fluxgirl2", "2026-10-30", "[ text, 59 lines ]"]);
         assert_eq!(with_summary(&f, "Penny".into()), vec!["Penny".to_string(), "[ text, 59 lines ]".to_string()]);
+    }
+
+    #[test]
+    fn evidence_reads_the_ends_only() {
+        let dir = std::env::temp_dir().join(format!("aidesc-ends-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("big.ans");
+        let mut data = b"Hello from the top of this art. ".to_vec();
+        data.resize(200_000, b' ');
+        data.push(0x1a);
+        let mut sauce = b"SAUCE00".to_vec();
+        for (v, n) in [("Big Piece", 35), ("someone", 20), ("", 20), ("19960101", 8)] {
+            let mut b = v.as_bytes().to_vec();
+            b.resize(n, b' ');
+            sauce.extend(b);
+        }
+        sauce.resize(128, 0);
+        data.extend(sauce);
+        std::fs::write(&path, &data).unwrap();
+        let (head, tail) = head_and_tail(&path, 16 * 1024, 128);
+        assert_eq!((head.len(), tail.len()), (16 * 1024, 128));
+        let facts = evidence(&path, &rec("big.ans", &[]), "Art");
+        assert!(facts.contains("SAUCE record: title Big Piece, author someone"), "{facts}");
+        assert!(facts.contains("Hello from the top"), "{facts}");
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

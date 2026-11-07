@@ -330,7 +330,11 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - Upload screening: allowed types, contents matching the name, and a
   summary of what's inside added to the description.
   ([FILES](FILES.md#screening-uploads))
-- Zip bombs and unsafe paths refused.
+- Zip bombs and unsafe paths refused; listing other archives (bsdtar)
+  and reading PDFs (Poppler) are killed if they run too long; one Zmodem
+  upload session brings at most 100 files.
+- An upload never replaces a file already in the area: one whose name
+  was taken by the time it's added comes in as `name-1.ext`.
 - An outside virus scanner (`test_command`, e.g. ClamAV) in place of
   the DOS one.
 - An ad file added to uploaded ZIPs.

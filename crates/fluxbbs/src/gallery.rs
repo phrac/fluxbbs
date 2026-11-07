@@ -8,7 +8,7 @@
 use std::collections::HashMap;
 
 use crate::findpage::Choice;
-use std::io::{self, Read, Seek, SeekFrom};
+use std::io::{self, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
@@ -158,6 +158,8 @@ fn kind_word(name: &str) -> &'static str {
 /// A file area's record for an item that is one of its files: downloads
 /// of these go through the area's checks and accounting.
 type Rec = Option<(u32, FileRec)>;
+/// Archives on disk and the file records they are.
+type Owners = Vec<(PathBuf, (u32, FileRec))>;
 
 #[derive(Debug, Clone)]
 enum Item {
@@ -256,36 +258,55 @@ fn disk_sauce(path: &Path) -> Option<Sauce> {
 
 /// A piece's bytes.
 fn read_piece(src: &Src) -> io::Result<Vec<u8>> {
-    match src {
-        Src::Disk(p) => {
-            let mut out = Vec::new();
-            std::fs::File::open(p)?.take(MAX_PIECE).read_to_end(&mut out)?;
-            Ok(out)
-        }
-        Src::Zip(zip, name) => {
-            let mut z = zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(io::Error::other)?;
-            let mut out = Vec::new();
-            z.by_name(name).map_err(io::Error::other)?.take(MAX_PIECE).read_to_end(&mut out)?;
-            Ok(out)
-        }
-        Src::Tar(tar, kind, name) => crate::archview::read_entry(tar, *kind, name, MAX_PIECE),
-    }
+    read_limited(src, MAX_PIECE)
 }
 
 /// Up to `max` bytes of a piece (pictures can be bigger than art).
 fn read_limited(src: &Src, max: u64) -> io::Result<Vec<u8>> {
     let mut out = Vec::new();
+    copy_piece(src, max, &mut out)?;
+    Ok(out)
+}
+
+/// A ZIP entry's name as listed: made safe, `/` between folders.
+fn zip_shown_name<R: Read>(f: &zip::read::ZipFile<'_, R>) -> Option<String> {
+    f.enclosed_name().map(|p| p.to_string_lossy().replace('\\', "/"))
+}
+
+/// Up to `max` bytes of a piece, written to `out` as they're read.
+fn copy_piece(src: &Src, max: u64, out: &mut dyn Write) -> io::Result<u64> {
     match src {
-        Src::Disk(p) => {
-            std::fs::File::open(p)?.take(max).read_to_end(&mut out)?;
-        }
+        Src::Disk(p) => io::copy(&mut std::fs::File::open(p)?.take(max), out),
         Src::Zip(zip, name) => {
             let mut z = zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(io::Error::other)?;
-            z.by_name(name).map_err(io::Error::other)?.take(max).read_to_end(&mut out)?;
+            // Listed by the name shown, which isn't always the stored one.
+            let i = (0..z.len()).find(|&i| z.by_index(i).ok().and_then(|f| zip_shown_name(&f)).as_deref() == Some(name.as_str()));
+            let mut e = match i {
+                Some(i) => z.by_index(i),
+                None => z.by_name(name),
+            }
+            .map_err(io::Error::other)?;
+            io::copy(&mut (&mut e).take(max), out)
         }
-        Src::Tar(tar, kind, name) => return crate::archview::read_entry(tar, *kind, name, max),
+        Src::Tar(tar, kind, name) => crate::archview::copy_entry(tar, *kind, name, max, out),
     }
-    Ok(out)
+}
+
+/// The biggest PDF copied out of an archive to be shown.
+#[cfg(feature = "pdf")]
+const MAX_PDF: u64 = 64 << 20;
+
+/// A piece out of its archive into a new file at `out`, refusing one
+/// bigger than `max` (a download mustn't arrive cut short).
+fn extract_piece(src: &Src, out: &Path, max: u64) -> io::Result<()> {
+    let mut f = std::fs::OpenOptions::new().write(true).create_new(true).open(out)?;
+    let n = copy_piece(src, max.saturating_add(1), &mut f)?;
+    if n > max {
+        drop(f);
+        let _ = std::fs::remove_file(out);
+        return Err(io::Error::other(format!("bigger than {max} bytes unpacked")));
+    }
+    Ok(())
 }
 
 /// What's in a folder: folders and packs first, then pieces, by name.
@@ -319,7 +340,7 @@ fn list(place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
             for i in 0..z.len() {
                 let Ok(mut f) = z.by_index(i) else { continue };
                 let when = f.last_modified().and_then(|d| NaiveDate::from_ymd_opt(d.year() as i32, d.month() as u32, d.day() as u32));
-                let Some(full) = f.enclosed_name().map(|p| p.to_string_lossy().replace('\\', "/")) else { continue };
+                let Some(full) = zip_shown_name(&f) else { continue };
                 let Some(rest) = full.strip_prefix(prefix.as_str()) else { continue };
                 if let Some((dir, _)) = rest.split_once('/') {
                     if !seen.contains(&dir.to_string()) {
@@ -434,14 +455,15 @@ impl Session {
     /// An archive from a file area, browsed like the gallery but with
     /// every file listed: folders open, Enter shows a file (text, ANSI or a
     /// picture), D downloads one.
-    pub(crate) async fn browse_archive(&mut self, path: &Path, name: &str, kind: Kind) -> io::Result<()> {
+    pub(crate) async fn browse_archive(&mut self, path: &Path, name: &str, kind: Kind, owner: Option<(u32, FileRec)>) -> io::Result<()> {
         let cap = crate::upscan::Limits::from_config(&self.state.config().files).cap(std::fs::metadata(path)?.len());
         let root = match kind {
             Kind::Zip => Place::Zip { zip: path.to_path_buf(), prefix: String::new() },
             _ => Place::Tar { tar: path.to_path_buf(), kind, prefix: String::new() },
         };
         let speed = self.state.config().gallery.speed;
-        self.gallery_browse(root, name, Mode { all: true, cap }, speed).await
+        let owners = owner.map(|r| (path.to_path_buf(), r)).into_iter().collect();
+        self.gallery_browse_owned(root, name, Mode { all: true, cap }, speed, owners).await
     }
 
     /// `FW`: the file areas, browsed like the gallery (new; it replaces the
@@ -565,12 +587,23 @@ impl Session {
     }
 
     async fn gallery_browse(&mut self, root: Place, title: &str, mode: Mode, speed: u32) -> io::Result<()> {
-        self.gallery_browse_from(root, title, mode, speed, Vec::new(), None).await
+        self.gallery_browse_owned(root, title, mode, speed, Vec::new()).await
+    }
+
+    async fn gallery_browse_owned(&mut self, root: Place, title: &str, mode: Mode, speed: u32, owners: Owners) -> io::Result<()> {
+        self.gallery_browse_in(root, title, mode, speed, Vec::new(), None, owners).await
+    }
+
+    async fn gallery_browse_from(&mut self, root: Place, title: &str, mode: Mode, speed: u32, start: Vec<(String, Place)>, focus: Option<String>) -> io::Result<()> {
+        self.gallery_browse_in(root, title, mode, speed, start, focus, Vec::new()).await
     }
 
     /// Browse from `root`, starting down the levels in `start`,
     /// with the bar on the item called `focus`.
-    async fn gallery_browse_from(&mut self, root: Place, title: &str, mode: Mode, mut speed: u32, start: Vec<(String, Place)>, mut focus: Option<String>) -> io::Result<()> {
+    /// `owners`: the packs opened from a file area's records, whose
+    /// pieces download as the pack would (its area's checks and charges).
+    #[allow(clippy::too_many_arguments)]
+    async fn gallery_browse_in(&mut self, root: Place, title: &str, mode: Mode, mut speed: u32, start: Vec<(String, Place)>, mut focus: Option<String>, mut owners: Owners) -> io::Result<()> {
         self.full_screen_done();
         // Where we are, and the cursor in each level above.
         // New: the file areas can be searched from anywhere in them.
@@ -672,7 +705,14 @@ impl Session {
                 Pick::Open(i) => {
                     path.last_mut().expect("root").2 = i;
                     match &items[i] {
-                        Item::Folder { name, place, .. } => path.push((name.clone(), place.clone(), 0)),
+                        Item::Folder { name, place, rec, .. } => {
+                            if let (Place::Zip { zip: arc, .. } | Place::Tar { tar: arc, .. }, Some(r)) = (place, rec)
+                                && !owners.iter().any(|(p, _)| p == arc)
+                            {
+                                owners.push((arc.clone(), r.clone()));
+                            }
+                            path.push((name.clone(), place.clone(), 0))
+                        }
                         Item::Art { name, sauce, src, .. } => {
                             // From the viewer, P plays and D downloads.
                             let picked = if is_pdf(name) {
@@ -692,8 +732,8 @@ impl Session {
                                     return Ok(());
                                 }
                                 Some('P') if is_image(name) => {}
-                                Some('P') => self.gallery_played(&items[i], speed).await?,
-                                Some('D') => self.gallery_download(&items[i]).await?,
+                                Some('P') => self.gallery_played(&items[i], speed, &owners).await?,
+                                Some('D') => self.gallery_download(&items[i], &owners).await?,
                                 _ => {}
                             }
                         }
@@ -704,20 +744,20 @@ impl Session {
                     if let Item::Art { src, name, .. } = &items[i] {
                         if is_pdf(name) {
                             if self.pdf_open(name, src, true).await? == Some('D') {
-                                self.gallery_download(&items[i]).await?;
+                                self.gallery_download(&items[i], &owners).await?;
                             }
                         } else if is_image(name) {
                             if self.gallery_picture(name, src).await? == Some('D') {
-                                self.gallery_download(&items[i]).await?;
+                                self.gallery_download(&items[i], &owners).await?;
                             }
                         } else {
-                            self.gallery_played(&items[i], speed).await?;
+                            self.gallery_played(&items[i], speed, &owners).await?;
                         }
                     }
                 }
                 Pick::Download(i) => {
                     path.last_mut().expect("root").2 = i;
-                    self.gallery_download(&items[i]).await?;
+                    self.gallery_download(&items[i], &owners).await?;
                 }
                 Pick::Info(i) => {
                     path.last_mut().expect("root").2 = i;
@@ -731,7 +771,8 @@ impl Session {
                 // A SysOp gets the whole file editor; a co-SysOp, the description.
                 Pick::Edit(i) => {
                     path.last_mut().expect("root").2 = i;
-                    if let Some((n, f)) = items.get(i).and_then(record).cloned() {
+                    let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
+                    if let Some((n, f)) = items.get(i).and_then(record).cloned().filter(|_| cosysop) {
                         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                         self.clear_screen();
                         if self.is_sysop() {
@@ -1032,11 +1073,12 @@ impl Session {
                     None
                 }
                 Key::Left | Key::Right => {
-                    let n = menu.items.len();
-                    menu.pos = if key == Key::Right { (menu.pos + 1) % n } else { (menu.pos + n - 1) % n };
+                    // Disabled items are skipped, as the file lister does.
+                    menu.pos = step_menu(&menu.off, menu.pos, key == Key::Right);
                     self.lister_menu(&l, &mut menu);
                     None
                 }
+                Key::Enter if menu.off.get(menu.pos) == Some(&true) => None,
                 Key::Enter => Some(menu.items[menu.pos]),
                 Key::Esc | Key::Backspace => Some("back"),
                 k => match k.upper() {
@@ -1086,6 +1128,7 @@ impl Session {
                         }
                         redraw = true;
                     }
+                    "edit" if !cosysop => {}
                     "edit" if items.get(cur).is_some_and(|i| record(i).is_some()) => return Ok(Pick::Edit(cur)),
                     "info" | "edit" | "vote" => note = Some(self.strings().get("GalleryNotRecord").to_string()),
                     "find" if opts.search => return Ok(Pick::Find),
@@ -1283,7 +1326,8 @@ impl Session {
             Src::Zip(z, n) | Src::Tar(z, _, n) => {
                 let cfg = self.state.config();
                 let dir = cfg.resolve(&cfg.paths.data).join("cache").join("pdf");
-                let max = crate::upscan::Limits::from_config(&cfg.files).max_unpacked.max(MAX_PIECE);
+                let unpack = crate::upscan::Limits::from_config(&cfg.files).max_unpacked;
+                let max = if unpack == 0 { MAX_PDF } else { unpack.min(MAX_PDF) };
                 drop(cfg);
                 let out = dir.join(format!("{:016x}.pdf", {
                     use std::hash::{Hash, Hasher};
@@ -1293,12 +1337,23 @@ impl Session {
                     h.finish()
                 }));
                 if !out.exists() {
-                    let data = match read_limited(src, max) {
-                        Ok(d) => d,
-                        Err(e) => return self.archive_note(&format!("|U6{name}|U5: |U4Couldn't read it ({e})|U5.")).await.map(|_| None),
-                    };
-                    std::fs::create_dir_all(&dir)?;
-                    std::fs::write(&out, data)?;
+                    // Off the async threads, straight to disk, then into
+                    // place; the cache kept within its size, oldest out.
+                    let (src, to) = (src.clone(), out.clone());
+                    let made = tokio::task::spawn_blocking(move || -> io::Result<()> {
+                        std::fs::create_dir_all(&dir)?;
+                        let part = to.with_extension(format!("part{}", std::process::id()));
+                        let _ = std::fs::remove_file(&part);
+                        extract_piece(&src, &part, max)?;
+                        std::fs::rename(&part, &to)?;
+                        crate::pdf::prune_cache(&dir, &to);
+                        Ok(())
+                    })
+                    .await
+                    .map_err(io::Error::other)?;
+                    if let Err(e) = made {
+                        return self.archive_note(&format!("|U6{name}|U5: |U4Couldn't read it ({e})|U5.")).await.map(|_| None);
+                    }
                 }
                 out
             }
@@ -1525,7 +1580,7 @@ impl Session {
     /// Play a piece, then offer what's next on the bottom line (new; the
     /// original just paused): R plays it again, V (or the arrow and page
     /// keys) opens it in the scrolling viewer, D downloads it.
-    async fn gallery_played(&mut self, item: &Item, speed: u32) -> io::Result<()> {
+    async fn gallery_played(&mut self, item: &Item, speed: u32, owners: &Owners) -> io::Result<()> {
         let Item::Art { name, sauce, src, .. } = item else { return Ok(()) };
         loop {
             self.gallery_play(src, speed).await?;
@@ -1543,17 +1598,20 @@ impl Session {
                 Some('R' | 'P') => continue,
                 Some('V' | 'S') => match self.gallery_view(name, sauce.as_ref(), src).await? {
                     Some('P') => continue,
-                    Some('D') => return self.gallery_download(item).await,
+                    Some('D') => return self.gallery_download(item, owners).await,
                     _ => return Ok(()),
                 },
-                Some('D') => return self.gallery_download(item).await,
+                Some('D') => return self.gallery_download(item, owners).await,
                 _ => return Ok(()),
             }
         }
     }
 
     /// Download a piece (pulled out of its pack if need be) or a pack.
-    async fn gallery_download(&mut self, item: &Item) -> io::Result<()> {
+    /// New: a piece of a pack that is a file area's file (in `owners`)
+    /// downloads as the pack would: its area's checks, and the pack's
+    /// points and counts once it's sent.
+    async fn gallery_download(&mut self, item: &Item, owners: &Owners) -> io::Result<()> {
         let dl = self.state.config().gallery.download_acs.clone();
         self.screen.goto(1, self.screen.rows());
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
@@ -1566,10 +1624,30 @@ impl Session {
             self.download_record(&a, f.clone()).await?;
             return self.prompt_key().await;
         }
-        if !self.acs(&dl) {
-            self.say("GalleryNoDownload").await?;
-            return self.prompt_key().await;
-        }
+        let owner = match item {
+            Item::Art { src: Src::Zip(arc, _) | Src::Tar(arc, _, _), .. } => owners.iter().find(|(p, _)| p == arc).map(|(_, r)| r.clone()),
+            _ => None,
+        };
+        let owner = match owner {
+            Some((n, f)) => match self.farea(n) {
+                Some(a) if self.farea_visible(n) => {
+                    self.newline();
+                    if !self.may_download(&a, &f, (0, 0, 0, 0)).await? {
+                        return self.prompt_key().await;
+                    }
+                    Some((a, f))
+                }
+                _ => {
+                    self.say("GalleryNoDownload").await?;
+                    return self.prompt_key().await;
+                }
+            },
+            None if !self.acs(&dl) => {
+                self.say("GalleryNoDownload").await?;
+                return self.prompt_key().await;
+            }
+            None => None,
+        };
         let temp = self.state.config().resolve(&self.state.config().paths.temp).join(format!("gallery{}", self.node.number()));
         let _ = std::fs::remove_dir_all(&temp);
         let file = match item {
@@ -1579,19 +1657,28 @@ impl Session {
             Item::Art { name, src, .. } => {
                 std::fs::create_dir_all(&temp)?;
                 let out = temp.join(crate::transfer::safe_name(name.rsplit('/').next().unwrap_or(name).as_bytes()).unwrap_or_else(|| "art.ans".into()));
-                // Out of its archive, within the upload screening's unpack limit.
+                // Out of its archive, within the upload screening's unpack
+                // limit, straight to disk.
                 let (Src::Zip(arc, _) | Src::Tar(arc, _, _) | Src::Disk(arc)) = src;
                 let cap = crate::upscan::Limits::from_config(&self.state.config().files).cap(std::fs::metadata(arc)?.len());
-                let src = src.clone();
-                let data = tokio::task::spawn_blocking(move || read_limited(&src, cap)).await.map_err(io::Error::other)??;
-                std::fs::write(&out, data)?;
+                let (src, to) = (src.clone(), out.clone());
+                if let Err(e) = tokio::task::spawn_blocking(move || extract_piece(&src, &to, cap)).await.map_err(io::Error::other)? {
+                    let _ = std::fs::remove_dir_all(&temp);
+                    return self.archive_note(&format!("|U6{name}|U5: |U4Couldn't read it ({e})|U5.")).await;
+                }
                 out
             }
         };
         self.newline();
         if let Some(proto) = self.select_protocol(false).await? {
             tracing::info!("{}: gallery download {}", self.user.handle, file.display());
-            self.send_files(&proto, &[file]).await?;
+            let ok = self.send_files(&proto, std::slice::from_ref(&file)).await?;
+            if let Some((a, mut f)) = owner
+                && ok.first() == Some(&true)
+            {
+                tracing::info!("{}: downloaded a piece of {} ({})", self.user.handle, f.name, a.area.name);
+                self.count_download(&mut f)?;
+            }
         }
         let _ = std::fs::remove_dir_all(&temp);
         self.prompt_key().await
@@ -1733,6 +1820,19 @@ fn record(item: &Item) -> Option<&(u32, crate::filebase::FileRec)> {
 
 /// A PDF, shown as one (with PDFs built in, `pdf`); without, it's just a
 /// file to download.
+/// The menu bar's next item left or right, past disabled ones.
+fn step_menu(off: &[bool], pos: usize, right: bool) -> usize {
+    let n = off.len();
+    let mut p = pos;
+    for _ in 0..n {
+        p = if right { (p + 1) % n } else { (p + n - 1) % n };
+        if !off[p] {
+            return p;
+        }
+    }
+    pos
+}
+
 fn is_pdf(name: &str) -> bool {
     #[cfg(feature = "pdf")]
     return crate::pdf::is_pdf(name);
@@ -1757,6 +1857,37 @@ mod tests {
         }
         r.resize(128, 0);
         r
+    }
+
+    #[test]
+    fn pieces_extract_within_a_cap() {
+        let dir = std::env::temp_dir().join(format!("fluxbbs-extract-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&dir);
+        std::fs::create_dir_all(&dir).unwrap();
+        let zp = dir.join("a.zip");
+        {
+            let mut z = zip::ZipWriter::new(std::fs::File::create(&zp).unwrap());
+            z.start_file("./dir\\x.txt", zip::write::SimpleFileOptions::default()).unwrap();
+            z.write_all(&[b'x'; 1000]).unwrap();
+            z.finish().unwrap();
+        }
+        let items = list(&Place::Zip { zip: zp.clone(), prefix: "dir/".into() }, Mode { all: true, cap: u64::MAX }).unwrap();
+        let Some(Item::Art { src, .. }) = items.first() else { panic!("listed: {}", items.len()) };
+        assert_eq!(read_piece(src).unwrap().len(), 1000, "read by the name it's listed by");
+        assert!(extract_piece(src, &dir.join("small"), 999).is_err() && !dir.join("small").exists());
+        extract_piece(src, &dir.join("whole"), 1000).unwrap();
+        assert_eq!(std::fs::metadata(dir.join("whole")).unwrap().len(), 1000);
+        assert!(extract_piece(src, &dir.join("whole"), 1000).is_err(), "never over a file");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn menu_skips_disabled() {
+        let off = [false, true, true, false];
+        assert_eq!(step_menu(&off, 0, true), 3);
+        assert_eq!(step_menu(&off, 3, true), 0);
+        assert_eq!(step_menu(&off, 0, false), 3);
+        assert_eq!(step_menu(&[true, true], 0, true), 0);
     }
 
     #[test]
