@@ -1373,3 +1373,66 @@ mod tests {
         assert!(to_ansi(&vec![span("x", Ink::Keyword, true)], &old, "").starts_with("\x1b[0;1;37;"));
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit::Target;
+
+    const MD: &[&[u8]] = &[
+        b"# Title\n\nSome **bold**, _italic_, `code`, ~~gone~~ and [a link](http://x).\n\n* one\n  * two\n1. first\n> quoted **text**\n\n---\n",
+        b"```rust\nfn main() {\n    /* block\n comment */ let s = \"str\\\"\"; // line\n    0x1f + 1.5e3\n}\n```\n```\nplain\n```\n",
+        b"```python\ndef f(x):\n    '''doc'''\n    return x # c\n```\n| a | b |\n|---|:-:|\n| 1 | 2 |\n#include <x.h>\n   indented code\n",
+        b"***\n___\n- [ ] task\n- [x] done\n\\*escaped\\* &amp; <b>html</b> ****** ____ `` ` `` *a _b* c_\n",
+    ];
+    const DICT: &[&[u8]] = &[b"**", b"__", b"*", b"_", b"`", b"```", b"~~", b"# ", b"> ", b"* ", b"1. ", b"[", b"](", b")", b"|", b"---", b"\n", b"/*", b"*/", b"//", b"\"", b"'", b"\\", b"```c\n", b"```pascal\n", b"{", b"(*", b"*)", b"#"];
+    const LANGS: [Lang; 11] = [Lang::C, Lang::Rust, Lang::Python, Lang::Js, Lang::Go, Lang::Java, Lang::Shell, Lang::Pascal, Lang::Asm, Lang::Lua, Lang::Basic];
+
+    fn total(lines: &[Line]) -> usize {
+        lines.iter().map(width_of).sum()
+    }
+
+    #[test]
+    #[ignore]
+    fn fuzz_markup() {
+        let look = Look { code: theme("nord"), md: theme("classic"), shade: "48;2;1;2;3".into(), rgb: true };
+        Target::new("markup", MD).dict(DICT).run(|input, rng| {
+            let text = String::from_utf8_lossy(input).into_owned();
+            let width = if rng.one_in(16) { rng.below(4) } else { 10 + rng.below(190) };
+            let bound = (text.chars().count() + 4) * (width + 8) + 4096;
+            let md = render_markdown(&text, width);
+            assert!(total(&md) <= bound, "markdown: {} for {}", total(&md), text.len());
+            for l in md.iter().take(20) {
+                let _ = to_ansi(l, &look, if rng.one_in(2) { "1;33" } else { "" });
+            }
+            let lang = *rng.pick(&LANGS);
+            let code = render_code(lang, &text, width);
+            assert!(total(&code) <= bound);
+            let mut st = CodeState::default();
+            for l in text.lines().take(50) {
+                let _ = highlight(lang, l, &mut st, rng.one_in(2));
+            }
+            let lines: Vec<String> = text.lines().map(String::from).collect();
+            if let Some(m) = message_code_blocks(&lines, width) {
+                assert!(m.len() <= lines.len());
+            }
+            let _ = (lang_for_tag(&text), lang_for_name(&text), is_markdown(&text), code_back(&text), theme(&text));
+            #[cfg(feature = "ai")]
+            {
+                let mut s = MdStream::new(width, rng.below(100));
+                let mut n = 0;
+                let mut rest = text.as_str();
+                while !rest.is_empty() {
+                    let mut k = (1 + rng.below(20)).min(rest.len());
+                    while !rest.is_char_boundary(k) {
+                        k += 1;
+                    }
+                    n += s.feed(&rest[..k]).len();
+                    rest = &rest[k..];
+                }
+                n += s.finish().len();
+                assert!(n <= 4 * text.len() + 64, "{n} pieces for {}", text.len());
+            }
+        });
+    }
+}

@@ -9,3 +9,8 @@ pub mod screen;
 pub use codes::{Control, Source, Token, defuse, lit, tokenize, tokenize_str, tokenize_user};
 pub use color::{Color, Palette, Slot};
 pub use screen::{Charset, Screen, Shown};
+
+#[cfg(test)]
+pub(crate) mod fuzzkit;
+#[cfg(test)]
+mod fuzz;

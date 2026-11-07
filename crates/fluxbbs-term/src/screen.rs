@@ -247,6 +247,9 @@ impl Screen {
         self.rows = rows.max(1);
         self.shown.resize(COLUMNS as usize * self.rows as usize, BLANK);
         self.y = self.y.min(self.rows);
+        // A saved spot or a region below the new bottom isn't there now.
+        self.saved_cursor.1 = self.saved_cursor.1.min(self.rows);
+        self.region = self.region.map(|r| r.min(self.rows));
     }
 
     pub fn rows(&self) -> u16 {
@@ -1113,6 +1116,17 @@ mod tests {
         s.reset_scroll_region();
         s.write_bytes(b"\r\n\r\n\r\n\r\n\r\n");
         assert_eq!(s.where_y(), 5);
+    }
+
+    /// Found by fuzzing: a cursor saved low on the screen came back below
+    /// its bottom once the screen got shorter.
+    #[test]
+    fn saved_cursor_fits_a_shorter_screen() {
+        let mut s = Screen::new(Charset::Cp437, 24);
+        s.write_bytes(b"\x1b[20;10H\x1b[s");
+        s.set_rows(8);
+        s.write_bytes(b"\x1b[u");
+        assert_eq!((s.where_x(), s.where_y()), (10, 8));
     }
 
     #[test]

@@ -868,3 +868,66 @@ mod tests {
         assert_eq!(r.iter().map(|c| c.0).collect::<String>(), "hi [2J \u{e9}\u{2554}");
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit::Target;
+
+    /// Server packets and the caller's keys, in any order, drawn as they
+    /// come: the window and the input line stay in bounds.
+    #[test]
+    #[ignore]
+    fn fuzz_mrc_chat() {
+        let mut s = Session::for_test(crate::tests::state(), crate::user::User { handle: "phrac".into(), ..Default::default() });
+        let s = std::cell::RefCell::new(&mut s);
+        Target::new("mrc_chat", crate::mrc::fuzz::LINES).max_len(8192).run(|input, rng| {
+            let mut s = s.borrow_mut();
+            s.screen.set_rows(1 + rng.below(60) as u16);
+            let mut chat = Chat {
+                nick: "phrac".into(), site: "disflux".into(), room: "lobby".into(), topic: String::new(), users: Vec::new(),
+                lines: Vec::new(), back: 0, missed: 0, mentions: 0, last_dm: String::new(), input: String::new(),
+                history: Vec::new(), recall: None, dirty: true, asked: None, pick: 0, pin: None, window: 0,
+            };
+            let text = String::from_utf8_lossy(input);
+            for line in text.split('\n') {
+                if let Some(p) = Packet::parse(line) {
+                    s.mrc_packet(&mut chat, &p);
+                } else {
+                    // Not a packet: keys, then.
+                    for b in line.bytes().take(300) {
+                        let key = match b {
+                            b'\r' => Key::Enter,
+                            0x08 => Key::Backspace,
+                            b'\t' => Key::Tab,
+                            0x1b => Key::Esc,
+                            0x01 => Key::Up,
+                            0x02 => Key::Down,
+                            0x03 => Key::Left,
+                            0x04 => Key::Right,
+                            0x05 => Key::PgUp,
+                            0x06 => Key::PgDn,
+                            0x07 => Key::Home,
+                            0x0b => Key::End,
+                            0x0c => Key::Del,
+                            b => Key::Char(b),
+                        };
+                        if !s.mrc_key(&mut chat, key).unwrap_or(false) && rng.one_in(8) {
+                            break;
+                        }
+                    }
+                }
+                if rng.one_in(3) {
+                    s.mrc_draw(&chat);
+                    let _ = s.screen.take_output();
+                }
+                assert!(chat.lines.len() <= SCROLLBACK && chat.back <= chat.lines.len().max(chat.back.min(SCROLLBACK)));
+            }
+            s.mrc_draw(&chat);
+            let _ = s.screen.take_output();
+            let c = chunks(&text);
+            assert!(c.iter().all(|p| p.chars().count() <= mrc::BODY_MAX));
+            let _ = (suggestions(&text), hint(&text), someone_came_or_went(&text));
+        });
+    }
+}

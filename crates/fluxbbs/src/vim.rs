@@ -2557,7 +2557,11 @@ impl Vim {
             self.snapshot(d);
             let at = if before { row } else { row + 1 };
             let all: Vec<Vec<char>> = (0..n).flat_map(|_| reg.text.iter().cloned()).take(room).collect();
+            let count = all.len();
             d.lines.splice(at..at, all);
+            // A register appended to (`"Ayw`) can hold lines longer than
+            // a line may be: they wrap, as typing does.
+            fit(d, at, at + count - 1);
             d.row = at;
             d.col = fnb(d, at);
             return VimDo::Edit(Redraw::From(row.min(at)));
@@ -2691,7 +2695,7 @@ impl Vim {
         if self.failed {
             return VimDo::Say("FsVimNoMatch", vec![pat]);
         }
-        out
+        self.full(d, out)
     }
 
     /// The ex line: a range (`.`, `$`, `%`, `N`, `'a`, `'<,'>`, with `+N`
@@ -3713,5 +3717,119 @@ mod tests {
         assert_eq!(d.col, 0);
         // Case changes keep to one character the board has.
         assert_eq!(recase('ß', Op::Upper), 'ß');
+    }
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::editor::fuzz::check;
+    use crate::fuzzkit::{Rng, Target};
+
+    const KEYS: &[&[u8]] = &[
+        b"ihello world\x1b0dwx.u\x12yyp3Pdd",
+        b"qaA!\x1bjq5@a@@:%s/o/00/g\r/w\rnN?h\r*#",
+        b"\"ayiw\"Ayy\"ap\"_dd\"-p\"0P\"1p\"2pma'a`a''\x0f\x09",
+        b"vjd\x1bVk>gvU\x1bggVG<g~~guiwgUap~3~ci(x\x1bda\"diwcc\x1b",
+        b":1,$d\r:2\r:.,+3m0\r:'<,'>s/x/y/\r:$t.\r:%j\r:g/a/d\r:w\r:q\r:x\r:help\r",
+        b"999999999999999999999dd18446744073709551615p4294967295@a65535.R\x08\x08abc\x1bOfoo\x1bJJJ",
+        b"d/foo\rc?bar\rx\x1by/\r\x1bfaFbtxTy;,%[(])}{w b e W B E ge gE 0 ^ $ G gg H M L",
+    ];
+    const DICT: &[&[u8]] = &[b"\x1b", b"\r", b":", b"/", b"?", b"q", b"@", b"\"", b".", b"u", b"\x12", b"p", b"P", b"d", b"c", b"y", b"v", b"V", b"g", b"%", b"s/", b"/g", b"\\", b"&", b"*", b"^", b"$", b"999", b"0", b"\x0f", b"\x16", b"'", b"`", b"m", b"<", b">", b"~", b"i", b"a", b"o", b"O", b"R", b"\x08"];
+
+    /// Bytes as keys: the special ones from a few control bytes.
+    fn key(b: u8) -> Key {
+        match b {
+            b'\r' => Key::Enter,
+            0x08 => Key::Backspace,
+            b'\t' => Key::Tab,
+            0x1b => Key::Esc,
+            0xe0 => Key::Up,
+            0xe1 => Key::Down,
+            0xe2 => Key::Left,
+            0xe3 => Key::Right,
+            0xe4 => Key::Home,
+            0xe5 => Key::End,
+            0xe6 => Key::PgUp,
+            0xe7 => Key::PgDn,
+            0xe8 => Key::Ins,
+            0xe9 => Key::Del,
+            b => Key::Char(b),
+        }
+    }
+
+    fn start(rng: &mut Rng, input: &[u8]) -> Draft {
+        let n = match rng.below(4) {
+            0 => 1,
+            1 => 1 + rng.below(10),
+            2 => MAX_LINES,
+            _ => rng.below(MAX_LINES + 5),
+        };
+        let text: Vec<String> = (0..n)
+            .map(|i| {
+                let w = if rng.one_in(3) { WIDTH + 2 } else { rng.below(WIDTH) };
+                (0..w).map(|k| char::from(*input.get((i * 7 + k) % input.len().max(1)).unwrap_or(&b'a')).to_string()).collect::<String>().replace(|c: char| c.is_control(), "a")
+            })
+            .collect();
+        Draft::new(&text)
+    }
+
+    /// Keys from `input` against a draft made from it, as the editor
+    /// sends them, every invariant checked after each.
+    fn drive(input: &[u8], rng: &mut Rng) {
+        let mut d = start(rng, input);
+        let mut v = Vim::new();
+        let mut i = 0;
+        while i < input.len() {
+            let s = Scr { first: d.row.saturating_sub(rng.below(30)), rows: 1 + rng.below(40) };
+            let t = std::time::Instant::now();
+            let mut out = v.key(&mut d, key(input[i]), s);
+            let most = std::env::var("FUZZ_KEY_MS").ok().and_then(|v| v.parse().ok()).unwrap_or(1500u128);
+            assert!(t.elapsed().as_millis() < most, "one key took {:?}", t.elapsed());
+            i += 1;
+            // A prompt takes the line up to Enter (Esc gives up).
+            let mut prompts = 0;
+            while let VimDo::Prompt(kind, pre) = out {
+                prompts += 1;
+                assert!(prompts < 100, "prompts without end");
+                let end = input[i..].iter().position(|&b| b == b'\r' || b == 0x1b).map_or(input.len(), |p| i + p);
+                let text = (input.get(end) != Some(&0x1b)).then(|| pre.clone() + &fluxbbs_term::cp437::decode(&input[i..end]));
+                i = (end + 1).min(input.len());
+                out = v.prompted(&mut d, kind, text, s);
+            }
+            check(&d);
+            for r in v.regs.values() {
+                assert!(reg_size(r) <= REG_MAX + WIDTH + 2, "register of {}", reg_size(r));
+            }
+            assert!(v.undo.len() <= 10_000 && v.queue.len() <= REPLAY_MAX + 10);
+            if let Some(sel) = v.selection(&d) {
+                assert!(sel.0 <= sel.1);
+            }
+        }
+        if rng.one_in(4) {
+            let s = Scr { first: 0, rows: 20 };
+            let line: String = fluxbbs_term::cp437::decode(&input[..input.len().min(200)]);
+            let _ = v.prompted(&mut d, ':', Some(line), s);
+            check(&d);
+        }
+}
+
+    #[test]
+    #[ignore]
+    fn fuzz_vim() {
+        // Each key's work is bounded (`WORK_MAX`), so a run of keys may
+        // take a while; one key mustn't.
+        Target::new("vim", KEYS).dict(DICT).max_len(512).slow_ms(20_000).run(drive);
+    }
+
+    /// Found by fuzzing, with the drafts their seeds make: a register
+    /// appended to (`"Ayw`) held a line longer than a line may be, and a
+    /// linewise put of it left it so; and a change with a search motion
+    /// (`c?pat`, its line from the prompt) could leave 201 lines, as it
+    /// skipped the check every other command gets.
+    #[test]
+    fn found_by_fuzzing() {
+        drive(b"\"ayw\"Ay38w\"Ayy\"ap", &mut Rng::new(17296935181898058225));
+        drive(b"16\x0dc?bar?baroo&6d#\x0dc?baroo\x0dc?bar?baroo&6d#\x0dc?baroo\x0dc?bar?baroo&6d#\x0dc?baroo\x0dc?baro\x0dc?baroo\x0dc?baroo\x0dc?barx\x08\x1by/\x0d\x1bfaFbtxT1y;,%[(])} ^?aaroo\x0dc?baroo\x0dc?baroo\x0d?baroo\x0dbaroo\x0dc?baroo\x0d?baroo\x0dc461?baroo\x0dc?baroo\x0d?baroo\x0dc?baroo\x0dc?barwoo\x0d?baroo\x0dc?baroo\x0dc?caroo\x0d?baOroo\x0dc?baroo\x0dc?baroo\x0d?baroo\x0dc?baroo\x0dc?baroo\x0d?baroo\x0dc?baroo\x0dc?baroo\xed\x0d?baroo\x0dc?baroo\x0dc?b", &mut Rng::new(17336251923059862901));
     }
 }

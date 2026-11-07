@@ -245,3 +245,30 @@ mod tests {
         std::fs::write(std::env::var("ANSISHOT_OUT").unwrap(), png(&data).unwrap()).unwrap();
     }
 }
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit::Target;
+    use crate::pager::fuzz::{ART, DICT};
+
+    #[test]
+    #[ignore]
+    fn fuzz_ansishot() {
+        Target::new("ansishot", ART).dict(DICT).max_len(8192).run(|input, rng| {
+            let mut data = input.to_vec();
+            if rng.one_in(4) {
+                // A SAUCE record with a width in it.
+                let mut sauce = vec![0u8; 128];
+                sauce[..7].copy_from_slice(b"SAUCE00");
+                sauce[94] = 1;
+                sauce[96..98].copy_from_slice(&(rng.number() as u16).to_le_bytes());
+                data.push(0x1a);
+                data.extend(sauce);
+            }
+            if let Some(p) = png(&data) {
+                assert!(p.len() < 32 << 20, "{} byte PNG", p.len());
+            }
+        });
+    }
+}

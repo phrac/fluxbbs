@@ -590,3 +590,44 @@ mod tests {
         assert!(out.contains("38;2;255;34;183;48;2;132;0;68"), "{out}");
     }
 }
+
+#[cfg(test)]
+pub(crate) mod fuzz {
+    use super::*;
+    use crate::fuzzkit::Target;
+
+    pub(crate) const ART: &[&[u8]] = &[
+        b"\x1b[0;1;34m\xdb\xdb\xb2\xb1\xb0\x1b[44m  Title  \x1b[0m\r\n\x1b[5;31mblink\x1b[25m \x1b[100mbright\x1b[0m\r\n",
+        b"\x1b[2J\x1b[1;1H\x1b[s\x1b[10;70H\x1b[u\x1b[3A\x1b[5B\x1b[79C\x1b[2D\x1b[K\x1b[38;5;196m\xdc\x1b[48;2;1;2;3m\xdf\x1b[0m\t|\x08x",
+        b"line\nanother\r\n\ttabbed\x1a\x00SAUCE00Title                              Author             Group               19940101",
+        b"# Heading\n\n* item **bold** _it_ `code`\n\n```rust\nfn main() { let x = \"s\"; }\n```\n> quote\n1. one\n|a|b|\n|-|-|\n",
+        b"<html><body><h1>T</h1><p>a &amp; b &#65; &#x263A;<b>bold</b><table><tr><td>x</td></tr></table><pre>  pre</pre></body></html>",
+    ];
+    pub(crate) const DICT: &[&[u8]] = &[b"\x1b[", b"m", b"H", b"A", b"B", b"C", b"D", b"J", b"s", b"u", b";2;", b";5;", b"38", b"48", b"\x1b[100m", b"\xdc", b"\xdf"];
+
+    #[test]
+    #[ignore]
+    fn fuzz_pager() {
+        let look = crate::markup::Look { code: &crate::markup::THEMES[1], md: &crate::markup::THEMES[2], shade: "48;5;236".into(), rgb: true };
+        let names = ["ART.ANS", "README.md", "page.html", "main.rs", "x.py", "x.pas", "x.c", "NOTES.TXT", "x.asm", "x.bas"];
+        Target::new("pager", ART).dict(DICT).run(|input, rng| {
+            let utf8 = rng.one_in(2);
+            let g = render(input, utf8);
+            assert!(g.len() <= MAX_ROWS + 1, "{} rows", g.len());
+            assert!(g.iter().all(|r| r.len() <= MAX_WIDTH), "a row past MAX_WIDTH");
+            let t = trimmed(g);
+            for r in t.iter().take(50) {
+                let _ = row_bytes(r, "48;5;236");
+            }
+            let name = *rng.pick(&names);
+            let n = render_named(input, utf8, name, &look);
+            assert!(n.len() <= MAX_ROWS + 1 && n.iter().all(|r| r.len() <= MAX_WIDTH), "{name}");
+            let lines: Vec<String> = String::from_utf8_lossy(&input[..input.len().min(8192)]).split('\n').map(String::from).collect();
+            let rows = ansi_rows(&lines);
+            assert!(rows.len() <= MAX_ROWS + 1);
+            for l in &lines {
+                let _ = (lead(l), ends_at(l));
+            }
+        });
+    }
+}

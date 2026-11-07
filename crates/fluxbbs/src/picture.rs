@@ -122,15 +122,30 @@ fn decode(data: &[u8], lim: Limits, size: impl Fn(u32, u32, bool) -> (u32, u32))
     let format = image::guess_format(data).map_err(|_| "not a picture".to_string())?;
     // MAX_TOTAL_PIXELS holds even with no limit set, and before any
     // decoding: a garbage header can claim a vast canvas.
-    let too_big = |w: u32, h: u32| {
+    // Nor an empty one, which has nothing to scale (a header can say 0).
+    let check = |w: u32, h: u32| {
         let px = w as u64 * h as u64;
-        px > MAX_TOTAL_PIXELS || lim.max_pixels > 0 && px > lim.max_pixels
+        if px == 0 {
+            Err(format!("{w}x{h} has no pixels"))
+        } else if px > MAX_TOTAL_PIXELS || lim.max_pixels > 0 && px > lim.max_pixels {
+            Err(format!("{w}x{h} is too many pixels"))
+        } else {
+            Ok(())
+        }
     };
     if format == ImageFormat::Gif {
         let dec = GifDecoder::new(Cursor::new(data)).map_err(|e| e.to_string())?;
         let (w, h) = dec.dimensions();
-        if too_big(w, h) {
-            return Err(format!("{w}x{h} is too many pixels"));
+        check(w, h)?;
+        // Each frame says its own size, which can be far past the
+        // canvas's: decoding one of 65535x65535 takes gigabytes.
+        let mut all_px = 0u64;
+        for (fw, fh) in gif_frames(data).into_iter().filter(|&(fw, fh)| fw > 0 && fh > 0) {
+            check(fw, fh)?;
+            all_px += fw as u64 * fh as u64;
+            if all_px > MAX_TOTAL_PIXELS {
+                return Err("too much animation".into());
+            }
         }
         let (tw, th) = size(w, h, true);
         let mut frames = Vec::new();
@@ -158,9 +173,7 @@ fn decode(data: &[u8], lim: Limits, size: impl Fn(u32, u32, bool) -> (u32, u32))
     }
     let reader = image::ImageReader::with_format(Cursor::new(data), format);
     let (w, h) = reader.into_dimensions().map_err(|e| e.to_string())?;
-    if too_big(w, h) {
-        return Err(format!("{w}x{h} is too many pixels"));
-    }
+    check(w, h)?;
     let img = image::load_from_memory_with_format(data, format).map_err(|e| e.to_string())?.to_rgba8();
     let (tw, th) = size(w, h, false);
     let name = match format {
@@ -170,6 +183,37 @@ fn decode(data: &[u8], lim: Limits, size: impl Fn(u32, u32, bool) -> (u32, u32))
         _ => "Picture",
     };
     Ok(Picture { format: name, width: w, height: h, frames: vec![frame_of(&img, tw, th, 0)] })
+}
+
+/// New: the sizes a GIF's frames say they are, from their image
+/// descriptors, without decoding them (as far as the blocks can be read).
+fn gif_frames(d: &[u8]) -> Vec<(u32, u32)> {
+    let u16_at = |i: usize| d.get(i..i + 2).map_or(0, |b| u16::from_le_bytes([b[0], b[1]]) as u32);
+    // A colour table after this flag byte: 3 << (n + 1) bytes.
+    let table = |flags: u8| if flags & 0x80 != 0 { 3usize << ((flags & 7) + 1) } else { 0 };
+    // Sub-blocks from `i`, to just past their terminator.
+    let skip = |mut i: usize| {
+        while let Some(&n) = d.get(i) {
+            i += 1 + n as usize;
+            if n == 0 {
+                break;
+            }
+        }
+        i
+    };
+    let mut out = Vec::new();
+    let mut i = 13 + d.get(10).map_or(0, |&f| table(f));
+    while let Some(&b) = d.get(i) {
+        match b {
+            0x21 => i = skip(i + 2),
+            0x2C => {
+                out.push((u16_at(i + 5), u16_at(i + 7)));
+                i = skip(i + 10 + d.get(i + 9).map_or(0, |&f| table(f)) + 1);
+            }
+            _ => break,
+        }
+    }
+    out
 }
 
 /// The nearest of xterm's 256 colours (its 6x6x6 cube or grey ramp).
@@ -351,6 +395,29 @@ mod tests {
         assert!(load(b"GIF89a but not really", 80, 24, ANY).is_err());
     }
 
+    /// Found by fuzzing: a GIF whose header says it's 0 pixels wide
+    /// panicked fitting it in sixels.
+    #[test]
+    fn empty_pictures_are_refused() {
+        let mut g = gif(1, 4, 4);
+        g[6..10].copy_from_slice(&[0, 0, 4, 0]);
+        assert!(load_sixel(&g, 640, 384, ANY).is_err());
+        assert!(load(&g, 80, 24, ANY).is_err());
+    }
+
+    /// Found by fuzzing: a 79-byte GIF whose frame says it's 65289x65535
+    /// took seconds (and gigabytes) before failing to decode.
+    #[test]
+    fn huge_frames_are_refused_first() {
+        let g = b"GIF89a\x09\x00\x05\x00\x80\x00\x00\x00\x00\x00\x00\x00\x00!\xf9\x04\x08\x00\x00\x00\x00,\x00\x00\x00\x00\x09\xff\xff\xff\x00\x05\x00\x02\x00\x00\xdf\x00\x00\x00\x80\x05\x02\x05\x84\x8f\xa9\xcb]\x00;";
+        assert_eq!(gif_frames(g), [(65289, 65535)]);
+        let t = std::time::Instant::now();
+        assert!(load(g, 80, 24, ANY).err().unwrap_or_default().contains("too many pixels"));
+        assert!(t.elapsed().as_millis() < 500, "{:?}", t.elapsed());
+        // Ordinary frames are read as they are.
+        assert_eq!(gif_frames(&gif(3, 16, 9)), [(16, 9); 3]);
+    }
+
     #[test]
     fn colours_by_terminal() {
         assert_eq!(xterm256([255, 0, 0]), 196);
@@ -382,5 +449,90 @@ mod tests {
         img.write_to(&mut Cursor::new(&mut png), ImageFormat::Png).unwrap();
         let still = load_sixel(&png, 640, 384, ANY).unwrap();
         assert_eq!((still.frames[0].w, still.frames[0].h), (640, 360), "a still fills the screen");
+    }
+}
+
+#[cfg(test)]
+mod fuzz {
+    use super::*;
+    use crate::fuzzkit::{Rng, Target};
+
+    /// The board's default `[files]` limits.
+    const LIM: Limits = Limits { max_bytes: 10 << 20, max_pixels: 2048 * 2048, max_frames: 300 };
+
+    fn seeds() -> Vec<Vec<u8>> {
+        let img = RgbaImage::from_fn(13, 7, |x, y| image::Rgba([x as u8 * 19, y as u8 * 36, 128, if x == 3 { 0 } else { 255 }]));
+        let mut out = Vec::new();
+        for f in [ImageFormat::Png, ImageFormat::Jpeg, ImageFormat::WebP, ImageFormat::Gif] {
+            let mut b = Vec::new();
+            let ok = if f == ImageFormat::Jpeg { image::DynamicImage::ImageRgba8(img.clone()).to_rgb8().write_to(&mut Cursor::new(&mut b), f) } else { img.write_to(&mut Cursor::new(&mut b), f) };
+            if ok.is_ok() {
+                out.push(b);
+            }
+        }
+        let mut gif = Vec::new();
+        {
+            let mut enc = image::codecs::gif::GifEncoder::new(&mut gif);
+            for i in 0..3u8 {
+                let f = image::Frame::from_parts(RgbaImage::from_pixel(9, 5, image::Rgba([i * 80, 0, 255, 255])), 0, 0, image::Delay::from_numer_denom_ms(5, 1));
+                enc.encode_frame(f).unwrap();
+            }
+        }
+        out.push(gif);
+        out
+    }
+
+    /// Picture files as uploads give them: decoded in cells and in
+    /// sixels, each frame drawn.
+    #[test]
+    #[ignore]
+    fn fuzz_picture_load() {
+        // Up to 300 frames, each scaled and quantized: bounded, not quick.
+        let mut t = Target::new("picture_load", &[]).max_len(64 * 1024).slow_ms(3000);
+        t.corpus = seeds();
+        t.run(|input, rng| {
+            let (cols, rows) = (1 + rng.below(200), 1 + rng.below(100));
+            if let Ok(p) = load(input, cols, rows, LIM) {
+                let mut prev = None;
+                for f in &p.frames {
+                    assert!(f.w <= cols && f.h <= rows * 2 && f.px.len() == f.w * f.h);
+                    let _ = draw(f, prev, rng.one_in(2), 1, 1);
+                    prev = Some(f);
+                }
+            }
+            let (pw, ph) = (rng.number() as u32, rng.number() as u32);
+            if let Ok(p) = load_sixel(input, pw, ph, LIM) {
+                for f in &p.frames {
+                    assert!(f.w as u32 <= SIXEL_SIDE && f.h as u32 <= SIXEL_SIDE && f.sixel.ends_with(b"\x1b\\"));
+                }
+            }
+        });
+    }
+
+    fn pixels(rng: &mut Rng, input: &[u8], n: usize) -> Vec<[u8; 3]> {
+        (0..n).map(|i| match rng.below(4) {
+            0 => [0, 0, 0],
+            1 => [255, 255, 255],
+            _ => [input.get(i * 3).copied().unwrap_or(0), input.get(i * 3 + 1).copied().unwrap_or(0), input.get(i * 3 + 2).copied().unwrap_or(0)],
+        }).collect()
+    }
+
+    /// Sixels and half-blocks from any pixels at any size.
+    #[test]
+    #[ignore]
+    fn fuzz_picture_encode() {
+        Target::new("picture_encode", &[b"\x00\x00\x00\xff\xff\xff\x80\x40\x20"]).max_len(4096).run(|input, rng| {
+            let (wide, tall) = (if rng.one_in(8) { 600 } else { 40 }, if rng.one_in(8) { 300 } else { 20 });
+            let (w, h) = (1 + rng.below(wide), 1 + rng.below(tall));
+            let px = pixels(rng, input, w * h);
+            let colors = *rng.pick(&[1, 2, 16, 64, 255, 256]);
+            let s = sixel(&px, w, h, colors);
+            assert!(s.starts_with(b"\x1bP") && s.ends_with(b"\x1b\\"));
+            assert!(s.len() <= 64 + w * h * 8 + h.div_ceil(6) * 256 * 8 + 256 * 24, "{} bytes for {w}x{h}", s.len());
+            let f = Frame { w, h: h & !1, px: px[..w * (h & !1)].to_vec(), delay_ms: 0, sixel: Vec::new() };
+            let g = Frame { w, h: h & !1, px: pixels(rng, input, w * (h & !1)), delay_ms: 0, sixel: Vec::new() };
+            let _ = draw(&f, Some(&g), rng.one_in(2), 1 + rng.below(80) as u16, 1 + rng.below(200) as u16);
+            let _ = xterm256(px[0]);
+        });
     }
 }

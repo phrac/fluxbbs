@@ -898,6 +898,10 @@ async fn run() -> anyhow::Result<()> {
 }
 
 #[cfg(test)]
+#[path = "../../fluxbbs-term/src/fuzzkit.rs"]
+pub(crate) mod fuzzkit;
+
+#[cfg(test)]
 pub mod tests {
     use super::*;
 
