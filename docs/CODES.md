@@ -263,6 +263,22 @@ minute.
 | `%MV` | a message at random |
 | `%MJ` | a line of it with words in it |
 
+### Email (new)
+
+The caller's own mailbox. Mail counts as read once they've opened it.
+
+| Code | Value |
+|---|---|
+| `%ET` | mail in their box (as `%MW`) |
+| `%EN` | unread |
+| `%ER` | read |
+| `%EF` | who sent the newest |
+| `%ES` | its subject |
+| `%ED` | how long ago |
+| `%EA` | when (date and time) |
+| `%EX` | whom they last wrote |
+| `%EY` | how long ago |
+
 ### Door games (new)
 
 From a log of every door played, worked out once a minute (and after

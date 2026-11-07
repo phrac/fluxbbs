@@ -1268,6 +1268,14 @@ impl MsgBase {
         Ok(db.query_row("SELECT COUNT(*) FROM messages WHERE area = ?1 AND from_id = ?2 AND deleted = 0", params![area, user_id], |r| r.get(0))?)
     }
 
+    /// New: the newest message a caller wrote in an area (their last
+    /// email sent, in the email area).
+    pub fn newest_from(&self, area: &str, user_id: u32) -> anyhow::Result<Option<Message>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT * FROM messages WHERE area = ?1 AND from_id = ?2 AND deleted = 0 ORDER BY posted DESC, id DESC LIMIT 1")?;
+        Ok(stmt.query_map(params![area, user_id], from_row)?.next().transpose()?)
+    }
+
     /// New: the messages a moderator has pinned in an area.
     pub fn pinned(&self, area: &str) -> anyhow::Result<std::collections::HashSet<i64>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());

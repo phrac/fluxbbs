@@ -1465,6 +1465,10 @@ impl Session {
                 let m = mail[idx].clone();
                 self.show_message(&a, &m, cur, total).await?;
                 shown.insert(idx);
+                // New: the caller's own mail, read (for the email codes).
+                if !all {
+                    self.state.msgs.mark_seen(self.user.id, m.id).map_err(io_err)?;
+                }
             }
             show = false;
             let s = self.strings().fmt("EmailReadPrompt", &[&cur.to_string(), &total.to_string()]);

@@ -592,6 +592,9 @@ All in [FEATURES](FEATURES.md#qwk-offline-mail).
 - Callers write netmail as email to `name@zone:net/node`, and answer
   netmail as netmail (REPLY threaded); the address is checked against
   the network's nodelist first.
+- Email remembers what's been read: `%EN`/`%ER` count unread and read
+  mail, and `%EF`, `%ES`, `%ED`, `%EA` describe the newest, `%EX`/`%EY`
+  the caller's last sent. ([CODES](CODES.md#email-new))
 - File echoes (TIC) tossed into file areas, with `Replaces` and FileFix
   requests (`fluxbbs ftn filefix`).
 - Several networks at once, each with its own hub.

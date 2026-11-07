@@ -50,6 +50,9 @@ const FILE_STATS: &[u8] = b"BEGKLMNQRTUVWXYZ";
 /// The second letters of the message menu's codes (new).
 const MSG_STATS: &[u8] = b"BCDFGHJKLQRVXY";
 
+/// The second letters of the email codes (new).
+const EMAIL_STATS: &[u8] = b"NRTFSDAXY";
+
 /// How long ago, briefly ("3d ago").
 pub(crate) fn ago(d: Option<chrono::NaiveDate>, today: chrono::NaiveDate) -> String {
     let Some(d) = d else { return String::new() };
@@ -193,6 +196,38 @@ impl Session {
         }
     }
 
+    /// New: the caller's email. In their box: `T` all, `N` unread, `R`
+    /// read; the newest's sender `F`, subject `S`, age `D` and time `A`;
+    /// whom they last wrote `X`, and when `Y`.
+    fn email_stat(&self, c: u8) -> String {
+        let area = self.state.areas().email.file.clone();
+        let today = crate::clock::now().date_naive();
+        let when = |m: &crate::msgbase::Message| m.posted.format("%Y-%m-%d %H:%M").to_string();
+        if matches!(c, b'X' | b'Y') {
+            let last = self.state.msgs.newest_from(&area, self.user.id).ok().flatten();
+            return match (c, last) {
+                (b'X', Some(m)) => m.to.name.clone(),
+                (b'X', None) => "nobody yet".into(),
+                (_, m) => ago(m.map(|m| m.posted.date()), today),
+            };
+        }
+        let mail = self.mailbox().unwrap_or_default();
+        let seen = self.state.msgs.seen(self.user.id, &area).unwrap_or_default();
+        let read = mail.iter().filter(|m| seen.contains(&m.id)).count();
+        let newest = mail.iter().max_by_key(|m| (m.posted, m.id));
+        let from = |m: &crate::msgbase::Message| if m.anonymous { "anonymous".to_string() } else { m.from.name.clone() };
+        match c {
+            b'T' => mail.len().to_string(),
+            b'N' => (mail.len() - read).to_string(),
+            b'R' => read.to_string(),
+            b'F' => newest.map_or_else(|| "nobody yet".into(), from),
+            b'S' => newest.map_or_else(|| "no mail yet".into(), |m| m.subject.clone()),
+            b'D' => ago(newest.map(|m| m.posted.date()), today),
+            b'A' => newest.map(when).unwrap_or_default(),
+            _ => String::new(),
+        }
+    }
+
     /// Value for an MCI code, or `None` if it isn't one (the caller then
     /// writes the text literally).
     pub fn mci_value(&self, code: [u8; 2]) -> Option<String> {
@@ -236,6 +271,7 @@ impl Session {
             b"LA" => self.current_theme().map_or("n/a".into(), |t| t.author),
             b"LD" => self.current_theme().map_or("n/a".into(), |t| t.desc),
             [b'M', c] if MSG_STATS.contains(c) => self.msg_stat(*c),
+            [b'E', c] if EMAIL_STATS.contains(c) => self.email_stat(*c),
             [b'G', c] if crate::doorstats::DOOR_STATS.contains(c) => self.door_stat(*c),
             b"MI" => u.cur_msg_area.to_string(),
             b"MP" => self.menu.menu.as_ref().map(|m| m.prompt_name.clone()).unwrap_or_default(),
@@ -358,6 +394,34 @@ mod tests {
         assert_eq!(ago(None, today), "");
         let d: Vec<String> = ["▒▒▒▒", "i n i q u", ".g\"\"^'°`\"^'+AXF+°", "-=[ AXF ]=-", "  The   best  pack ", "more"].map(String::from).into();
         assert_eq!(blurb(&d), "The best pack");
+    }
+
+    /// New: the email codes count what's in the box, read or not, and
+    /// name the newest and the caller's own last.
+    #[test]
+    fn email_codes() {
+        use crate::msgbase::{Message, Party};
+        let me = crate::user::User { id: 2, handle: "Ann".into(), ..crate::user::User::default() };
+        let s = crate::session::Session::for_test(crate::tests::state(), me);
+        let area = s.state.areas().email.file.clone();
+        let at = |d| chrono::NaiveDate::from_ymd_opt(2026, 10, d).unwrap().and_hms_opt(9, 30, 0).unwrap();
+        let mail = |from: u32, fname: &str, to: u32, tname: &str, subject: &str, d| Message {
+            id: 0, area: area.clone(), num: 0,
+            from: Party { user_id: from, alias: fname.into(), name: fname.into(), ..Party::default() },
+            to: Party { user_id: to, alias: tname.into(), name: tname.into(), ..Party::default() },
+            subject: subject.into(), posted: at(d), deleted: false, private: true, anonymous: false,
+            replies: 0, sig_pos: 0, tag: 0, reply_to: 0, lines: vec!["hi".into()],
+        };
+        let code = |c: &str| s.mci_value(c.as_bytes().try_into().unwrap()).unwrap();
+        assert_eq!((code("ET"), code("EN"), code("EF"), code("EX"), code("EA")), ("0".into(), "0".into(), "nobody yet".into(), "nobody yet".into(), String::new()));
+        let mut first = mail(1, "Bob", 2, "Ann", "lunch", 3);
+        s.state.msgs.add(&mut first).unwrap();
+        s.state.msgs.add(&mut mail(3, "Cy", 2, "Ann", "files", 5)).unwrap();
+        s.state.msgs.add(&mut mail(2, "Ann", 1, "Bob", "re: lunch", 4)).unwrap();
+        s.state.msgs.mark_seen(2, first.id).unwrap();
+        assert_eq!((code("ET"), code("EN"), code("ER")), ("2".into(), "1".into(), "1".into()));
+        assert_eq!((code("EF"), code("ES"), code("EA")), ("Cy".into(), "files".into(), "2026-10-05 09:30".into()));
+        assert_eq!(code("EX"), "Bob");
     }
 }
 

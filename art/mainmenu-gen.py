@@ -22,6 +22,7 @@ import tomllib
 HERE = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, HERE)
 import boardname  # noqa: E402
+import ansgrid  # noqa: E402
 MENUDIR = boardname.CLASSIC_MENUS
 
 # ---- what's on each menu ---------------------------------------------------
@@ -799,24 +800,39 @@ def build_picture(name, spec):
     backdrop recolored (backdrop.py), a panel with the title over the menu's
     boxes in columns on the open side, an optional box of values under
     them, then the help line and the prompt bar. Everything is placed by
-    row and column, so the picture shows wherever nothing is drawn."""
+    row and column, so the picture shows wherever nothing is drawn.
+    Without 'color' the art is drawn as it is (any colors); without
+    'font' there's no title panel; 'top' is the first row used (1).
+    'logo' (row, column, font, word) sets a word in a font, unboxed."""
     from backdrop import backdrop
     title, boxes = MENUS[name]
     ink = Ink(spec.get('accent', '35'))
     left, w = spec.get('left', 2), spec.get('box_width', 20)
     names = {k: label for b in boxes for (k, label) in b[1]}
     labels = {k: spec.get('labels', {}).get(k, v) for k, v in names.items()}
-    out = E + '0m' + E + '2J' + backdrop(boardname.art(spec['art']), tuple(spec['color']), spec.get('threshold', 30), spec.get('speck', 25), fade=spec.get('fade'))
+    if 'color' in spec:
+        art = backdrop(boardname.art(spec['art']), tuple(spec['color']), spec.get('threshold', 30), spec.get('speck', 25), fade=spec.get('fade'))
+    else:
+        grid = ansgrid.parse(open(boardname.art(spec['art']), 'rb').read())
+        art = b''.join(ansgrid.line(grid, r, 0, 79, 1, r + 1) for r in range(24)).decode('cp437')
+    out = E + '0m' + E + '2J' + art
+    if 'logo' in spec:
+        y, x, font, word = spec['logo']
+        out += goto(y, x) + E + '0m' + '%[' + font + ']' + word + '%]'
+    top = spec.get('top', 1)
+    row0 = top
     # The title panel: the menu's name in a font (the board draws it, from
     # its fonts/), and a word under it.
-    pw = len(spec['columns']) * (w + 1) - 1
-    out += goto(1, left) + ink.box_top(spec.get('title', title), pw)
-    for y in range(2, 7):
-        out += goto(y, left) + DG + '│' + E + '0m' + ' ' * (pw - 2) + DG + '│'
-    out += goto(7, left) + ink.box_bottom(pw)
-    out += goto(2, left + 2) + E + '0m' + '%[' + spec['font'] + ']' + spec.get('word', title) + '%]'
+    if 'font' in spec:
+        pw = len(spec['columns']) * (w + 1) - 1
+        out += goto(top, left) + ink.box_top(spec.get('title', title), pw)
+        for y in range(top + 1, top + 6):
+            out += goto(y, left) + DG + '│' + E + '0m' + ' ' * (pw - 2) + DG + '│'
+        out += goto(top + 6, left) + ink.box_bottom(pw)
+        out += goto(top + 1, left + 2) + E + '0m' + '%[' + spec['font'] + ']' + spec.get('word', title) + '%]'
+        row0 = top + 7
     # The boxes: markers numbered down each column, then across.
-    order, row0 = [], 8
+    order = []
     for c, (box_title, keys) in enumerate(spec['columns']):
         x = left + c * (w + 1)
         out += goto(row0, x) + ink.box_top(box_title, w)
