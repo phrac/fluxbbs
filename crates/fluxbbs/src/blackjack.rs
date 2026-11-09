@@ -56,6 +56,21 @@ pub fn total(cards: &[Card]) -> (u32, bool) {
     if cards.iter().any(|c| c.rank == 1) && hard + 10 <= 21 { (hard + 10, true) } else { (hard, false) }
 }
 
+/// New: the Hi-Lo count of a card (2-6 +1, 7-9 0, tens and aces -1),
+/// for the table's secret count (`c`).
+fn hi_lo(c: Card) -> i32 {
+    match c.rank {
+        2..=6 => 1,
+        7..=9 => 0,
+        _ => -1,
+    }
+}
+
+/// The running count as a true count, a deck of 52 unseen cards at a time.
+fn true_count(running: i32, unseen: usize) -> i32 {
+    (running as f32 / (unseen.max(26) as f32 / 52.0)).trunc() as i32
+}
+
 fn natural(cards: &[Card]) -> bool {
     cards.len() == 2 && total(cards).0 == 21
 }
@@ -72,6 +87,8 @@ struct Shoe {
     cut: usize,
     decks: u32,
     round: Vec<Card>,
+    /// Shuffled mid-hand: the count starts again.
+    dry: bool,
 }
 
 fn decks(n: u32) -> Vec<Card> {
@@ -83,7 +100,7 @@ impl Shoe {
         let mut cards = self::decks(decks);
         cards.shuffle(&mut rand::rng());
         let cut = cards.len() / 4;
-        Shoe { cards, cut, decks, round: Vec::new() }
+        Shoe { cards, cut, decks, round: Vec::new(), dry: false }
     }
 
     fn new_round(&mut self) {
@@ -105,6 +122,7 @@ impl Shoe {
             }
             rest.shuffle(&mut rand::rng());
             self.cards = rest;
+            self.dry = true;
             tracing::info!("blackjack: the shoe ran dry mid-hand; shuffled the discards");
         }
         let c = self.cards.pop().expect("a card");
@@ -554,6 +572,12 @@ struct Table {
     turn: Option<usize>,
     /// The underground look (`casinoug`).
     ug: bool,
+    /// New: the count shows under the shoe (`c`, not on the key line).
+    counting: bool,
+    /// The count of the shoe's earlier rounds.
+    counted: i32,
+    /// Cards not yet seen when this round was dealt.
+    unseen: usize,
 }
 
 impl Table {
@@ -664,6 +688,13 @@ impl Table {
             let col = (cx as usize).saturating_sub(s.len() / 2 + 1);
             cv.label(col, 11, &format!("{mark}{s}"), if n > 21 { rgb(255, 120, 120) } else { rgb(255, 255, 255) }, None);
         }
+        if self.counting {
+            let up: Vec<Card> = self.dealer.iter().chain(self.hands.iter().flatten()).filter(|p| t >= p.face_at).map(|p| p.card).collect();
+            let rc = self.counted + up.iter().map(|&c| hi_lo(c)).sum::<i32>();
+            let tc = true_count(rc, self.unseen.saturating_sub(up.len()));
+            let ink = if self.ug { rgb(60, 140, 90) } else { rgb(110, 165, 120) };
+            cv.label(68, 7, &format!("{rc:+} tc{tc:+}"), ink, None);
+        }
         let _ = purse;
     }
 }
@@ -768,20 +799,24 @@ impl Session {
                         p.dur = 0.35;
                     }
                     self.bj_settle(st, &tb, purse.chips).await?;
-                    tb = Table { ug: tb.ug, ..Default::default() };
-                    if shoe.cards.len() < shoe.cut {
+                    let seen: i32 = tb.dealer.iter().chain(tb.hands.iter().flatten()).map(|p| hi_lo(p.card)).sum();
+                    tb = Table { ug: tb.ug, counting: tb.counting, counted: tb.counted + seen, ..Default::default() };
+                    if shoe.cards.len() < shoe.cut || shoe.dry {
                         shoe = Shoe::new(cfg.decks);
+                        tb.counted = 0;
                         let s = painted(&crate::editor::strip_colours(self.strings().get("BjShuffle")), [200, 200, 220]);
                         self.stage_line(MSG_ROW, &s, st.truecolor);
                     } else {
                         self.stage_line(MSG_ROW, &[], st.truecolor);
                     }
+                    tb.unseen = shoe.cards.len();
                     purse.stake(bet);
                     self.purse_save(purse);
                     self.bj_round(cfg, purse, st, &mut tb, &mut shoe, bet).await?;
                 }
                 k => match k.upper() {
                     Some('Q') => return Ok(()),
+                    Some('C') => tb.counting = !tb.counting,
                     Some('+' | '=') => bet = (bet + cfg.min_bet).min(cfg.max_bet.min(purse.chips)),
                     Some('-' | '_') => bet = bet.saturating_sub(cfg.min_bet).max(cfg.min_bet),
                     _ => {}
@@ -865,6 +900,7 @@ impl Session {
                         self.bj_settle(st, tb, purse.chips).await?;
                     }
                     Some('S') => break,
+                    Some('C') => tb.counting = !tb.counting,
                     Some('D') if can_double => {
                         purse.stake(tb.bets[h]);
                         self.purse_save(purse);
@@ -983,12 +1019,17 @@ impl Session {
     async fn blackjack_plain(&mut self, cfg: &Casino, purse: &mut Purse) -> io::Result<()> {
         let mut shoe = Shoe::new(cfg.decks);
         let names = |cards: &[Card]| cards.iter().map(|c| c.name()).collect::<Vec<_>>().join(" ");
+        let (mut counting, mut counted) = (false, 0);
         loop {
             if purse.chips < cfg.min_bet {
                 return self.say_line("CasinoBroke").await;
             }
-            if shoe.cards.len() < shoe.cut {
+            if shoe.cards.len() < shoe.cut || shoe.dry {
                 shoe = Shoe::new(cfg.decks);
+                counted = 0;
+            }
+            if counting {
+                self.write(&format!("(count {counted:+}, true {:+}) ", true_count(counted, shoe.cards.len())));
             }
             let s = self.strings().fmt("BjPlainBet", &[&purse.chips.to_string(), &cfg.min_bet.to_string(), &cfg.max_bet.min(purse.chips).to_string()]);
             self.show(&s).await?;
@@ -997,6 +1038,10 @@ impl Session {
             let s = s.trim();
             if s.eq_ignore_ascii_case("q") {
                 return Ok(());
+            }
+            if s.eq_ignore_ascii_case("c") {
+                counting = !counting;
+                continue;
             }
             let bet = if s.is_empty() { cfg.min_bet } else { s.parse().unwrap_or(0) };
             if bet < cfg.min_bet || bet > cfg.max_bet.min(purse.chips) {
@@ -1072,6 +1117,7 @@ impl Session {
             }
             self.write(&format!("dealer: {} ({})", names(&dealer), total(&dealer).0));
             self.newline();
+            counted += dealer.iter().chain(hands.iter().flatten()).map(|&c| hi_lo(c)).sum::<i32>();
             self.purse_save(purse);
             let s = match won {
                 w if w > 0 => format!("you win {w}."),
@@ -1132,6 +1178,15 @@ mod tests {
         assert_eq!(settle(&[c(10), c(8)], &[c(10), c(6), c(10)], false), Outcome::Win);
         assert_eq!(returned(Outcome::Blackjack, 10), 25);
         assert_eq!(returned(Outcome::Win, 10), 20);
+    }
+
+    #[test]
+    fn hi_lo_counts_a_deck_to_nothing() {
+        assert_eq!(decks(1).into_iter().map(hi_lo).sum::<i32>(), 0);
+        assert_eq!((hi_lo(c(2)), hi_lo(c(6)), hi_lo(c(7)), hi_lo(c(9)), hi_lo(c(10)), hi_lo(c(13)), hi_lo(c(1))), (1, 1, 0, 0, -1, -1, -1));
+        assert_eq!(true_count(6, 156), 2, "three decks left");
+        assert_eq!(true_count(-5, 104), -2);
+        assert_eq!(true_count(4, 5), 8, "never fewer than half a deck");
     }
 
     #[test]

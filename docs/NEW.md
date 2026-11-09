@@ -519,6 +519,7 @@ All in [FEATURES](FEATURES.md#message-center).
   `underground` (`[casino] theme`): neon, skulls and crossbones,
   floppies and viruses, the slot machine's fruit with them.
   ([FEATURES](FEATURES.md#casino))
+- Blackjack's secret card count (`c`): the Hi-Lo running and true count under the shoe.
 - Points around the board (`!P`): up votes pay a post's author, doors
   pay by the minute, callers tip each other (`$` in the reader), and a
   lottery is drawn each night from the day's tickets: a ball machine

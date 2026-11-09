@@ -1434,6 +1434,11 @@ named for them: "three skulls" pays as three cherries did).
   - No insurance or surrender.
 - **Keys.** `+`/`-` set the bet, Enter deals, then `h`it, `s`tand,
   `d`ouble or s`p`lit. `q` leaves between hands.
+- **Counting cards.** `c`, which isn't on the key line, shows the
+  Hi-Lo count under the shoe: the running count of every card seen
+  since the shuffle, and the true count (per deck still unseen). The
+  hole card counts once it turns over. `c` again hides it. In plain
+  text, `c` at the bet prompt puts the count before it.
 
 ### Roulette
 
