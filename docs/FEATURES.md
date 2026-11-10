@@ -1139,15 +1139,18 @@ each section (stock: world, tech, science, retro) and writes each story
 from all of them. It's the `news` component, off until `[news]
 enabled`; [SYSOP](SYSOP.md#the-news) has the setting up.
 
-- **The front page** lists the last day's stories by section, each with
+- **The front page** is a newspaper's: the paper's name (`[news] name`)
+  as its masthead, the issue, the day and when it was updated, then the
+  last day's stories by section, each with
   when it was written, how many sources it has, its votes and comments.
   `<` and `>` jump between sections, `f` searches every day's stories,
   `s` sorts (by section, newest, votes), `d` picks an earlier day, `/`
   finds in the list, enter reads.
-- **A story** has its headline, a summary in which every sentence names
-  the sources it comes from (`[1][3]`), where the sources differ (when
-  they do), and its sources, each with a line on what it adds. Then its
-  votes and comments. Left and right (or `n` and `-`) go to the next and
+- **A story** is set as an article: the section, the headline, who
+  compiled it from how many outlets, then the story (the lede bright),
+  every sentence naming the sources it comes from (`[1][3]`); where the
+  sources differ (when they do), and its sources, each with a line on
+  what it adds. Then its readers' votes and comments. Left and right (or `n` and `-`) go to the next and
   previous story; a number opens that source, `i` the first.
 - **A source** shows its outlet, headline, a few lines of its own words
   and its address, a link on terminals that take them. Left and right

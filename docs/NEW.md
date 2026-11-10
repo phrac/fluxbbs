@@ -844,6 +844,7 @@ Details in [ARTWORK](ARTWORK.md).
 | `FINGER` | a caller's profile (`~KA` karma, `~AC` achievements) |
 | `TOPL` TOP/MID/BOT | the top lists (`~CT`, `~YR`, `~R1`-`~V3`) |
 | `ACHV` TOP/MID/BOT | your achievements (`~EA`, `~EP`, `~AN`, `~AV`, `~AM`, `~AL`, `~AX`) |
+| `NEWS`, `NEWSDAY` TOP/MID/HIL/BOT | the news's front page and back issues ([ARTWORK](ARTWORK.md#the-news)) |
 
 ### New markers in older screens
 

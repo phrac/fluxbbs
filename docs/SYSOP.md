@@ -259,6 +259,7 @@ source's excerpt and its link, never the whole article.
 
     [news]
     enabled = true
+    name = "the daily flux"  # the paper's name, in its masthead (blank: the board's and "news")
     acs = ""                 # who may read it
     stories = 6              # new stories a section may get each run
     sources = 6              # the most outlets a story is written from (9 at most)

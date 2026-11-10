@@ -417,6 +417,12 @@ impl Session {
     /// The same, opened at line `start` (a bookmark); says where the
     /// caller left it and whether they saw the end.
     pub(crate) async fn page_grid_from(&mut self, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char], start: usize) -> io::Result<Paged> {
+        self.page_grid_titled("ViewerTitle", title, grid, help, extra, start).await
+    }
+
+    /// The same, the title line from string `title_name` (`%S1` the
+    /// title, `%S2` the lines shown).
+    pub(crate) async fn page_grid_titled(&mut self, title_name: &str, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char], start: usize) -> io::Result<Paged> {
         self.full_screen_done();
         // New: plain text gets the lines, one after another.
         if self.plain() {
@@ -457,7 +463,7 @@ impl Session {
                 // Kept to one line with the rest of it.
                 let room = 79usize.saturating_sub(22 + range.chars().count());
                 let title: String = title.chars().take(room).collect();
-                let s = self.strings().fmt("ViewerTitle", &[&title, &range]);
+                let s = self.strings().fmt(title_name, &[&title, &range]);
                 self.show(&s).await?;
                 // New: URLs clickable, where the terminal takes links.
                 let links = self.links_on();

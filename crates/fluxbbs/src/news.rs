@@ -933,17 +933,58 @@ fn fit(s: &str, n: usize) -> String {
     format!("{s:<n$}")
 }
 
-// The story page's colours (ANSI: the pager reads escapes).
+// The story page's colors (ANSI: the pager reads escapes): newsprint,
+// with the section's color for its kicker and yellow for the rules' heads.
 const HEAD: &str = "\x1b[1;37m";
 const DIM: &str = "\x1b[0;37m";
 const SOFT: &str = "\x1b[1;30m";
 const MARK: &str = "\x1b[0;36m";
-const NAME: &str = "\x1b[1;36m";
+const RULE: &str = "\x1b[1;33m";
 const OFF: &str = "\x1b[0m";
+
+/// Each section's color, in the front page's order: (pipe code, ANSI).
+const SECTION_COLORS: &[(&str, &str)] = &[("|11", "\x1b[1;36m"), ("|10", "\x1b[1;32m"), ("|13", "\x1b[1;35m"), ("|14", "\x1b[1;33m"), ("|12", "\x1b[1;31m"), ("|09", "\x1b[1;34m")];
+
+/// A line's citations (`[2]`) in their own color, then back to `base`.
+fn cited(line: &str, base: &str) -> String {
+    let mut out = String::new();
+    let mut rest = line;
+    while let Some(i) = rest.find('[') {
+        let Some(j) = rest[i..].find(']') else { break };
+        let inside = &rest[i + 1..i + j];
+        out.push_str(&rest[..i]);
+        if !inside.is_empty() && inside.chars().all(|c| c.is_ascii_digit()) {
+            out.push_str(&format!("{MARK}[{inside}]{base}"));
+        } else {
+            out.push_str(&rest[i..=i + j]);
+        }
+        rest = &rest[i + j + 1..];
+    }
+    out.push_str(rest);
+    format!("{base}{out}")
+}
+
+/// A rule with a head on it: `-- SOURCES -----`.
+fn headed_rule(title: &str) -> String {
+    let n = 76usize.saturating_sub(title.chars().count() + 4);
+    format!(" {SOFT}\u{2500}\u{2500} {RULE}{} {SOFT}{}", title.to_uppercase(), "\u{2500}".repeat(n))
+}
 
 impl Session {
     fn news_section_name(&self, key: &str) -> String {
         self.state.config().news.sections.iter().find(|s| s.key == key).map_or_else(|| key.to_string(), |s| s.name.clone())
+    }
+
+    /// A section's color (pipe code, ANSI).
+    fn news_section_color(&self, key: &str) -> (&'static str, &'static str) {
+        let i = self.state.config().news.sections.iter().position(|s| s.key == key).unwrap_or(SECTION_COLORS.len() - 1);
+        SECTION_COLORS[i % SECTION_COLORS.len()]
+    }
+
+    /// The paper's name: `[news] name`, else the board's and "news".
+    fn news_paper(&self) -> String {
+        let cfg = self.state.config();
+        if cfg.news.name.trim().is_empty() { format!("{} news", cfg.bbs.name) } else { cfg.news.name.trim().to_string() }
     }
 
     /// `NW`: the news, the front page first.
@@ -1005,11 +1046,21 @@ impl Session {
                 .enumerate()
                 .map(|(i, s)| {
                     let (score, comments) = tallies.get(&s.id).copied().unwrap_or((0, 0));
-                    let score = if score == 0 && comments == 0 { String::new() } else { crate::pushes::score_label(Some(score)) };
+                    let score = if score == 0 { String::new() } else { crate::pushes::score_label(Some(score)) };
                     let talk = if comments > 0 { format!("{comments}c") } else { String::new() };
                     let when = self.local(s.made_at).format("%H:%M");
-                    let plain = format!(" {} {} {when} {:>2}src {score:>4} {talk:>3}", fit(&self.news_section_name(&s.section), 8), fit(&s.headline, 47), counts.get(&s.id).copied().unwrap_or(0));
-                    BarRow { n: i as u32 + 1, waves: Default::default(), plain }
+                    let n = counts.get(&s.id).copied().unwrap_or(0);
+                    let plain = format!(" {} {} {when} {n:>2}src {score:>4} {talk:>3}", fit(&self.news_section_name(&s.section), 8), fit(&s.headline, 47));
+                    let votes = format!("{score} {talk}").trim().to_string();
+                    let kicker = format!("{}{}", self.news_section_color(&s.section).0, self.news_section_name(&s.section).to_uppercase());
+                    let waves = crate::session::waves([
+                        ("SE", kicker),
+                        ("HL", fluxbbs_term::lit(&s.headline)),
+                        ("TI", when.to_string()),
+                        ("NS", format!("{n} src")),
+                        ("VT", votes),
+                    ]);
+                    BarRow { n: i as u32 + 1, waves, plain }
                 })
                 .collect();
             let start = at.and_then(|id| list.iter().position(|s| s.id == id)).unwrap_or(0);
@@ -1018,7 +1069,26 @@ impl Session {
                 Showing::Day(d) => d.format("%a %d %b %Y").to_string(),
                 Showing::Found(q) => self.strings().fmt("NewsFoundWhat", &[q]),
             };
-            let header = self.strings().fmt("NewsHeader", &[&cfg.bbs.name, &what]);
+            let header = self.strings().fmt("NewsHeader", &[&self.news_paper(), &what]);
+            // The dateline: the issue (the days there's been news, to the
+            // one shown), the day, the stories and the latest's time.
+            let days = self.state.news.days().map_err(io)?;
+            let shown = match &showing {
+                Showing::Day(d) => Some(*d),
+                _ => list.iter().map(|s| s.made_at.date()).max(),
+            };
+            let issue = shown.map_or(0, |d| days.iter().filter(|&&x| x <= d).count());
+            let latest = list.iter().map(|s| s.made_at).max().unwrap_or(now);
+            let day = match &showing {
+                Showing::Found(_) => what.clone(),
+                _ => self.local(latest).format("%A, %-d %B %Y").to_string().to_uppercase(),
+            };
+            self.bar_top = crate::session::waves([
+                ("NO", issue.to_string()),
+                ("DA", fluxbbs_term::lit(&day)),
+                ("SC", list.len().to_string()),
+                ("UP", self.local(latest).format("%H:%M").to_string()),
+            ]);
             let help = self.strings().get("NewsHelp").to_string();
             let spec = BarSpec { prefix: "NEWS", header: &header, rows: &rows, labels: &[], start, help: &help, ask: "", can_go_up: false, keys: "FSD<>" };
             let pick = self.area_bar(&spec).await?;
@@ -1093,7 +1163,16 @@ impl Session {
             self.note = Some(self.strings().get("NewsOneDay").to_string());
             return Ok(None);
         }
-        let rows: Vec<BarRow> = days.iter().enumerate().map(|(i, d)| BarRow { n: i as u32 + 1, waves: Default::default(), plain: format!(" {}", d.format("%a %d %b %Y")) }).collect();
+        let rows: Vec<BarRow> = days
+            .iter()
+            .enumerate()
+            .map(|(i, d)| {
+                let issue = days.len() - i;
+                let waves = crate::session::waves([("DA", d.format("%A, %-d %B %Y").to_string()), ("SC", format!("no. {issue}"))]);
+                BarRow { n: i as u32 + 1, waves, plain: format!(" {}  no. {issue}", d.format("%a %d %b %Y")) }
+            })
+            .collect();
+        self.bar_top = crate::session::waves([("SC", days.len().to_string())]);
         let header = self.strings().get("NewsDaysHeader").to_string();
         let help = self.strings().get("NewsDaysHelp").to_string();
         let spec = BarSpec { prefix: "NEWSDAY", header: &header, rows: &rows, labels: &[], start: 0, help: &help, ask: "", can_go_up: true, keys: "" };
@@ -1103,40 +1182,50 @@ impl Session {
         })
     }
 
-    /// A story as a page: the headline, the summary, where the sources
-    /// differ, the sources, the votes and comments.
+    /// A story as a page, set as a newspaper's: the paper and the day,
+    /// the section's kicker, the headline, the byline, the lede and the
+    /// rest, where the sources differ, the sources, and the readers'
+    /// votes and comments.
     fn news_page(&self, s: &Story, sources: &[Source]) -> String {
         let mut out = Vec::new();
         let str = self.strings();
+        // (The paper and the day are the title line over it.)
+        out.push(format!(" {DIM}{}", "\u{2550}".repeat(78)));
+        let (_, colour) = self.news_section_color(&s.section);
+        out.push(format!(" {colour}{}", self.news_section_name(&s.section).to_uppercase()));
         for l in wrap(&s.headline.to_uppercase(), 76, " ") {
             out.push(format!("{HEAD}{l}"));
         }
-        let when = self.local(s.made_at).format("%a %d %b %H:%M");
-        out.push(format!("{SOFT} {} {MARK}| {SOFT}{} | {when}", self.news_section_name(&s.section), str.fmt("NewsSourcesCount", &[&sources.len().to_string()])));
-        out.push(format!("{SOFT} {}", "-".repeat(77)));
-        for p in s.summary.split("\n\n") {
+        out.push(format!(" {SOFT}{}", "\u{2500}".repeat(40)));
+        let ai = self.state.config().ai.name.clone();
+        let by = str.fmt("NewsByline", &[&ai, &sources.len().to_string(), &self.local(s.made_at).format("%H:%M").to_string()]);
+        out.push(format!(" {SOFT}{by}"));
+        for (i, p) in s.summary.split("\n\n").enumerate() {
             out.push(String::new());
-            out.extend(wrap(p, 75, " ").into_iter().map(|l| format!("{DIM}{l}")));
+            // The lede bright, the rest in body type.
+            let base = if i == 0 { HEAD } else { DIM };
+            out.extend(wrap(p, 76, " ").into_iter().map(|l| cited(&l, base)));
         }
         if !s.differ.is_empty() {
             out.push(String::new());
-            out.push(format!("{NAME} {}", str.get("NewsDiffer")));
-            out.extend(wrap(&s.differ, 75, " ").into_iter().map(|l| format!("{DIM}{l}")));
+            out.push(headed_rule(str.get("NewsDiffer")));
+            out.extend(wrap(&s.differ, 76, " ").into_iter().map(|l| cited(&l, DIM)));
         }
         out.push(String::new());
-        out.push(format!("{NAME} {}", str.get("NewsSources")));
+        out.push(headed_rule(str.get("NewsSources")));
         for src in sources {
-            let lead = format!("[{}]", src.n);
-            out.push(format!("{MARK} {lead:<4}{HEAD}{}{SOFT}: {DIM}{}", src.outlet, clip(&src.title, 60usize.saturating_sub(src.outlet.len()))));
+            let room = 70usize.saturating_sub(src.outlet.chars().count());
+            out.push(format!(" {MARK}[{}] {HEAD}{} {SOFT}\u{00b7} {DIM}{}", src.n, src.outlet.to_uppercase(), clip(&src.title, room)));
             if !src.says.is_empty() {
-                out.extend(wrap(&src.says, 70, "      ").into_iter().map(|l| format!("{SOFT}{l}")));
+                out.extend(wrap(&src.says, 72, "     ").into_iter().map(|l| format!("{SOFT}{l}")));
             }
         }
         let pushes = self.state.news.pushes(s.id).unwrap_or_default();
         if !pushes.is_empty() {
             let score: i32 = pushes.iter().map(|p| p.kind as i32).sum();
             out.push(String::new());
-            out.push(format!("{NAME} {}", str.fmt("NewsVotes", &[&crate::pushes::score_label(Some(score))])));
+            let score = if pushes.iter().any(|p| p.kind != 0) { crate::pushes::score_label(Some(score)) } else { String::new() };
+            out.push(headed_rule(str.fmt("NewsVotes", &[&score]).trim()));
             for p in &pushes {
                 let (sign, colour) = match p.kind {
                     1 => ('+', "\x1b[1;32m"),
@@ -1154,28 +1243,29 @@ impl Session {
     /// its address (a link, where the terminal takes them).
     fn news_source_page(&self, s: &Story, src: &Source) -> String {
         let str = self.strings();
-        let mut out = vec![format!("{MARK} [{}] {HEAD}{}", src.n, src.outlet)];
+        let mut out = vec![format!(" {DIM}{}", "\u{2550}".repeat(78))];
+        out.push(format!(" {SOFT}{}", str.fmt("NewsSourceOf", &[&clip(&s.headline, 60)])));
+        out.push(String::new());
+        out.push(format!(" {MARK}[{}] {HEAD}{}", src.n, src.outlet.to_uppercase()));
         if !src.published.is_empty() {
-            out.push(format!("{SOFT}     {}", src.published.replace('T', " ").chars().take(16).collect::<String>()));
+            out.push(format!(" {SOFT}    {}", src.published.replace('T', " ").chars().take(16).collect::<String>()));
         }
         out.push(String::new());
-        out.extend(wrap(&src.title, 74, "     ").into_iter().map(|l| format!("{HEAD}{l}")));
+        out.extend(wrap(&src.title, 72, "     ").into_iter().map(|l| format!("{HEAD}{l}")));
         if !src.excerpt.is_empty() {
             out.push(String::new());
-            out.extend(wrap(&format!("\"{}\"", src.excerpt), 72, "     ").into_iter().map(|l| format!("{DIM}{l}")));
+            out.extend(wrap(&format!("\"{}\"", src.excerpt), 70, "     ").into_iter().map(|l| format!("{DIM}{l}")));
         }
         if !src.says.is_empty() {
             out.push(String::new());
-            out.push(format!("{NAME}     {}", str.get("NewsSourceSays")));
+            out.push(headed_rule(str.get("NewsSourceSays")));
             out.extend(wrap(&src.says, 72, "     ").into_iter().map(|l| format!("{DIM}{l}")));
         }
         out.push(String::new());
-        out.push(format!("{NAME}     {}", str.get("NewsSourceLink")));
+        out.push(headed_rule(str.get("NewsSourceLink")));
         // A long one from the edge, so it wraps whole (and stays a link).
         let lead = if src.url.chars().count() > 74 { " " } else { "     " };
         out.push(format!("{DIM}{lead}{}", src.url));
-        out.push(String::new());
-        out.push(format!("{SOFT}     {}", str.fmt("NewsSourceOf", &[&s.headline])));
         out.join(&format!("{OFF}\r\n")) + OFF
     }
 
@@ -1189,8 +1279,9 @@ impl Session {
             let Some(s) = self.state.news.story(ids[i]).map_err(io::Error::other)? else { return Ok(ids[i]) };
             let sources = self.state.news.sources(s.id).map_err(io::Error::other)?;
             let grid = crate::pager::render(self.news_page(&s, &sources).as_bytes(), true);
-            let title = self.news_section_name(&s.section);
-            let paged = self.page_grid_from(&title, &grid, "NewsStoryHelp", &extra, 0).await?;
+            let day = self.local(s.made_at).format("%A, %-d %B %Y").to_string();
+            let title = format!("{} \u{00b7} {}", self.news_paper().to_uppercase(), day.to_uppercase());
+            let paged = self.page_grid_titled("NewsViewerTitle", &title, &grid, "NewsStoryHelp", &extra, 0).await?;
             match paged.key {
                 Some('N' | '>') => i = (i + 1) % ids.len(),
                 Some('-' | '<') => i = (i + ids.len() - 1) % ids.len(),
@@ -1205,8 +1296,8 @@ impl Session {
                     let mut k = if c == 'I' { 0 } else { c as usize - '1' as usize };
                     while let Some(src) = sources.get(k) {
                         let grid = crate::pager::render(self.news_source_page(&s, src).as_bytes(), true);
-                        let title = format!("{} [{}/{}]", src.outlet, k + 1, sources.len());
-                        match self.page_grid_from(&title, &grid, "NewsSourceHelp", &['N', '-', '>', '<'], 0).await?.key {
+                        let title = format!("{} \u{00b7} SOURCE {} OF {}", self.news_paper().to_uppercase(), k + 1, sources.len());
+                        match self.page_grid_titled("NewsViewerTitle", &title, &grid, "NewsSourceHelp", &['N', '-', '>', '<'], 0).await?.key {
                             Some('N' | '>') => k = (k + 1) % sources.len(),
                             Some('-' | '<') => k = (k + sources.len() - 1) % sources.len(),
                             _ => break,

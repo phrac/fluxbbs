@@ -459,6 +459,17 @@ listing. The lister (`FL`) fills in `~NA` and `~SZ` too.
 
 Both are made by `art/listsgen.py`, under the main menu's logo.
 
+### The news
+
+| Screens | Markers |
+|---|---|
+| `NEWS` (the front page, `NW`) | TOP: `~NO` the issue (the days there's been news, up to this one), `~DA` the day, `~SC` the stories, `~UP` when the latest was written. MID, a story a row: `~SE` its section (in the section's color), `~HL` headline, `~TI` time, `~NS` sources ("4 src"), `~VT` votes and comments ("+3 2c"). BOT is a prompt bar (`~HP`, `~PC`) |
+| `NEWSDAY` (back issues, `d`) | TOP: `~SC` the days kept. MID: `~DA` the day, `~SC` its issue ("no. 4") |
+
+Made by `art/news-gen.py`: the paper's name (`[news] name`) in the
+Members font, newsprint silver, a tagline (`NEWS_TAGLINE` in the
+board's `art/local.py`), a double rule and the dateline.
+
 ### USERCFG
 
 | Marker | Shows | Stock marker |

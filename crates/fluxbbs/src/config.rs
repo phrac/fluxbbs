@@ -756,6 +756,9 @@ impl Default for AnsiGen {
 #[serde(default, deny_unknown_fields)]
 pub struct News {
     pub enabled: bool,
+    /// The paper's name, in its masthead (blank: the board's name and
+    /// "news").
+    pub name: String,
     /// Who may read it.
     pub acs: String,
     /// Minutes between runs, in the server (0: only by the `news` event
@@ -818,6 +821,7 @@ impl Default for News {
         };
         Self {
             enabled: false,
+            name: String::new(),
             acs: String::new(),
             every: 180,
             stories: 6,

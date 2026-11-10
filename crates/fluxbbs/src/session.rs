@@ -155,6 +155,9 @@ pub struct Session {
     /// New: the posts count the next `area_bar` was drawn at, so it
     /// redraws when one lands; None for a list that stays as it is.
     pub(crate) bar_news: Option<u64>,
+    /// New: values for the next `area_bar`'s TOP screen (its `~XX`
+    /// codes), taken by it.
+    pub(crate) bar_top: Waves,
     /// New: while a lightbar menu with a help line (`~HP`) waits, how much
     /// of that line its text takes, so a notice can go there instead.
     pub(crate) menu_help: Option<usize>,
@@ -589,6 +592,7 @@ impl Session {
             report_tail: Vec::new(),
             refresh_on: None,
             bar_news: None,
+            bar_top: Waves::new(),
             menu_help: None,
             device_attrs: Vec::new(),
             cell_px: None,
@@ -1411,6 +1415,7 @@ impl Session {
     /// for boards without the screens.
     pub async fn area_bar(&mut self, spec: &BarSpec<'_>) -> io::Result<BarPick> {
         let news = self.bar_news.take();
+        let top_waves = std::mem::take(&mut self.bar_top);
         if self.plain() {
             return self.area_bar_plain(spec).await;
         }
@@ -1432,7 +1437,7 @@ impl Session {
             if redraw {
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                 self.clear_screen();
-                rep = self.repeat_begin(prefix, true).await?;
+                rep = self.repeat_begin_with(prefix, true, &top_waves).await?;
                 // A prompt bar BOT holds the help and prompt itself.
                 let bar = rep.as_ref().is_some_and(|r| r.bar);
                 let bot_lines = match &rep {
