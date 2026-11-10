@@ -29,7 +29,7 @@ MENUDIR = boardname.CLASSIC_MENUS
 
 # name: (title, [(box title, [(key, label)])])
 MENUS = {
- 'main': ('main menu', [('talk', [('m', 'message boards'), ('e', 'email'), ('o', 'oneliners'), ('a', 'mrc chat'), ('j', 'ai chat'), ('w', "who's on"), ('x', 'nodes'), ('p', 'page sysop'), ('n', 'feedback'), ('!', 'rumors')]),
+ 'main': ('main menu', [('talk', [('m', 'message boards'), ('e', 'email'), ('o', 'oneliners'), ('a', 'mrc chat'), ('j', 'ai chat'), ('w', "who's on"), ('x', 'nodes'), ('p', 'page sysop'), ('n', 'feedback'), ('!', 'rumors'), ('q', 'qwk mail')]),
        ('files & fun', [('f', 'files'), ('r', 'art gallery'), ('d', 'doors'), ('k', 'points & lottery'), ('t', 'time bank'), ('^', 'top lists'), ('b', 'bbs list'), ('@', 'weather'), ('v', 'voting booth'), ('#', 'reading room'), ('h', 'about flux/bbs')]),
        ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('&', 'achievements'), ('i', 'infoforms'), ('>', 'more...'), ('g', 'goodbye')])]),
  # The main menu's overflow: what's used least. Their keys still work
@@ -721,8 +721,11 @@ def menu_toml(name, title, ink, w, order, labels, extra, effects):
     # New: the main menu's whispers go in the help line as it comes up
     # (their row under the boxes went to an eleventh row of options).
     if name == 'main':
+        # Centered on the screen as they were under the boxes: the help
+        # line starts at column 6, after " »»» ".
         pipe = f'|{int(ink.accent) - 30:02d}'
-        t.append('whispers = ' + toml_value([f'{pipe}- |08{w}{pipe} -' for w in WHISPERS]))
+        pad = lambda w: ' ' * max(0, (79 - len(w) - 4) // 2 - 5)
+        t.append('whispers = ' + toml_value([f'{pad(w)}{pipe}- |08{w}{pipe} -' for w in WHISPERS]))
     t += effect_lines(effects)
     for c in cmds:
         t.append('')

@@ -8,7 +8,7 @@ generic_columns = 3
 pause_before = true
 global = true
 type = "lightbar"
-whispers = ["|05- |08the sysop can see what you type. say hi.|05 -", "|05- |08nothing here is indexed. keep it that way.|05 -", "|05- |08every keystroke echoes somewhere.|05 -", "|05- |08you are never the only one on this line.|05 -", "|05- |08you left a trail getting in. we cleaned it up.|05 -", "|05- |08the logs are kept forever. probably.|05 -", "|05- |08don't trust the last caller.|05 -", "|05- |08if the screen flickers, don't worry about it.|05 -", "|05- |08this call is not being recorded. (it is.)|05 -"]
+whispers = ["            |05- |08the sysop can see what you type. say hi.|05 -", "           |05- |08nothing here is indexed. keep it that way.|05 -", "                |05- |08every keystroke echoes somewhere.|05 -", "            |05- |08you are never the only one on this line.|05 -", "         |05- |08you left a trail getting in. we cleaned it up.|05 -", "              |05- |08the logs are kept forever. probably.|05 -", "                  |05- |08don't trust the last caller.|05 -", "          |05- |08if the screen flickers, don't worry about it.|05 -", "            |05- |08this call is not being recorded. (it is.)|05 -"]
 
 [[effect]]
 kind = "decode"
@@ -130,6 +130,16 @@ desc = "Rumors"
 help = "What callers whisper, unsigned: read the rumors, or start one"
 on = "\u001b[0;30;45m (\u001b[0;1;37;45m!\u001b[0;30;45m) \u001b[0;1;37;45mrumors            \u001b[0m"
 off = " \u001b[0;1;30m(\u001b[0;1;35m!\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;255;187;255mu\u001b[38;2;255;119;255mm\u001b[38;2;238;68;238mo\u001b[38;2;204;34;204mr\u001b[38;2;170;0;170ms            \u001b[0m"
+
+[[command]]
+keys = "Q"
+command = "-/"
+param = "QWKMAIL"
+acs = "s50"
+desc = "QWKmail menu"
+help = "Goto the offline mail menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mq\u001b[0;30;45m) \u001b[0;1;37;45mqwk mail          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;206;255mw\u001b[38;2;255;158;255mk \u001b[38;2;243;73;243mm\u001b[38;2;219;49;219ma\u001b[38;2;194;24;194mi\u001b[38;2;170;0;170ml          \u001b[0m"
 
 [[command]]
 keys = "F"
@@ -331,17 +341,6 @@ desc = "Goodbye"
 help = "Logoff system (goto goodbye menu)"
 on = "\u001b[0;30;45m (\u001b[0;1;37;45mg\u001b[0;30;45m) \u001b[0;1;37;45mgoodbye           \u001b[0m"
 off = " \u001b[0;1;30m(\u001b[0;1;35mg\u001b[0;1;30m) \u001b[38;2;255;255;255mg\u001b[38;2;255;198;255mo\u001b[38;2;255;142;255mo\u001b[38;2;255;85;255md\u001b[38;2;227;57;227mb\u001b[38;2;198;28;198my\u001b[38;2;170;0;170me           \u001b[0m"
-
-[[command]]
-keys = "Q"
-command = "-/"
-param = "QWKMAIL"
-acs = "s50"
-desc = "QWKmail menu"
-help = "Goto the offline mail menu"
-hidden = true
-on = "|B1QWKmail menu"
-off = "|B0QWKmail menu"
 
 [[command]]
 keys = "%"
