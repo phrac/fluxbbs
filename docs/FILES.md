@@ -102,8 +102,10 @@ are.
 
    The search opens on a page of its own: the board's name big in a
    search engine's four colors (`[files] search_font`, a TheDraw font,
-   and `search_face`; `search_logo` for another word), a box, and two
-   buttons. What the words find drops down under the box as they're
+   and `search_face`; `search_logo` for another word), under it in plain
+   text what's searched (files, messages, or the gallery's art:
+   `FindPageWhatFiles`, `FindPageWhatMessages`, `FindPageWhatArt`), a
+   box, and two buttons. What the words find drops down under the box as they're
    typed, two matching areas and then the best files; Up and Down pick
    one and Enter opens it, with the bar on the file. A file found by its
    description has a second line saying why: a piece of the description
@@ -529,8 +531,11 @@ The keys match the message reader's and the file browser's: N and
 right go on, - and left go back, F or / searches, S sorts, I is
 information, X votes, B or Esc goes back, Q leaves.
 
-**Searching.** F or / asks for words (`"a phrase"`, `-not`, as the file
-search takes them) and lists what has them, best first. In a gallery
+**Searching.** F or / opens the search page, as the file browser has it
+(its count, drop-down and I'm Feeling Lucky kept to the gallery's areas);
+a folder gallery, or a caller in plain text, gets a line for the words
+(`"a phrase"`, `-not`, as the file search takes them). It lists what has
+them, best first. In a gallery
 that's a file area, that's the areas under it named that way, then its
 pieces and packs and those of the areas under it, by name and
 description, then the pieces whose SAUCE title, artist or group has the

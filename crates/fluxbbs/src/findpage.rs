@@ -95,13 +95,21 @@ impl Session {
     /// The file search page: what to look for, or None (Esc, or nothing
     /// typed).
     pub(crate) async fn find_page(&mut self) -> io::Result<Option<Choice>> {
-        self.search_page(Kind::Files).await
+        self.search_page_in(Kind::Files, None, "FindPageWhatFiles").await
     }
 
     /// The search page for files or messages.
     pub(crate) async fn search_page(&mut self, kind: Kind) -> io::Result<Option<Choice>> {
+        let what = if kind == Kind::Files { "FindPageWhatFiles" } else { "FindPageWhatMessages" };
+        self.search_page_in(kind, None, what).await
+    }
+
+    /// The same, for files only in the areas `within` (new: the art
+    /// gallery's, which searches only itself); `what` names the string
+    /// that says under the logo what's searched ("art", "files"...).
+    pub(crate) async fn search_page_in(&mut self, kind: Kind, within: Option<&[u32]>, what: &str) -> io::Result<Option<Choice>> {
         let mut areas = match kind {
-            Kind::Files => self.searchable_areas()?,
+            Kind::Files => self.searchable_areas(within)?,
             Kind::Messages => self.searchable_msg_areas(),
         };
         let rows = self.screen.rows().max(20);
@@ -109,7 +117,15 @@ impl Session {
         let top = rows / 2 - 1;
         self.screen.set_color(Color::DEFAULT);
         self.clear_screen();
-        self.find_page_frame(top, rows, kind);
+        // The files there are, in the areas searched.
+        let files = within.map(|_| areas.keys.iter().map(|k| self.state.files.count(k).unwrap_or(0) as u64).sum::<u64>());
+        self.find_page_frame(top, rows, kind, files, what);
+        // The box's hint: the gallery's says art (new).
+        let hint = match kind {
+            Kind::Files if what == "FindPageWhatArt" => "FaFindPageHintArt",
+            Kind::Files => "FaFindPageHint",
+            Kind::Messages => "MsgFindPageHint",
+        };
         let mut text = String::new();
         let mut focus = Focus::Box(None);
         let mut shown: Vec<Suggestion> = Vec::new();
@@ -131,7 +147,7 @@ impl Session {
             }
             // Still stale: keys are waiting, read them before drawing.
             if !stale {
-                drawn = self.find_page_draw(kind, top, &text, &shown, focus, drawn, notice.as_deref());
+                drawn = self.find_page_draw(hint, top, &text, &shown, focus, drawn, notice.as_deref());
                 self.flush().await?;
             }
             let key = self.read_key().await?;
@@ -229,9 +245,14 @@ impl Session {
         }
     }
 
-    fn searchable_areas(&mut self) -> io::Result<Areas> {
+    fn searchable_areas(&mut self, within: Option<&[u32]>) -> io::Result<Areas> {
         let fa = self.state.fareas();
-        let nums: Vec<u32> = self.visible_fareas().into_iter().map(|(n, _)| n).filter(|&n| fa.get(n).is_some_and(|a| a.password.is_empty())).collect();
+        let nums: Vec<u32> = self
+            .visible_fareas()
+            .into_iter()
+            .map(|(n, _)| n)
+            .filter(|&n| fa.get(n).is_some_and(|a| a.password.is_empty()) && within.is_none_or(|w| w.contains(&n)))
+            .collect();
         let abouts = self.state.files.area_abouts().map_err(io::Error::other)?;
         let keys = nums.iter().filter_map(|&n| fa.get(n)).map(|a| a.file.clone()).collect();
         let num_of = nums.iter().filter_map(|&n| fa.get(n).map(|a| (a.file.to_lowercase(), n))).collect();
@@ -439,8 +460,9 @@ impl Session {
         Some(Choice::File(n, f.name))
     }
 
-    /// What doesn't change: the logo, the count of files, the help line.
-    fn find_page_frame(&mut self, top: u16, rows: u16, kind: Kind) {
+    /// What doesn't change: the logo, the count of files (`files`, when
+    /// it's not the board's), the help line.
+    fn find_page_frame(&mut self, top: u16, rows: u16, kind: Kind, files: Option<u64>, what: &str) {
         let cfg = self.state.config();
         let fs = &cfg.files;
         let word = if fs.search_logo.trim().is_empty() { cfg.bbs.name.clone() } else { fs.search_logo.trim().to_string() };
@@ -452,6 +474,9 @@ impl Session {
             let face = fs.search_face.trim();
             fonts.iter().find(|f| face.is_empty() || f.name.eq_ignore_ascii_case(face)).map(|f| f.set_letters(&word)).filter(|(c, w, h)| !c.is_empty() && *w <= 80 && *h < top)
         };
+        // New: what's searched, in plain text centered on the row under
+        // the logo.
+        let under = if set.is_some() { top } else { top - 1 };
         match set {
             Some((cells, w, h)) => {
                 let x0 = (80 - w) / 2 + 1;
@@ -482,10 +507,18 @@ impl Session {
                 }
             }
         }
+        let label = plain(self.strings().get(what));
+        let label: String = label.chars().take(30).collect();
+        if !label.trim().is_empty() {
+            let n = label.chars().count() as u16;
+            self.screen.goto((80 - n) / 2 + 1, under);
+            self.screen.set_color(Color::new(7, 0));
+            self.screen.write_text(&label);
+        }
         // Top right, as a search page shows the account: how many files,
         // and the caller's initial.
         let count = match kind {
-            Kind::Files => self.strings().fmt("FaFindPageFiles", &[&crate::files::commas(self.file_stats(true).files as u64)]),
+            Kind::Files => self.strings().fmt("FaFindPageFiles", &[&crate::files::commas(files.unwrap_or_else(|| self.file_stats(true).files as u64))]),
             Kind::Messages => {
                 let keys: Vec<String> = self.readable_areas().into_iter().filter(|(_, a)| !a.is_email()).map(|(_, a)| a.key().to_string()).collect();
                 let n = self.state.msgs.count_public(&keys).unwrap_or(0);
@@ -519,7 +552,7 @@ impl Session {
     /// `drawn`: how many drop-down lines were up before; returns how many
     /// are now.
     #[allow(clippy::too_many_arguments)]
-    fn find_page_draw(&mut self, kind: Kind, top: u16, text: &str, shown: &[Suggestion], focus: Focus, drawn: usize, notice: Option<&str>) -> usize {
+    fn find_page_draw(&mut self, hint: &str, top: u16, text: &str, shown: &[Suggestion], focus: Focus, drawn: usize, notice: Option<&str>) -> usize {
         let edge = Color::new(if matches!(focus, Focus::Box(_)) { 7 } else { 8 }, 0);
         let inner = (BOX_W - 2) as usize;
         let line = "\u{2500}".repeat(inner);
@@ -537,7 +570,7 @@ impl Session {
         self.screen.write_str(" \u{00bb} ");
         if text.is_empty() {
             let name = self.state.config().bbs.name.clone();
-            let hint = plain(&self.strings().fmt(if kind == Kind::Files { "FaFindPageHint" } else { "MsgFindPageHint" }, &[&name]));
+            let hint = plain(&self.strings().fmt(hint, &[&name]));
             let hint: String = hint.chars().take(room).collect();
             self.screen.write_text(&format!("{hint:<room$}"));
         } else {

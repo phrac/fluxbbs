@@ -841,10 +841,31 @@ impl Session {
                 Pick::Find => {
                     self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                     self.clear_screen();
-                    // New: the gallery searches itself, with a line for the words.
+                    // New: the gallery searches itself: a gallery that's a file
+                    // area on the search page, kept to it and the areas under
+                    // it; a folder, with a line for the words.
                     if let Some(within) = &scope {
-                        if let Some(words) = self.ask_find_words().await? {
-                            path.push((format!("search: {words}"), Place::Found(words, Some(Box::new(within.clone()))), 0));
+                        let choice = match within {
+                            Place::Area(top) if !self.plain() => {
+                                let nums = self.gallery_areas(*top);
+                                self.search_page_in(crate::findpage::Kind::Files, Some(&nums), "FindPageWhatArt").await?
+                            }
+                            _ => self.ask_find_words().await?.map(Choice::Words),
+                        };
+                        match choice {
+                            Some(Choice::Words(words)) => path.push((format!("search: {words}"), Place::Found(words, Some(Box::new(within.clone()))), 0)),
+                            Some(Choice::Area(n)) => {
+                                if let Some(a) = self.state.fareas().get(n) {
+                                    path.push((a.name.clone(), Place::Area(n), 0));
+                                }
+                            }
+                            Some(Choice::File(n, name)) => {
+                                if let Some(a) = self.state.fareas().get(n) {
+                                    path.push((a.name.clone(), Place::Area(n), 0));
+                                    focus = Some(name);
+                                }
+                            }
+                            _ => {}
                         }
                         continue;
                     }
@@ -943,6 +964,25 @@ impl Session {
         Ok((out, total))
     }
 
+    /// New: the areas a gallery that's file area `top` searches: it and
+    /// those under it the caller can see, less any with a password.
+    fn gallery_areas(&self, top: u32) -> Vec<u32> {
+        let fa = self.state.fareas();
+        let under = |mut n: u32| {
+            for _ in 0..32 {
+                if n == top {
+                    return true;
+                }
+                match fa.parent_of(n) {
+                    Some(p) => n = p,
+                    None => return false,
+                }
+            }
+            false
+        };
+        self.visible_fareas().into_iter().map(|(n, _)| n).filter(|&n| under(n) && fa.get(n).is_some_and(|a| a.password.is_empty())).collect()
+    }
+
     /// New: what a search of the gallery finds. In a file area: its
     /// sub-areas whose name has the words, then its pieces and packs (and
     /// those of the areas under it) best first by name and description,
@@ -963,20 +1003,8 @@ impl Session {
             return Ok((out, n));
         }
         let Place::Area(top) = within else { return Ok((Vec::new(), 0)) };
+        let areas = self.gallery_areas(*top);
         let fa = self.state.fareas();
-        let under = |mut n: u32| {
-            for _ in 0..32 {
-                if n == *top {
-                    return true;
-                }
-                match fa.parent_of(n) {
-                    Some(p) => n = p,
-                    None => return false,
-                }
-            }
-            false
-        };
-        let areas: Vec<u32> = self.visible_fareas().into_iter().map(|(n, _)| n).filter(|&n| under(n) && fa.get(n).is_some_and(|a| a.password.is_empty())).collect();
         let mut out = Vec::new();
         for &n in &areas {
             if n != *top && let Some(a) = fa.get(n) && find.matches_text(&crate::editor::strip_colours(&a.name)) {
