@@ -519,6 +519,13 @@ All in [FEATURES](FEATURES.md#message-center).
   `underground` (`[casino] theme`): neon, skulls and crossbones,
   floppies and viruses, the slot machine's fruit with them.
   ([FEATURES](FEATURES.md#casino))
+- One set of keys for messages, files and the art gallery: `n`/right next
+  and `-`/left previous, `f` (or `/`) search, `s` sort, `i` info (finger,
+  in the reader), `x` vote, `b`/Esc back, `q` quit. The gallery searches
+  itself (names, descriptions, SAUCE), and its viewers step to the next
+  or previous piece without going back to the list.
+  ([FILES](FILES.md#keys))
+- ANSI art gens keep their prompt in the SAUCE comments.
 - Blackjack's secret card count (`c`): the Hi-Lo running and true count under the shoe.
 - Points around the board (`!P`): up votes pay a post's author, doors
   pay by the minute, callers tip each other (`$` in the reader), and a

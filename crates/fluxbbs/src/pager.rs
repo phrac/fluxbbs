@@ -477,7 +477,15 @@ impl Session {
                 seen_end |= top >= last_top;
             }
             let key = self.read_key().await?;
-            if let Some(c) = key.upper().filter(|c| extra.contains(c)) {
+            // New: with `>` and `<` among the extra keys, right and left end
+            // it as those (the next piece, the one before), unless the rows
+            // are wide enough to scroll sideways.
+            let step = match key {
+                Key::Right if last_left == 0 => Some('>'),
+                Key::Left if last_left == 0 => Some('<'),
+                _ => None,
+            };
+            if let Some(c) = step.filter(|c| extra.contains(c)).or_else(|| key.upper().filter(|c| extra.contains(c))) {
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                 self.clear_screen();
                 return Ok(Paged { key: Some(c), top, seen_end });

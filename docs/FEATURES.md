@@ -505,7 +505,7 @@ straight to it.
 
 ### Profiles
 
-Finger shows a caller's profile. Open it with `UF`, with `f` on a
+Finger shows a caller's profile. Open it with `UF`, with `i` on a
 message in the reader, or by giving a name after the user list.
 
 It shows:
@@ -1843,7 +1843,8 @@ something in it is new. The latest activity comes first.
 | `s` | sort by latest, hot (votes in the last 48 hours, newer counting more) or top (score); kept for the caller |
 | `t` | show only threads with one of the board's tags (Esc shows them all again) |
 | `v` | the thread as a tree ([below](#the-thread-tree)) |
-| `f` | on a [request board](#request-boards): mark the request filled, or open again |
+| `m` | on a [request board](#request-boards): mark the request filled, or open again (it was `f`) |
+| `f` | search the messages (`MO`); `/` finds a thread in the list |
 | `o` | the moderator's options |
 | `h` | help |
 
@@ -1931,8 +1932,8 @@ been filled, and the one who filled it gets [points](#points-for-fills).
 - **Answering.** `r` in the reader leaves a comment under the request;
   `/l` as the comment picks a file to link to. A longer answer can be
   posted with a link from the editor's `/L`.
-- **Marking.** The asker presses `f` on the thread in the list, or `m`
-  in the reader. A lightbar lists the answers (comments and replies,
+- **Marking.** The asker presses `m` on the thread in the list or in
+  the reader. A lightbar lists the answers (comments and replies,
   with how many files each links to); the asker picks the one that
   filled it, or "none of these". In the reader, on someone's reply, it
   first asks "Did ...'s reply fill it?". The answer's links become the
@@ -2001,7 +2002,7 @@ its number, author and first words), so it reads on its own.
 
 | Key | Does |
 |---|---|
-| Left, Right | previous, next message |
+| Left, Right | previous, next message (`-` and `n` too) |
 | Up, Down | scroll |
 | `r` | comment ([below](#votes-and-comments)); in email and echomail, reply |
 | `w` | a full reply in the editor, quoting allowed, posted in the thread |
@@ -2014,8 +2015,9 @@ its number, author and first words), so it reads on its own.
 | `d` | your own post: [take it back, retract or burn it](#taking-it-back); as the moderator, delete |
 | `u` | up to the message this one answers |
 | `m` | on a [request board](#request-boards): mark the request filled, or open again |
-| `f` | finger the author |
-| `l` or Esc | back |
+| `i` | finger the author (it was `f`) |
+| `f` or `/` | search the messages (`MO`) |
+| `b`, `l` or Esc | back (`b` was the message before) |
 | `q` | stop |
 | `?` or `h` | help |
 | a number | go to that message |

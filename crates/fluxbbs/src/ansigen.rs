@@ -613,9 +613,11 @@ pub fn unbase64(s: &str) -> Option<Vec<u8>> {
 
 // ---- filing ------------------------------------------------------------------
 
-/// The SAUCE fields: title, author, group, date. A record already there
-/// keeps its sizes and flags; without one, one is added.
-pub fn with_sauce(data: &[u8], title: &str, author: &str, group: &str, date: NaiveDate) -> Vec<u8> {
+/// The SAUCE fields: title, author, group, date, and (new) `comments` as
+/// its comment lines (64 wide, a block before the record; any there go).
+/// A record already there keeps its sizes and flags; without one, one is
+/// added.
+pub fn with_sauce(data: &[u8], title: &str, author: &str, group: &str, date: NaiveDate, comments: &[String]) -> Vec<u8> {
     let field = |s: &str, n: usize| {
         let mut b = fluxbbs_term::cp437::encode(s);
         b.truncate(n);
@@ -623,8 +625,16 @@ pub fn with_sauce(data: &[u8], title: &str, author: &str, group: &str, date: Nai
         b
     };
     let has = data.len() >= 128 && data[data.len() - 128..].starts_with(b"SAUCE00");
-    let mut out = data.to_vec();
-    if !has {
+    let mut out;
+    if has {
+        let end = data.len() - 128;
+        let n = data[end + 104] as usize;
+        let start = end.checked_sub(5 + n * 64).filter(|&s| n > 0 && data[s..].starts_with(b"COMNT")).unwrap_or(end);
+        let mut rec = data[end..].to_vec();
+        rec[104] = 0;
+        out = data[..start].to_vec();
+        out.extend(rec);
+    } else {
         let body = crate::upscan::text_part(data);
         let rows = body.split(|&c| c == b'\n').filter(|l| !l.iter().all(|c| c.is_ascii_whitespace())).count() as u16;
         out = body.to_vec();
@@ -647,6 +657,16 @@ pub fn with_sauce(data: &[u8], title: &str, author: &str, group: &str, date: Nai
     out[at + 42..at + 62].copy_from_slice(&field(author, 20));
     out[at + 62..at + 82].copy_from_slice(&field(group, 20));
     out[at + 82..at + 90].copy_from_slice(date.format("%Y%m%d").to_string().as_bytes());
+    let comments = &comments[..comments.len().min(255)];
+    if !comments.is_empty() {
+        out[at + 104] = comments.len() as u8;
+        let rec = out.split_off(at);
+        out.extend(b"COMNT");
+        for c in comments {
+            out.extend(field(c, 64));
+        }
+        out.extend(rec);
+    }
     out
 }
 
@@ -745,9 +765,11 @@ fn file_gen(state: &BbsState, user: (u32, &str), prompt: &str, g: &Gen, now: Nai
     let name = (1..1000).map(|i| if i == 1 { format!("{base}.ans") } else { format!("{base}-{i}.ans") }).find(|n| !taken(n)).ok_or_else(|| anyhow::anyhow!("no free name for {base}"))?;
     let path = dir.join(&name);
     let (t, group) = (title(prompt), crate::editor::strip_colours(&root.bbs.name));
-    let ans16 = with_sauce(&g.ans16, &t, user.1, &group, now.date());
-    std::fs::write(side_path(&path, "256"), with_sauce(&g.ans256, &t, user.1, &group, now.date()))?;
-    std::fs::write(side_path(&path, "24"), with_sauce(&g.ans24, &t, user.1, &group, now.date()))?;
+    // New: the prompt in the SAUCE comments.
+    let said = wrap(&format!("Prompt: {prompt}"), 64, 8);
+    let ans16 = with_sauce(&g.ans16, &t, user.1, &group, now.date(), &said);
+    std::fs::write(side_path(&path, "256"), with_sauce(&g.ans256, &t, user.1, &group, now.date(), &said))?;
+    std::fs::write(side_path(&path, "24"), with_sauce(&g.ans24, &t, user.1, &group, now.date(), &said))?;
     std::fs::write(side_path(&path, "png"), &g.png)?;
     std::fs::write(&path, &ans16)?;
     let mut rec = FileRec {
@@ -1330,13 +1352,20 @@ mod tests {
         assert_eq!(unbase64("aGk").unwrap(), b"hi");
         assert!(unbase64("a$b").is_none());
         let art = b"\x1b[0mhi\r\n".to_vec();
-        let s = with_sauce(&art, "a lighthouse", "Ann", "flux/bbs", day(7));
+        let said = wrap(&format!("Prompt: {}", "a lighthouse on a cliff at night ".repeat(3)), 64, 8);
+        assert_eq!(said.len(), 2);
+        let s = with_sauce(&art, "a lighthouse", "Ann", "flux/bbs", day(7), &said);
         let sauce = crate::gallery::parse_sauce(&s).unwrap();
         assert_eq!((sauce.title.as_str(), sauce.author.as_str(), sauce.group.as_str(), sauce.date.as_str()), ("a lighthouse", "Ann", "flux/bbs", "2026-11-07"));
-        // A record already there keeps its sizes, takes the names.
-        let again = with_sauce(&s, "other", "Bob", "x", day(8));
-        assert_eq!(again.len(), s.len());
+        assert_eq!(crate::gallery::sauce_comments(&s), said, "the prompt in the comments");
+        assert!(s.starts_with(b"\x1b[0mhi\r\n\x1a"), "the art, then EOF");
+        // A record already there keeps its sizes, takes the names; its
+        // comments are replaced.
+        let again = with_sauce(&s, "other", "Bob", "x", day(8), &said[..1]);
+        assert_eq!(again.len(), s.len() - 64);
         assert_eq!(crate::gallery::parse_sauce(&again).unwrap().author, "Bob");
+        assert_eq!(crate::gallery::sauce_comments(&again), said[..1]);
+        assert_eq!(with_sauce(&again, "other", "Bob", "x", day(8), &[]).len(), s.len() - 5 - 128);
         assert_eq!(side_path(Path::new("/a/b/cat.ans"), "24"), Path::new("/a/b/.ansigen/cat.24.ans"));
         assert_eq!(side_path(Path::new("/a/b/cat.ans"), "png"), Path::new("/a/b/.ansigen/cat.png"));
     }

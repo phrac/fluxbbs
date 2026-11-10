@@ -33,6 +33,10 @@ const MAX_PIECE: u64 = 8 << 20;
 const SAUCE_BUDGET: u64 = 64 << 20;
 /// The most files a search lists (new): its best.
 const MAX_FOUND: usize = 500;
+/// What ends a viewer for the browse to act on: play, download (`d` or
+/// `g`), quit, the next piece (`n`, right) or the one before (`-`, left),
+/// info and vote. (Play first: a file that isn't art has none.)
+const STEP_KEYS: [char; 10] = ['P', 'D', 'G', 'Q', 'N', '>', '-', '<', 'I', 'X'];
 /// Play speeds to cycle through (bits per second; 0 = all at once).
 const SPEEDS: [u32; 8] = [0, 2400, 9600, 14400, 28800, 38400, 57600, 115200];
 
@@ -62,7 +66,7 @@ pub fn parse_sauce(data: &[u8]) -> Option<Sauce> {
 }
 
 /// The comment lines (`COMNT` block) before a SAUCE record.
-fn sauce_comments(data: &[u8]) -> Vec<String> {
+pub(crate) fn sauce_comments(data: &[u8]) -> Vec<String> {
     let Some(rec) = data.len().checked_sub(128).and_then(|i| data.get(i..)) else { return Vec::new() };
     let n = rec[104] as usize;
     let Some(start) = data.len().checked_sub(128 + 5 + n * 64) else { return Vec::new() };
@@ -118,8 +122,9 @@ enum Place {
     /// A tar, tar.gz or .gz, read in place like a ZIP.
     Tar { tar: PathBuf, kind: Kind, prefix: String },
     /// New: what a search of the file areas found (`FW search`, or F in
-    /// the browser): the words.
-    Found(String),
+    /// the browser): the words, and where (None: every file area; else the
+    /// gallery's area and those under it, or its folder).
+    Found(String, Option<Box<Place>>),
     /// New: the hot files: pushed most lately (`FW votes`).
     Hot,
 }
@@ -335,7 +340,7 @@ fn list(place: &Place, mode: Mode) -> io::Result<Vec<Item>> {
             }
         }
         // Listed by the session, which knows what the caller may see.
-        Place::Area(_) | Place::Areas | Place::Found(_) | Place::Hot => {}
+        Place::Area(_) | Place::Areas | Place::Found(..) | Place::Hot => {}
         Place::Zip { zip, prefix } => {
             let mut z = zip::ZipArchive::new(std::fs::File::open(zip)?).map_err(io::Error::other)?;
             let mut seen = std::collections::HashSet::new();
@@ -495,7 +500,7 @@ impl Session {
             let Some(choice) = self.ask_find().await? else { return Ok(()) };
             return match choice {
                 Choice::Words(words) if self.plain() => self.find_files_plain(&words).await,
-                Choice::Words(words) => self.gallery_browse(Place::Found(words.clone()), &format!("search: {words}"), mode, speed).await,
+                Choice::Words(words) => self.gallery_browse(Place::Found(words.clone(), None), &format!("search: {words}"), mode, speed).await,
                 Choice::Area(n) => self.gallery_browse_from(Place::Areas, "file areas", mode, speed, self.area_start(n), None).await,
                 Choice::File(n, name) => self.gallery_browse_from(Place::Areas, "file areas", mode, speed, self.area_start(n), Some(name)).await,
                 // The file page never offers messages.
@@ -546,11 +551,16 @@ impl Session {
         if !self.plain() {
             return self.find_page().await;
         }
+        Ok(self.ask_find_words().await?.map(Choice::Words))
+    }
+
+    /// The words to look for, on a line; None for none.
+    async fn ask_find_words(&mut self) -> io::Result<Option<String>> {
         self.say_line("FaFindHelp").await?;
         self.say("FaFindAsk").await?;
         let words = self.read_string(crate::input::ReadOpts::new(70)).await?;
         self.newline();
-        Ok(Some(words.trim().to_string()).filter(|w| !crate::filebase::Find::parse(w).is_empty()).map(Choice::Words))
+        Ok(Some(words.trim().to_string()).filter(|w| !crate::filebase::Find::parse(w).is_empty()))
     }
 
     /// The same search for a caller without ANSI: the file lister, area by area.
@@ -610,8 +620,14 @@ impl Session {
     async fn gallery_browse_in(&mut self, root: Place, title: &str, mode: Mode, mut speed: u32, start: Vec<(String, Place)>, mut focus: Option<String>, mut owners: Owners) -> io::Result<()> {
         self.full_screen_done();
         // Where we are, and the cursor in each level above.
-        // New: the file areas can be searched from anywhere in them.
-        let search = matches!(root, Place::Areas | Place::Found(_));
+        // New: the file areas can be searched from anywhere in them, and
+        // the gallery within itself (not an archive, or the hot files).
+        let search = !matches!(root, Place::Zip { .. } | Place::Tar { .. } | Place::Hot);
+        let scope = match &root {
+            Place::Areas | Place::Found(_, None) => None,
+            Place::Found(_, Some(w)) => Some((**w).clone()),
+            r => Some(r.clone()),
+        };
         let mut path: Vec<(String, Place, usize)> = vec![(String::new(), root, 0)];
         path.extend(start.into_iter().map(|(name, place)| (name, place, 0)));
         let mut note: Option<String> = None;
@@ -652,8 +668,12 @@ impl Session {
             // A search lists best first, unless another order is asked for.
             let hot = matches!(place, Place::Hot);
             let (mut items, found) = match &place {
-                Place::Found(words) => {
+                Place::Found(words, None) => {
                     let (items, total) = self.found_items(words, mode)?;
+                    (items, Some(total))
+                }
+                Place::Found(words, Some(within)) => {
+                    let (items, total) = self.gallery_found(words, within, mode).await?;
                     (items, Some(total))
                 }
                 Place::Hot => (self.hot_items(mode)?, None),
@@ -717,28 +737,57 @@ impl Session {
                             }
                             path.push((name.clone(), place.clone(), 0))
                         }
-                        Item::Art { name, sauce, src, .. } => {
-                            // From the viewer, P plays and D downloads.
-                            let picked = if is_pdf(name) {
-                                self.pdf_open(name, src, false).await?
-                            } else if is_image(name) {
-                                self.gallery_picture(name, src).await?
-                            } else if is_art(name) {
-                                self.gallery_view(name, sauce.as_ref(), src).await?
-                            } else {
-                                self.gallery_file(name, src, crumbs.last().map_or(title, |c| c.as_str())).await?
-                            };
-                            match picked {
-                                // Q leaves the gallery from a viewer too.
-                                Some('Q') => {
-                                    self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-                                    self.clear_screen();
-                                    return Ok(());
+                        Item::Art { .. } => {
+                            // From the viewer, P plays and D downloads; new:
+                            // n and right go on to the next piece, - and
+                            // left back to the one before, i and x as in
+                            // the list.
+                            let mut j = i;
+                            while let Item::Art { name, sauce, src, .. } = &items[j] {
+                                let picked = if is_pdf(name) {
+                                    self.pdf_open(name, src, false).await?
+                                } else if is_image(name) {
+                                    self.gallery_picture(name, src).await?
+                                } else if is_art(name) {
+                                    self.gallery_view(name, sauce.as_ref(), src).await?
+                                } else {
+                                    self.gallery_file(name, src, crumbs.last().map_or(title, |c| c.as_str())).await?
+                                };
+                                match picked {
+                                    Some(c @ ('N' | '>' | '-' | '<')) => {
+                                        if let Some(k) = next_piece(&items, j, matches!(c, 'N' | '>')) {
+                                            j = k;
+                                            path.last_mut().expect("root").2 = j;
+                                        }
+                                        continue;
+                                    }
+                                    Some('I') => {
+                                        if let Some((_, f)) = record(&items[j]).cloned() {
+                                            self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                                            self.clear_screen();
+                                            self.file_info(&f).await?;
+                                            self.prompt_key().await?;
+                                        }
+                                        continue;
+                                    }
+                                    Some('X') => {
+                                        if let Some((_, f)) = record(&items[j]).cloned() {
+                                            self.file_push_prompt(&f).await?;
+                                        }
+                                        continue;
+                                    }
+                                    // Q leaves the gallery from a viewer too.
+                                    Some('Q') => {
+                                        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                                        self.clear_screen();
+                                        return Ok(());
+                                    }
+                                    Some('P') if is_image(name) => {}
+                                    Some('P') => self.gallery_played(&items[j], speed, &owners).await?,
+                                    Some('D' | 'G') => self.gallery_download(&items[j], &owners).await?,
+                                    _ => {}
                                 }
-                                Some('P') if is_image(name) => {}
-                                Some('P') => self.gallery_played(&items[i], speed, &owners).await?,
-                                Some('D') => self.gallery_download(&items[i], &owners).await?,
-                                _ => {}
+                                break;
                             }
                         }
                     }
@@ -751,7 +800,7 @@ impl Session {
                                 self.gallery_download(&items[i], &owners).await?;
                             }
                         } else if is_image(name) {
-                            if self.gallery_picture(name, src).await? == Some('D') {
+                            if matches!(self.gallery_picture(name, src).await?, Some('D' | 'G')) {
                                 self.gallery_download(&items[i], &owners).await?;
                             }
                         } else {
@@ -792,8 +841,15 @@ impl Session {
                 Pick::Find => {
                     self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                     self.clear_screen();
+                    // New: the gallery searches itself, with a line for the words.
+                    if let Some(within) = &scope {
+                        if let Some(words) = self.ask_find_words().await? {
+                            path.push((format!("search: {words}"), Place::Found(words, Some(Box::new(within.clone()))), 0));
+                        }
+                        continue;
+                    }
                     match self.ask_find().await? {
-                        Some(Choice::Words(words)) => path.push((format!("search: {words}"), Place::Found(words), 0)),
+                        Some(Choice::Words(words)) => path.push((format!("search: {words}"), Place::Found(words, None), 0)),
                         Some(Choice::Area(n)) => {
                             if let Some(a) = self.state.fareas().get(n) {
                                 path.push((a.name.clone(), Place::Area(n), 0));
@@ -887,6 +943,81 @@ impl Session {
         Ok((out, total))
     }
 
+    /// New: what a search of the gallery finds. In a file area: its
+    /// sub-areas whose name has the words, then its pieces and packs (and
+    /// those of the areas under it) best first by name and description,
+    /// then those only their SAUCE has the words in. In a folder, what
+    /// [`walk_found`] finds.
+    async fn gallery_found(&mut self, words: &str, within: &Place, mode: Mode) -> io::Result<(Vec<Item>, usize)> {
+        let find = crate::filebase::Find::parse(words);
+        if let Place::Dir(dir) = within {
+            let dir = dir.clone();
+            let out = tokio::task::spawn_blocking(move || {
+                let mut out = Vec::new();
+                walk_found(&dir, &find, &mut out, &mut 50_000, 0);
+                out
+            })
+            .await
+            .map_err(io::Error::other)?;
+            let n = out.len();
+            return Ok((out, n));
+        }
+        let Place::Area(top) = within else { return Ok((Vec::new(), 0)) };
+        let fa = self.state.fareas();
+        let under = |mut n: u32| {
+            for _ in 0..32 {
+                if n == *top {
+                    return true;
+                }
+                match fa.parent_of(n) {
+                    Some(p) => n = p,
+                    None => return false,
+                }
+            }
+            false
+        };
+        let areas: Vec<u32> = self.visible_fareas().into_iter().map(|(n, _)| n).filter(|&n| under(n) && fa.get(n).is_some_and(|a| a.password.is_empty())).collect();
+        let mut out = Vec::new();
+        for &n in &areas {
+            if n != *top && let Some(a) = fa.get(n) && find.matches_text(&crate::editor::strip_colours(&a.name)) {
+                out.push(Item::Folder { name: a.name.clone(), place: Place::Area(n), pack: false, rec: None, when: None });
+            }
+        }
+        let keys: Vec<String> = areas.iter().filter_map(|&n| fa.get(n)).map(|a| a.file.clone()).collect();
+        let num_of: HashMap<String, u32> = areas.iter().filter_map(|&n| fa.get(n).map(|a| (a.file.to_lowercase(), n))).collect();
+        let (files, total) = self.state.files.find_words(&keys, &find, MAX_FOUND).map_err(io::Error::other)?;
+        let mut seen = std::collections::HashSet::new();
+        for f in files {
+            let Some(&n) = num_of.get(&f.area.to_lowercase()) else { continue };
+            let Some(a) = fa.get(n) else { continue };
+            seen.insert(f.id);
+            let path = self.farea_dir(a).join(&f.name);
+            out.extend(file_item(n, f, path, mode));
+        }
+        // The pieces whose SAUCE has the words, read off the async threads.
+        let mut rest = Vec::new();
+        for &n in &areas {
+            let Some(a) = fa.get(n) else { continue };
+            let dir = self.farea_dir(a);
+            for f in self.state.files.list(&a.file).map_err(io::Error::other)? {
+                if f.valid && is_art(&f.name) && !seen.contains(&f.id) {
+                    rest.push((n, dir.join(&f.name), f));
+                }
+            }
+        }
+        let room = MAX_FOUND.saturating_sub(out.len());
+        let more: Vec<(u32, PathBuf, FileRec)> = tokio::task::spawn_blocking(move || {
+            rest.into_iter().filter(|(_, p, _)| disk_sauce(p).is_some_and(|s| find.matches_text(&sauce_words(&s)))).take(room).collect()
+        })
+        .await
+        .map_err(io::Error::other)?;
+        let total = total + more.len();
+        for (n, path, f) in more {
+            out.extend(file_item(n, f, path, mode));
+        }
+        Ok((out, total))
+    }
+
     /// New: the hot files as browser items.
     fn hot_items(&mut self, mode: Mode) -> io::Result<Vec<Item>> {
         let fa = self.state.fareas();
@@ -938,7 +1069,7 @@ impl Session {
         // New: info and edit, as the file lister has them; edit for a co-SysOp and up.
         let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
         let mut menu = MenuBar {
-            items: &["open", "play", "speed", "reorder", "get", "info", "vote", "edit", "find", "back"],
+            items: &["open", "play", "modem", "sort", "get", "info", "vote", "edit", "find", "back"],
             off: vec![false, false, false, false, false, false, false, !cosysop, !opts.search, false],
             pos: 0,
             xs: Vec::new(),
@@ -951,7 +1082,7 @@ impl Session {
         // A word in place of the info line, after a key that can't act - or, on
         // a fresh listing in an order other than by name, which order it is.
         let mut note: Option<String> = opts.note.or_else(|| (self.gallery_order != Order::Name)
-            .then(|| format!("in order of {} - R to reorder", self.gallery_order.word())));
+            .then(|| format!("in order of {} - S to sort", self.gallery_order.word())));
         // New: the screen's effects (GALLERY.FX) run while it waits.
         let mut amb: Option<crate::ambient::Ambient> = None;
         loop {
@@ -1088,9 +1219,11 @@ impl Session {
                 k => match k.upper() {
                     Some('O') => Some("open"),
                     Some('P') => Some("play"),
-                    Some('S') => Some("speed"),
-                    // New: R cycles the order (S is speed, O is open).
-                    Some('R') => Some("reorder"),
+                    // New: S sorts, as in the message boards (R did); M,
+                    // "modem", is the speed play runs at (S was).
+                    Some('M') => Some("modem"),
+                    Some('S' | 'R') => Some("sort"),
+                    Some('H' | '?') => Some("help"),
                     Some('G' | 'D') => Some("get"),
                     Some('I') => Some("info"),
                     // New: votes and comments, `x` as in the message center.
@@ -1116,13 +1249,17 @@ impl Session {
                     "play" => note = Some(self.strings().get("GalleryPlayWhat").to_string()),
                     "get" if items.get(cur).is_some_and(downloadable) => return Ok(Pick::Download(cur)),
                     "get" => note = Some(self.strings().get("GalleryNotFile").to_string()),
-                    "speed" => {
+                    "modem" => {
                         let i = SPEEDS.iter().position(|s| s == speed).map_or(0, |i| (i + 1) % SPEEDS.len());
                         *speed = SPEEDS[i];
                         let shown = if *speed == 0 { "instant".to_string() } else { format!("{speed}") };
                         note = Some(self.strings().fmt("GallerySpeed", &[&shown]));
                     }
-                    "reorder" => return Ok(Pick::Resort(cur)),
+                    "sort" => return Ok(Pick::Resort(cur)),
+                    "help" => {
+                        let shown = if *speed == 0 { "instant".to_string() } else { speed.to_string() };
+                        note = Some(self.strings().fmt("GalleryHelp", &[&shown]));
+                    }
                     "info" if items.get(cur).is_some_and(|i| record(i).is_some()) => return Ok(Pick::Info(cur)),
                     "vote" if items.get(cur).is_some_and(|i| record(i).is_some()) => {
                         if let Some((_, f)) = items.get(cur).and_then(record).cloned()
@@ -1402,7 +1539,7 @@ impl Session {
         let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
         let grid = crate::pager::trimmed(crate::pager::render_named(text, utf8, name, &self.look()));
         let title = format!("{name} in {}", crate::editor::strip_colours(area));
-        self.page_grid_keys(&title, &grid, "GalleryViewHelp", &['D', 'Q']).await
+        self.page_grid_keys(&title, &grid, "GalleryFileHelp", &STEP_KEYS[1..]).await
     }
 
     /// A piece in the scrolling viewer, titled from its SAUCE.
@@ -1427,7 +1564,7 @@ impl Session {
             Some(s) if !s.title.is_empty() => format!("{name}: {}", s.title),
             _ => name.to_string(),
         };
-        self.page_grid_keys(&title, &grid, "GalleryViewHelp", &['P', 'D', 'Q']).await
+        self.page_grid_keys(&title, &grid, "GalleryViewHelp", &STEP_KEYS).await
     }
 
     /// A picture as ANSI, fitted to the screen; an animated GIF plays until
@@ -1440,28 +1577,18 @@ impl Session {
         };
         let max = self.state.config().files.image_limits().max_bytes.max(MAX_PIECE) + 1;
         let src = src.clone();
-        self.show_picture(name, file, inner, move || read_limited(&src, max)).await
+        let key = self.show_picture_key(name, None, file, inner, move || read_limited(&src, max)).await?;
+        Ok(key.and_then(|k| match k {
+            Key::Right => Some('>'),
+            Key::Left => Some('<'),
+            k => k.upper().filter(|c| STEP_KEYS.contains(c)),
+        }))
     }
 
     /// A picture whose bytes `read` gets (off the async threads), cached
-    /// by `file` and `inner` (a name inside it, if any). See
-    /// [`Session::gallery_picture`].
-    pub(crate) async fn show_picture(
-        &mut self,
-        name: &str,
-        file: PathBuf,
-        inner: String,
-        read: impl FnOnce() -> io::Result<Vec<u8>> + Send + 'static,
-    ) -> io::Result<Option<char>> {
-        Ok(match self.show_picture_key(name, None, file, inner, read).await? {
-            Some(k) if k.upper() == Some('D') => Some('D'),
-            _ => None,
-        })
-    }
-
-    /// [`Session::show_picture`], giving back the key that ended it (P,
-    /// play again, is handled here); `None` if it couldn't be shown.
-    /// `caption`, if given, is the bottom line in place of the usual one.
+    /// by `file` and `inner` (a name inside it, if any), giving back the key
+    /// that ended it (P, play again, is handled here); `None` if it couldn't
+    /// be shown.
     pub(crate) async fn show_picture_key(
         &mut self,
         name: &str,
@@ -1842,6 +1969,53 @@ fn file_item(n: u32, f: FileRec, path: PathBuf, mode: Mode) -> Option<Item> {
         Some(Item::Art { name, size: f.size, sauce, src: Src::Disk(path), rec: Some((n, f)), when })
     } else {
         None
+    }
+}
+
+/// New: the piece after `i` (or before it), round from either end,
+/// folders skipped; None when `i` is the only one.
+fn next_piece(items: &[Item], i: usize, forward: bool) -> Option<usize> {
+    let n = items.len();
+    (1..n).map(|d| if forward { (i + d) % n } else { (i + n - d) % n }).find(|&k| matches!(items[k], Item::Art { .. }))
+}
+
+/// A piece's SAUCE as words to search.
+fn sauce_words(s: &Sauce) -> String {
+    format!("{}\n{}\n{}", s.title, s.author, s.group)
+}
+
+/// New: a search of a gallery folder: what's in it and the folders under
+/// it whose name (or a piece's SAUCE) has the words; packs by their name.
+fn walk_found(dir: &Path, find: &crate::filebase::Find, out: &mut Vec<Item>, budget: &mut usize, depth: u32) {
+    let Ok(rd) = std::fs::read_dir(dir) else { return };
+    for e in rd.filter_map(Result::ok) {
+        if out.len() >= MAX_FOUND || *budget == 0 {
+            return;
+        }
+        *budget -= 1;
+        let name = e.file_name().to_string_lossy().into_owned();
+        if name.starts_with('.') {
+            continue;
+        }
+        let path = e.path();
+        if path.is_dir() {
+            if find.matches_text(&name) {
+                out.push(Item::Folder { name: name.clone(), when: mtime(&path), place: Place::Dir(path.clone()), pack: false, rec: None });
+            }
+            if depth < 8 {
+                walk_found(&path, find, out, budget, depth + 1);
+            }
+        } else if is_zip(&name) {
+            if find.matches_text(&name) {
+                out.push(Item::Folder { name, when: mtime(&path), place: Place::Zip { zip: path, prefix: String::new() }, pack: true, rec: None });
+            }
+        } else if is_art(&name) || is_image(&name) {
+            let sauce = if is_image(&name) { None } else { disk_sauce(&path) };
+            if find.matches_text(&name) || sauce.as_ref().is_some_and(|s| find.matches_text(&sauce_words(s))) {
+                let size = e.metadata().map(|m| m.len()).unwrap_or(0);
+                out.push(Item::Art { sauce, name, size, when: mtime(&path), src: Src::Disk(path), rec: None });
+            }
+        }
     }
 }
 

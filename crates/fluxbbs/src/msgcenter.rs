@@ -833,7 +833,9 @@ impl Session {
             };
             let help = self.strings().fmt("MsgThreadKeys", &[&fluxbbs_term::lit(&fluxbbs_term::codes::squish(&name, room)), &new_count, &sort]) + &more;
             let header = post_line(" ", "#", "+/-", "Date", "Author", "Re", "Title");
-            let mut keys = String::from("NPSHVZ");
+            // New: f searches here too (/ finds in the list); filling a
+            // request is m, as in the reader (it was f).
+            let mut keys = String::from("NPSHVZF");
             if moderator {
                 keys.push('O');
             }
@@ -841,7 +843,7 @@ impl Session {
                 keys.push('T');
             }
             if a.area.requests {
-                keys.push_str("F$");
+                keys.push_str("M$");
             }
             let spec = BarSpec {
                 prefix: "MTHRD",
@@ -909,6 +911,11 @@ impl Session {
                     self.top_fillers().await?;
                 }
                 BarPick::Key('F', n) => {
+                    on_root = ts.get(n as usize).map(|t| t.msgs[0].0);
+                    self.reader_prompt_area();
+                    self.msg_search("").await?;
+                }
+                BarPick::Key('M', n) => {
                     if let Some(root) = ts.get(n as usize).map(|t| by_id[&t.msgs[0].0]) {
                         on_root = Some(root.id);
                         let root = root.clone();
@@ -1648,13 +1655,22 @@ impl Session {
                         }
                         None => return Ok(ReadEnd::Back),
                     },
-                    Some('-' | 'B') if i > 0 => {
+                    Some('-') if i > 0 => {
                         i -= 1;
                         forward = false;
                         cur = None;
                     }
-                    Some('L') => return Ok(ReadEnd::Back),
+                    // New: b goes back, as everywhere else (it was the
+                    // message before; left and - still are).
+                    Some('L' | 'B') => return Ok(ReadEnd::Back),
                     Some('Q') => return Ok(ReadEnd::Quit),
+                    // New: f and / search, as the board list and files do.
+                    Some('F' | '/') => {
+                        self.reader_prompt_area();
+                        Box::pin(self.msg_search("")).await?;
+                        cur = None;
+                        redraw = true;
+                    }
                     // A reply is a comment under the message (one system,
                     // not two), but for email and echomail, where comments
                     // can't go.
@@ -1763,8 +1779,8 @@ impl Session {
                         self.message_files(&m, attached).await?;
                         redraw = true;
                     }
-                    // New: finger the author.
-                    Some('F') if !m.anonymous => {
+                    // New: finger the author (i, as info is in the files).
+                    Some('I') if !m.anonymous => {
                         if let Some(u) = self.state.users.get(m.from.user_id).map_err(io_err)?.filter(|u| !u.deleted) {
                             self.finger_user(&u).await?;
                             redraw = true;

@@ -226,7 +226,7 @@ impl Session {
         match text {
             Ok(t) if !t.trim().is_empty() => {
                 let grid = crate::pager::trimmed(crate::pager::render(t.as_bytes(), true));
-                self.page_grid_keys(name, &grid, "PdfViewHelp", &['P', 'D']).await
+                self.page_grid_keys(name, &grid, "PdfViewHelp", &['P', 'D', 'G', 'Q', 'N', '-', 'I', 'X']).await
             }
             // A scan with no text in it: straight to the pages.
             Ok(_) => Ok(Some('P')),
@@ -275,10 +275,10 @@ impl Session {
                 Key::Left | Key::Up | Key::PgUp => n.saturating_sub(1).max(1),
                 Key::Home => 1,
                 Key::End => total,
+                // New: n and - step to the next file and back, as the
+                // gallery's viewers do, and b goes back (it was the page before).
                 k => match k.upper() {
-                    Some(c @ ('D' | 'T')) => return Ok(Some(c)),
-                    Some('N') => (n + 1).min(total),
-                    Some('B') => n.saturating_sub(1).max(1),
+                    Some(c @ ('D' | 'T' | 'G' | 'Q' | 'N' | '-' | 'I' | 'X')) => return Ok(Some(c)),
                     Some('Z') if sixel => {
                         zoom = true;
                         n
@@ -346,9 +346,7 @@ impl Session {
                 Key::Home => to = 1,
                 Key::End => to = total,
                 k => match k.upper() {
-                    Some(c @ ('D' | 'T' | 'Z')) => return Ok(Some(c)),
-                    Some('N') => to = (*n + 1).min(total),
-                    Some('B') => to = n.saturating_sub(1).max(1),
+                    Some(c @ ('D' | 'T' | 'Z' | 'G' | 'Q' | 'N' | '-' | 'I' | 'X')) => return Ok(Some(c)),
                     _ => return Ok(None),
                 },
             }

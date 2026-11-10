@@ -1585,6 +1585,12 @@ impl Session {
                         self.newline();
                         return Ok(if can_go_up { BarPick::Up } else { BarPick::Stay });
                     }
+                    // New: b goes back as esc does, as it does in the files
+                    // and the reader (where a list hasn't a b of its own).
+                    k if k.upper() == Some('B') && !keys.contains('B') => {
+                        self.newline();
+                        return Ok(if can_go_up { BarPick::Up } else { BarPick::Stay });
+                    }
                     k if k.upper().is_some_and(|c| keys.contains(c)) => {
                         self.newline();
                         let c = k.upper().unwrap_or(' ');

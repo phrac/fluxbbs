@@ -502,12 +502,41 @@ too.
 | arrows, PgUp/PgDn, Home/End | move the bar; up and PgUp from the top go round to the bottom, down and PgDn from the bottom to the top |
 | Enter | views a piece in the scrolling viewer |
 | P | plays it as it was sent in its day, which is how animated ANSIs animate; any key stops it |
-| S | cycles the play speed: instant, 2400, 9600, 14400, 28800, 38400, 57600, 115200 |
-| R | reorders the list: by name, newest first, oldest first, by type, by size (biggest first); folders stay at the top, and the order lasts the visit |
+| M | cycles the play ("modem") speed: instant, 2400, 9600, 14400, 28800, 38400, 57600, 115200 |
+| S | sorts the list: by name, newest first, oldest first, by type, by size (biggest first); folders stay at the top, and the order lasts the visit |
+| F or / | searches the gallery: below |
+| H or ? | the keys, on the info line |
 | I | the file's information, as the file lister shows it, with its votes and comments (files in an area; not folders, or pieces inside a pack) |
 | V or X | vote on the file or comment on it ([FEATURES](FEATURES.md#votes-and-comments-on-files)) |
 | E | edits it, for a co-SysOp and up: a SysOp gets the file editor (`*Y`) on that file, a co-SysOp its description |
-| D | downloads the piece (pulled out of its pack) or a whole pack, for `download_acs` |
+| D or G | downloads the piece (pulled out of its pack) or a whole pack, for `download_acs` |
+| B or Esc | back up a folder; Q leaves |
+
+In a viewer (a piece, a picture, a PDF or another file):
+
+| Key | Does |
+|---|---|
+| N or right | the next piece in the list, folders and packs skipped, round from the end to the start |
+| - or left | the one before |
+| P, D or G, I, X | play, download, information, vote, as in the list |
+| B or Esc | back to the list; Q leaves |
+
+Text wider than the screen keeps left and right for scrolling sideways
+(N and - still step), and a PDF's pages keep the arrows for turning
+pages.
+
+The keys match the message reader's and the file browser's: N and
+right go on, - and left go back, F or / searches, S sorts, I is
+information, X votes, B or Esc goes back, Q leaves.
+
+**Searching.** F or / asks for words (`"a phrase"`, `-not`, as the file
+search takes them) and lists what has them, best first. In a gallery
+that's a file area, that's the areas under it named that way, then its
+pieces and packs and those of the areas under it, by name and
+description, then the pieces whose SAUCE title, artist or group has the
+words. In a
+folder gallery, it's the pieces in the folder and the folders under it,
+by name or SAUCE, and packs by name. Up to 500 are listed.
 
 A file of a file area downloads the usual way instead, with that
 area's access, points, limits and ratios.
@@ -527,7 +556,7 @@ screen.
 | `~TL` / `~BL` | the list rows |
 | `~FN`, `~FS`, `~FD` | the name, size and description columns |
 | `~PI` | the info line |
-| `~PM` | the lightbar menu of open, play, speed, reorder, get, info, edit and back |
+| `~PM` | the lightbar menu of open, play, modem (speed), sort, get, info, vote, edit, find and back |
 | `~C1`-`~C6` | its colors |
 | `~S` / `~E` | the scroll bar |
 | `~FA` | where you are |
@@ -574,6 +603,7 @@ sixels on), foot, WezTerm, mlterm and Windows Terminal show them.
 | Enter | shows the text, in reading order, with a rule where each page starts |
 | P | shows the pages as pictures, one at a time |
 | arrows, space, PgUp/PgDn | turn the pages |
+| N or - | the next file in the list, or the one before |
 | T | goes back to the text |
 | D | downloads |
 | Z | (sixels) zooms to the screen's width, and back |
@@ -598,7 +628,7 @@ The gens made with `AN` are files in an area of their own (`[ansigen]
 area`), the 16-color `.ans` as the file and its 256 and 24-bit versions
 and PNG beside it in a hidden `.ansigen` folder. The gallery and file
 browser show a caller the version their terminal takes best; the SAUCE
-names the caller and the board. Packing or deleting a gen leaves those
+names the caller and the board, and its comments hold the prompt. Packing or deleting a gen leaves those
 versions behind (they're small: about 100 KB a gen). See
 [FEATURES](FEATURES.md#ansi-art-from-a-prompt).
 
