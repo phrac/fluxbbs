@@ -30,8 +30,8 @@ MENUDIR = boardname.CLASSIC_MENUS
 # name: (title, [(box title, [(key, label)])])
 MENUS = {
  'main': ('main menu', [('talk', [('m', 'message boards'), ('e', 'email'), ('o', 'oneliners'), ('a', 'mrc chat'), ('j', 'ai chat'), ('w', "who's on"), ('x', 'nodes'), ('p', 'page sysop'), ('n', 'feedback')]),
-       ('files & fun', [('f', 'files'), ('r', 'art gallery'), ('d', 'doors'), ('k', 'points & lottery'), ('b', 'bbs list'), ('@', 'weather'), ('v', 'voting booth'), ('#', 'reading room'), ('h', 'about flux/bbs')]),
-       ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('>', 'more...'), ('g', 'goodbye')])]),
+       ('files & fun', [('f', 'files'), ('r', 'art gallery'), ('d', 'doors'), ('k', 'points & lottery'), ('^', 'top lists'), ('b', 'bbs list'), ('@', 'weather'), ('v', 'voting booth'), ('#', 'reading room'), ('h', 'about flux/bbs')]),
+       ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('&', 'achievements'), ('>', 'more...'), ('g', 'goodbye')])]),
  # The main menu's overflow: what's used least. Their keys still work
  # from the main menu too (hidden there).
  'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('i', 'infoforms'), ('r', 'rumors'), ('^', 'top lists'), ('&', 'achievements'), ('<', 'back')])]),
@@ -110,17 +110,16 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
          # MRC: chat with callers on other boards (XR), beside the node chat.
          # Uploads waiting for a SysOp (*Q).
          ('sysop', '+'): {'keys': '+', 'command': '*Q', 'param': '', 'acs': 's250', 'desc': 'Held uploads', 'help': '[sysop] Uploads waiting to be checked: view, validate or delete them'},
-         # The top lists (LT) and your achievements (UA), on more...
+         # The top lists (LT) and your achievements (UA), on main and more...
+         ('main', '^'): {'keys': '^', 'command': 'LT', 'param': '', 'desc': 'Top lists', 'help': 'Top callers, posters, uploaders and gamers: this week, this month, all time'},
+         ('main', '&'): {'keys': '&', 'command': 'UA', 'param': '', 'desc': 'Achievements', 'help': "What you've earned, and what's next"},
          ('more', '^'): {'keys': '^', 'command': 'LT', 'param': '', 'desc': 'Top lists', 'help': 'Top callers, posters, uploaders and gamers: this week, this month, all time'},
          ('more', '&'): {'keys': '&', 'command': 'UA', 'param': '', 'desc': 'Achievements', 'help': "What you've earned, and what's next"},
          ('multinod', 'r'): {'keys': 'R', 'command': 'XR', 'param': '', 'desc': 'MRC chat', 'help': 'Chat live with callers on other BBSes (Multi Relay Chat)'},
 }
 # Options a menu gains off the bar (their keys work; the screen says so):
-# main's ^ and & (top lists and achievements, on more...), the doors
-# menu's s, its full scoreboard, and r, the reading room.
-HIDDEN_ADDED = {'main': [{'keys': '^', 'command': 'LT', 'param': '', 'desc': 'Top lists', 'help': 'Top callers, posters, uploaders and gamers', 'hidden': True},
-                         {'keys': '&', 'command': 'UA', 'param': '', 'desc': 'Achievements', 'help': "What you've earned, and what's next", 'hidden': True}],
-                'door': [{'keys': 'S', 'command': '-F', 'param': 'DOORSTAT', 'desc': 'Scoreboard', 'help': 'Who played what, when and for how long', 'hidden': True},
+# the doors menu's s, its full scoreboard, and r, the reading room.
+HIDDEN_ADDED = {'door': [{'keys': 'S', 'command': '-F', 'param': 'DOORSTAT', 'desc': 'Scoreboard', 'help': 'Who played what, when and for how long', 'hidden': True},
                          {'keys': 'R', 'command': 'AB', 'param': '', 'desc': 'Reading room', 'help': "A shelf of textfiles by the fire, on a new theme every day", 'hidden': True}]}
 DROP_REST = {'door', 'more'}
 # Menus with no stock menu of their own: whose options they take, and
@@ -383,12 +382,21 @@ def logo_head(name, logo):
         return b'\x1b[0m\x1b[2J|SA'
     if isinstance(logo, tuple) and logo[0] == 'tdf':
         # Home after the clear: a terminal's ESC[2J may leave the cursor.
-        # The main menu's logo sits under its row of noise, as a drawn
-        # one does: two rows down.
-        top = b'\r\n\r\n' if name in ('main', 'more') else b''
+        # The main menu's logo sits under its row of noise (the top row),
+        # as a drawn one does: a row down.
+        top = b'\r\n' if name in ('main', 'more') else b''
         return b'\x1b[0m\x1b[2J\x1b[H' + top + tdf_logo(*logo[1:]) + b'\x1b[0m'
     d = open(boardname.art(logo), 'rb').read()
     art = d[:d.index(b'\x1a')]
+    # New: the main menu's noise goes on the top row, so a drawn logo
+    # with two blank rows over it (the noise's and one more) loses one,
+    # and the boxes a row of their own.
+    if name in ('main', 'more'):
+        lines = art.split(b'\n')
+        blank = lambda l: not re.sub(rb'\x1b\[[0-9;]*[A-Za-z]|\r', b'', l)
+        if len(lines) > 2 and blank(lines[0]) and blank(lines[1]):
+            # Its codes (the clear, colors) kept: only the line break goes.
+            art = lines[0].rstrip(b'\r') + b'\n'.join(lines[1:])
     # The file menu needs every row: no blank ones over its logo.
     while name == 'file':
         line, nl, rest = art.partition(b'\n')
@@ -429,7 +437,7 @@ def tarot_logo():
 def main_head_extras(variant, ink):
     """Over the main menu's logo: INSIDE down its left, and a row of noise
     with a phrase lit in it, one phrase a variant."""
-    side = ''.join(goto(3 + i, 4) + (ink.BR if i % 2 == 0 else ink.RD) + ch for i, ch in enumerate('INSIDE'))
+    side = ''.join(goto(2 + i, 4) + (ink.BR if i % 2 == 0 else ink.RD) + ch for i, ch in enumerate('INSIDE'))
     rnd = random.Random(1994 + variant)
     phrase = HIDDEN[variant].replace(' ', '')
     cells = [(g, i) for g in range(15) for i in range(4)]
@@ -440,7 +448,7 @@ def main_head_extras(variant, ink):
             noise += (ink.BR + lit[(g, i)]) if (g, i) in lit else (DG + rnd.choice('ABCDEFGHJKLMNPQRSTUVWXYZ0123456789'))
         if g < 14:
             noise += ' '
-    return side + goto(2, 4) + noise
+    return side + goto(1, 4) + noise
 
 
 def message_head_extras(ink):
@@ -796,7 +804,7 @@ def build(name, variant):
 
     # The effects' rows: the logo's, then the rule's and the boxes'.
     logo_rows = head.count(b'\n')
-    spans = {'logo': (1, logo_rows, 1, 80), 'boxes': (logo_rows + 1, logo_rows + h + 3, 1, 80), 'noise': (2, 2, 4, 77), 'inside': (3, 8, 4, 4),
+    spans = {'logo': (1, logo_rows, 1, 80), 'boxes': (logo_rows + 1, logo_rows + h + 3, 1, 80), 'noise': (1, 1, 4, 77), 'inside': (2, 7, 4, 4),
              'codes_left': (1, 9, 3, 11), 'codes_right': (1, 9, 69, 77), 'side_left': (1, logo_rows, 2, 2), 'side_right': (1, logo_rows, 79, 79)}
     effects = [(kind, spans[over], every, delay, more) for kind, over, every, delay, more in EFFECTS.get(name, [])]
 

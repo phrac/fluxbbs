@@ -11,7 +11,7 @@ type = "lightbar"
 
 [[effect]]
 kind = "decode"
-rows = [2, 2]
+rows = [1, 1]
 cols = [4, 77]
 every = 10.0
 delay = 2.0
@@ -20,7 +20,7 @@ messages = ["NOBODY LEAVES", "STAY QUIET", "TRUST NO ONE", "WE SEE YOU", "KEEP D
 
 [[effect]]
 kind = "decode"
-rows = [3, 8]
+rows = [2, 7]
 cols = [4, 4]
 every = 10.0
 delay = 2.0
@@ -29,13 +29,13 @@ messages = ["INSIDE", "SILENT", "HIDDEN", "UNSEEN", "LISTEN", "WITHIN", "SECRET"
 
 [[effect]]
 kind = "random"
-rows = [1, 8]
+rows = [1, 7]
 every = 10.0
 delay = 2.0
 
 [[effect]]
 kind = "ripple"
-rows = [9, 20]
+rows = [8, 20]
 every = 10.0
 delay = 6.0
 
@@ -160,6 +160,14 @@ on = "\u001b[0;30;45m (\u001b[0;1;37;45mk\u001b[0;30;45m) \u001b[0;1;37;45mpoint
 off = " \u001b[0;1;30m(\u001b[0;1;35mk\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;255;232;255mo\u001b[38;2;255;210;255mi\u001b[38;2;255;187;255mn\u001b[38;2;255;164;255mt\u001b[38;2;255;142;255ms \u001b[38;2;255;96;255m& \u001b[38;2;238;68;238ml\u001b[38;2;227;57;227mo\u001b[38;2;215;45;215mt\u001b[38;2;204;34;204mt\u001b[38;2;193;23;193me\u001b[38;2;181;11;181mr\u001b[38;2;170;0;170my  \u001b[0m"
 
 [[command]]
+keys = "^"
+command = "LT"
+desc = "Top lists"
+help = "Top callers, posters, uploaders and gamers: this week, this month, all time"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m^\u001b[0;30;45m) \u001b[0;1;37;45mtop lists         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m^\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;212;255mo\u001b[38;2;255;170;255mp \u001b[38;2;255;85;255ml\u001b[38;2;234;64;234mi\u001b[38;2;212;42;212ms\u001b[38;2;191;21;191mt\u001b[38;2;170;0;170ms         \u001b[0m"
+
+[[command]]
 keys = "B"
 command = "-/"
 param = "BBSLIST"
@@ -271,6 +279,14 @@ on = "\u001b[0;30;45m (\u001b[0;1;37;45mz\u001b[0;30;45m) \u001b[0;1;37;45mhisto
 off = " \u001b[0;1;30m(\u001b[0;1;35mz\u001b[0;1;30m) \u001b[38;2;255;255;255mh\u001b[38;2;255;198;255mi\u001b[38;2;255;142;255ms\u001b[38;2;255;85;255mt\u001b[38;2;227;57;227mo\u001b[38;2;198;28;198mr\u001b[38;2;170;0;170my           \u001b[0m"
 
 [[command]]
+keys = "&"
+command = "UA"
+desc = "Achievements"
+help = "What you've earned, and what's next"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m&\u001b[0;30;45m) \u001b[0;1;37;45machievements      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m&\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;224;255mc\u001b[38;2;255;193;255mh\u001b[38;2;255;162;255mi\u001b[38;2;255;131;255me\u001b[38;2;255;100;255mv\u001b[38;2;247;77;247me\u001b[38;2;232;62;232mm\u001b[38;2;216;46;216me\u001b[38;2;201;31;201mn\u001b[38;2;185;15;185mt\u001b[38;2;170;0;170ms      \u001b[0m"
+
+[[command]]
 keys = ">"
 command = "-/"
 param = "MORE"
@@ -287,20 +303,6 @@ desc = "Goodbye"
 help = "Logoff system (goto goodbye menu)"
 on = "\u001b[0;30;45m (\u001b[0;1;37;45mg\u001b[0;30;45m) \u001b[0;1;37;45mgoodbye           \u001b[0m"
 off = " \u001b[0;1;30m(\u001b[0;1;35mg\u001b[0;1;30m) \u001b[38;2;255;255;255mg\u001b[38;2;255;198;255mo\u001b[38;2;255;142;255mo\u001b[38;2;255;85;255md\u001b[38;2;227;57;227mb\u001b[38;2;198;28;198my\u001b[38;2;170;0;170me           \u001b[0m"
-
-[[command]]
-keys = "^"
-command = "LT"
-desc = "Top lists"
-help = "Top callers, posters, uploaders and gamers"
-hidden = true
-
-[[command]]
-keys = "&"
-command = "UA"
-desc = "Achievements"
-help = "What you've earned, and what's next"
-hidden = true
 
 [[command]]
 keys = "I"
