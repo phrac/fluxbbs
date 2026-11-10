@@ -1399,10 +1399,19 @@ impl Session {
             (Some(hil), true) => hil.clone(),
             _ => r.mid.clone(),
         };
-        self.screen.goto(1, y);
+        self.template_at(&src, waves, y, 1).await
+    }
+
+    /// New: a template (`~XX` codes from `waves`) drawn at line `y`, the
+    /// `lines` it takes cleared first; for lists laid out by hand.
+    pub(crate) async fn template_at(&mut self, src: &[u8], waves: &Waves, y: u16, lines: u16) -> io::Result<()> {
         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-        self.screen.clear_eol();
-        self.display(&src, Source::File, Some(waves), true).await
+        for k in 0..lines.max(1) {
+            self.screen.goto(1, y + k);
+            self.screen.clear_eol();
+        }
+        self.screen.goto(1, y);
+        self.display(src, Source::File, Some(waves), true).await
     }
 
     /// A list with a moving bar (new; the original asked for a number):

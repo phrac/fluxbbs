@@ -417,12 +417,16 @@ impl Session {
     /// The same, opened at line `start` (a bookmark); says where the
     /// caller left it and whether they saw the end.
     pub(crate) async fn page_grid_from(&mut self, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char], start: usize) -> io::Result<Paged> {
-        self.page_grid_titled("ViewerTitle", title, grid, help, extra, start).await
+        self.page_grid_titled("ViewerTitle", title, grid, help, extra, start, &[], false).await
     }
 
     /// The same, the title line from string `title_name` (`%S1` the
     /// title, `%S2` the lines shown).
-    pub(crate) async fn page_grid_titled(&mut self, title_name: &str, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char], start: usize) -> io::Result<Paged> {
+    /// New: `keep` are extra keys that end it with the page left on the
+    /// screen (to ask something on its bottom line), and `over` draws over
+    /// a page left so, line by line, rather than blanking the screen.
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) async fn page_grid_titled(&mut self, title_name: &str, title: &str, grid: &[Vec<Cell>], help: &str, extra: &[char], start: usize, keep: &[char], over: bool) -> io::Result<Paged> {
         self.full_screen_done();
         // New: plain text gets the lines, one after another.
         if self.plain() {
@@ -454,7 +458,14 @@ impl Session {
         let help = if help == "ViewerHelp" && last_left > 0 { "ViewerHelpWide" } else { help };
         loop {
             if drawn != Some((top, left)) {
-                self.clear_screen();
+                let over = over && drawn.is_none();
+                if over {
+                    self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                    self.screen.goto(1, 1);
+                    self.screen.clear_eol();
+                } else {
+                    self.clear_screen();
+                }
                 let mut range = format!("{}-{} of {}", top + 1, (top + height).min(total), total);
                 if last_left > 0 {
                     range += &format!(", cols {}-{} of {wide}", left + 1, (left + WIDTH).min(wide));
@@ -467,7 +478,13 @@ impl Session {
                 self.show(&s).await?;
                 // New: URLs clickable, where the terminal takes links.
                 let links = self.links_on();
-                for (k, line) in grid.iter().skip(top).take(height).enumerate() {
+                for k in 0..height {
+                    if over {
+                        self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                        self.screen.goto(1, 2 + k as u16);
+                        self.screen.clear_eol();
+                    }
+                    let Some(line) = grid.get(top + k) else { continue };
                     self.screen.goto(1, 2 + k as u16);
                     let line = &line[left.min(line.len())..(left + WIDTH).min(line.len())];
                     let marks = if links { grid_links(grid, top + k, left) } else { Vec::new() };
@@ -477,6 +494,9 @@ impl Session {
                 }
                 self.screen.goto(1, rows as u16);
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                if over {
+                    self.screen.clear_eol();
+                }
                 let help = self.strings().get(help).to_string();
                 self.show(&help).await?;
                 drawn = Some((top, left));
@@ -493,7 +513,9 @@ impl Session {
             };
             if let Some(c) = step.filter(|c| extra.contains(c)).or_else(|| key.upper().filter(|c| extra.contains(c))) {
                 self.screen.set_color(fluxbbs_term::Color::DEFAULT);
-                self.clear_screen();
+                if !keep.contains(&c) {
+                    self.clear_screen();
+                }
                 return Ok(Paged { key: Some(c), top, seen_end });
             }
             match key {

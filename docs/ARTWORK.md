@@ -463,12 +463,13 @@ Both are made by `art/listsgen.py`, under the main menu's logo.
 
 | Screens | Markers |
 |---|---|
-| `NEWS` (the front page, `NW`) | TOP: `~NO` the issue (the days there's been news, up to this one), `~DA` the day, `~SC` the stories, `~UP` when the latest was written. MID, a story a row: `~SE` its section (in the section's color), `~HL` headline, `~TI` time, `~NS` sources ("4 src"), `~VT` votes and comments ("+3 2c"). BOT is a prompt bar (`~HP`, `~PC`) |
+| `NEWS` (the front page, `NW`) | TOP: `~NO` the issue (the days there's been news, up to this one), `~DA` the day, `~SC` the stories, `~UP` when the latest was written. MID (and HIL, under the bar), a story in as many rows as it has: `~RD` a mark when unread, `~SE` its section (in the section's color), `~HL` headline (bright when unread), `~TI` time, `~NS` sources ("4 src"), `~VT` votes and comments ("+3 2c"), `~OV` a line on what it's about. HEAD, over each edition: `~ED` its name ("the 14:05 edition"), `~UN` how many are unread, `~RL` a rule to the edge. BOT is a prompt bar (`~HP`, `~PC`). Without HEAD (or in plain text) the front page is a list a row a story |
 | `NEWSDAY` (back issues, `d`) | TOP: `~SC` the days kept. MID: `~DA` the day, `~SC` its issue ("no. 4") |
 
 Made by `art/news-gen.py`: the paper's name (`[news] name`) in the
 Members font, newsprint silver, a tagline (`NEWS_TAGLINE` in the
-board's `art/local.py`), a double rule and the dateline.
+board's `art/local.py`), a double rule and the dateline; each story two
+rows, the overview indented under the headline.
 
 ### USERCFG
 

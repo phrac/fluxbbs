@@ -25,7 +25,7 @@ use serde_json::Value;
 use crate::BbsState;
 use crate::config::NewsSection;
 use crate::input::{Key, ReadOpts};
-use crate::session::{BarPick, BarRow, BarSpec, Session};
+use crate::session::{BarPick, BarRow, BarSpec, Session, Waves};
 
 const SCHEMA: &str = "
 CREATE TABLE IF NOT EXISTS news_stories (
@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS news_stories (
     headline TEXT NOT NULL,
     summary  TEXT NOT NULL,
     differ   TEXT NOT NULL,
-    made_at  TEXT NOT NULL
+    made_at  TEXT NOT NULL,
+    dek      TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS news_stories_at ON news_stories(made_at);
 CREATE TABLE IF NOT EXISTS news_sources (
@@ -60,7 +61,19 @@ CREATE TABLE IF NOT EXISTS news_pushes (
     at       TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS news_pushes_story ON news_pushes(story_id);
+CREATE TABLE IF NOT EXISTS news_reads (
+    user_id  INTEGER NOT NULL,
+    story_id INTEGER NOT NULL,
+    at       TEXT NOT NULL,
+    PRIMARY KEY (user_id, story_id)
+);
 ";
+
+/// Changes since the tables were first made (`sysdata::migrate`).
+const STEPS: &[crate::sysdata::Step] = &[
+    // New: a story's one-line overview, under its headline on the front page.
+    crate::sysdata::Step::Column("news_stories", "dek", "TEXT NOT NULL DEFAULT ''"),
+];
 
 /// How many sources a story may have (and number keys reach).
 const MOST_SOURCES: usize = 9;
@@ -70,6 +83,8 @@ const HEADLINE: usize = 72;
 const SOURCE_CHARS: usize = 3000;
 /// How much of a source's own words callers see.
 const EXCERPT: usize = 300;
+/// A story's overview line, at most.
+const DEK: usize = 66;
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct Story {
@@ -80,6 +95,8 @@ pub struct Story {
     pub summary: String,
     pub differ: String,
     pub made_at: NaiveDateTime,
+    /// A line on what it's about, beyond the headline ("" on older ones).
+    pub dek: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Default)]
@@ -118,19 +135,20 @@ fn story_row(r: &rusqlite::Row) -> rusqlite::Result<Story> {
         summary: r.get("summary")?,
         differ: r.get("differ")?,
         made_at: r.get("made_at")?,
+        dek: r.get("dek")?,
     })
 }
 
 impl NewsStore {
     pub fn open(path: &Path) -> anyhow::Result<Self> {
         let mut db = crate::sysdata::open_db(path)?;
-        crate::sysdata::migrate(&mut db, "news", SCHEMA, &[])?;
+        crate::sysdata::migrate(&mut db, "news", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db), running: Default::default() })
     }
 
     pub fn open_memory() -> anyhow::Result<Self> {
         let mut db = Connection::open_in_memory()?;
-        crate::sysdata::migrate(&mut db, "news", SCHEMA, &[])?;
+        crate::sysdata::migrate(&mut db, "news", SCHEMA, STEPS)?;
         Ok(Self { db: Mutex::new(db), running: Default::default() })
     }
 
@@ -138,8 +156,8 @@ impl NewsStore {
         let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         let tx = db.transaction()?;
         tx.execute(
-            "INSERT INTO news_stories (section, rank, headline, summary, differ, made_at) VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
-            params![s.section, s.rank, s.headline, s.summary, s.differ, s.made_at],
+            "INSERT INTO news_stories (section, rank, headline, summary, differ, made_at, dek) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+            params![s.section, s.rank, s.headline, s.summary, s.differ, s.made_at, s.dek],
         )?;
         let id = tx.last_insert_rowid();
         for src in sources {
@@ -268,6 +286,25 @@ impl NewsStore {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// New: stories a caller has read.
+    pub fn mark_read(&self, user: u32, ids: &[i64], at: NaiveDateTime) -> anyhow::Result<()> {
+        let mut db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let tx = db.transaction()?;
+        for id in ids {
+            tx.execute("INSERT OR IGNORE INTO news_reads (user_id, story_id, at) VALUES (?1, ?2, ?3)", params![user, id, at])?;
+        }
+        tx.commit()?;
+        Ok(())
+    }
+
+    /// The stories a caller has read.
+    pub fn read_ids(&self, user: u32) -> anyhow::Result<HashSet<i64>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT story_id FROM news_reads WHERE user_id = ?1")?;
+        let rows = stmt.query_map([user], |r| r.get(0))?;
+        Ok(rows.collect::<Result<_, _>>()?)
+    }
+
     /// When the latest story was made.
     pub fn latest(&self) -> anyhow::Result<Option<NaiveDateTime>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
@@ -280,6 +317,7 @@ impl NewsStore {
         let tx = db.transaction()?;
         tx.execute("DELETE FROM news_sources WHERE story_id IN (SELECT id FROM news_stories WHERE made_at < ?1)", [when])?;
         tx.execute("DELETE FROM news_pushes WHERE story_id IN (SELECT id FROM news_stories WHERE made_at < ?1)", [when])?;
+        tx.execute("DELETE FROM news_reads WHERE story_id IN (SELECT id FROM news_stories WHERE made_at < ?1)", [when])?;
         let n = tx.execute("DELETE FROM news_stories WHERE made_at < ?1", [when])?;
         tx.commit()?;
         Ok(n)
@@ -443,6 +481,32 @@ fn clip(s: &str, n: usize) -> String {
     out + "..."
 }
 
+/// `s` without its citations (`[2]`).
+fn uncited(s: &str) -> String {
+    let mut out = String::new();
+    let mut rest = s;
+    while let Some(i) = rest.find('[') {
+        let Some(j) = rest[i..].find(']') else { break };
+        let inside = &rest[i + 1..i + j];
+        out.push_str(&rest[..i]);
+        if inside.is_empty() || !inside.chars().all(|c| c.is_ascii_digit()) {
+            out.push_str(&rest[i..=i + j]);
+        }
+        rest = &rest[i + j + 1..];
+    }
+    out.push_str(rest);
+    out.split_whitespace().collect::<Vec<_>>().join(" ").replace(" .", ".").replace(" ,", ",")
+}
+
+/// A story's overview: its own, else its lede's first sentence.
+fn dek_of(s: &Story) -> String {
+    if !s.dek.is_empty() {
+        return s.dek.clone();
+    }
+    let lede = s.summary.split("\n\n").next().unwrap_or("");
+    clip(&uncited(sentences(lede).first().map_or(lede, String::as_str)), DEK)
+}
+
 /// A paragraph's sentences, each with the citations that follow it.
 fn sentences(p: &str) -> Vec<String> {
     let chars: Vec<char> = p.chars().collect();
@@ -542,8 +606,9 @@ A headline is plain, under 60 characters, no closing period. search: 2 to 5 key 
 
 const WRITE: &str = "You write for the news page of a bulletin board system. You're given numbered sources about one story: \
 each its outlet, headline, and text (or only a snippet). Write in your own words, plainly, like a wire service: no opinions, no hype. \
-Answer with JSON only: {\"headline\": \"...\", \"summary\": \"...\", \"differ\": \"...\", \"sources\": [{\"n\": 1, \"says\": \"...\"}]}. \
+Answer with JSON only: {\"headline\": \"...\", \"overview\": \"...\", \"summary\": \"...\", \"differ\": \"...\", \"sources\": [{\"n\": 1, \"says\": \"...\"}]}. \
 headline: at most 60 characters, plain, no closing period. \
+overview: one line of at most 60 characters that tells what the story is about beyond the headline, without repeating it; no citations. \
 summary: 2 or 3 short paragraphs separated by a blank line, 80 to 180 words in all. Every sentence ends with the numbers of the sources it \
 comes from, like [1] or [2][3]. Use only facts the cited sources state, and say so when something is unconfirmed. \
 differ: if the sources disagree on facts or tell it differently, one or two sentences on how, with citations; otherwise \"\". \
@@ -571,6 +636,7 @@ fn ai_cfg(state: &BbsState) -> crate::config::Ai {
 /// A story written, checked, and its sources: ready to keep.
 struct Written {
     headline: String,
+    dek: String,
     summary: String,
     differ: String,
     says: Vec<String>,
@@ -594,6 +660,8 @@ async fn write_story(ai: &crate::config::Ai, sources: &[(Found, Option<String>)]
     // (Cut at a word, if the AI ran long: a headline with "..." reads badly.)
     let headline = clip(plain_text(v["headline"].as_str().unwrap_or("")).trim_end_matches('.'), HEADLINE + 3).trim_end_matches("...").to_string();
     let summary = plain_text(v["summary"].as_str().unwrap_or(""));
+    // (Cut at a word if it runs long, as the headline is.)
+    let dek = clip(uncited(&plain_text(v["overview"].as_str().unwrap_or(""))).trim_end_matches('.'), DEK + 3).trim_end_matches("...").to_string();
     let differ = plain_text(v["differ"].as_str().unwrap_or(""));
     anyhow::ensure!(!headline.is_empty() && !summary.is_empty(), "the AI wrote no story");
     let mut says = vec![String::new(); sources.len()];
@@ -643,7 +711,7 @@ async fn write_story(ai: &crate::config::Ai, sources: &[(Found, Option<String>)]
     if !bad.is_empty() {
         tracing::info!("news: {headline:?}: {} unsupported sentence(s) dropped", bad.len());
     }
-    Ok(Some(Written { headline, summary: summary.join("\n\n"), differ, says }))
+    Ok(Some(Written { headline, dek, summary: summary.join("\n\n"), differ, says }))
 }
 
 const SAME: &str = "You check search results for a news story. You're given the story's headline and numbered items found by a search. \
@@ -799,7 +867,7 @@ async fn refresh_section(state: &BbsState, sec: &NewsSection, client: &reqwest::
                 }
             })
             .collect();
-        let story = Story { id: 0, section: sec.key.clone(), rank: rank as u32, headline: w.headline, summary: w.summary, differ: w.differ, made_at: crate::clock::now().naive_local() };
+        let story = Story { id: 0, section: sec.key.clone(), rank: rank as u32, headline: w.headline, summary: w.summary, differ: w.differ, made_at: crate::clock::now().naive_local(), dek: w.dek };
         state.news.add_story(&story, &srcs)?;
         tracing::info!("news: {}: {:?} ({} sources)", sec.key, story.headline, srcs.len());
         made += 1;
@@ -907,6 +975,25 @@ enum Showing {
     Found(String),
 }
 
+/// A front page's row: an edition's head, or a story (its place in the list).
+struct Item {
+    story: Option<usize>,
+    waves: Waves,
+}
+
+/// What a caller did on the front page.
+enum Pick {
+    /// A story to read (its place in the list).
+    Open(usize),
+    /// One of the page's keys, with the story the bar was on.
+    Key(char, usize),
+    Back,
+    Quit,
+}
+
+/// A gap between stories this long (minutes) starts another edition.
+const EDITION_GAP: i64 = 45;
+
 /// Word-wrapped `text` at `width`, each line led by `indent`.
 fn wrap(text: &str, width: usize, indent: &str) -> Vec<String> {
     let mut out = Vec::new();
@@ -987,7 +1074,9 @@ impl Session {
         if cfg.news.name.trim().is_empty() { format!("{} news", cfg.bbs.name) } else { cfg.news.name.trim().to_string() }
     }
 
-    /// `NW`: the news, the front page first.
+    /// `NW`: the news, the front page first: the stories by edition
+    /// (each run of the board's, the latest first), each with a line on
+    /// what it's about, those the caller hasn't read marked.
     pub async fn news(&mut self) -> io::Result<()> {
         let cfg = self.state.config();
         if !cfg.news.enabled {
@@ -1022,16 +1111,6 @@ impl Session {
                     self.state.news.search(&words, 200).map_err(io)?
                 }
             };
-            let tallies = self.state.news.tallies().map_err(io)?;
-            let counts = self.state.news.source_counts().map_err(io)?;
-            let order: Vec<String> = cfg.news.sections.iter().map(|s| s.key.clone()).collect();
-            let sec_pos = |k: &str| order.iter().position(|o| o == k).unwrap_or(usize::MAX);
-            match sort {
-                // Stable: within a section, the latest run first, its own order.
-                Sort::Front => list.sort_by_key(|s| sec_pos(&s.section)),
-                Sort::Latest => list.sort_by(|a, b| b.made_at.cmp(&a.made_at).then(a.rank.cmp(&b.rank))),
-                Sort::Top => list.sort_by_key(|s| std::cmp::Reverse(tallies.get(&s.id).map_or(0, |t| t.0))),
-            }
             if list.is_empty() {
                 self.newline();
                 if matches!(showing, Showing::Found(_)) {
@@ -1041,6 +1120,28 @@ impl Session {
                 }
                 return self.say_line("NewsNone").await;
             }
+            let tallies = self.state.news.tallies().map_err(io)?;
+            let counts = self.state.news.source_counts().map_err(io)?;
+            let read = if self.user.id == 0 { HashSet::new() } else { self.state.news.read_ids(self.user.id).map_err(io)? };
+            let order: Vec<String> = cfg.news.sections.iter().map(|s| s.key.clone()).collect();
+            let sec_pos = |k: &str| order.iter().position(|o| o == k).unwrap_or(usize::MAX);
+            // Editions: a run's stories are made minutes apart, and a gap
+            // as long as EDITION_GAP starts another.
+            list.sort_by_key(|s| std::cmp::Reverse(s.made_at));
+            let mut edition: HashMap<i64, usize> = HashMap::new();
+            for (i, s) in list.iter().enumerate() {
+                let gap = i > 0 && list[i - 1].made_at - s.made_at >= chrono::Duration::minutes(EDITION_GAP);
+                let ed = if i == 0 { 0 } else { edition[&list[i - 1].id] + gap as usize };
+                edition.insert(s.id, ed);
+            }
+            let score = |s: &Story| tallies.get(&s.id).map_or(0, |t| t.0);
+            match sort {
+                // Each edition by section, a section in the run's order.
+                Sort::Front => list.sort_by_key(|s| (edition[&s.id], sec_pos(&s.section), s.rank)),
+                Sort::Latest => {}
+                Sort::Top => list.sort_by_key(|s| std::cmp::Reverse(score(s))),
+            }
+            let unread = |s: &Story| self.user.id != 0 && !read.contains(&s.id);
             let rows: Vec<BarRow> = list
                 .iter()
                 .enumerate()
@@ -1050,12 +1151,16 @@ impl Session {
                     let talk = if comments > 0 { format!("{comments}c") } else { String::new() };
                     let when = self.local(s.made_at).format("%H:%M");
                     let n = counts.get(&s.id).copied().unwrap_or(0);
-                    let plain = format!(" {} {} {when} {n:>2}src {score:>4} {talk:>3}", fit(&self.news_section_name(&s.section), 8), fit(&s.headline, 47));
+                    let mark = if unread(s) { '*' } else { ' ' };
+                    let plain = format!("{mark}{} {} {when} {n:>2}src {score:>4} {talk:>3}", fit(&self.news_section_name(&s.section), 8), fit(&s.headline, 47));
                     let votes = format!("{score} {talk}").trim().to_string();
                     let kicker = format!("{}{}", self.news_section_color(&s.section).0, self.news_section_name(&s.section).to_uppercase());
+                    let (hl, ov, rd) = if unread(s) { ("|15", "|07", "|14\u{25a0}") } else { ("|07", "|08", " ") };
                     let waves = crate::session::waves([
+                        ("RD", rd.to_string()),
                         ("SE", kicker),
-                        ("HL", fluxbbs_term::lit(&s.headline)),
+                        ("HL", format!("{hl}{}", fluxbbs_term::lit(&clip(&s.headline, 54)))),
+                        ("OV", format!("{ov}{}", fluxbbs_term::lit(&dek_of(s)))),
                         ("TI", when.to_string()),
                         ("NS", format!("{n} src")),
                         ("VT", votes),
@@ -1063,13 +1168,45 @@ impl Session {
                     BarRow { n: i as u32 + 1, waves, plain }
                 })
                 .collect();
-            let start = at.and_then(|id| list.iter().position(|s| s.id == id)).unwrap_or(0);
+            // The front page's items: each edition's head, then its stories
+            // (sorted by votes, one head over them all).
+            let str = self.strings();
+            let today = self.local(now).date();
+            let mut items: Vec<Item> = Vec::new();
+            for (i, s) in list.iter().enumerate() {
+                let ed = edition[&s.id];
+                let new_head = match sort {
+                    Sort::Top => i == 0,
+                    _ => i == 0 || edition[&list[i - 1].id] != ed,
+                };
+                if new_head {
+                    let mine: Vec<&Story> = list.iter().filter(|t| sort == Sort::Top || edition[&t.id] == ed).collect();
+                    let label = if sort == Sort::Top {
+                        str.get("NewsTopHead").to_string()
+                    } else {
+                        let t = self.local(mine.iter().map(|t| t.made_at).max().unwrap_or(s.made_at));
+                        let when = if t.date() == today { t.format("%H:%M").to_string() } else { t.format("%a %-d %b, %H:%M").to_string() };
+                        crate::strings::substitute(str.get(if ed == 0 { "NewsEditionLatest" } else { "NewsEdition" }), &[&when])
+                    };
+                    let n = mine.iter().filter(|t| unread(t)).count();
+                    let un = if n > 0 { crate::strings::substitute(str.get("NewsEditionUnread"), &[&n.to_string()]) } else { String::new() };
+                    let (label, un) = (label.to_uppercase(), un.to_uppercase());
+                    let width = fluxbbs_term::codes::width(&label) + fluxbbs_term::codes::width(&un);
+                    let rule = "\u{2500}".repeat(74usize.saturating_sub(width));
+                    let waves = crate::session::waves([("ED", label), ("UN", un), ("RL", rule)]);
+                    items.push(Item { story: None, waves });
+                }
+                items.push(Item { story: Some(i), waves: rows[i].waves.clone() });
+            }
+            // Where the bar starts: where the caller was, else the first
+            // story not yet read.
+            let start = at.and_then(|id| list.iter().position(|s| s.id == id)).or_else(|| list.iter().position(&unread)).unwrap_or(0);
             let what = match &showing {
                 Showing::Today => self.local(list.iter().map(|s| s.made_at).max().unwrap_or(now)).format("%a %d %b %Y").to_string(),
                 Showing::Day(d) => d.format("%a %d %b %Y").to_string(),
-                Showing::Found(q) => self.strings().fmt("NewsFoundWhat", &[q]),
+                Showing::Found(q) => str.fmt("NewsFoundWhat", &[q]),
             };
-            let header = self.strings().fmt("NewsHeader", &[&self.news_paper(), &what]);
+            let header = str.fmt("NewsHeader", &[&self.news_paper(), &what]);
             // The dateline: the issue (the days there's been news, to the
             // one shown), the day, the stories and the latest's time.
             let days = self.state.news.days().map_err(io)?;
@@ -1083,24 +1220,38 @@ impl Session {
                 Showing::Found(_) => what.clone(),
                 _ => self.local(latest).format("%A, %-d %B %Y").to_string().to_uppercase(),
             };
-            self.bar_top = crate::session::waves([
+            let top = crate::session::waves([
                 ("NO", issue.to_string()),
                 ("DA", fluxbbs_term::lit(&day)),
                 ("SC", list.len().to_string()),
                 ("UP", self.local(latest).format("%H:%M").to_string()),
             ]);
-            let help = self.strings().get("NewsHelp").to_string();
-            let spec = BarSpec { prefix: "NEWS", header: &header, rows: &rows, labels: &[], start, help: &help, ask: "", can_go_up: false, keys: "FSD<>" };
-            let pick = self.area_bar(&spec).await?;
-            let story_at = |n: u32| list.get((n as usize).wrapping_sub(1));
+            let help = str.get("NewsHelp").to_string();
+            let start_item = items.iter().position(|it| it.story == Some(start)).unwrap_or(0);
+            let keys = "FSDM<>";
+            let pick = match self.news_front(&items, start_item, &top, &help, keys).await? {
+                Some(p) => p,
+                // Plain text, or a theme without the screens: the usual list.
+                None => {
+                    self.bar_top = top;
+                    let spec = BarSpec { prefix: "NEWS", header: &header, rows: &rows, labels: &[], start, help: &help, ask: "", can_go_up: false, keys };
+                    match self.area_bar(&spec).await? {
+                        BarPick::Area(n) => Pick::Open(n as usize - 1),
+                        BarPick::Key(c, n) => Pick::Key(c, (n as usize).saturating_sub(1)),
+                        BarPick::Up | BarPick::Quit => Pick::Quit,
+                        BarPick::Stay => Pick::Back,
+                        BarPick::Refresh(_) => continue,
+                    }
+                }
+            };
             match pick {
-                BarPick::Area(n) => {
-                    if let Some(s) = story_at(n) {
+                Pick::Open(i) => {
+                    if let Some(s) = list.get(i) {
                         let ids: Vec<i64> = list.iter().map(|s| s.id).collect();
                         at = Some(self.news_story(&ids, s.id).await?);
                     }
                 }
-                BarPick::Key('F', _) => {
+                Pick::Key('F', _) => {
                     self.bar_line();
                     self.say("NewsFindAsk").await?;
                     let q = self.read_string(ReadOpts::new(40)).await?;
@@ -1109,7 +1260,7 @@ impl Session {
                         at = None;
                     }
                 }
-                BarPick::Key('S', n) => {
+                Pick::Key('S', i) => {
                     sort = match sort {
                         Sort::Front => Sort::Latest,
                         Sort::Latest => Sort::Top,
@@ -1121,18 +1272,27 @@ impl Session {
                         Sort::Top => "NewsSortTop",
                     };
                     self.note = Some(self.strings().get(name).to_string());
-                    at = story_at(n).map(|s| s.id);
+                    at = list.get(i).map(|s| s.id);
                 }
-                BarPick::Key('D', _) => {
+                Pick::Key('D', _) => {
                     if let Some(d) = self.news_pick_day().await? {
                         showing = d;
                         at = None;
                     }
                 }
+                // Every story here read.
+                Pick::Key('M', i) => {
+                    if self.user.id != 0 {
+                        let ids: Vec<i64> = list.iter().map(|s| s.id).collect();
+                        self.state.news.mark_read(self.user.id, &ids, now).map_err(io)?;
+                        self.note = Some(self.strings().get("NewsMarkedRead").to_string());
+                    }
+                    at = list.get(i).map(|s| s.id);
+                }
                 // To the next section's first story, or back to this one's
                 // first (the one before's, from there).
-                BarPick::Key(c @ ('<' | '>'), n) => {
-                    let i = (n as usize).saturating_sub(1).min(list.len() - 1);
+                Pick::Key(c @ ('<' | '>'), i) => {
+                    let i = i.min(list.len() - 1);
                     let firsts: Vec<usize> = (0..list.len()).filter(|&j| j == 0 || list[j].section != list[j - 1].section).collect();
                     let cur = firsts.iter().rposition(|&j| j <= i).unwrap_or(0);
                     let to = match c {
@@ -1142,17 +1302,147 @@ impl Session {
                     };
                     at = Some(list[to].id);
                 }
-                BarPick::Up | BarPick::Quit => return Ok(()),
-                BarPick::Stay => {
-                    // Esc from a search goes back to today's.
+                Pick::Quit => return Ok(()),
+                Pick::Back => {
+                    // Esc from a search or a back issue goes back to today's.
                     if matches!(showing, Showing::Today) {
                         return Ok(());
                     }
                     showing = Showing::Today;
                     at = None;
                 }
-                BarPick::Refresh(_) | BarPick::Key(..) => {}
+                Pick::Key(..) => {}
             }
+        }
+    }
+
+    /// New: the front page, laid out by hand, as `area_bar`'s lists are but
+    /// with rows of their own heights: `NEWSTOP` (`top` for its codes), the
+    /// items in a window (a story in `NEWSMID`'s lines, under the bar in
+    /// `NEWSHIL`'s; an edition's head in `NEWSHEAD`'s), and `NEWSBOT` with
+    /// the help and the prompt. None in plain text or without the screens.
+    async fn news_front(&mut self, items: &[Item], start: usize, top: &Waves, help: &str, keys: &str) -> io::Result<Option<Pick>> {
+        if self.plain() || ["NEWSTOP", "NEWSMID", "NEWSHEAD", "NEWSBOT"].iter().any(|n| !self.text_file_exists(n)) {
+            return Ok(None);
+        }
+        let trim = |mut b: Vec<u8>| {
+            while b.last().is_some_and(|&c| c == b'\n' || c == b'\r') {
+                b.pop();
+            }
+            b
+        };
+        let mid = trim(self.read_text_file("NEWSMID").await?.unwrap_or_default());
+        let hil = match self.read_text_file("NEWSHIL").await? {
+            Some(h) => trim(h),
+            None => mid.clone(),
+        };
+        let head = trim(self.read_text_file("NEWSHEAD").await?.unwrap_or_default());
+        let bot = trim(self.read_text_file("NEWSBOT").await?.unwrap_or_default());
+        let lines = |b: &[u8]| b.iter().filter(|&&c| c == b'\n').count() + 1;
+        let (story_h, head_h, bot_h) = (lines(&mid), lines(&head), lines(&bot));
+        let bar = bot.windows(3).any(|w| w == b"~PC");
+        let h = |i: usize| if items[i].story.is_some() { story_h } else { head_h };
+        let stories: Vec<usize> = (0..items.len()).filter(|&i| items[i].story.is_some()).collect();
+        let Some(&last) = stories.last() else { return Ok(Some(Pick::Back)) };
+        let mut cur = if items.get(start).is_some_and(|it| it.story.is_some()) { start } else { stories[0] };
+        let (mut first, mut top_y, mut height, mut prompt) = (0usize, 1u16, 3usize, (1u16, 1u16));
+        let mut shown: Vec<(usize, u16)> = Vec::new();
+        let mut drawn = None;
+        let mut redraw = true;
+        loop {
+            if redraw {
+                self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                self.clear_screen();
+                self.show_file_with("NEWSTOP", top).await?;
+                self.goto_pos(*b"TL");
+                if self.screen.where_x() != 1 {
+                    self.newline();
+                }
+                top_y = self.screen.where_y();
+                height = (self.screen.rows() as usize + 1).saturating_sub(top_y as usize + bot_h).max(story_h + head_h);
+                shown.clear();
+            }
+            // The window: from `first`, as many as fit, the bar's among
+            // them (and its edition's head over it when it's the first).
+            let fits = |from: usize| (from..=cur).map(h).sum::<usize>() <= height;
+            if cur < first {
+                first = cur;
+            }
+            while first < cur && !fits(first) {
+                first += 1;
+            }
+            if first == cur && cur > 0 && items[cur - 1].story.is_none() && fits(cur - 1) {
+                first = cur - 1;
+            }
+            let mut want = Vec::new();
+            let mut used = 0;
+            for i in first..items.len() {
+                if used + h(i) > height {
+                    break;
+                }
+                want.push((i, top_y + used as u16));
+                used += h(i);
+            }
+            if want.first() != shown.first() {
+                for &(i, y) in &want {
+                    let src = match items[i].story {
+                        None => &head,
+                        Some(_) if i == cur => &hil,
+                        Some(_) => &mid,
+                    };
+                    self.template_at(src, &items[i].waves, y, h(i) as u16).await?;
+                }
+                self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                for k in used..height {
+                    self.screen.goto(1, top_y + k as u16);
+                    self.screen.clear_eol();
+                }
+                shown = want;
+            } else if let Some(prev) = drawn.filter(|&p| p != cur) {
+                for (i, src) in [(prev, &mid), (cur, &hil)] {
+                    if let Some(&(_, y)) = shown.iter().find(|&&(j, _)| j == i) {
+                        self.template_at(src, &items[i].waves, y, h(i) as u16).await?;
+                    }
+                }
+            }
+            drawn = Some(cur);
+            if redraw {
+                self.screen.goto(1, top_y + height as u16);
+                self.screen.set_color(fluxbbs_term::Color::DEFAULT);
+                self.show_file("NEWSBOT").await?;
+                let noted = self.note.take();
+                let help = noted.as_deref().unwrap_or(help);
+                if bar && self.goto_pos(*b"HP") {
+                    let room = 80usize.saturating_sub(self.screen.where_x() as usize);
+                    self.show(&fluxbbs_term::codes::squish(help, room)).await?;
+                    self.goto_pos(*b"PC");
+                } else {
+                    self.newline();
+                    let help: String = crate::editor::strip_colours(help).chars().take(79).collect();
+                    self.show(&help).await?;
+                }
+                prompt = (self.screen.where_x(), self.screen.where_y());
+                redraw = false;
+            }
+            self.screen.goto(prompt.0, prompt.1);
+            let key = self.read_key().await?;
+            let at = stories.iter().position(|&i| i == cur).unwrap_or(0);
+            // A window's worth of stories, for the page keys.
+            let page = (height / story_h).max(1);
+            cur = match key {
+                Key::Up => stories[(at + stories.len() - 1) % stories.len()],
+                Key::Down => stories[(at + 1) % stories.len()],
+                Key::PgUp => stories[at.saturating_sub(page)],
+                Key::PgDn => stories[(at + page).min(stories.len() - 1)],
+                Key::Home => stories[0],
+                Key::End => last,
+                Key::Enter | Key::Right => return Ok(Some(Pick::Open(items[cur].story.unwrap_or(0)))),
+                Key::Esc | Key::Left | Key::Backspace => return Ok(Some(Pick::Back)),
+                k if k.upper().is_some_and(|c| keys.contains(c)) => return Ok(Some(Pick::Key(k.upper().unwrap_or(' '), items[cur].story.unwrap_or(0)))),
+                k if k.upper() == Some('B') => return Ok(Some(Pick::Back)),
+                k if k.upper() == Some('Q') => return Ok(Some(Pick::Quit)),
+                _ => cur,
+            };
         }
     }
 
@@ -1275,29 +1565,35 @@ impl Session {
         let mut i = ids.iter().position(|&id| id == first).unwrap_or(0);
         let mut extra: Vec<char> = vec!['N', '-', '>', '<', 'X', 'I', 'C'];
         extra.extend(('1'..='9').take(MOST_SOURCES));
+        // Where the page was, and whether it's still on the screen (after
+        // a vote, asked on its bottom line).
+        let (mut top, mut over) = (0usize, false);
         loop {
             let Some(s) = self.state.news.story(ids[i]).map_err(io::Error::other)? else { return Ok(ids[i]) };
             let sources = self.state.news.sources(s.id).map_err(io::Error::other)?;
+            if self.user.id != 0 {
+                self.state.news.mark_read(self.user.id, &[s.id], crate::clock::now().naive_local()).map_err(io::Error::other)?;
+            }
             let grid = crate::pager::render(self.news_page(&s, &sources).as_bytes(), true);
             let day = self.local(s.made_at).format("%A, %-d %B %Y").to_string();
             let title = format!("{} \u{00b7} {}", self.news_paper().to_uppercase(), day.to_uppercase());
-            let paged = self.page_grid_titled("NewsViewerTitle", &title, &grid, "NewsStoryHelp", &extra, 0).await?;
+            let paged = self.page_grid_titled("NewsViewerTitle", &title, &grid, "NewsStoryHelp", &extra, top, &['X', 'C'], over).await?;
+            (top, over) = (0, false);
             match paged.key {
                 Some('N' | '>') => i = (i + 1) % ids.len(),
                 Some('-' | '<') => i = (i + ids.len() - 1) % ids.len(),
-                Some('X') => {
-                    self.news_push(&s, false).await?;
-                }
-                Some('C') => {
-                    self.news_push(&s, true).await?;
+                Some(c @ ('X' | 'C')) => {
+                    self.news_push(&s, c == 'C').await?;
+                    (top, over) = (paged.top, true);
                 }
                 // `i` and a number: the sources, one by one.
                 Some(c @ ('I' | '1'..='9')) => {
+                    top = paged.top;
                     let mut k = if c == 'I' { 0 } else { c as usize - '1' as usize };
                     while let Some(src) = sources.get(k) {
                         let grid = crate::pager::render(self.news_source_page(&s, src).as_bytes(), true);
                         let title = format!("{} \u{00b7} SOURCE {} OF {}", self.news_paper().to_uppercase(), k + 1, sources.len());
-                        match self.page_grid_titled("NewsViewerTitle", &title, &grid, "NewsSourceHelp", &['N', '-', '>', '<'], 0).await?.key {
+                        match self.page_grid_titled("NewsViewerTitle", &title, &grid, "NewsSourceHelp", &['N', '-', '>', '<'], 0, &[], false).await?.key {
                             Some('N' | '>') => k = (k + 1) % sources.len(),
                             Some('-' | '<') => k = (k + sources.len() - 1) % sources.len(),
                             _ => break,
@@ -1378,6 +1674,9 @@ mod tests {
         assert!(cites(&s[3]).is_empty());
         assert_eq!(fix_cites("It rose [2][7] .", 3), "It rose [2].");
         assert_eq!(fix_cites("A [Reuters] note [1, 9].", 3), "A [Reuters] note [1].");
+        assert_eq!(uncited("The Fed held rates on Tuesday [1][2]. A [Reuters] note [3]."), "The Fed held rates on Tuesday. A [Reuters] note.");
+        let s = Story { id: 0, section: "world".into(), rank: 0, headline: "Fed holds".into(), summary: p.into(), differ: String::new(), made_at: Default::default(), dek: String::new() };
+        assert_eq!(dek_of(&s), "The Fed held rates on Tuesday.");
     }
 
     #[test]
@@ -1397,7 +1696,7 @@ mod tests {
     fn stories_votes_and_pruning() {
         let st = NewsStore::open_memory().unwrap();
         let at = |d: u32, h: u32| NaiveDate::from_ymd_opt(2026, 11, d).unwrap().and_hms_opt(h, 0, 0).unwrap();
-        let story = |h: &str, when| Story { id: 0, section: "world".into(), rank: 0, headline: h.into(), summary: "It happened [1].".into(), differ: String::new(), made_at: when };
+        let story = |h: &str, when| Story { id: 0, section: "world".into(), rank: 0, headline: h.into(), summary: "It happened [1].".into(), differ: String::new(), made_at: when, dek: String::new() };
         let src = Source { n: 1, outlet: "AP News".into(), url: "https://apnews.com/a".into(), ..Default::default() };
         let a = st.add_story(&story("Old news", at(1, 9)), std::slice::from_ref(&src)).unwrap();
         let b = st.add_story(&story("Volcano erupts", at(10, 9)), &[Source { url: "https://apnews.com/b".into(), ..src.clone() }]).unwrap();
@@ -1414,5 +1713,8 @@ mod tests {
         assert_eq!(st.prune(at(5, 0)).unwrap(), 1);
         assert!(st.story(a).unwrap().is_none() && st.sources(a).unwrap().is_empty());
         assert_eq!(st.remove_pushes(b, 2).unwrap(), 2);
+        st.mark_read(2, &[b, b], at(10, 11)).unwrap();
+        assert_eq!(st.read_ids(2).unwrap(), HashSet::from([b]));
+        assert!(st.read_ids(3).unwrap().is_empty());
     }
 }

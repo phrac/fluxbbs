@@ -1141,11 +1141,16 @@ enabled`; [SYSOP](SYSOP.md#the-news) has the setting up.
 
 - **The front page** is a newspaper's: the paper's name (`[news] name`)
   as its masthead, the issue, the day and when it was updated, then the
-  last day's stories by section, each with
-  when it was written, how many sources it has, its votes and comments.
-  `<` and `>` jump between sections, `f` searches every day's stories,
-  `s` sorts (by section, newest, votes), `d` picks an earlier day, `/`
-  finds in the list, enter reads.
+  last day's stories in editions (each of the board's runs, the latest
+  first, under a head with its time and how many of its stories the
+  caller hasn't read), each edition by section. A story shows its
+  headline, how many sources it has, its votes and comments, and an
+  indented line on what it's about; those the caller hasn't read are
+  marked and bright, and the bar starts on the first of them. Opening a
+  story marks it read; `m` marks the whole page read. `<` and `>` jump
+  between sections, `f` searches every day's stories, `s` sorts (by
+  edition and section, newest, votes), `d` picks an earlier day, enter
+  reads.
 - **A story** is set as an article: the section, the headline, who
   compiled it from how many outlets, then the story (the lede bright),
   every sentence naming the sources it comes from (`[1][3]`); where the
@@ -1157,7 +1162,8 @@ enabled`; [SYSOP](SYSOP.md#the-news) has the setting up.
   step through the story's sources.
 - **Votes and comments.** `x` votes a story up or down (one vote a
   caller; a new one replaces it) or adds a one-line comment, as on
-  files; `c` goes straight to a comment. A co-SysOp's `x` `d` takes a
+  files; `c` goes straight to a comment, asked on the page's bottom
+  line, which then stays where it was. A co-SysOp's `x` `d` takes a
   caller's off. They stay on the board.
 
 The board writes only what the sources it names say: the AI checks each

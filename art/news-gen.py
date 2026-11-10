@@ -7,8 +7,13 @@ The masthead is the paper's name ([news] name, else the board's name and
 "news") set in Members, in newsprint silver, with a tagline (art/local.py's
 NEWS_TAGLINE), a double rule, and the dateline the board fills in: the
 issue (~NO), the day (~DA), the stories (~SC) and when it was updated
-(~UP). Each story's row: its section (~SE, colored by the board), the
-headline (~HL), the time (~TI), its sources (~NS) and votes (~VT)."""
+(~UP). Each story takes two rows: whether it's unread (~RD), its section
+(~SE, colored by the board), the headline (~HL), its sources (~NS) and
+votes (~VT), then a line on what it's about (~OV), indented under the
+headline; ~TI is its time, left off here as the edition's head has it.
+The stories come in editions (each of the board's runs), each under a
+head (NEWSHEAD): its name (~ED), how many are unread (~UN) and the rule
+to the edge (~RL)."""
 import importlib.util, os, re, sys
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -83,8 +88,9 @@ def tagline():
     return boardname.local('NEWS_TAGLINE', 'all the news that fits in eighty columns')
 
 
-def head(title_row):
-    """The masthead, the tagline, the double rule; the row after it."""
+def head(title_row, rule=True):
+    """The masthead, the tagline, the double rule, the title row and
+    (with `rule`) a thin rule under it."""
     art = masthead()
     rows = art.count(b'\r\n')
     t = tagline()
@@ -93,7 +99,7 @@ def head(title_row):
     out += (at(r, max(1, (80 - len(t) - 4) // 2)) + DG + '~ ' + GR + t + DG + ' ~').encode('cp437')
     out += (double_rule(r + 1)).encode('cp437')
     out += title_row(r + 2).encode('cp437')
-    out += (thin_rule(r + 3) + at(r + 4, 1) + E + '0m').encode('cp437')
+    out += ((thin_rule(r + 3) + at(r + 4, 1)) if rule else at(r + 3, 1)).encode('cp437') + (E + '0m').encode('cp437')
     return out
 
 
@@ -110,12 +116,16 @@ def back_dateline(r):
 
 def screens():
     out = {}
-    out['NEWSTOP'] = head(front_dateline)
-    cols = [(2, '~SE', 9, ''), (12, '~HL', 49, GR), (62, '~TI', 5, DG), (68, '~NS', 5, BN), (74, '~VT', 6, YL)]
-    hcols = [(2, '~SE', 9, ''), (12, '~HL', 49, WH), (62, '~TI', 5, GR), (68, '~NS', 5, YL), (74, '~VT', 6, YL)]
+    # The front page's editions under heads of their own, not a rule.
+    out['NEWSTOP'] = head(front_dateline, rule=False)
+    # (The time is the edition's, on its head.)
+    cols = [(2, '~RD', 1, ''), (4, '~SE', 8, ''), (13, '~HL', 54, GR), (68, '~NS', 5, BN), (74, '~VT', 6, YL)]
+    hcols = [(2, '~RD', 1, ''), (4, '~SE', 8, ''), (13, '~HL', 54, WH), (68, '~NS', 5, YL), (74, '~VT', 6, YL)]
     row = lambda cs: ''.join(f'@{c:02d}' + st + f'{{{w:02d}' + f for c, f, w, st in cs)
-    out['NEWSMID'] = (E + '255D' + E + '0m' + row(cols) + E + '0m\r\n').encode('cp437')
-    out['NEWSHIL'] = (E + '255D' + E + '0m' + YL + '\x10' + row(hcols) + E + '0m\r\n').encode('cp437')
+    over = '\r\n' + E + '0m' + '@13' + DG + '{66~OV'
+    out['NEWSMID'] = (E + '255D' + E + '0m' + row(cols) + over + E + '0m\r\n').encode('cp437')
+    out['NEWSHIL'] = (E + '255D' + E + '0m' + YL + '\x10' + row(hcols) + over + E + '0m\r\n').encode('cp437')
+    out['NEWSHEAD'] = (E + '255D' + E + '0m' + '@02' + DG + '\u2500\u2500 ' + YL + '~ED' + BN + '~UN ' + DG + '~RL' + E + '0m\r\n').encode('cp437')
     out['NEWSBOT'] = (E + '255D' + E + '0m ' + DG + '─' * 78 + E + '0m\r\n' + prompt_bar('the news')).encode('cp437')
     out['NEWSDAYTOP'] = head(back_dateline)
     out['NEWSDAYMID'] = (E + '255D' + E + '0m' + '@04' + GR + '{30~DA' + '@36' + DG + '{20~SC' + E + '0m\r\n').encode('cp437')

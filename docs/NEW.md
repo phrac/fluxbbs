@@ -667,7 +667,9 @@ All in [DOORS](DOORS.md).
 - The news (`NW`): the board's own paper, every story written by its AI
   from several outlets, each sentence naming its sources and checked
   against them; callers read the sources' excerpts and links, vote and
-  comment. ([FEATURES](FEATURES.md#the-news))
+  comment. The front page comes in editions, the latest first, each
+  story with a line on what it's about and marked until the caller
+  reads it. ([FEATURES](FEATURES.md#the-news))
 - ANSI art from a prompt (`AN`), drawn by an image model on the
   SysOp's GPU and filed in an area of its own, where votes on a gen
   bank its author more gens. ([FEATURES](FEATURES.md#ansi-art-from-a-prompt))
@@ -844,7 +846,7 @@ Details in [ARTWORK](ARTWORK.md).
 | `FINGER` | a caller's profile (`~KA` karma, `~AC` achievements) |
 | `TOPL` TOP/MID/BOT | the top lists (`~CT`, `~YR`, `~R1`-`~V3`) |
 | `ACHV` TOP/MID/BOT | your achievements (`~EA`, `~EP`, `~AN`, `~AV`, `~AM`, `~AL`, `~AX`) |
-| `NEWS`, `NEWSDAY` TOP/MID/HIL/BOT | the news's front page and back issues ([ARTWORK](ARTWORK.md#the-news)) |
+| `NEWS` TOP/MID/HIL/HEAD/BOT, `NEWSDAY` TOP/MID/HIL/BOT | the news's front page and back issues ([ARTWORK](ARTWORK.md#the-news)) |
 
 ### New markers in older screens
 
