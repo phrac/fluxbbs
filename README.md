@@ -133,6 +133,8 @@ Leave it alone at a menu for a while and the screen saver comes on.
   rules and email verification.
 - FTN echomail, netmail and file echoes (TIC) over binkp, with AreaFix
   and FileFix, several networks at once.
+- The news: each story written by the board's AI from several outlets,
+  every sentence naming its sources, with votes and comments.
 - QWK offline mail, request boards, @mentions, a voting booth,
   oneliners, rumors, infoforms, new-user voting and profiles, and
   feedback to the SysOp from callers not yet logged in.

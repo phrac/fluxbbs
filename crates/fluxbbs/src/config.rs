@@ -51,6 +51,8 @@ pub struct Config {
     pub weather: Weather,
     /// New: ANSI art from a prompt (`ansigen`).
     pub ansigen: AnsiGen,
+    /// New: the news (`news`).
+    pub news: News,
     /// New: the reading room (`library`).
     pub library: Library,
     /// New: which parts of the board are on.
@@ -743,6 +745,99 @@ impl Default for AnsiGen {
             ai_check: true,
             ai_effort: "none".into(),
             timeout_seconds: 900,
+        }
+    }
+}
+
+/// The news (new, `news.rs`, the `news` component): stories the board's
+/// AI writes from several outlets each, found through `[ai] search_url`
+/// (SearXNG). Off to start.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct News {
+    pub enabled: bool,
+    /// Who may read it.
+    pub acs: String,
+    /// Minutes between runs, in the server (0: only by the `news` event
+    /// or `fluxbbs news`).
+    pub every: u32,
+    /// New stories a section may get each time the news is made.
+    pub stories: usize,
+    /// The most sources a story is written from (up to 9).
+    pub sources: usize,
+    /// How long stories are kept (0: for good).
+    pub keep_days: u32,
+    /// The AI's `reasoning_effort` for the news (blank: `[ai]`'s).
+    pub ai_effort: String,
+    /// The language searched in (SearXNG's codes: `en`, `en-US`, `de`...;
+    /// blank: any).
+    pub language: String,
+    /// Tokens the AI may answer with, at least (a story with its sources
+    /// takes more than `[ai] max_tokens` may allow).
+    pub max_tokens: u32,
+    /// The sections, in the front page's order. Any given replace these
+    /// all.
+    #[serde(rename = "section")]
+    pub sections: Vec<NewsSection>,
+}
+
+/// A section of the news: what it's searched for.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default, deny_unknown_fields)]
+pub struct NewsSection {
+    /// Its short name (kept with each story).
+    pub key: String,
+    /// What the front page calls it.
+    pub name: String,
+    /// What belongs in it, for the AI picking stories (blank: what's
+    /// searched for).
+    pub about: String,
+    /// What's searched for (each a search).
+    pub queries: Vec<String>,
+    /// How far back: day, week, month or year.
+    pub range: String,
+    /// The fewest outlets a story needs.
+    pub min_sources: usize,
+}
+
+impl Default for NewsSection {
+    fn default() -> Self {
+        Self { key: String::new(), name: String::new(), about: String::new(), queries: Vec::new(), range: "day".into(), min_sources: 2 }
+    }
+}
+
+impl Default for News {
+    fn default() -> Self {
+        let sec = |key: &str, about: &str, queries: &[&str], range: &str, min_sources| NewsSection {
+            key: key.into(),
+            name: key.into(),
+            about: about.into(),
+            queries: queries.iter().map(|q| q.to_string()).collect(),
+            range: range.into(),
+            min_sources,
+        };
+        Self {
+            enabled: false,
+            acs: String::new(),
+            every: 180,
+            stories: 6,
+            sources: 6,
+            keep_days: 60,
+            ai_effort: "low".into(),
+            language: "en".into(),
+            max_tokens: 4000,
+            sections: vec![
+                sec("world", "world news: politics, conflict, disasters, the economy", &["world news", "international news"], "day", 2),
+                sec("tech", "technology: computers, the internet, software, AI, gadgets, the tech business", &["technology news", "tech industry news"], "day", 2),
+                sec("science", "science, space, health research and the environment", &["science news", "space news"], "day", 2),
+                sec(
+                    "retro",
+                    "retro computing: old computers and consoles, their revivals, BBSes, the demoscene, ANSI art, chiptunes, old games",
+                    &["retro computing", "Commodore 64", "Amiga", "demoscene", "vintage computer"],
+                    "month",
+                    1,
+                ),
+            ],
         }
     }
 }

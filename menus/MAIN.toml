@@ -329,7 +329,7 @@ keys = ">"
 command = "-/"
 param = "MORE"
 desc = "More"
-help = "Offline mail (qwk), rumors, new user voting, and what else is used least"
+help = "The news, offline mail (qwk), rumors, new user voting, and what else is used least"
 on = "\u001b[0;30;45m (\u001b[0;1;37;45m>\u001b[0;30;45m) \u001b[0;1;37;45mmore...           \u001b[0m"
 off = " \u001b[0;1;30m(\u001b[0;1;35m>\u001b[0;1;30m) \u001b[38;2;255;255;255mm\u001b[38;2;255;198;255mo\u001b[38;2;255;142;255mr\u001b[38;2;255;85;255me\u001b[38;2;227;57;227m.\u001b[38;2;198;28;198m.\u001b[38;2;170;0;170m.           \u001b[0m"
 

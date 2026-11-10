@@ -664,6 +664,10 @@ All in [DOORS](DOORS.md).
 
 ## Around the board
 
+- The news (`NW`): the board's own paper, every story written by its AI
+  from several outlets, each sentence naming its sources and checked
+  against them; callers read the sources' excerpts and links, vote and
+  comment. ([FEATURES](FEATURES.md#the-news))
 - ANSI art from a prompt (`AN`), drawn by an image model on the
   SysOp's GPU and filed in an area of its own, where votes on a gen
   bank its author more gens. ([FEATURES](FEATURES.md#ansi-art-from-a-prompt))
@@ -783,6 +787,7 @@ All in [DOORS](DOORS.md).
 | `AP` | Carrier Lost (the dial-up game) |
 | `AB` (+ `new`, SysOps) | the reading room; `new` chooses today's shelf again |
 | `AN` (+ `refused`, SysOps) | ANSI art from a prompt; `refused`, the prompts refused |
+| `NW` | the news |
 | `DB` (+ door code) | BBSLink doors |
 | `FW` (+ `newest` `hot` `heavy` `dig` `kingpin` `search` `votes`) | file browser; `votes`, the hot files |
 | `MH` | message center |
@@ -855,7 +860,7 @@ Details in [ARTWORK](ARTWORK.md).
 
 - New sections in `fluxbbs.toml`: `[ssh]`, `[telnet]`, `[web]`,
   `[gallery]`, `[security]`, `[passwords]`, `[terminal]`, `[dos]`,
-  `[ai]`, `[meshcore]`, `[ftn]`, `[flags]`, `[ansigen]`.
+  `[ai]`, `[meshcore]`, `[ftn]`, `[flags]`, `[ansigen]`, `[news]`.
 - New keys elsewhere, chiefly upload screening in `[files]`, sign-up
   limits in `[newuser]`, and callers' boards in `[messages]`.
 - New prompt strings are at the end of `assets/strings.toml`: about

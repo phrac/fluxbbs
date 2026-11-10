@@ -242,6 +242,51 @@ points on (`[files] use_file_points`). Restart after changing
 `[ansigen]` (it isn't in `*C`). `tools/fake_ansigen.py` stands in for
 the gateway in tests (ready, warming, busy, failing).
 
+### The news
+
+`NW` (the `news` component, in `full`; `n` on the stock more... menu)
+is a paper the board makes itself. The `news` event searches the web
+for each section's news through SearXNG (`[ai] search_url`; Bing News
+is what it mostly gets, being the engine that takes a date range), the
+board's AI (`[ai]`) groups what it found into stories, a second search
+finds more outlets for each, and the AI writes each one from all of
+them: a headline, a summary where every sentence names its sources,
+where the sources differ, and a line on each source. A last pass checks
+each sentence against the sources it names and drops what they don't
+support (a story that loses more than half goes). Pages behind a bot
+check or paywall count only by their search snippet. Callers see a
+source's excerpt and its link, never the whole article.
+
+    [news]
+    enabled = true
+    acs = ""                 # who may read it
+    stories = 6              # new stories a section may get each run
+    sources = 6              # the most outlets a story is written from (9 at most)
+    keep_days = 60           # 0 keeps them for good
+    ai_effort = "low"        # the AI's reasoning_effort for the news
+    language = "en"          # SearXNG's language code (blank: any)
+    every = 180              # minutes between runs (0: by event only)
+    max_tokens = 4000        # at least this many for an answer
+
+    # Sections, in the front page's order; any given replace the stock
+    # four (world, tech, science, retro).
+    [[news.section]]
+    key = "world"
+    name = "world"
+    about = "world news: politics, conflict, disasters, the economy"
+    queries = ["world news", "international news"]
+    range = "day"            # day, week, month or year
+    min_sources = 2          # fewer outlets than this and a story is skipped
+
+A local section is a section like any other: say `key = "local"`,
+`queries = ["Springfield news"]`. The board makes the news
+every `every` minutes (180; a run of the four stock sections takes the
+AI about five minutes), the first time that long after the latest
+story, never in its first five minutes up. With `every = 0` it's made
+only by the `news` event (`news tech` does one section) or from the
+shell, `fluxbbs news [--section KEY] [config]`. Restart after changing
+`[news]`.
+
 ### Running a board outside the repo
 
 Paths in `fluxbbs.toml` are relative to that file. So a board can live

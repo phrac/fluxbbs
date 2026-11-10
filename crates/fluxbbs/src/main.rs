@@ -21,6 +21,8 @@ mod aimemory;
 mod aidesc;
 #[cfg(feature = "ansigen")]
 mod ansigen;
+#[cfg(feature = "news")]
+mod news;
 #[cfg(feature = "ai")]
 mod ansishot;
 mod backup;
@@ -260,6 +262,9 @@ pub struct BbsState {
     /// New: ANSI art from a prompt: the allowances, the gens, the line (`AN`).
     #[cfg(feature = "ansigen")]
     pub ansigen: ansigen::AnsiGens,
+    /// New: the news's stories, their sources and pushes (`NW`).
+    #[cfg(feature = "news")]
+    pub news: news::NewsStore,
     /// Places callers picked for the weather, and recent forecasts.
     #[cfg(feature = "weather")]
     pub weather: weather::WeatherStore,
@@ -707,6 +712,8 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
     let email = emailver::CodeStore::open(&db)?;
     #[cfg(feature = "ansigen")]
     let ansigen = ansigen::AnsiGens::open(&db)?;
+    #[cfg(feature = "news")]
+    let news = news::NewsStore::open(&db)?;
     #[cfg(feature = "weather")]
     let weather = weather::WeatherStore::open(&db)?;
     let themes: themes::Themes = extprog::load(&config.resolve(&config.paths.themes))?.unwrap_or_default();
@@ -741,6 +748,8 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Arc<BbsState>> {
         email,
         #[cfg(feature = "ansigen")]
         ansigen,
+        #[cfg(feature = "news")]
+        news,
         #[cfg(feature = "weather")]
         weather,
         files,
@@ -829,6 +838,13 @@ async fn run() -> anyhow::Result<()> {
     if args.first().is_some_and(|a| a == "describe") {
         return aidesc::from_args(&args[1..]).await;
     }
+    // New: `fluxbbs news [--section KEY] [config]`: make the news now.
+    if args.first().is_some_and(|a| a == "news") {
+        #[cfg(feature = "news")]
+        return news::from_args(&args[1..]).await;
+        #[cfg(not(feature = "news"))]
+        anyhow::bail!("the news isn't built into this board (build with --features news; docs/BUILDING.md)");
+    }
     // New: `fluxbbs backup [DAYS] [DIR] [config]`.
     if args.first().is_some_and(|a| a == "backup") {
         let (path, rest): (PathBuf, &[String]) = match args[1..].split_last() {
@@ -892,6 +908,8 @@ async fn run() -> anyhow::Result<()> {
     tokio::spawn(events::scheduler(state.clone()));
     tokio::spawn(trash::keeper(state.clone()));
     tokio::spawn(newposts::watch(state.clone()));
+    #[cfg(feature = "news")]
+    tokio::spawn(news::keeper(state.clone()));
     #[cfg(feature = "meshcore")]
     tokio::spawn(meshcore::run(state.clone()));
     #[cfg(feature = "mrc")]
@@ -992,6 +1010,8 @@ pub mod tests {
             email: emailver::CodeStore::open_memory().unwrap(),
             #[cfg(feature = "ansigen")]
             ansigen: ansigen::AnsiGens::open_memory().unwrap(),
+            #[cfg(feature = "news")]
+            news: news::NewsStore::open_memory().unwrap(),
             #[cfg(feature = "weather")]
             weather: weather::WeatherStore::open_memory().unwrap(),
             files: FileBase::open_memory().unwrap(),

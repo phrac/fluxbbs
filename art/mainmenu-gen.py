@@ -34,7 +34,7 @@ MENUS = {
        ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('&', 'achievements'), ('i', 'infoforms'), ('>', 'more...'), ('g', 'goodbye')])]),
  # The main menu's overflow: what's used least. Their keys still work
  # from the main menu too (hidden there).
- 'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('i', 'infoforms'), ('r', 'rumors'), ('^', 'top lists'), ('&', 'achievements'), ('<', 'back')])]),
+ 'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('i', 'infoforms'), ('r', 'rumors'), ('^', 'top lists'), ('&', 'achievements'), ('n', 'news'), ('<', 'back')])]),
  'file': ('file menu', [('areas', [('a', 'change area'), ('j', 'join conference'), ('[', 'previous area'), (']', 'next area'), ('#', 'jump to area #')]),
        ('find', [('l', 'browse files'), ('f', 'search files'), ('h', 'hot files'), ('n', 'newscan'), ('s', 'set newscan date'), ('e', 'scan select')]),
        ('transfer', [('d', 'download'), ('u', 'upload'), ('+', 'flag for batch'), ('b', 'batch edit'), ('q', 'quit')])]),
@@ -81,6 +81,9 @@ COMMANDS = {}
 CHANGED = {
     # r on more is the rumors (RL), not the art gallery (r on the main menu).
     ('more', 'r'): {'command': 'RL', 'param': '', 'acs': '', 'desc': 'Rumors', 'help': 'What callers whisper, unsigned: read the rumors, or start one'},
+    # n on more is the news (NW), written by the board's AI from several
+    # outlets; feedback (n) stays on the main menu.
+    ('more', 'n'): {'command': 'NW', 'param': '', 'acs': '', 'desc': 'News', 'help': "Today's headlines, each written from several outlets"},
     # m goes straight to the boards (MH), not through SCANMSG.
     ('main', 'm'): {'command': 'MH', 'param': '', 'desc': 'Message boards', 'help': 'The message boards: read, post, vote and comment'},
     # c is the casino, not the classic menu's KOMBAT.BAT.
@@ -98,7 +101,7 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
          # Points around the board (!P): the ledger, tips, the lottery.
          ('main', 'k'): {'keys': 'K', 'command': '!P', 'param': '', 'desc': 'Points & lottery', 'help': 'Your file points, tips, and the nightly lottery'},
          # The overflow menu, and the way back from it.
-         ('main', '>'): {'keys': '>', 'command': '-/', 'param': 'MORE', 'desc': 'More', 'help': 'Offline mail (qwk), rumors, new user voting, and what else is used least'},
+         ('main', '>'): {'keys': '>', 'command': '-/', 'param': 'MORE', 'desc': 'More', 'help': 'The news, offline mail (qwk), rumors, new user voting, and what else is used least'},
          ('more', '<'): {'keys': '<', 'command': '-\\', 'param': 'MAIN', 'desc': 'Back', 'help': 'Back to the main menu'},
          ('more', '!'): {'keys': '!', 'command': '-/', 'param': 'AUTOMSG', 'acs': 's25', 'desc': 'AutoMsg menu', 'help': 'The automessage: show it, write one, reply to its author'},
          # The weather, from the doors menu.

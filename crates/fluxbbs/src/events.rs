@@ -255,6 +255,15 @@ async fn run_command(state: &Arc<BbsState>, cmd: &str) -> anyhow::Result<()> {
             tracing::info!("event: described {n} upload(s)");
             Ok(())
         }
+        // New: the news's new stories (`news`), or one section's.
+        #[cfg(feature = "news")]
+        n if n == "news" || n.starts_with("news ") => {
+            let made = crate::news::refresh(state, n.split_whitespace().nth(1)).await?;
+            tracing::info!("event: {made} news stories");
+            Ok(())
+        }
+        #[cfg(not(feature = "news"))]
+        n if n == "news" || n.starts_with("news ") => anyhow::bail!("event {n:?}: the news isn't built into this board"),
         b if b == "backup" || b.starts_with("backup ") => {
             let (days, dir) = crate::backup::parse(&b.split_whitespace().skip(1).collect::<Vec<_>>())?;
             // The snapshot and the archive are file work: off the async threads.

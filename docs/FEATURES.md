@@ -1131,6 +1131,36 @@ instead.
   one; otherwise the `TarotTitle` line. Keep it to a line or two: the
   cards take 15 rows under it.
 
+## The news
+
+`NW` (`n` on the stock more... menu) is the board's own paper. Every
+few hours the board's AI reads the day's news from several outlets for
+each section (stock: world, tech, science, retro) and writes each story
+from all of them. It's the `news` component, off until `[news]
+enabled`; [SYSOP](SYSOP.md#the-news) has the setting up.
+
+- **The front page** lists the last day's stories by section, each with
+  when it was written, how many sources it has, its votes and comments.
+  `<` and `>` jump between sections, `f` searches every day's stories,
+  `s` sorts (by section, newest, votes), `d` picks an earlier day, `/`
+  finds in the list, enter reads.
+- **A story** has its headline, a summary in which every sentence names
+  the sources it comes from (`[1][3]`), where the sources differ (when
+  they do), and its sources, each with a line on what it adds. Then its
+  votes and comments. Left and right (or `n` and `-`) go to the next and
+  previous story; a number opens that source, `i` the first.
+- **A source** shows its outlet, headline, a few lines of its own words
+  and its address, a link on terminals that take them. Left and right
+  step through the story's sources.
+- **Votes and comments.** `x` votes a story up or down (one vote a
+  caller; a new one replaces it) or adds a one-line comment, as on
+  files; `c` goes straight to a comment. A co-SysOp's `x` `d` takes a
+  caller's off. They stay on the board.
+
+The board writes only what the sources it names say: the AI checks each
+sentence against them and drops those they don't support. Stories are
+kept `keep_days` (60).
+
 ## ANSI art from a prompt
 
 `AN` (`A` on the stock doors menu) makes ANSI art from a prompt: the

@@ -30,6 +30,7 @@ disflux, the flagship board, runs with all of them.
 | `textfiles` | The textfiles.com importer (`fluxbbs textfiles`) | HTTPS |
 | `weather` | The weather (`WX`, or `WX <place>` for a fixed one): the sky in animated pixels, the week, the next 24 hours; the AI reads it as a forecaster when `ai` is built and on. `[weather]`: `units`, `place`, `ai_forecast`, `ai_effort` (the forecaster's `reasoning_effort`, `none` unless set) | HTTPS to open-meteo.com (free, no key) |
 | `ansigen` | ANSI art from a prompt (`AN`), drawn by an image model on the SysOp's GPU and filed in an area of its own; the board's AI checks prompts when `ai` is built too. Off until `[ansigen] enabled` | HTTP to the model's gateway (`[ansigen] gateway`) |
+| `news` | The news (`NW`): stories the board's AI writes from several outlets each, found through SearXNG; callers vote and comment. Off until `[news] enabled` | `ai`, which it brings; a SearXNG instance (`[ai] search_url`) |
 | `email` | Callers' email addresses, confirmed by a mailed code (`UV`, the `email` logon step, `*C` `@`); off until `[email] enabled` | an SMTP server |
 | `full` | All of the above | |
 

@@ -38,6 +38,7 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
         "RL" | "RA" | "RS" => "rumors",
         ">F" => "feedback",
         "AN" => "ansigen",
+        "NW" => "news",
         _ => return None,
     })
 }
@@ -46,8 +47,9 @@ pub fn feature_of(code: &str) -> Option<&'static str> {
 /// components are Cargo features (docs/BUILDING.md); one left out
 /// counts as switched off, whatever `[features]` says.
 pub fn built(name: &str) -> bool {
-    const BUILT: [(&str, bool); 14] = [
+    const BUILT: [(&str, bool); 15] = [
         ("ansigen", cfg!(feature = "ansigen")),
+        ("news", cfg!(feature = "news")),
         ("mrc", cfg!(feature = "mrc")),
         ("weather", cfg!(feature = "weather")),
         ("email", cfg!(feature = "email")),
@@ -77,6 +79,7 @@ pub fn command_on(cfg: &Config, code: &str) -> bool {
         Some("email") => cfg.email.enabled,
         Some("mrc") => cfg.mrc.enabled,
         Some("ansigen") => cfg.ansigen.enabled,
+        Some("news") => cfg.news.enabled,
         Some(name) => cfg.features.on(name),
     }
 }
@@ -112,5 +115,8 @@ mod tests {
         on.ansigen.enabled = true;
         assert_eq!(command_on(&on, "AN"), cfg!(feature = "ansigen"));
         assert!(!command_on(&cfg, "AN"), "off to start");
+        on.news.enabled = true;
+        assert_eq!(command_on(&on, "NW"), cfg!(feature = "news"));
+        assert!(!command_on(&cfg, "NW"), "off to start");
     }
 }

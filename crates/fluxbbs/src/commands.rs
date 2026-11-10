@@ -303,6 +303,9 @@ impl Session {
             // New: ANSI art from a prompt, drawn on the SysOp's GPU.
             #[cfg(feature = "ansigen")]
             "AN" => self.ansigen(param).await?,
+            // New: the news, written by the board's AI from several outlets.
+            #[cfg(feature = "news")]
+            "NW" => self.news().await?,
             #[cfg(feature = "python")]
             "-X" => Box::pin(self.script_command(param)).await?,
             "!D" => self.bank_transaction(crate::timebank::Unit::Minutes, true).await?,
