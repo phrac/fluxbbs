@@ -17,8 +17,15 @@ const LIGHTBAR_HELP: [u8; 2] = *b"HP";
 /// New: where the cursor waits on a lightbar menu (a prompt bar's slot).
 const LIGHTBAR_CURSOR: [u8; 2] = *b"PC";
 const LIGHTBAR_EXIT: u8 = 30;
-/// Options on a lightbar, short of the exit position (the original took 24).
-const MAX_BAR: usize = 29;
+/// Options on a lightbar (the original took 24). New: past 29 they go on
+/// from `~31`, the exit position kept, to `~99`.
+const MAX_BAR: usize = 98;
+
+/// The marker of lightbar option `n` (from 1): `~01`..`~29`, then `~31`
+/// on, `~30` being the exit position.
+fn bar_mark(n: usize) -> u8 {
+    if n < LIGHTBAR_EXIT as usize { n as u8 } else { n as u8 + 1 }
+}
 
 /// New: where an arrow goes on a lightbar, by where the options are
 /// (`places`, 0-based; `None` where an option has no marker): left and
@@ -532,7 +539,7 @@ impl Session {
         // position to move to, so the bar passes it by.
         let lit = |n: usize| !menu.commands[items[n - 1]].dark;
         let places: Vec<Option<(i32, i32)>> = (1..=items.len())
-            .map(|n| if lit(n) { self.positions.get(&pos_code(n as u8)).map(|p| (p.0 as i32, p.1 as i32)) } else { None })
+            .map(|n| if lit(n) { self.positions.get(&pos_code(bar_mark(n))).map(|p| (p.0 as i32, p.1 as i32)) } else { None })
             .collect();
         let first_lit = (1..=items.len()).find(|&n| lit(n)).unwrap_or(1);
         let last_lit = (1..=items.len()).rev().find(|&n| lit(n)).unwrap_or(1);
@@ -559,7 +566,14 @@ impl Session {
             self.screen.goto(1, self.screen.rows());
             self.show(&n).await?;
         }
-        let hint = if has_help { self.note.take().or_else(|| self.caller_hint(menu)) } else { None };
+        let hint = if has_help {
+            self.note.take().or_else(|| self.caller_hint(menu)).or_else(|| {
+                use rand::seq::IndexedRandom;
+                menu.whispers.choose(&mut rand::rng()).cloned()
+            })
+        } else {
+            None
+        };
         if has_help && let Some(hint) = hint {
             self.goto_pos(LIGHTBAR_HELP);
             self.write(&" ".repeat(help_len));
@@ -669,7 +683,7 @@ impl Session {
         help_len: &mut usize,
     ) -> io::Result<()> {
         let c = &menu.commands[items[n - 1]];
-        let ok = if hi { self.goto_pos(pos_code(n as u8)) } else { self.goto_pos2(n as u8) };
+        let ok = if hi { self.goto_pos(pos_code(bar_mark(n))) } else { self.goto_pos2(bar_mark(n)) };
         if !ok {
             return Ok(());
         }

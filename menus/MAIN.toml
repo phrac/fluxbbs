@@ -8,6 +8,7 @@ generic_columns = 3
 pause_before = true
 global = true
 type = "lightbar"
+whispers = ["|05- |08the sysop can see what you type. say hi.|05 -", "|05- |08nothing here is indexed. keep it that way.|05 -", "|05- |08every keystroke echoes somewhere.|05 -", "|05- |08you are never the only one on this line.|05 -", "|05- |08you left a trail getting in. we cleaned it up.|05 -", "|05- |08the logs are kept forever. probably.|05 -", "|05- |08don't trust the last caller.|05 -", "|05- |08if the screen flickers, don't worry about it.|05 -", "|05- |08this call is not being recorded. (it is.)|05 -"]
 
 [[effect]]
 kind = "decode"
@@ -35,7 +36,7 @@ delay = 2.0
 
 [[effect]]
 kind = "ripple"
-rows = [8, 20]
+rows = [8, 21]
 every = 10.0
 delay = 6.0
 
@@ -123,6 +124,14 @@ on = "\u001b[0;30;45m (\u001b[0;1;37;45mn\u001b[0;30;45m) \u001b[0;1;37;45mfeedb
 off = " \u001b[0;1;30m(\u001b[0;1;35mn\u001b[0;1;30m) \u001b[38;2;255;255;255mf\u001b[38;2;255;206;255me\u001b[38;2;255;158;255me\u001b[38;2;255;109;255md\u001b[38;2;243;73;243mb\u001b[38;2;219;49;219ma\u001b[38;2;194;24;194mc\u001b[38;2;170;0;170mk          \u001b[0m"
 
 [[command]]
+keys = "!"
+command = "RL"
+desc = "Rumors"
+help = "What callers whisper, unsigned: read the rumors, or start one"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m!\u001b[0;30;45m) \u001b[0;1;37;45mrumors            \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m!\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;255;187;255mu\u001b[38;2;255;119;255mm\u001b[38;2;238;68;238mo\u001b[38;2;204;34;204mr\u001b[38;2;170;0;170ms            \u001b[0m"
+
+[[command]]
 keys = "F"
 command = "-^"
 param = "SCANFILE"
@@ -158,6 +167,16 @@ desc = "Points & lottery"
 help = "Your file points, tips, and the nightly lottery"
 on = "\u001b[0;30;45m (\u001b[0;1;37;45mk\u001b[0;30;45m) \u001b[0;1;37;45mpoints & lottery  \u001b[0m"
 off = " \u001b[0;1;30m(\u001b[0;1;35mk\u001b[0;1;30m) \u001b[38;2;255;255;255mp\u001b[38;2;255;232;255mo\u001b[38;2;255;210;255mi\u001b[38;2;255;187;255mn\u001b[38;2;255;164;255mt\u001b[38;2;255;142;255ms \u001b[38;2;255;96;255m& \u001b[38;2;238;68;238ml\u001b[38;2;227;57;227mo\u001b[38;2;215;45;215mt\u001b[38;2;204;34;204mt\u001b[38;2;193;23;193me\u001b[38;2;181;11;181mr\u001b[38;2;170;0;170my  \u001b[0m"
+
+[[command]]
+keys = "T"
+command = "-/"
+param = "timebank"
+acs = "s50"
+desc = "Time Bank"
+help = "None"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mt\u001b[0;30;45m) \u001b[0;1;37;45mtime bank         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;212;255mi\u001b[38;2;255;170;255mm\u001b[38;2;255;128;255me \u001b[38;2;234;64;234mb\u001b[38;2;212;42;212ma\u001b[38;2;191;21;191mn\u001b[38;2;170;0;170mk         \u001b[0m"
 
 [[command]]
 keys = "^"
@@ -287,6 +306,15 @@ on = "\u001b[0;30;45m (\u001b[0;1;37;45m&\u001b[0;30;45m) \u001b[0;1;37;45machie
 off = " \u001b[0;1;30m(\u001b[0;1;35m&\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;224;255mc\u001b[38;2;255;193;255mh\u001b[38;2;255;162;255mi\u001b[38;2;255;131;255me\u001b[38;2;255;100;255mv\u001b[38;2;247;77;247me\u001b[38;2;232;62;232mm\u001b[38;2;216;46;216me\u001b[38;2;201;31;201mn\u001b[38;2;185;15;185mt\u001b[38;2;170;0;170ms      \u001b[0m"
 
 [[command]]
+keys = "I"
+command = "IN"
+acs = "s25"
+desc = "Infoforms"
+help = "View/fill out your infoforms"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mi\u001b[0;30;45m) \u001b[0;1;37;45minfoforms         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mi\u001b[0;1;30m) \u001b[38;2;255;255;255mi\u001b[38;2;255;212;255mn\u001b[38;2;255;170;255mf\u001b[38;2;255;128;255mo\u001b[38;2;255;85;255mf\u001b[38;2;234;64;234mo\u001b[38;2;212;42;212mr\u001b[38;2;191;21;191mm\u001b[38;2;170;0;170ms         \u001b[0m"
+
+[[command]]
 keys = ">"
 command = "-/"
 param = "MORE"
@@ -303,16 +331,6 @@ desc = "Goodbye"
 help = "Logoff system (goto goodbye menu)"
 on = "\u001b[0;30;45m (\u001b[0;1;37;45mg\u001b[0;30;45m) \u001b[0;1;37;45mgoodbye           \u001b[0m"
 off = " \u001b[0;1;30m(\u001b[0;1;35mg\u001b[0;1;30m) \u001b[38;2;255;255;255mg\u001b[38;2;255;198;255mo\u001b[38;2;255;142;255mo\u001b[38;2;255;85;255md\u001b[38;2;227;57;227mb\u001b[38;2;198;28;198my\u001b[38;2;170;0;170me           \u001b[0m"
-
-[[command]]
-keys = "I"
-command = "IN"
-acs = "s25"
-desc = "Infoforms"
-help = "View/fill out your infoforms"
-hidden = true
-on = "|B1Infoforms"
-off = "|B0Infoforms"
 
 [[command]]
 keys = "Q"
@@ -335,12 +353,3 @@ help = "Vote on new users you have not yet voted on (if enabled)"
 hidden = true
 on = "|B1New user voting"
 off = "|B0New user voting"
-
-[[command]]
-keys = "T"
-command = "-/"
-param = "timebank"
-acs = "s50"
-desc = "Time Bank"
-help = "None"
-hidden = true

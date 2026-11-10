@@ -526,6 +526,9 @@ All in [FEATURES](FEATURES.md#message-center).
   or previous piece without going back to the list.
   ([FILES](FILES.md#keys))
 - ANSI art gens keep their prompt in the SAUCE comments.
+- Lightbars past 29 options (to `~99`, skipping `~30`, the exit spot),
+  and menus' `whispers` in the help line. The main menu has an eleventh
+  row: rumors (`!`), time bank, infoforms, top lists and achievements.
 - Blackjack's secret card count (`c`): the Hi-Lo running and true count under the shoe.
 - Points around the board (`!P`): up votes pay a post's author, doors
   pay by the minute, callers tip each other (`$` in the reader), and a

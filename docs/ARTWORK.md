@@ -77,7 +77,8 @@ exists.
 | `~30` | where the cursor goes after a pick (else the bottom row) |
 
 - Write them as pairs: `~01^01`, `~02^02`...
-- A lightbar holds up to 29 options.
+- A lightbar holds up to 98 options: `~01` to `~29`, then (new) `~31`
+  on, since `~30` is the exit position.
 - Options the caller can't use (by access) and hidden ones are skipped,
   so the next option takes their number.
 - A marker takes the color in effect where it sits.
@@ -89,6 +90,13 @@ The options' text and colors are in the menu (`menus/MATRIX.toml`):
 the description), and `help` goes at `~HP`. To restyle them, put a copy
 of the menu in the board's `menus/` (with `stock_menus` set; see
 [SYSOP.md](SYSOP.md)) and change that.
+
+New: a menu's `whispers`, a list of lines, puts one (at random) at
+`~HP` as the menu comes up, when there's no notice or hint for the
+caller (new mail, posts, an achievement), till the bar moves. The main
+menu's are the lines that used to sit under its boxes:
+
+    whispers = ["|05- |08the sysop can see what you type. say hi.|05 -", "..."]
 
 ### Keys
 

@@ -29,9 +29,9 @@ MENUDIR = boardname.CLASSIC_MENUS
 
 # name: (title, [(box title, [(key, label)])])
 MENUS = {
- 'main': ('main menu', [('talk', [('m', 'message boards'), ('e', 'email'), ('o', 'oneliners'), ('a', 'mrc chat'), ('j', 'ai chat'), ('w', "who's on"), ('x', 'nodes'), ('p', 'page sysop'), ('n', 'feedback')]),
-       ('files & fun', [('f', 'files'), ('r', 'art gallery'), ('d', 'doors'), ('k', 'points & lottery'), ('^', 'top lists'), ('b', 'bbs list'), ('@', 'weather'), ('v', 'voting booth'), ('#', 'reading room'), ('h', 'about flux/bbs')]),
-       ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('&', 'achievements'), ('>', 'more...'), ('g', 'goodbye')])]),
+ 'main': ('main menu', [('talk', [('m', 'message boards'), ('e', 'email'), ('o', 'oneliners'), ('a', 'mrc chat'), ('j', 'ai chat'), ('w', "who's on"), ('x', 'nodes'), ('p', 'page sysop'), ('n', 'feedback'), ('!', 'rumors')]),
+       ('files & fun', [('f', 'files'), ('r', 'art gallery'), ('d', 'doors'), ('k', 'points & lottery'), ('t', 'time bank'), ('^', 'top lists'), ('b', 'bbs list'), ('@', 'weather'), ('v', 'voting booth'), ('#', 'reading room'), ('h', 'about flux/bbs')]),
+       ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('&', 'achievements'), ('i', 'infoforms'), ('>', 'more...'), ('g', 'goodbye')])]),
  # The main menu's overflow: what's used least. Their keys still work
  # from the main menu too (hidden there).
  'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('i', 'infoforms'), ('r', 'rumors'), ('^', 'top lists'), ('&', 'achievements'), ('<', 'back')])]),
@@ -110,6 +110,8 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
          # MRC: chat with callers on other boards (XR), beside the node chat.
          # Uploads waiting for a SysOp (*Q).
          ('sysop', '+'): {'keys': '+', 'command': '*Q', 'param': '', 'acs': 's250', 'desc': 'Held uploads', 'help': '[sysop] Uploads waiting to be checked: view, validate or delete them'},
+         # Rumors on main too: ! (r there is the art gallery).
+         ('main', '!'): {'keys': '!', 'command': 'RL', 'param': '', 'desc': 'Rumors', 'help': 'What callers whisper, unsigned: read the rumors, or start one'},
          # The top lists (LT) and your achievements (UA), on main and more...
          ('main', '^'): {'keys': '^', 'command': 'LT', 'param': '', 'desc': 'Top lists', 'help': 'Top callers, posters, uploaders and gamers: this week, this month, all time'},
          ('main', '&'): {'keys': '&', 'command': 'UA', 'param': '', 'desc': 'Achievements', 'help': "What you've earned, and what's next"},
@@ -162,8 +164,9 @@ DROP_REST |= boardname.local('DROP_REST', set())
 PICTURES = boardname.local('PICTURES', {})
 KEEP_HIDDEN |= boardname.local('KEEP_HIDDEN', set())
 
-# The main menu's variants: a whisper under the boxes, and a phrase
-# hidden in the row of noise over the logo.
+# The main menu's whispers (one in its help line as it comes up, from the
+# menu's `whispers`), and its variants' phrases hidden in the row of
+# noise over the logo.
 WHISPERS = ['the sysop can see what you type. say hi.',
             'nothing here is indexed. keep it that way.',
             'every keystroke echoes somewhere.',
@@ -505,7 +508,7 @@ def grid_rows(name, ink, left, first_marker):
     def markers(row):
         s = ''
         for i in range(3):
-            m = first_marker + row * 3 + i + 1
+            m = mark(first_marker + row * 3 + i + 1)
             s += DG + '│' + f'~{m:02d}^{m:02d}' + ' ' * cw[i]
         return left + s + DG + '│'
 
@@ -637,6 +640,12 @@ def prompt_bar(ink, title):
 # ---- the menu file ---------------------------------------------------------
 
 
+def mark(n):
+    """Lightbar option n's marker: ~01..~29, then ~31 on (~30 is where
+    the cursor goes after a pick)."""
+    return n if n < 30 else n + 1
+
+
 def toml_value(v):
     if isinstance(v, str):
         return json.dumps(v, ensure_ascii=False)
@@ -709,6 +718,11 @@ def menu_toml(name, title, ink, w, order, labels, extra, effects):
     m.pop('prompt', None)
     for k, v in m.items():
         t.append(f'{k} = {q(v)}')
+    # New: the main menu's whispers go in the help line as it comes up
+    # (their row under the boxes went to an eleventh row of options).
+    if name == 'main':
+        pipe = f'|{int(ink.accent) - 30:02d}'
+        t.append('whispers = ' + toml_value([f'{pipe}- |08{w}{pipe} -' for w in WHISPERS]))
     t += effect_lines(effects)
     for c in cmds:
         t.append('')
@@ -773,7 +787,7 @@ def build(name, variant):
     for i in range(h + 2):
         r = left + ' '.join(c[i] for c in columns)
         for k in order:
-            r = r.replace('@@' + k + '@@', f'~{num[k]:02d}^{num[k]:02d}')
+            r = r.replace('@@' + k + '@@', f'~{mark(num[k]):02d}^{mark(num[k]):02d}')
         out.append(r)
     labels = {k: label for b in boxes for (k, label) in b[1]}
 
@@ -787,8 +801,6 @@ def build(name, variant):
         bbslink_note(out, ink)
     if name == 'main':
         head += (main_head_extras(variant, ink) + E + '0m' + goto(head.count(b'\n') + 1, 1)).encode('cp437')
-        whisper = WHISPERS[variant]
-        out.append(' ' * ((79 - len(whisper) - 4) // 2) + ink.RD + '- ' + DG + whisper + ink.RD + ' -')
     if name == 'message':
         head += (message_head_extras(ink) + E + '0m' + goto(head.count(b'\n') + 1, 1)).encode('cp437')
     if name == 'file':
@@ -855,7 +867,7 @@ def build_picture(name, spec):
         out += goto(row0, x) + ink.box_top(box_title, w)
         for i, k in enumerate(keys):
             order.append(k)
-            out += goto(row0 + 1 + i, x) + DG + '│' + E + '0m' + f'~{len(order):02d}^{len(order):02d}' + ' ' * (w - 2) + DG + '│'
+            out += goto(row0 + 1 + i, x) + DG + '│' + E + '0m' + f'~{mark(len(order)):02d}^{mark(len(order)):02d}' + ' ' * (w - 2) + DG + '│'
         out += goto(row0 + 1 + len(keys), x) + ink.box_bottom(w)
     # A box of values under the columns, if there's room for one.
     if spec.get('values'):

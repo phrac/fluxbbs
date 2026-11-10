@@ -652,6 +652,7 @@ fn convert_menu(m: &LegacyMenu) -> Menu {
         global: m.global_use,
         upper_input: m.input_upper,
         effects: Vec::new(),
+        whispers: Vec::new(),
         commands: m
             .commands
             .iter()

@@ -89,6 +89,11 @@ pub struct Menu {
     /// New: animation while the menu waits (`ambient`).
     #[serde(default, rename = "effect", skip_serializing_if = "Vec::is_empty")]
     pub effects: Vec<crate::ambient::Effect>,
+    /// New: lines, one of which (at random) shows in the help line as the
+    /// menu comes up when there's no note or hint for the caller, till
+    /// the bar moves (the main menu's whispers).
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub whispers: Vec<String>,
     #[serde(default, rename = "command")]
     pub commands: Vec<Command>,
 }
