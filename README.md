@@ -104,6 +104,24 @@ and menus, and can look things up on the web when she needs to.
 |---|---|
 | ![MRC chat](docs/screenshots/mrc.png) | ![Chat with Penny](docs/screenshots/ai.png) |
 
+## The news and the weather
+
+Every few hours the board writes its own paper: its AI reads each
+section's news (world, tech, science, retro) from several outlets and
+writes each story from all of them, every sentence naming the sources it
+comes from and checked against them. The front page comes in editions,
+with a line on what each story is about and the ones you haven't read
+marked; callers vote on stories and leave one-line comments.
+
+The weather is the sky over your town in half-block pixels, animated,
+with the week ahead, the last month against normal, the drought monitor
+and the whole country on a map.
+
+| | |
+|---|---|
+| ![The news](docs/screenshots/news.png) | ![A story](docs/screenshots/news-story.png) |
+| ![The weather](docs/screenshots/weather.png) | ![The national map](docs/screenshots/weather-nation.png) |
+
 ## Doors and games
 
 LORD, BRE, TradeWars 2002, Overkill II and Usurper run as doors. The DOS
@@ -115,12 +133,15 @@ slots, video poker, blackjack, roulette, craps and a bar; Carrier Lost, a
 war-dialing game; tarot; and a reading room that puts a new shelf of
 textfiles out by the fire every day. And callers make ANSI art from a
 prompt, drawn by an image model trained on the scene's art on the
-SysOp's own GPU, and vote on each other's.
+SysOp's own GPU, and vote on each other's. Achievements come along the
+way, for posts, uploads, calls and days in a row.
 
 | | |
 |---|---|
 | ![The doors menu](docs/screenshots/doors.png) | ![LORD in the built-in DOS machine](docs/screenshots/lord.png) |
+| ![LORD's Other Places, with modules in Python](docs/screenshots/lord-places.png) | ![Carrier Lost](docs/screenshots/carrier.png) |
 | ![The casino](docs/screenshots/casino.png) | ![The slot machine](docs/screenshots/slots.png) |
+| ![A gen: ANSI art from a prompt](docs/screenshots/ansigen.png) | ![Achievements](docs/screenshots/achievements.png) |
 | ![The reading room](docs/screenshots/library.png) | ![Tarot](docs/screenshots/tarot.png) |
 
 Leave it alone at a menu for a while and the screen saver comes on.
@@ -135,8 +156,6 @@ Leave it alone at a menu for a while and the screen saver comes on.
   rules and email verification.
 - FTN echomail, netmail and file echoes (TIC) over binkp, with AreaFix
   and FileFix, several networks at once.
-- The news: each story written by the board's AI from several outlets,
-  every sentence naming its sources, with votes and comments.
 - QWK offline mail, request boards, @mentions, a voting booth,
   oneliners, rumors, infoforms, new-user voting and profiles, and
   feedback to the SysOp from callers not yet logged in.
