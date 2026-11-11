@@ -37,6 +37,16 @@ own art and `art/make.py` builds the screens around it.
 |---|---|---|
 | ![Prelogon](docs/screenshots/prelogon.png) | ![The matrix](docs/screenshots/matrix.png) | ![Login](docs/screenshots/login.png) |
 
+Telnet callers are told, before they type a password, that telnet is
+plain text and how to come back over SSH instead. New callers apply from
+the matrix: the screen says what the board asks for, how they get in
+(an emailed code, or a yes vote from the members), the rules, and how
+passwords are kept (argon2; nobody can read them, the SysOp included).
+
+| | |
+|---|---|
+| ![The telnet warning](docs/screenshots/telnet.png) | ![Applying](docs/screenshots/apply.png) |
+
 ## Sixel graphics
 
 New in 1.9. Terminals that speak sixel (SyncTERM, IcyTerm, foot,
@@ -77,6 +87,15 @@ The full-screen editor has a vim mode, and it's actually vim: normal
 mode, operators and motions, visual mode, registers, macros and ex
 ranges. Everyone else gets the usual editor.
 
+Underneath, Iniquity's message menu is still there, with conferences,
+newscan dates and text search, and the boxes on it say what's newest,
+hottest, loudest and unread right now. QWK offline mail takes the whole
+lot away in a packet for a reader, and brings the replies back.
+
+| | |
+|---|---|
+| ![The message menu](docs/screenshots/message-menu.png) | ![QWK offline mail](docs/screenshots/qwk.png) |
+
 ## Files
 
 disflux carries about 70,000 files: the whole textfiles.com archive,
@@ -93,6 +112,15 @@ the 1995 experience.
 Files get votes and comments too. Uploads from new callers can be held
 until the SysOp has looked at them. Points come from upvotes, filled
 requests and the games, and there's a lottery every night.
+
+The gallery has a search page of its own (art by name, group and the
+SAUCE inside the pieces, with an I'm Feeling Lucky), and the file
+menu keeps a running board of what's newest, hottest, heaviest, the
+deepest dig into the archive, and who's uploaded the most.
+
+| | |
+|---|---|
+| ![Searching the gallery](docs/screenshots/gallery-search.png) | ![The file menu](docs/screenshots/file-menu.png) |
 
 ## Chat
 
@@ -121,32 +149,107 @@ and the whole country on a map.
 |---|---|
 | ![The news](docs/screenshots/news.png) | ![A story](docs/screenshots/news-story.png) |
 | ![The weather](docs/screenshots/weather.png) | ![The national map](docs/screenshots/weather-nation.png) |
+| ![The last 30 days](docs/screenshots/weather-history.png) | ![The drought monitor](docs/screenshots/weather-drought.png) |
 
-## Doors and games
+`h` is the last month as a chart, the warmest and coldest days and the
+rain, and what happened on this day in years past; `d` is the U.S.
+Drought Monitor for your county, this week and the six months before it.
 
-LORD, BRE, TradeWars 2002, Overkill II and Usurper run as doors. The DOS
-ones run in an x86 machine built into the board, so there's no DOSBox to
-set up. LORD takes its in-game modules, the DOS ones and new ones
-written in Python ([phrac/lord-igms](https://github.com/phrac/lord-igms)).
-Then there are the games written for disflux: a casino with
-slots, video poker, blackjack, roulette, craps and a bar; Carrier Lost, a
-war-dialing game; tarot; and a reading room that puts a new shelf of
-textfiles out by the fire every day. And callers make ANSI art from a
-prompt, drawn by an image model trained on the scene's art on the
-SysOp's own GPU, and vote on each other's. Achievements come along the
-way, for posts, uploads, calls and days in a row.
+## Doors
+
+LORD, BRE, TradeWars 2002, Overkill II, Usurper and Food Fight run as
+doors. The DOS ones run in an x86 machine built into the board (a 386 in
+real mode, with BIOS, FOSSIL, DOS, SHARE and batch files), so there's no
+DOSBox or FOSSIL driver to set up, and several callers can play the
+multi-node ones at once. The doors menu shows who's playing what, and its
+scoreboard keeps the hottest door, the longest session and the one nobody's
+touched.
+
+LORD takes in-game modules: the DOS ones of the '90s (Barak's House is on
+disflux) and new ones written in Python, which the board runs on the host
+in place of a DOS program ([phrac/lord-igms](https://github.com/phrac/lord-igms):
+a hermit's dial-up terminal, a fishing pond, a drunk knife-grinder and
+more, with a jar of fairies they share).
 
 | | |
 |---|---|
 | ![The doors menu](docs/screenshots/doors.png) | ![LORD in the built-in DOS machine](docs/screenshots/lord.png) |
-| ![LORD's Other Places, with modules in Python](docs/screenshots/lord-places.png) | ![Carrier Lost](docs/screenshots/carrier.png) |
+| ![Barren Realms Elite](docs/screenshots/bre.png) | ![TradeWars 2002](docs/screenshots/tradewars.png) |
+| ![Food Fight](docs/screenshots/foodfight.png) | ![The doors scoreboard](docs/screenshots/scoreboard.png) |
+| ![LORD's Other Places, with modules in Python](docs/screenshots/lord-places.png) | ![The Hermit's Terminal, a module in Python](docs/screenshots/lord-hermit.png) |
+
+## The casino
+
+The casino is drawn in half-block pixels, in disflux's underground look
+(neon, skulls and floppy disks; a board can have the classic red carpet
+and green felt instead). The house gives each caller a free stack of
+chips a day, and the cashier at the players club cashes the winnings in
+for file points and minutes, so nobody loses anything real. Video poker is Jacks or Better with the pay table on the
+machine; blackjack pays 3 to 2 and the dealer stands on all 17s (and
+there's a secret card count, if you know where to look); roulette has the
+whole layout; craps has the pass line, don't pass, the field and come
+bets. The bar pours drinks on the house, and the players club turns what
+you've played into the buffet, a suite upstairs and show tickets.
+
+| | |
+|---|---|
 | ![The casino](docs/screenshots/casino.png) | ![The slot machine](docs/screenshots/slots.png) |
-| ![A gen: ANSI art from a prompt](docs/screenshots/ansigen.png) | ![Achievements](docs/screenshots/achievements.png) |
-| ![The reading room](docs/screenshots/library.png) | ![Tarot](docs/screenshots/tarot.png) |
+| ![Video poker](docs/screenshots/poker.png) | ![Blackjack](docs/screenshots/blackjack.png) |
+| ![Roulette](docs/screenshots/roulette.png) | ![Craps](docs/screenshots/craps.png) |
+| ![The bar](docs/screenshots/bar.png) | ![The players club](docs/screenshots/players-club.png) |
+
+## More games
+
+Carrier Lost is a war-dialing game: tune the dial across a dead exchange,
+lock onto carriers, catch the handshake signals for a bigger haul, and
+cash out before the trace hits 100. Callers make ANSI art from a prompt,
+drawn by an image model trained on the scene's art on the SysOp's own
+GPU, filed in a gallery of its own where they vote on each other's.
+Tarot deals the card of the day, a three-card spread for a question, or a
+fortune cookie: the board draws the cards, and the AI reads them. The reading room puts a new shelf of
+textfiles out by the fire every day, with a note from Penny. Achievements
+come along the way, for posts, uploads, calls and days in a row.
+
+| | |
+|---|---|
+| ![Carrier Lost](docs/screenshots/carrier.png) | ![A gen: ANSI art from a prompt](docs/screenshots/ansigen.png) |
+| ![Tarot: the card of the day](docs/screenshots/tarot-day.png) | ![Tarot: past, present and future](docs/screenshots/tarot-three.png) |
+| ![The reading room](docs/screenshots/library.png) | ![Achievements](docs/screenshots/achievements.png) |
 
 Leave it alone at a menu for a while and the screen saver comes on.
 
 ![The screen saver](docs/screenshots/saver.png)
+
+## You
+
+User config is one screen: where you are, a profile, SSH keys, the theme,
+the code and markdown colors, vim keys in the editor, sixel pictures and
+clickable links, your time zone, the screen saver. Your stats put you
+against everyone else on the board. The time bank keeps the minutes you
+didn't use today for a day you need them, and the about screen says what
+the board is.
+
+| | |
+|---|---|
+| ![User config](docs/screenshots/config.png) | ![Your stats](docs/screenshots/stats.png) |
+| ![The time bank](docs/screenshots/timebank.png) | ![About flux/bbs](docs/screenshots/about.png) |
+
+## For the SysOp
+
+Everything is set up from inside the board, as on Iniquity: the SysOp
+menu, the system configuration (live: changes take effect without a
+restart), the logon sequence step by step, access levels, the message and
+file areas (the textfiles.com archive is 942 of them), every prompt the
+board says (by name, so a theme can change any of them), and a viewer for
+the TheDraw fonts the menus' logos are set in. Settings are TOML files
+underneath, and the editors write them back.
+
+| | |
+|---|---|
+| ![The SysOp menu](docs/screenshots/sysop.png) | ![System configuration](docs/screenshots/sysop-config.png) |
+| ![The logon sequence](docs/screenshots/logon-sequence.png) | ![Access levels](docs/screenshots/access-levels.png) |
+| ![Message areas](docs/screenshots/message-areas.png) | ![File areas](docs/screenshots/file-areas.png) |
+| ![The string editor](docs/screenshots/strings.png) | ![The TheDraw font viewer](docs/screenshots/fonts.png) |
 
 ## What else is in there
 
