@@ -1014,6 +1014,9 @@ Where the original's behavior was a hazard or no longer fits.
 - The classic screens, themes and menus (`classic/`) say flux/bbs where
   they said Iniquity, but for the original's copyright line
   (PRELOGON.AN2) and the credit on the wait-for-call screen.
+- The SysOp menu has no MicroDOS (`*D`) or modem setup (`*M`), neither
+  planned: the stock set leaves them off, where they were entries that
+  did nothing.
 
 ## From 2.0 and 2.20
 

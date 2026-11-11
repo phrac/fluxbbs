@@ -43,7 +43,7 @@ MENUS = {
        ('more', [('[', 'previous area'), (']', 'next area'), ('s', 'set newscan date'), ('e', 'scan select'), ('q', 'quit')])]),
  'sysop': ('sysop menu', [('users', [('u', 'user editor'), ('l', 'access levels'), ('i', 'infoform editor'), ('p', 'new user questions'), ('g', 'security log'), ('r', 'read email'), ('h', 'stat editor'), ('b', 'bbs list editor'), ('n', 'caller notes'), ('q', 'quit')]),
        ('areas & files', [('a', 'msg area editor'), ('@', 'msg conferences'), ('-', 'message trash'), ('f', 'file area editor'), ('!', 'file conferences'), ('s', 'file area sort'), ('y', 'file editor'), ('+', 'held uploads'), ('k', 'pack file areas'), ('%', 'local upload'), ('>', 'download any file')]),
-       ('system', [('c', 'system config'), ('o', 'logon sequence'), ('#', 'menu editor'), ('e', 'string editor'), ('t', 'text libraries'), ('w', 'screen viewer'), ('j', 'tdf font viewer'), ('v', 'event editor'), ('x', 'protocol editor'), ('z', 'archiver config'), ('d', 'flux/bbs microdos'), ('m', 'modem setup')])]),
+       ('system', [('c', 'system config'), ('o', 'logon sequence'), ('#', 'menu editor'), ('e', 'string editor'), ('t', 'text libraries'), ('w', 'screen viewer'), ('j', 'tdf font viewer'), ('v', 'event editor'), ('x', 'protocol editor'), ('z', 'archiver config')])]),
  'door': ('online games', [('popular doors', [('1', 'lord'), ('2', 'bre'), ('3', 'usurper'), ('4', 'tradewars 2002'), ('l', 'bbslink games')]),
           ('built in', [('t', 'tarot & fortunes'), ('c', 'casino'), ('v', 'carrier lost'), ('a', 'ansi art')]),
           ('more doors', [('5', 'yankees & rednecks'), ('6', 'bbs hacker'), ('7', 'lore'), ('8', 'steel & ice'), ('9', 'mechwars')])]),
@@ -133,6 +133,9 @@ STOCK_FROM = {'more': ('main', {'title': 'More', 'prompt_name': 'More', 'help_fi
 # Keys those menus keep, hidden, though they're not in a box (the doors
 # menu's q, so its box fits above the help line).
 KEEP_HIDDEN = {('door', 'q')}
+# Stock commands flux/bbs doesn't have, left off even hidden: MicroDOS
+# (*D, a shell on the host) and modem setup (*M); neither is planned.
+GONE = {'*D', '*M'}
 
 # The file and message menus' grids under the boxes, three cells a row:
 # (label, keys, command, parameter, what's in it, help line). Each
@@ -706,6 +709,8 @@ def menu_toml(name, title, ink, w, order, labels, extra, effects):
     cmds += extra
     cmds += [dict(c) for c in HIDDEN_ADDED.get(name, [])]
     for c in rest:
+        if c['command'].upper() in GONE:
+            continue
         if name not in DROP_REST or (name, c['keys'].lower()) in KEEP_HIDDEN:
             c['hidden'] = True
             cmds.append(c)
