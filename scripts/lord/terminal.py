@@ -2,9 +2,9 @@
 
 Deep in the forest an old hermit keeps a terminal that still dials out.
 Once a day a player may dial his board and try to crack its password:
-four digits, none twice, in seven tries, the terminal blinking after each
-(a bright `*` for a right digit in the right place, a yellow `+` for a right
-digit in the wrong one). Cracking it pays gems, gold and experience and
+four digits, none twice, in seven tries, the terminal blinking under
+each digit (a bright `*` for a right digit in its place, a yellow `+` for
+one that's in the password elsewhere, a `-` for one that isn't). Cracking it pays gems, gold and experience and
 makes the Daily Happenings; failing costs a headache's worth of hit
 points, never the last one.
 
@@ -73,9 +73,9 @@ def mark_called(g):
 
 
 def blinks(secret, guess):
-    right = sum(a == b for a, b in zip(secret, guess))
-    near = sum(1 for c in guess if c in secret) - right
-    return right, near
+    """A mark for each digit, in its place: `*` right there, `+` in the
+    password elsewhere, `-` not in it."""
+    return "".join("*" if g == s else "+" if g in secret else "-" for g, s in zip(guess, secret))
 
 
 def dial(g):
@@ -105,9 +105,9 @@ def dial(g):
     g.say()
     g.say("  `$THE HERMIT'S HOLE  `2- node 1 of 1 - sysop: the hermit -")
     g.say("  `2Password: `0four digits`2, no digit used twice.  After each try the")
-    g.say("  `2screen blinks: `%*`2 for a right digit in its place, `$+`2 for a right")
-    g.say("  `2digit in the wrong place, `2-`2 for a miss.  `0" + str(TRIES) + "`2 tries before the")
-    g.say("  `2line drops.")
+    g.say("  `2screen blinks under each digit: `%*`2 right digit, right place;")
+    g.say("  `$+`2 in the password but somewhere else; `2-`2 not in it at all.")
+    g.say("  `0" + str(TRIES) + "`2 tries before the line drops.")
     g.say()
     secret = "".join(random.sample("0123456789", 4))
     tries = 0
@@ -117,12 +117,14 @@ def dial(g):
             g.say("  `4  INVALID: four digits, none twice.")
             continue
         tries += 1
-        right, near = blinks(secret, guess)
-        if right == 4:
+        marks = blinks(secret, guess)
+        if marks == "****":
             win(g, TRIES - tries)
             return
-        # (Not dark grey: some terminals draw it black.)
-        g.say("        `2[ " + "`%* " * right + "`$+ " * near + "`2- " * (4 - right - near) + "`2]")
+        # Under the digits ("  Try 1 of 7: "), not in dark grey: some
+        # terminals draw it black.
+        colour = {"*": "`%", "+": "`$", "-": "`2"}
+        g.say(" " * 14 + "".join(colour[m] + m for m in marks))
     g.say()
     g.say("  `4NO CARRIER")
     g.pause(0.8)
