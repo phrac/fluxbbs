@@ -244,7 +244,8 @@ def boot(g, s):
     save(s)
     g.save()
     g.title("Dusty's Disk Cart")
-    g.say(f"  `2You hand over `${cost:,} gold`2 and pick a floppy from the pile.")
+    g.say(f"  `2You hand over `${cost:,} gold`2 (`${p.gold:,}`2 left) and pick a floppy")
+    g.say("  `2from the pile.")
     note = None
     others = [d for d in s["left"] if d.get("account") != g.account or d.get("name") != p.name]
     if others and g.chance(LEFT_CHANCE):
@@ -270,7 +271,10 @@ def boot(g, s):
         g.say(f"     `%\"{note['text']}\"")
         g.say()
     fns, weights = zip(*OUTCOMES)
+    before = p.gold
     virus = random.choices(fns, weights)[0](g)
+    if p.gold != before:
+        g.say(f"  `2You have `${p.gold:,} gold`2 on hand now.")
     if virus:
         g.news(f"`0{p.name} `2booted a floppy from `0Dusty's cart `2and caught `4{virus}`2!")
     g.say()

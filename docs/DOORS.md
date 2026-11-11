@@ -414,7 +414,13 @@ bank file, a gem, a love poem, a strategy guide, a blank disk, "Abort,
 Retry, Fail?" or a virus with its effect on the screen (Cascade's
 letters fall and pile up, Ping-Pong's ball bounces, Stoned,
 Michelangelo); players leave floppies with a line on them for later
-buyers. Read them to write another: a module is
+buyers. **Willow Pond** (`scripts/lord/pond.py`) gives five casts a day:
+strike when the bobber dips (not before, not too late), work the big
+ones' runs and pulls with the right key in time, and sell the catch to
+Gert by the pound; the pond keeps the biggest of each kind for everyone
+to see, records of pike and catfish make the Daily Happenings, and Old
+Whiskers, the legendary catfish, is worth a gem. Read them to write
+another: a module is
 `with lordigm.Igm() as g:` and what the player does there.
 
 ### Barren Realms Elite (BRE)
