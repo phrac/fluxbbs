@@ -1437,6 +1437,12 @@ pub struct Dos {
     /// file (`TW2002.BAT`): single-player games, and unregistered copies
     /// that run on one node.
     pub one_at_a_time: Vec<String>,
+    /// New: programs a batch file may name that run on the host instead,
+    /// by name (the file name without its folder or extension, `TERMINAL`
+    /// for `C:\IGM\TERMINAL.EXE`): a script, in the scripts folder or a
+    /// path, with the caller on its standard input and output. For LORD
+    /// in-game modules written in Python (docs/DOORS.md).
+    pub native: std::collections::BTreeMap<String, String>,
 }
 
 impl Default for Dos {
@@ -1447,6 +1453,7 @@ impl Default for Dos {
             setup: Vec::new(),
             config: Vec::new(),
             one_at_a_time: Vec::new(),
+            native: Default::default(),
         }
     }
 }

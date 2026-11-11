@@ -108,7 +108,8 @@ and menus, and can look things up on the web when she needs to.
 
 LORD, BRE, TradeWars 2002, Overkill II and Usurper run as doors. The DOS
 ones run in an x86 machine built into the board, so there's no DOSBox to
-set up. Then there are the games written for disflux: a casino with
+set up. LORD takes its in-game modules, the DOS ones and new ones
+written in Python, such as The Hermit's Terminal. Then there are the games written for disflux: a casino with
 slots, video poker, blackjack, roulette, craps and a bar; Carrier Lost, a
 war-dialing game; tarot; and a reading room that puts a new shelf of
 textfiles out by the fire every day. And callers make ANSI art from a

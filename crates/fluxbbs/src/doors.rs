@@ -566,6 +566,64 @@ impl Proc {
     }
 }
 
+/// New: what `[dos] native` runs on the host (`fluxbbs_dos::native`):
+/// the scripts by program name, the Python for them, and their
+/// environment: `lordigm` (assets/lordigm.py, for LORD in-game modules)
+/// on the path, the node, the board's name.
+#[derive(Default)]
+struct Natives {
+    programs: std::collections::HashMap<String, PathBuf>,
+    python: String,
+    env: Vec<(String, String)>,
+}
+
+/// The helper for LORD in-game modules, written for them to import.
+const LORDIGM: &str = include_str!("../assets/lordigm.py");
+
+impl Natives {
+    fn new(cfg: &crate::config::Config, node: Option<usize>) -> Self {
+        if cfg.dos.native.is_empty() {
+            return Self::default();
+        }
+        let scripts = cfg.resolve(&cfg.paths.scripts);
+        let mut programs = std::collections::HashMap::new();
+        for (name, path) in &cfg.dos.native {
+            let p = Path::new(path);
+            let p = if p.is_absolute() { p.to_path_buf() } else { scripts.join(p) };
+            match p.canonicalize() {
+                Ok(p) => {
+                    programs.insert(fluxbbs_dos::native::program_name(name), p);
+                }
+                Err(e) => tracing::warn!("[dos] native {name}: {}: {e}", p.display()),
+            }
+        }
+        let python = if cfg.paths.python.trim().is_empty() { "python3".to_string() } else { cfg.paths.python.trim().to_string() };
+        let mut env = vec![("FLUXBBS_BOARD".to_string(), cfg.bbs.name.clone()), ("FLUXBBS_VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string())];
+        if let Some(n) = node {
+            env.push(("FLUXBBS_NODE".into(), n.to_string()));
+        }
+        match lordigm_dir(cfg) {
+            Ok(d) => env.push(("PYTHONPATH".into(), d.display().to_string())),
+            Err(e) => tracing::warn!("lordigm.py: {e}"),
+        }
+        Self { programs, python, env }
+    }
+}
+
+/// Where `lordigm.py` goes: written there when it's missing or not this
+/// board's.
+fn lordigm_dir(cfg: &crate::config::Config) -> io::Result<PathBuf> {
+    let dir = cfg.resolve(&cfg.paths.data).join("cache").join("lordigm");
+    let file = dir.join("lordigm.py");
+    if std::fs::read_to_string(&file).ok().as_deref() != Some(LORDIGM) {
+        std::fs::create_dir_all(&dir)?;
+        let tmp = dir.join("lordigm.py.new");
+        std::fs::write(&tmp, LORDIGM)?;
+        std::fs::rename(&tmp, &file)?;
+    }
+    dir.canonicalize()
+}
+
 /// How a door in the built-in machine ended.
 enum MachineEnd {
     Exited(u8),
@@ -577,7 +635,8 @@ enum MachineEnd {
 /// the caller goes. The machine's clock follows real time: it sleeps
 /// when it gets ahead of 18.2 ticks a second and takes ticks in a lump
 /// when it has been waiting for input.
-fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, from_caller: sync_mpsc::Receiver<Vec<u8>>, to_caller: tokio::sync::mpsc::Sender<Vec<u8>>) -> Result<MachineEnd, String> {
+/// Programs named in `natives` run on the host instead ([`run_native`]).
+fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, natives: Natives, from_caller: sync_mpsc::Receiver<Vec<u8>>, to_caller: tokio::sync::mpsc::Sender<Vec<u8>>) -> Result<MachineEnd, String> {
     const TICK: Duration = Duration::from_micros(54_925);
     /// How long a door gets to notice carrier has dropped.
     const GRACE: Duration = Duration::from_secs(5);
@@ -592,19 +651,16 @@ fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, from_caller: sync_mpsc
     // other nodes share, for as long as TCP takes to give up: after a
     // minute carrier drops, as for a hangup, and the door has its grace to
     // save and go. What it writes after that goes nowhere.
-    let send = |m: &mut Machine, lost: &mut Option<Instant>| {
-        for l in m.sys.log.drain(..) {
-            tracing::debug!("dos: {l}");
-        }
-        let out = m.take_output();
+    // False once the caller has stopped taking it.
+    let deliver = |out: Vec<u8>, lost: &mut Option<Instant>| {
         if out.is_empty() || lost.is_some() {
-            return;
+            return lost.is_none();
         }
         let give_up = Instant::now() + Duration::from_secs(60);
         let mut out = out;
         loop {
             match to_caller.try_send(out) {
-                Ok(()) => return,
+                Ok(()) => return true,
                 Err(tokio::sync::mpsc::error::TrySendError::Full(o)) if Instant::now() < give_up => {
                     out = o;
                     std::thread::sleep(Duration::from_millis(20));
@@ -614,14 +670,55 @@ fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, from_caller: sync_mpsc
                         tracing::warn!("dos: the caller took no output for a minute; dropping carrier");
                     }
                     *lost = Some(Instant::now());
-                    m.set_carrier(false);
-                    return;
+                    return false;
                 }
             }
         }
     };
+    let send = |m: &mut Machine, lost: &mut Option<Instant>| {
+        for l in m.sys.log.drain(..) {
+            tracing::debug!("dos: {l}");
+        }
+        if !deliver(m.take_output(), lost) {
+            m.set_carrier(false);
+        }
+    };
     while let Some((prog, args)) = batch.next(&mut m)? {
         send(&mut m, &mut lost);
+        if let Some(script) = natives.programs.get(&fluxbbs_dos::native::program_name(&prog)) {
+            let cwd = m.sys.dos.host_cwd().ok_or_else(|| format!("{prog}: no current directory"))?;
+            tracing::info!("dos: {prog} {args}: running {} natively", script.display());
+            let mut gone = lost.is_some();
+            let recv = |t: Duration| {
+                if gone {
+                    std::thread::sleep(t);
+                    return fluxbbs_dos::native::Recv::Gone;
+                }
+                match from_caller.recv_timeout(t) {
+                    Ok(b) => fluxbbs_dos::native::Recv::Data(b),
+                    Err(RecvTimeoutError::Timeout) => fluxbbs_dos::native::Recv::Idle,
+                    Err(RecvTimeoutError::Disconnected) => {
+                        gone = true;
+                        fluxbbs_dos::native::Recv::Gone
+                    }
+                }
+            };
+            let mut stalled = None;
+            let end = fluxbbs_dos::native::run(script, &args, &cwd, &natives.python, &natives.env, recv, |b| {
+                deliver(b, &mut stalled);
+            })?;
+            for l in end.stderr.lines().filter(|l| !l.trim().is_empty()) {
+                tracing::warn!("dos: {prog}: {l}");
+            }
+            tracing::info!("dos: {prog} (native) exited {}", end.code);
+            if (end.hangup || stalled.is_some()) && lost.is_none() {
+                lost = Some(Instant::now());
+                m.set_carrier(false);
+            }
+            m.sys.dos.set_errorlevel(end.code);
+            code = end.code;
+            continue;
+        }
         m.start(&prog, &args)?;
         loop {
             loop {
@@ -689,7 +786,8 @@ pub async fn run_dos_event(state: &crate::BbsState, cmd: &str) -> anyhow::Result
     let (line, from_caller) = sync_mpsc::channel::<Vec<u8>>();
     let (to_caller, mut out) = tokio::sync::mpsc::channel(64);
     let cmd = cmd.to_string();
-    let task = tokio::task::spawn_blocking(move || run_machine(drive, dir, cmd, from_caller, to_caller));
+    let natives = Natives::new(&cfg, None);
+    let task = tokio::task::spawn_blocking(move || run_machine(drive, dir, cmd, natives, from_caller, to_caller));
     let mut text = Vec::new();
     let read = async {
         while let Some(b) = out.recv().await {
@@ -740,11 +838,11 @@ fn plain_text(b: &[u8]) -> String {
 }
 
 /// Start a DOS door in the built-in machine.
-fn spawn_builtin(cmd: &str, dir: &Path, drive: &Path) -> (Line, Proc) {
+fn spawn_builtin(cmd: &str, dir: &Path, drive: &Path, natives: Natives) -> (Line, Proc) {
     let (to_door, from_caller) = sync_mpsc::sync_channel(64);
     let (to_caller, from_door) = tokio::sync::mpsc::channel(64);
     let (drive, dir, cmd) = (drive.to_path_buf(), dir.to_path_buf(), cmd.to_string());
-    let task = tokio::task::spawn_blocking(move || run_machine(drive, dir, cmd, from_caller, to_caller));
+    let task = tokio::task::spawn_blocking(move || run_machine(drive, dir, cmd, natives, from_caller, to_caller));
     (Line::Dos(Builtin { to_door, from_door: tokio::sync::Mutex::new((from_door, Vec::new())) }), Proc::Machine { task, done: None, hangup: Arc::new(AtomicBool::new(false)) })
 }
 
@@ -868,7 +966,7 @@ impl Session {
         self.flush().await?;
         let started = crate::clock::now().naive_local();
         let spawned = if dos && cfg.dos.emulator.is_empty() {
-            Ok(spawn_builtin(&cmd, &dir, &drive))
+            Ok(spawn_builtin(&cmd, &dir, &drive, Natives::new(&cfg, Some(self.node.number()))))
         } else if dos {
             spawn_dos(&cfg.dos, &cmd, &dir, &drive).await.map(|(l, c)| (l, Proc::Child(c)))
         } else {

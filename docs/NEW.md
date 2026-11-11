@@ -638,6 +638,10 @@ All in [DOORS](DOORS.md).
   directories at the drop directory.
 - Native doors: any Linux program, on a pseudo-terminal (curses
   programs work).
+- LORD in-game modules in Python (`[dos.native]`, `lordigm`): a program
+  a DOS batch file names runs on the host instead, with the caller, in
+  LORD's folder; the stock module is The Hermit's Terminal.
+  ([DOORS](DOORS.md#in-game-modules-igms))
 - `[dos] emulator` runs a door under DOSBox instead, for one the
   machine can't run.
 - `dosrun` tries a door outside the board.

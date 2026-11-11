@@ -450,6 +450,20 @@ impl Dos {
         self.child_code
     }
 
+    /// New: the exit code of a program run outside the machine (a native
+    /// one, [`crate::native`]), for the batch file's `if errorlevel`.
+    pub fn set_errorlevel(&mut self, code: u8) {
+        self.child_code = code;
+    }
+
+    /// New: the current directory's folder on the host.
+    pub fn host_cwd(&self) -> Option<std::path::PathBuf> {
+        match self.resolve(".", false) {
+            Ok(Resolved::Path { host, .. }) => Some(host),
+            _ => None,
+        }
+    }
+
     // ---- handles ---------------------------------------------------------------
 
     fn open_handle(&mut self, h: Handle) -> Result<u16, u16> {

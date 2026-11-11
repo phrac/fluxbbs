@@ -6,7 +6,8 @@
 //! every DOS call. `TRACE_RING=N` keeps the last N instructions' states
 //! and writes and, if the program ends with an error, saves them to
 //! trace.bin with the memory at the end in trace.mem, for `tools/`'s
-//! replay against another emulator.
+//! replay against another emulator. `NATIVE=NAME=script,...` runs those
+//! programs on the host as the board's `[dos] native` does.
 
 use std::io::{Read, Write};
 use std::path::PathBuf;
@@ -106,9 +107,34 @@ fn main() -> Result<(), String> {
         let _ = out.write_all(&o);
         let _ = out.flush();
     };
+    let natives: std::collections::HashMap<String, PathBuf> = std::env::var("NATIVE")
+        .unwrap_or_default()
+        .split(',')
+        .filter_map(|p| p.split_once('='))
+        .map(|(n, s)| (n.trim().to_ascii_uppercase(), PathBuf::from(s.trim())))
+        .collect();
     while let Some((prog, args)) = batch.next(&mut m)? {
         eprintln!("[{:.1}s] run {prog} {args}", started.elapsed().as_secs_f32());
         send(&mut m);
+        if let Some(script) = natives.get(&fluxbbs_dos::native::program_name(&prog)) {
+            let cwd = m.sys.dos.host_cwd().ok_or("no current directory")?;
+            let recv = |t: Duration| match rx.recv_timeout(t) {
+                Ok(b) => fluxbbs_dos::native::Recv::Data(b),
+                Err(RecvTimeoutError::Timeout) => fluxbbs_dos::native::Recv::Idle,
+                Err(RecvTimeoutError::Disconnected) => fluxbbs_dos::native::Recv::Gone,
+            };
+            let end = fluxbbs_dos::native::run(script, &args, &cwd, "python3", &[], recv, |b| {
+                let mut o = std::io::stdout();
+                let _ = o.write_all(&b);
+                let _ = o.flush();
+            })?;
+            if !end.stderr.is_empty() {
+                eprintln!("{}", end.stderr.trim_end());
+            }
+            eprintln!("[{:.1}s] {prog} (native) exited {}", started.elapsed().as_secs_f32(), end.code);
+            m.sys.dos.set_errorlevel(end.code);
+            continue;
+        }
         m.start(&prog, &args)?;
         loop {
             while let Ok(b) = rx.try_recv() {

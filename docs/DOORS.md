@@ -353,6 +353,51 @@ Notes:
   shows the ranking fine. The player is back at the menu with their
   character intact, nothing more.
 
+#### In-game modules (IGMs)
+
+LORD sends players to add-ons from Other Places: each is two lines in
+`LORD/3RDPARTY.DAT`, the program (a `*` becomes the node) and its name
+as players see it. LORD writes the player's account to `INFO.<node>`,
+quits with errorlevel 254, and `START.BAT` runs the add-on from
+`DO<node>.BAT` and LORD again after it. The DOS ones run in the machine
+as they are; install them with their own setup program, run with
+`dosrun` (Barak's House: `BARAKCFG.EXE`, (I)nstall, `C:\LORD\`).
+
+New: modules can be Python, run on the host in place of a DOS program.
+`[dos.native]` names the programs a batch file may run that the board
+runs itself, by name (the file name without its folder or extension),
+each a script in the scripts folder or a path:
+
+```toml
+[dos.native]
+TERMINAL = "lord/terminal.py"
+```
+
+The script has the caller on its standard input and output (raw bytes,
+as a DOS door through the FOSSIL), starts in the folder that was the
+machine's current directory (LORD's), gets the batch file's arguments
+(the node), and its exit code is the errorlevel. `lordigm`, which the
+board puts on its path, does the rest: the player's record (PLAYER.DAT,
+LORD's own 236 bytes, the same in 3.x and 4.x) loaded and saved, the
+time used taken off what LORD gives back, LORD's colour codes, keys and
+`<MORE>`, the Daily Happenings and mail. A caller who hangs up ends the
+script with the record saved. `dosrun` runs them too, with
+`NATIVE=TERMINAL=scripts/lord/terminal.py` and `PYTHONPATH` at
+`crates/fluxbbs/assets`.
+
+LORD only sends players to a program it finds, so a module needs a file
+of its name where `3RDPARTY.DAT` says: `TERMINAL.IGM *` and a
+`TERMINAL.IGM` in LORD's folder. The stock module, **The Hermit's
+Terminal** (`scripts/lord/terminal.py`), installs itself that way:
+
+    python3 scripts/lord/terminal.py install doors/dos/LORD
+
+(`uninstall` takes both off). Once a day a player dials the hermit's
+board and has seven tries to crack its four-digit password, for gems,
+gold and experience and a line in the Daily Happenings; failing costs a
+headache's worth of hit points. Read it to write another: a module is
+`with lordigm.Igm() as g:` and what the player does there.
+
 ### Barren Realms Elite (BRE)
 
 Version 0.988, `brev988.exe`: an ARJ self-extractor that runs in the

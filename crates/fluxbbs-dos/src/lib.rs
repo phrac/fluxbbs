@@ -37,6 +37,7 @@ pub mod cpu;
 pub mod dos;
 pub mod fossil;
 pub mod machine;
+pub mod native;
 pub mod serial;
 pub mod share;
 pub mod video;
