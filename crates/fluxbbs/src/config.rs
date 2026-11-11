@@ -1439,10 +1439,10 @@ pub struct Dos {
     pub one_at_a_time: Vec<String>,
     /// New: programs a batch file may name that run on the host instead,
     /// by name (the file name without its folder or extension, `TERMINAL`
-    /// for `C:\IGM\TERMINAL.EXE`): a script, in the scripts folder or a
-    /// path, with the caller on its standard input and output; `"*"`
+    /// for `C:\IGM\TERMINAL.EXE`): a script (a path from the board's
+    /// folder), with the caller on its standard input and output; `"*"`
     /// names a folder where any `NAME.py` is the program NAME. For LORD
-    /// in-game modules written in Python (docs/DOORS.md).
+    /// in-game modules written in Python (docs/DOORS.md, phrac/lord-igms).
     pub native: std::collections::BTreeMap<String, String>,
 }
 

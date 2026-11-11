@@ -366,62 +366,35 @@ as they are; install them with their own setup program, run with
 New: modules can be Python, run on the host in place of a DOS program.
 `[dos.native]` names the programs a batch file may run that the board
 runs itself, by name (the file name without its folder or extension),
-each a script in the scripts folder or a path:
+each a script (a path from the board's folder); `"*"` names a folder
+instead, where any `NAME.py` is the program NAME, looked for each time,
+so a module put there is found without a change to the settings or a
+restart, and an edit to one is live on the next visit. Keep the folder
+outside the DOS drive, so DOS programs can't write scripts the board
+would run:
 
 ```toml
 [dos.native]
-TERMINAL = "lord/terminal.py"
-```
-
-`"*"` names a folder instead, where any `NAME.py` is the program NAME,
-looked for each time: a module put there is found without a change to
-the settings or a restart, and an edit to one is live on the next visit.
-A folder outside the DOS drive keeps DOS programs from writing scripts
-the board would run:
-
-```toml
-[dos.native]
-"*" = "/srv/board/doors/igm"
+"*" = "doors/igm"
 ```
 
 The script has the caller on its standard input and output (raw bytes,
 as a DOS door through the FOSSIL), starts in the folder that was the
 machine's current directory (LORD's), gets the batch file's arguments
-(the node), and its exit code is the errorlevel. `lordigm`, which the
-board puts on its path, does the rest: the player's record (PLAYER.DAT,
-LORD's own 236 bytes, the same in 3.x and 4.x) loaded and saved, the
-time used taken off what LORD gives back, LORD's colour codes, keys and
-`<MORE>`, the Daily Happenings and mail, and LORD's bad words
-(BADWORDS.DAT) out of what players type. A caller who hangs up ends the
-script with the record saved. `dosrun` runs them too, with
-`NATIVE=TERMINAL=scripts/lord/terminal.py` and `PYTHONPATH` at
-`crates/fluxbbs/assets`.
-
+(the node), and its exit code is the errorlevel; `FLUXBBS_NODE`,
+`FLUXBBS_BOARD` and `FLUXBBS_VERSION` are in its environment. If the
+caller hangs up, its input ends, and after a few seconds it's stopped.
 LORD only sends players to a program it finds, so a module needs a file
-of its name where `3RDPARTY.DAT` says: `TERMINAL.IGM *` and a
-`TERMINAL.IGM` in LORD's folder. The stock module, **The Hermit's
-Terminal** (`scripts/lord/terminal.py`), installs itself that way:
+of its name where `3RDPARTY.DAT` says it is (`POND.IGM *` and a
+`POND.IGM` in LORD's folder). `dosrun` runs them too, with
+`NATIVE=POND=path/pond.py` (or `NATIVE=*=folder`).
 
-    python3 scripts/lord/terminal.py install doors/dos/LORD
-
-(`uninstall` takes both off). Once a day a player dials the hermit's
-board and has seven tries to crack its four-digit password, for gems,
-gold and experience and a line in the Daily Happenings; failing costs a
-headache's worth of hit points. **Dusty's Disk Cart**
-(`scripts/lord/dusty.py`, installed the same way) sells unlabeled
-floppies, up to three a day: booted, each is a shareware game, a lost
-bank file, a gem, a love poem, a strategy guide, a blank disk, "Abort,
-Retry, Fail?" or a virus with its effect on the screen (Cascade's
-letters fall and pile up, Ping-Pong's ball bounces, Stoned,
-Michelangelo); players leave floppies with a line on them for later
-buyers. **Willow Pond** (`scripts/lord/pond.py`) gives five casts a day:
-strike when the bobber dips (not before, not too late), work the big
-ones' runs and pulls with the right key in time, and sell the catch to
-Gert by the pound; the pond keeps the biggest of each kind for everyone
-to see, records of pike and catfish make the Daily Happenings, and Old
-Whiskers, the legendary catfish, is worth a gem. Read them to write
-another: a module is
-`with lordigm.Igm() as g:` and what the player does there.
+The modules themselves, and `lordigm`, the helper they're written with
+(LORD's player record, its color codes, keys, the Daily Happenings),
+are a repository of their own: [phrac/lord-igms](https://github.com/phrac/lord-igms),
+with The Hermit's Terminal, Dusty's Disk Cart, Willow Pond, Old Rusk's
+Grindstone, Brakka's Forge and The Velvet Lantern, and a jar of fairies
+they share. Its README has the installing, and how to write one.
 
 ### Barren Realms Elite (BRE)
 

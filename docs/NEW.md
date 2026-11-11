@@ -638,10 +638,10 @@ All in [DOORS](DOORS.md).
   directories at the drop directory.
 - Native doors: any Linux program, on a pseudo-terminal (curses
   programs work).
-- LORD in-game modules in Python (`[dos.native]`, `lordigm`): a program
-  a DOS batch file names runs on the host instead, with the caller, in
-  LORD's folder, or any `NAME.py` in a folder (`"*"`); the stock modules
-  are The Hermit's Terminal, Dusty's Disk Cart and Willow Pond.
+- LORD in-game modules in Python (`[dos.native]`): a program a DOS batch
+  file names runs on the host instead, with the caller, in LORD's
+  folder, or any `NAME.py` in a folder (`"*"`); the modules are their
+  own repository, phrac/lord-igms.
   ([DOORS](DOORS.md#in-game-modules-igms))
 - `[dos] emulator` runs a door under DOSBox instead, for one the
   machine can't run.

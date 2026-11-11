@@ -568,9 +568,9 @@ impl Proc {
 
 /// New: what `[dos] native` runs on the host (`fluxbbs_dos::native`):
 /// the scripts by program name, and a folder (`"*"`) where any `NAME.py`
-/// is the program NAME; the Python for them, and their environment:
-/// `lordigm` (assets/lordigm.py, for LORD in-game modules) on the path,
-/// the node, the board's name.
+/// is the program NAME; the Python for them, and their environment: the
+/// node, the board's name. (LORD in-game modules, and the helper they
+/// import, are a repository of their own: phrac/lord-igms.)
 #[derive(Default)]
 struct Natives {
     programs: std::collections::HashMap<String, PathBuf>,
@@ -579,20 +579,16 @@ struct Natives {
     env: Vec<(String, String)>,
 }
 
-/// The helper for LORD in-game modules, written for them to import.
-const LORDIGM: &str = include_str!("../assets/lordigm.py");
-
 impl Natives {
     fn new(cfg: &crate::config::Config, node: Option<usize>) -> Self {
         if cfg.dos.native.is_empty() {
             return Self::default();
         }
-        let scripts = cfg.resolve(&cfg.paths.scripts);
         let mut programs = std::collections::HashMap::new();
         let mut folder = None;
         for (name, path) in &cfg.dos.native {
-            let p = Path::new(path);
-            let p = if p.is_absolute() { p.to_path_buf() } else { scripts.join(p) };
+            // From the board's folder, as its other paths are.
+            let p = cfg.resolve(Path::new(path));
             match p.canonicalize() {
                 Ok(p) if name == "*" => folder = Some(p),
                 Ok(p) => {
@@ -605,10 +601,6 @@ impl Natives {
         let mut env = vec![("FLUXBBS_BOARD".to_string(), cfg.bbs.name.clone()), ("FLUXBBS_VERSION".to_string(), env!("CARGO_PKG_VERSION").to_string())];
         if let Some(n) = node {
             env.push(("FLUXBBS_NODE".into(), n.to_string()));
-        }
-        match lordigm_dir(cfg) {
-            Ok(d) => env.push(("PYTHONPATH".into(), d.display().to_string())),
-            Err(e) => tracing::warn!("lordigm.py: {e}"),
         }
         Self { programs, folder, python, env }
     }
@@ -624,20 +616,6 @@ impl Natives {
         let dir = self.folder.as_ref()?;
         crate::session::find_ci(dir, &format!("{name}.py")).filter(|p| p.is_file())
     }
-}
-
-/// Where `lordigm.py` goes: written there when it's missing or not this
-/// board's.
-fn lordigm_dir(cfg: &crate::config::Config) -> io::Result<PathBuf> {
-    let dir = cfg.resolve(&cfg.paths.data).join("cache").join("lordigm");
-    let file = dir.join("lordigm.py");
-    if std::fs::read_to_string(&file).ok().as_deref() != Some(LORDIGM) {
-        std::fs::create_dir_all(&dir)?;
-        let tmp = dir.join("lordigm.py.new");
-        std::fs::write(&tmp, LORDIGM)?;
-        std::fs::rename(&tmp, &file)?;
-    }
-    dir.canonicalize()
 }
 
 /// How a door in the built-in machine ended.
