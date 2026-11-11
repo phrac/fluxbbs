@@ -111,6 +111,21 @@ impl Zone {
         }
     }
 
+    /// The zone as a `TZ` value for programs the board runs (`None`:
+    /// the host's, theirs already). POSIX offsets count west, so
+    /// UTC+5:30 is `UTC-05:30`.
+    #[cfg_attr(not(feature = "doors"), allow(dead_code))]
+    pub fn tz(&self) -> Option<String> {
+        match self {
+            Zone::Host => None,
+            Zone::Named(tz) => Some(tz.name().to_string()),
+            Zone::Fixed(o) => {
+                let w = -o.local_minus_utc();
+                Some(format!("UTC{}{:02}:{:02}", if w < 0 { '-' } else { '+' }, w.abs() / 3600, w.abs() % 3600 / 60))
+            }
+        }
+    }
+
     /// A short description for now: `CDT -05:00`, `+05:30`.
     pub fn short(&self) -> String {
         match self {
@@ -226,6 +241,14 @@ mod tests {
     fn odd_zones_are_refused_not_a_panic() {
         assert!(Zone::parse("a\u{e9}b").is_none());
         assert!(Zone::parse("+0530").is_some());
+    }
+
+    #[test]
+    fn tz_for_programs() {
+        assert_eq!(Zone::Host.tz(), None);
+        assert_eq!(Zone::parse("CST").unwrap().tz().as_deref(), Some("America/Chicago"));
+        assert_eq!(Zone::parse("+5:30").unwrap().tz().as_deref(), Some("UTC-05:30"));
+        assert_eq!(Zone::parse("-6").unwrap().tz().as_deref(), Some("UTC+06:00"));
     }
 
     #[test]

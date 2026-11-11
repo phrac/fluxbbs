@@ -602,6 +602,11 @@ impl Natives {
         if let Some(n) = node {
             env.push(("FLUXBBS_NODE".into(), n.to_string()));
         }
+        // New: board time, so a script's day is the doors' day (LORD's
+        // new day comes at the board's midnight, not the host's).
+        if let Some(tz) = crate::clock::board().tz() {
+            env.push(("TZ".into(), tz));
+        }
         Self { programs, folder, python, env }
     }
 

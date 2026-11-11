@@ -641,7 +641,8 @@ All in [DOORS](DOORS.md).
 - LORD in-game modules in Python (`[dos.native]`): a program a DOS batch
   file names runs on the host instead, with the caller, in LORD's
   folder, or any `NAME.py` in a folder (`"*"`); the modules are their
-  own repository, phrac/lord-igms.
+  own repository, phrac/lord-igms. They run in board time (`TZ`), so
+  their day is LORD's.
   ([DOORS](DOORS.md#in-game-modules-igms))
 - `[dos] emulator` runs a door under DOSBox instead, for one the
   machine can't run.

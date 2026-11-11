@@ -382,7 +382,8 @@ The script has the caller on its standard input and output (raw bytes,
 as a DOS door through the FOSSIL), starts in the folder that was the
 machine's current directory (LORD's), gets the batch file's arguments
 (the node), and its exit code is the errorlevel; `FLUXBBS_NODE`,
-`FLUXBBS_BOARD` and `FLUXBBS_VERSION` are in its environment. If the
+`FLUXBBS_BOARD` and `FLUXBBS_VERSION` are in its environment, and `TZ`
+is the board's `time_zone`, so its days turn over when the doors' do. If the
 caller hangs up, its input ends, and after a few seconds it's stopped.
 LORD only sends players to a program it finds, so a module needs a file
 of its name where `3RDPARTY.DAT` says it is (`POND.IGM *` and a
