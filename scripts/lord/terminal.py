@@ -3,7 +3,7 @@
 Deep in the forest an old hermit keeps a terminal that still dials out.
 Once a day a player may dial his board and try to crack its password:
 four digits, none twice, in seven tries, the terminal blinking after each
-(a bright `*` for a right digit in the right place, a dim `+` for a right
+(a bright `*` for a right digit in the right place, a yellow `+` for a right
 digit in the wrong one). Cracking it pays gems, gold and experience and
 makes the Daily Happenings; failing costs a headache's worth of hit
 points, never the last one.
@@ -90,23 +90,24 @@ def dial(g):
     g.title("The Hermit's Terminal")
     g.say("  `2The hermit shuffles aside.  The glass face hums and glows `$amber`2.")
     g.say()
-    g.write("  `8ATDT 555-0199")
+    g.write("  `3ATDT 555-0199")
     for _ in range(3):
         g.pause(0.6)
-        g.write("`8.")
+        g.write("`3.")
     g.say()
     g.pause(0.5)
-    g.say("  `8ring...")
+    g.say("  `3ring...")
     g.pause(0.8)
-    g.say("  `8ring...")
+    g.say("  `3ring...")
     g.pause(0.8)
     g.say("  `0CONNECT 2400")
     g.pause(0.6)
     g.say()
-    g.say("  `$THE HERMIT'S HOLE  `8- node 1 of 1 - sysop: the hermit -")
+    g.say("  `$THE HERMIT'S HOLE  `2- node 1 of 1 - sysop: the hermit -")
     g.say("  `2Password: `0four digits`2, no digit used twice.  After each try the")
-    g.say("  `2screen blinks: `%*`2 for a right digit in its place, `7+`2 for a right")
-    g.say("  `2digit in the wrong place.  `0" + str(TRIES) + "`2 tries before the line drops.")
+    g.say("  `2screen blinks: `%*`2 for a right digit in its place, `$+`2 for a right")
+    g.say("  `2digit in the wrong place, `2-`2 for a miss.  `0" + str(TRIES) + "`2 tries before the")
+    g.say("  `2line drops.")
     g.say()
     secret = "".join(random.sample("0123456789", 4))
     tries = 0
@@ -120,7 +121,8 @@ def dial(g):
         if right == 4:
             win(g, TRIES - tries)
             return
-        g.say("        `8[ " + "`%* " * right + "`7+ " * near + "`8. " * (4 - right - near) + "`8]")
+        # (Not dark grey: some terminals draw it black.)
+        g.say("        `2[ " + "`%* " * right + "`$+ " * near + "`2- " * (4 - right - near) + "`2]")
     g.say()
     g.say("  `4NO CARRIER")
     g.pause(0.8)

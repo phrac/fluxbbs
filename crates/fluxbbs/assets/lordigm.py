@@ -22,6 +22,7 @@ The record is LORD's own (PLAYER.DAT, 236 bytes a player: LORDSTRC.PAS,
 the same in 3.x and 4.x), and the other files are LORD's: the daily news
 (LOGNOW.TXT) and mail (MAIL<n>.DAT). Text takes LORD's colour codes: `1 to
 `9, `0, `! `@ `# `$ `% `^, `r0 to `r7 for backgrounds, `c to clear.
+Keep dark grey (`8) for what may go unseen: some terminals draw it black.
 """
 
 import os
