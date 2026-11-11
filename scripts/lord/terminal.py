@@ -107,12 +107,19 @@ def dial(g):
     g.say("  `2Password: `0four digits`2, no digit used twice.  After each try the")
     g.say("  `2screen blinks under each digit: `%*`2 right digit, right place;")
     g.say("  `$+`2 in the password but somewhere else; `2-`2 not in it at all.")
-    g.say("  `0" + str(TRIES) + "`2 tries before the line drops.")
+    g.say("  `0" + str(TRIES) + "`2 tries before the line drops; `0Enter`2 alone hangs up.")
     g.say()
     secret = "".join(random.sample("0123456789", 4))
     tries = 0
     while tries < TRIES:
         guess = g.ask(f"  `2Try `0{tries + 1}`2 of `0{TRIES}`2: ", size=4, digits=True)
+        # Enter alone hangs up: today's call is spent, but no headache.
+        if not guess:
+            g.say()
+            g.say("  `2You hang up.  `0\"Quitter,\"`2 mutters the hermit.")
+            g.say()
+            g.more()
+            return
         if len(guess) != 4 or len(set(guess)) != 4:
             g.say("  `4  INVALID: four digits, none twice.")
             continue
