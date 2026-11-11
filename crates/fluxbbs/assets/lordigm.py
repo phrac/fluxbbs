@@ -27,6 +27,7 @@ Keep dark grey (`8) for what may go unseen: some terminals draw it black.
 
 import os
 import random
+import re
 import struct
 import sys
 import time
@@ -326,3 +327,18 @@ class Igm:
     def chance(self, n):
         """True one time in `n`."""
         return random.randrange(n) == 0
+
+    def clean(self, text):
+        """`text` with LORD's bad words (BADWORDS.DAT, `word|instead`)
+        replaced, as LORD does what players type."""
+        try:
+            lines = open(_find(".", "BADWORDS.DAT"), "rb").read().decode("cp437").replace("\r", "").split("\n")
+        except OSError:
+            return text
+        for l in lines:
+            if not l.strip() or l.startswith(";") or "|" not in l:
+                continue
+            bad, good = l.split("|", 1)
+            if bad:
+                text = re.sub(re.escape(bad), lambda _m: good, text, flags=re.IGNORECASE)
+        return text

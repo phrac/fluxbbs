@@ -567,12 +567,14 @@ impl Proc {
 }
 
 /// New: what `[dos] native` runs on the host (`fluxbbs_dos::native`):
-/// the scripts by program name, the Python for them, and their
-/// environment: `lordigm` (assets/lordigm.py, for LORD in-game modules)
-/// on the path, the node, the board's name.
+/// the scripts by program name, and a folder (`"*"`) where any `NAME.py`
+/// is the program NAME; the Python for them, and their environment:
+/// `lordigm` (assets/lordigm.py, for LORD in-game modules) on the path,
+/// the node, the board's name.
 #[derive(Default)]
 struct Natives {
     programs: std::collections::HashMap<String, PathBuf>,
+    folder: Option<PathBuf>,
     python: String,
     env: Vec<(String, String)>,
 }
@@ -587,10 +589,12 @@ impl Natives {
         }
         let scripts = cfg.resolve(&cfg.paths.scripts);
         let mut programs = std::collections::HashMap::new();
+        let mut folder = None;
         for (name, path) in &cfg.dos.native {
             let p = Path::new(path);
             let p = if p.is_absolute() { p.to_path_buf() } else { scripts.join(p) };
             match p.canonicalize() {
+                Ok(p) if name == "*" => folder = Some(p),
                 Ok(p) => {
                     programs.insert(fluxbbs_dos::native::program_name(name), p);
                 }
@@ -606,7 +610,19 @@ impl Natives {
             Ok(d) => env.push(("PYTHONPATH".into(), d.display().to_string())),
             Err(e) => tracing::warn!("lordigm.py: {e}"),
         }
-        Self { programs, python, env }
+        Self { programs, folder, python, env }
+    }
+
+    /// The script a batch file's program runs as, if any: named, else
+    /// `NAME.py` in the folder (looked for each time, so one put there
+    /// while the board runs is found).
+    fn find(&self, prog: &str) -> Option<PathBuf> {
+        let name = fluxbbs_dos::native::program_name(prog);
+        if let Some(p) = self.programs.get(&name) {
+            return Some(p.clone());
+        }
+        let dir = self.folder.as_ref()?;
+        crate::session::find_ci(dir, &format!("{name}.py")).filter(|p| p.is_file())
     }
 }
 
@@ -685,7 +701,7 @@ fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, natives: Natives, from
     };
     while let Some((prog, args)) = batch.next(&mut m)? {
         send(&mut m, &mut lost);
-        if let Some(script) = natives.programs.get(&fluxbbs_dos::native::program_name(&prog)) {
+        if let Some(script) = natives.find(&prog) {
             let cwd = m.sys.dos.host_cwd().ok_or_else(|| format!("{prog}: no current directory"))?;
             tracing::info!("dos: {prog} {args}: running {} natively", script.display());
             let mut gone = lost.is_some();
@@ -704,7 +720,7 @@ fn run_machine(drive: PathBuf, dir: PathBuf, cmd: String, natives: Natives, from
                 }
             };
             let mut stalled = None;
-            let end = fluxbbs_dos::native::run(script, &args, &cwd, &natives.python, &natives.env, recv, |b| {
+            let end = fluxbbs_dos::native::run(&script, &args, &cwd, &natives.python, &natives.env, recv, |b| {
                 deliver(b, &mut stalled);
             })?;
             for l in end.stderr.lines().filter(|l| !l.trim().is_empty()) {

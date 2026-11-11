@@ -373,6 +373,17 @@ each a script in the scripts folder or a path:
 TERMINAL = "lord/terminal.py"
 ```
 
+`"*"` names a folder instead, where any `NAME.py` is the program NAME,
+looked for each time: a module put there is found without a change to
+the settings or a restart, and an edit to one is live on the next visit.
+A folder outside the DOS drive keeps DOS programs from writing scripts
+the board would run:
+
+```toml
+[dos.native]
+"*" = "/srv/board/doors/igm"
+```
+
 The script has the caller on its standard input and output (raw bytes,
 as a DOS door through the FOSSIL), starts in the folder that was the
 machine's current directory (LORD's), gets the batch file's arguments
@@ -380,7 +391,8 @@ machine's current directory (LORD's), gets the batch file's arguments
 board puts on its path, does the rest: the player's record (PLAYER.DAT,
 LORD's own 236 bytes, the same in 3.x and 4.x) loaded and saved, the
 time used taken off what LORD gives back, LORD's colour codes, keys and
-`<MORE>`, the Daily Happenings and mail. A caller who hangs up ends the
+`<MORE>`, the Daily Happenings and mail, and LORD's bad words
+(BADWORDS.DAT) out of what players type. A caller who hangs up ends the
 script with the record saved. `dosrun` runs them too, with
 `NATIVE=TERMINAL=scripts/lord/terminal.py` and `PYTHONPATH` at
 `crates/fluxbbs/assets`.
@@ -395,7 +407,14 @@ Terminal** (`scripts/lord/terminal.py`), installs itself that way:
 (`uninstall` takes both off). Once a day a player dials the hermit's
 board and has seven tries to crack its four-digit password, for gems,
 gold and experience and a line in the Daily Happenings; failing costs a
-headache's worth of hit points. Read it to write another: a module is
+headache's worth of hit points. **Dusty's Disk Cart**
+(`scripts/lord/dusty.py`, installed the same way) sells unlabeled
+floppies, up to three a day: booted, each is a shareware game, a lost
+bank file, a gem, a love poem, a strategy guide, a blank disk, "Abort,
+Retry, Fail?" or a virus with its effect on the screen (Cascade's
+letters fall and pile up, Ping-Pong's ball bounces, Stoned,
+Michelangelo); players leave floppies with a line on them for later
+buyers. Read them to write another: a module is
 `with lordigm.Igm() as g:` and what the player does there.
 
 ### Barren Realms Elite (BRE)
