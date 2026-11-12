@@ -291,6 +291,16 @@ more than once shows the same one.
 | `%RM` | a rumor at random |
 | `%RL` | the newest rumor |
 
+### The news and the automessage (new)
+
+Empty when there's none, or the news or automessage is off.
+
+| Code | Value |
+|---|---|
+| `%NH` | the news's lead headline (the newest edition's first section, its top story) |
+| `%AT` | the automessage's title |
+| `%AU` | who wrote it ("Anonymous" for an anonymous one) |
+
 ### Door games (new)
 
 From a log of every door played, worked out once a minute (and after

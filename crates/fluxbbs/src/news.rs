@@ -178,6 +178,22 @@ impl NewsStore {
         Ok(rows.collect::<Result<_, _>>()?)
     }
 
+    /// New: the newest edition's stories (made within EDITION_GAP of the
+    /// newest, with no gap that long between).
+    pub fn newest_edition(&self) -> anyhow::Result<Vec<Story>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare("SELECT * FROM news_stories ORDER BY made_at DESC LIMIT 200")?;
+        let all: Vec<Story> = stmt.query_map([], story_row)?.collect::<Result<_, _>>()?;
+        let mut out: Vec<Story> = Vec::new();
+        for s in all {
+            if out.last().is_some_and(|l| l.made_at - s.made_at >= chrono::Duration::minutes(EDITION_GAP)) {
+                break;
+            }
+            out.push(s);
+        }
+        Ok(out)
+    }
+
     pub fn story(&self, id: i64) -> anyhow::Result<Option<Story>> {
         let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
         Ok(db.query_row("SELECT * FROM news_stories WHERE id = ?1", [id], story_row).optional()?)
@@ -1058,6 +1074,19 @@ fn headed_rule(title: &str) -> String {
 }
 
 impl Session {
+    /// New: `%NH`, the front page's lead: the newest edition's first
+    /// section, its best-ranked story. Empty without news.
+    pub(crate) fn news_lead(&self) -> String {
+        let cfg = self.state.config();
+        if !crate::features::command_on(&cfg, "NW") {
+            return String::new();
+        }
+        let order: Vec<&str> = cfg.news.sections.iter().map(|s| s.key.as_str()).collect();
+        let pos = |k: &str| order.iter().position(|o| *o == k).unwrap_or(usize::MAX);
+        let list = self.state.news.newest_edition().unwrap_or_default();
+        list.into_iter().min_by_key(|s| (pos(&s.section), s.rank)).map(|s| s.headline).unwrap_or_default()
+    }
+
     fn news_section_name(&self, key: &str) -> String {
         self.state.config().news.sections.iter().find(|s| s.key == key).map_or_else(|| key.to_string(), |s| s.name.clone())
     }
@@ -1716,5 +1745,27 @@ mod tests {
         st.mark_read(2, &[b, b], at(10, 11)).unwrap();
         assert_eq!(st.read_ids(2).unwrap(), HashSet::from([b]));
         assert!(st.read_ids(3).unwrap().is_empty());
+    }
+
+    #[test]
+    fn newest_edition_and_its_lead() {
+        let st = NewsStore::open_memory().unwrap();
+        let at = |h: u32, m: u32| NaiveDate::from_ymd_opt(2026, 11, 12).unwrap().and_hms_opt(h, m, 0).unwrap();
+        let story = |h: &str, sec: &str, rank, when| Story { id: 0, section: sec.into(), rank, headline: h.into(), summary: String::new(), differ: String::new(), made_at: when, dek: String::new() };
+        st.add_story(&story("Last run's lead", "world", 0, at(6, 0)), &[]).unwrap();
+        st.add_story(&story("Tech two", "tech", 1, at(9, 0)), &[]).unwrap();
+        st.add_story(&story("World one", "world", 1, at(9, 5)), &[]).unwrap();
+        st.add_story(&story("World zero", "world", 0, at(9, 10)), &[]).unwrap();
+        let ed = st.newest_edition().unwrap();
+        assert_eq!(ed.len(), 3, "6:00 is another edition");
+        let mut cfg = crate::config::Config::default();
+        cfg.news.enabled = true;
+        let state = crate::tests::state();
+        state.news.add_story(&story("World zero", "world", 0, at(9, 10)), &[]).unwrap();
+        state.news.add_story(&story("Tech one", "tech", 0, at(9, 0)), &[]).unwrap();
+        state.set_config(cfg);
+        let s = Session::for_test(state, crate::user::User { id: 2, ..Default::default() });
+        // The first section in the run's order (world comes before tech).
+        assert_eq!(s.mci_value(*b"NH").unwrap(), "World zero");
     }
 }

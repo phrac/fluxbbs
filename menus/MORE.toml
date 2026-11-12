@@ -9,35 +9,33 @@ pause_before = true
 global = true
 type = "lightbar"
 
-[[command]]
-keys = "Q"
-command = "-/"
-param = "QWKMAIL"
-acs = "s50"
-desc = "QWKmail menu"
-help = "Goto the offline mail menu"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45mq\u001b[0;30;45m) \u001b[0;1;37;45mqwk mail                       \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;206;255mw\u001b[38;2;255;158;255mk \u001b[38;2;243;73;243mm\u001b[38;2;219;49;219ma\u001b[38;2;194;24;194mi\u001b[38;2;170;0;170ml                       \u001b[0m"
+[[effect]]
+kind = "random"
+rows = [1, 8]
+every = 10.0
+delay = 2.0
+
+[[effect]]
+kind = "ripple"
+rows = [9, 15]
+every = 10.0
+delay = 6.0
 
 [[command]]
-keys = "T"
-command = "-/"
-param = "timebank"
-acs = "s50"
-desc = "Time Bank"
-help = "None"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45mt\u001b[0;30;45m) \u001b[0;1;37;45mtime bank                      \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;212;255mi\u001b[38;2;255;170;255mm\u001b[38;2;255;128;255me \u001b[38;2;234;64;234mb\u001b[38;2;212;42;212ma\u001b[38;2;191;21;191mn\u001b[38;2;170;0;170mk                      \u001b[0m"
+keys = "N"
+command = "NW"
+desc = "News"
+help = "Today's headlines, each written from several outlets"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mn\u001b[0;30;45m) \u001b[0;1;37;45mnews              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mn\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;255;142;255me\u001b[38;2;227;57;227mw\u001b[38;2;170;0;170ms              \u001b[0m"
 
 [[command]]
-keys = "%"
-command = "NV"
-param = "Show"
-acs = "s50"
-desc = "New user voting"
-help = "Vote on new users you have not yet voted on (if enabled)"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45m%\u001b[0;30;45m) \u001b[0;1;37;45mnew user voting                \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35m%\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;255;231;255me\u001b[38;2;255;206;255mw \u001b[38;2;255;158;255mu\u001b[38;2;255;134;255ms\u001b[38;2;255;109;255me\u001b[38;2;255;85;255mr \u001b[38;2;231;61;231mv\u001b[38;2;219;49;219mo\u001b[38;2;206;36;206mt\u001b[38;2;194;24;194mi\u001b[38;2;182;12;182mn\u001b[38;2;170;0;170mg                \u001b[0m"
+keys = "R"
+command = "RL"
+desc = "Rumors"
+help = "What callers whisper, unsigned: read the rumors, or start one"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mr\u001b[0;30;45m) \u001b[0;1;37;45mrumors            \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mr\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;255;187;255mu\u001b[38;2;255;119;255mm\u001b[38;2;238;68;238mo\u001b[38;2;204;34;204mr\u001b[38;2;170;0;170ms            \u001b[0m"
 
 [[command]]
 keys = "!"
@@ -46,8 +44,18 @@ param = "AUTOMSG"
 acs = "s25"
 desc = "AutoMsg menu"
 help = "The automessage: show it, write one, reply to its author"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45m!\u001b[0;30;45m) \u001b[0;1;37;45mautomsg                        \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35m!\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;198;255mu\u001b[38;2;255;142;255mt\u001b[38;2;255;85;255mo\u001b[38;2;227;57;227mm\u001b[38;2;198;28;198ms\u001b[38;2;170;0;170mg                        \u001b[0m"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m!\u001b[0;30;45m) \u001b[0;1;37;45mautomsg           \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m!\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;198;255mu\u001b[38;2;255;142;255mt\u001b[38;2;255;85;255mo\u001b[38;2;227;57;227mm\u001b[38;2;198;28;198ms\u001b[38;2;170;0;170mg           \u001b[0m"
+
+[[command]]
+keys = "%"
+command = "NV"
+param = "Show"
+acs = "s50"
+desc = "New user voting"
+help = "Vote on new users you have not yet voted on (if enabled)"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m%\u001b[0;30;45m) \u001b[0;1;37;45mnew user voting   \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m%\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;255;231;255me\u001b[38;2;255;206;255mw \u001b[38;2;255;158;255mu\u001b[38;2;255;134;255ms\u001b[38;2;255;109;255me\u001b[38;2;255;85;255mr \u001b[38;2;231;61;231mv\u001b[38;2;219;49;219mo\u001b[38;2;206;36;206mt\u001b[38;2;194;24;194mi\u001b[38;2;182;12;182mn\u001b[38;2;170;0;170mg   \u001b[0m"
 
 [[command]]
 keys = "I"
@@ -55,40 +63,44 @@ command = "IN"
 acs = "s25"
 desc = "Infoforms"
 help = "View/fill out your infoforms"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45mi\u001b[0;30;45m) \u001b[0;1;37;45minfoforms                      \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35mi\u001b[0;1;30m) \u001b[38;2;255;255;255mi\u001b[38;2;255;212;255mn\u001b[38;2;255;170;255mf\u001b[38;2;255;128;255mo\u001b[38;2;255;85;255mf\u001b[38;2;234;64;234mo\u001b[38;2;212;42;212mr\u001b[38;2;191;21;191mm\u001b[38;2;170;0;170ms                      \u001b[0m"
-
-[[command]]
-keys = "R"
-command = "RL"
-desc = "Rumors"
-help = "What callers whisper, unsigned: read the rumors, or start one"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45mr\u001b[0;30;45m) \u001b[0;1;37;45mrumors                         \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35mr\u001b[0;1;30m) \u001b[38;2;255;255;255mr\u001b[38;2;255;187;255mu\u001b[38;2;255;119;255mm\u001b[38;2;238;68;238mo\u001b[38;2;204;34;204mr\u001b[38;2;170;0;170ms                         \u001b[0m"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mi\u001b[0;30;45m) \u001b[0;1;37;45minfoforms         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mi\u001b[0;1;30m) \u001b[38;2;255;255;255mi\u001b[38;2;255;212;255mn\u001b[38;2;255;170;255mf\u001b[38;2;255;128;255mo\u001b[38;2;255;85;255mf\u001b[38;2;234;64;234mo\u001b[38;2;212;42;212mr\u001b[38;2;191;21;191mm\u001b[38;2;170;0;170ms         \u001b[0m"
 
 [[command]]
 keys = "^"
 command = "LT"
 desc = "Top lists"
 help = "Top callers, posters, uploaders and gamers: this week, this month, all time"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45m^\u001b[0;30;45m) \u001b[0;1;37;45mtop lists                      \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35m^\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;212;255mo\u001b[38;2;255;170;255mp \u001b[38;2;255;85;255ml\u001b[38;2;234;64;234mi\u001b[38;2;212;42;212ms\u001b[38;2;191;21;191mt\u001b[38;2;170;0;170ms                      \u001b[0m"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m^\u001b[0;30;45m) \u001b[0;1;37;45mtop lists         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m^\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;212;255mo\u001b[38;2;255;170;255mp \u001b[38;2;255;85;255ml\u001b[38;2;234;64;234mi\u001b[38;2;212;42;212ms\u001b[38;2;191;21;191mt\u001b[38;2;170;0;170ms         \u001b[0m"
 
 [[command]]
 keys = "&"
 command = "UA"
 desc = "Achievements"
 help = "What you've earned, and what's next"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45m&\u001b[0;30;45m) \u001b[0;1;37;45machievements                   \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35m&\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;224;255mc\u001b[38;2;255;193;255mh\u001b[38;2;255;162;255mi\u001b[38;2;255;131;255me\u001b[38;2;255;100;255mv\u001b[38;2;247;77;247me\u001b[38;2;232;62;232mm\u001b[38;2;216;46;216me\u001b[38;2;201;31;201mn\u001b[38;2;185;15;185mt\u001b[38;2;170;0;170ms                   \u001b[0m"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m&\u001b[0;30;45m) \u001b[0;1;37;45machievements      \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m&\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;224;255mc\u001b[38;2;255;193;255mh\u001b[38;2;255;162;255mi\u001b[38;2;255;131;255me\u001b[38;2;255;100;255mv\u001b[38;2;247;77;247me\u001b[38;2;232;62;232mm\u001b[38;2;216;46;216me\u001b[38;2;201;31;201mn\u001b[38;2;185;15;185mt\u001b[38;2;170;0;170ms      \u001b[0m"
 
 [[command]]
-keys = "N"
-command = "NW"
-desc = "News"
-help = "Today's headlines, each written from several outlets"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45mn\u001b[0;30;45m) \u001b[0;1;37;45mnews                           \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35mn\u001b[0;1;30m) \u001b[38;2;255;255;255mn\u001b[38;2;255;142;255me\u001b[38;2;227;57;227mw\u001b[38;2;170;0;170ms                           \u001b[0m"
+keys = "Q"
+command = "-/"
+param = "QWKMAIL"
+acs = "s50"
+desc = "QWKmail menu"
+help = "Goto the offline mail menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mq\u001b[0;30;45m) \u001b[0;1;37;45mqwk mail          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;206;255mw\u001b[38;2;255;158;255mk \u001b[38;2;243;73;243mm\u001b[38;2;219;49;219ma\u001b[38;2;194;24;194mi\u001b[38;2;170;0;170ml          \u001b[0m"
+
+[[command]]
+keys = "T"
+command = "-/"
+param = "timebank"
+acs = "s50"
+desc = "Time Bank"
+help = "None"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mt\u001b[0;30;45m) \u001b[0;1;37;45mtime bank         \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;212;255mi\u001b[38;2;255;170;255mm\u001b[38;2;255;128;255me \u001b[38;2;234;64;234mb\u001b[38;2;212;42;212ma\u001b[38;2;191;21;191mn\u001b[38;2;170;0;170mk         \u001b[0m"
 
 [[command]]
 keys = "<"
@@ -96,5 +108,5 @@ command = "-\\"
 param = "MAIN"
 desc = "Back"
 help = "Back to the main menu"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45m<\u001b[0;30;45m) \u001b[0;1;37;45mback                           \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35m<\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;142;255ma\u001b[38;2;227;57;227mc\u001b[38;2;170;0;170mk                           \u001b[0m"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45m<\u001b[0;30;45m) \u001b[0;1;37;45mback              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35m<\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;142;255ma\u001b[38;2;227;57;227mc\u001b[38;2;170;0;170mk              \u001b[0m"

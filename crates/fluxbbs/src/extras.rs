@@ -311,6 +311,20 @@ impl Session {
     // ---- the automessage ---------------------------------------------------
 
     /// `AS`: show the automessage.
+    /// New: `%AT` and `%AU`, the automessage's title and who wrote it
+    /// ("Anonymous" for an anonymous one). Empty without one.
+    pub(crate) fn automsg_code(&self, author: bool) -> String {
+        if !crate::features::command_on(&self.state.config(), "AS") {
+            return String::new();
+        }
+        let Some(m) = self.state.sys.automsg().ok().flatten() else { return String::new() };
+        match (author, m.anonymous) {
+            (false, _) => m.title,
+            (true, true) => self.strings().get("Anonymous").to_string(),
+            (true, false) => m.author,
+        }
+    }
+
     pub async fn show_automsg(&mut self) -> io::Result<()> {
         let Some(m) = self.state.sys.automsg().map_err(io_err)? else {
             self.newline();
@@ -1180,5 +1194,18 @@ mod tests {
         let data = b"\r\n\x1b[1;36m-- \xfe me\r\nline two\n\x1aSAUCE00junk";
         assert_eq!(parse_sig_file(data), vec!["\x1b[1;36m-- ■ me", "line two"]);
         assert!(parse_sig_file(b"\r\n\r\n").is_empty());
+    }
+
+    #[test]
+    fn automsg_codes() {
+        let s = Session::for_test(crate::tests::state(), crate::user::User { id: 2, ..Default::default() });
+        let code = |s: &Session, c: &[u8; 2]| s.mci_value(*c).unwrap();
+        assert_eq!((code(&s, b"AT"), code(&s, b"AU")), (String::new(), String::new()));
+        let mut m = crate::sysdata::AutoMsg { user_id: 1, author: "Ann".into(), anonymous: false, title: "hello".into(), posted: Default::default(), lines: vec!["hi".into()] };
+        s.state.sys.set_automsg(&m).unwrap();
+        assert_eq!((code(&s, b"AT"), code(&s, b"AU")), ("hello".into(), "Ann".into()));
+        m.anonymous = true;
+        s.state.sys.set_automsg(&m).unwrap();
+        assert_eq!(code(&s, b"AU"), s.strings().get("Anonymous"));
     }
 }

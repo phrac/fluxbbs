@@ -265,6 +265,12 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
 - `%>` right-aligns the rest of a line in a screen.
 - New screens and markers (see [Reference](#reference)), and a
   lister/gallery header with counts.
+- The more menu (`>` on the main menu) in three boxes (read, the
+  board, yours) under its own heading, with a strip of what's going on:
+  the news's lead headline, the automessage, the newest rumor and the
+  caller's time bank. New codes `%NH`, `%AT` and `%AU` give the
+  headline and the automessage's title and author
+  ([CODES](CODES.md)).
 
 ## Files
 

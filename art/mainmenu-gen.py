@@ -34,7 +34,9 @@ MENUS = {
        ('you & the board', [('c', 'config'), ('s', 'autosig'), ('+', 'password'), ('y', 'your stats'), ('l', 'last callers'), ('u', 'users'), ('z', 'history'), ('&', 'achievements'), ('i', 'infoforms'), ('>', 'more...'), ('g', 'goodbye')])]),
  # The main menu's overflow: what's used least. Their keys still work
  # from the main menu too (hidden there).
- 'more': ('more', [('more', [('q', 'qwk mail'), ('t', 'time bank'), ('%', 'new user voting'), ('!', 'automsg'), ('i', 'infoforms'), ('r', 'rumors'), ('^', 'top lists'), ('&', 'achievements'), ('n', 'news'), ('<', 'back')])]),
+ 'more': ('more', [('read', [('n', 'news'), ('r', 'rumors'), ('!', 'automsg')]),
+       ('the board', [('%', 'new user voting'), ('i', 'infoforms'), ('^', 'top lists'), ('&', 'achievements')]),
+       ('yours', [('q', 'qwk mail'), ('t', 'time bank'), ('<', 'back')])]),
  'file': ('file menu', [('areas', [('a', 'change area'), ('j', 'join conference'), ('[', 'previous area'), (']', 'next area'), ('#', 'jump to area #')]),
        ('find', [('l', 'browse files'), ('f', 'search files'), ('h', 'hot files'), ('n', 'newscan'), ('s', 'set newscan date'), ('e', 'scan select')]),
        ('transfer', [('d', 'download'), ('u', 'upload'), ('+', 'flag for batch'), ('b', 'batch edit'), ('q', 'quit')])]),
@@ -69,7 +71,7 @@ MENUS = {
 # 'recolor' ({from: to} DOS colors, e.g. a silver face in cyan) or 'fade'
 # ((top rgb, bottom rgb): the face's white and gray become that 24-bit fade
 # down the rows, the gray darker). A space in the word is a two-column gap.
-LOGOS = {'main': (('tdf', 'AMNESIAX.TDF', 'Amnesia Purp', boardname.NAME, 0), '35'), 'more': (('tdf', 'AMNESIAX.TDF', 'Amnesia Purp', boardname.NAME, 0), '35'), 'file': (('tdf', 'GRNSHT.TDF', 'GReeNSHiT!', boardname.NAME, 0), '32'), 'message': (('tdf', 'METALIX2.TDF', 'Metalix2', boardname.NAME, 0, {'spacing': 2, 'fade': ((200, 200, 200), (85, 255, 255))}), '36'),
+LOGOS = {'main': (('tdf', 'AMNESIAX.TDF', 'Amnesia Purp', boardname.NAME, 0), '35'), 'more': (('tdf', 'NEUROSIX.TDF', 'Neurosis 1 P', 'more', 0), '35'), 'file': (('tdf', 'GRNSHT.TDF', 'GReeNSHiT!', boardname.NAME, 0), '32'), 'message': (('tdf', 'METALIX2.TDF', 'Metalix2', boardname.NAME, 0, {'spacing': 2, 'fade': ((200, 200, 200), (85, 255, 255))}), '36'),
          'door': (('tdf', 'DAMNEDX.TDF', 'Damned Red', boardname.NAME, 0, {'spacing': 0}), '31'),
          'tarot': (None, '35')}
 
@@ -203,6 +205,7 @@ EFFECTS = {'main': [('decode', 'noise', 10.0, 2.0, {'amount': 1.8, 'messages': M
            'door': [('decode', 'side_left', 10.0, 2.0, {'amount': 1.8, 'messages': DOOR_WORDS}),
                     ('decode', 'side_right', 10.0, 2.0, {'amount': 1.8, 'messages': DOOR_WORDS[::-1]}),
                     ('random', 'logo', 10.0, 2.0, {}), ('ripple', 'boxes', 10.0, 6.0, {})],
+           'more': [('random', 'logo', 10.0, 2.0, {}), ('ripple', 'boxes', 10.0, 6.0, {})],
            'message': [('decode', 'codes_left', 10.0, 2.0, {'amount': 1.8, 'messages': BOARD_WORDS}),
                        ('decode', 'codes_right', 10.0, 2.0, {'amount': 1.8, 'messages': BOARD_WORDS[::-1]}),
                        ('random', 'logo', 10.0, 2.0, {}), ('ripple', 'boxes', 10.0, 6.0, {})]}
@@ -393,7 +396,7 @@ def logo_head(name, logo):
         # Home after the clear: a terminal's ESC[2J may leave the cursor.
         # The main menu's logo sits under its row of noise (the top row),
         # as a drawn one does: a row down.
-        top = b'\r\n' if name in ('main', 'more') else b''
+        top = b'\r\n' if name == 'main' else b''
         return b'\x1b[0m\x1b[2J\x1b[H' + top + tdf_logo(*logo[1:]) + b'\x1b[0m'
     d = open(boardname.art(logo), 'rb').read()
     art = d[:d.index(b'\x1a')]
@@ -577,6 +580,21 @@ def door_strip(ink, left, w):
     out = [left + ink.box_top('lately', w)]
     out += [left + DG + '│ ' + r + E + '0m' + f'@{right:02d}' + DG + '│' for r in rows]
     out.append(left + ink.RD + '└' + ink.hline(w - 2 - len(hint) - 5) + DG + '[ ' + GR + hint + DG + ' ]' + ink.BR + '─' + ink.RD + '┘')
+    return out
+
+
+def more_strip(ink, left, w):
+    """Under the more menu's boxes, what's going on: the news's lead,
+    the automessage, the newest rumor and the caller's time bank. Each
+    row's right border is drawn at its column, whatever the values."""
+    right = len(left) + w
+    rows = [('headline', WH + '{62%NH'),
+            ('automsg', WH + '{40%AT' + DG + ' · ' + GR + 'by ' + WH + '{17%AU'),
+            ('rumor', GR + '{62%RL'),
+            ('you', WH + '%TB' + GR + ' minutes in the time bank')]
+    out = [left + ink.box_top('lately', w)]
+    out += [left + DG + '│ ' + ink.BR + f'{label:<9}' + ' ' + body + E + '0m' + f'@{right:02d}' + DG + '│' for label, body in rows]
+    out.append(left + ink.box_bottom(w))
     return out
 
 
@@ -808,6 +826,8 @@ def build(name, variant):
         out += rows
     if name == 'door':
         out += door_strip(ink, left, len(boxes) * (w + 1) - 1)
+    if name == 'more':
+        out += more_strip(ink, left, len(boxes) * (w + 1) - 1)
     if name == 'bbslink':
         bbslink_note(out, ink)
     if name == 'main':

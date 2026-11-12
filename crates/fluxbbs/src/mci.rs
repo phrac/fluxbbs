@@ -292,6 +292,14 @@ impl Session {
             // New: a rumor at random, and the newest (`rumors.rs`).
             b"RM" => self.rumor_code(false),
             b"RL" => self.rumor_code(true),
+            // New: the news's lead headline; the automessage's title and
+            // author.
+            #[cfg(feature = "news")]
+            b"NH" => self.news_lead(),
+            #[cfg(not(feature = "news"))]
+            b"NH" => String::new(),
+            b"AT" => self.automsg_code(false),
+            b"AU" => self.automsg_code(true),
             b"RT" => self.caller.term.clone(),
             b"SL" => u.sl.to_string(),
             b"SN" => cfg.sysop_alias.clone(),
