@@ -65,6 +65,10 @@ impl Session {
     pub async fn rumor_show(&mut self, param: &str) -> io::Result<()> {
         let newest = param.trim().to_ascii_lowercase().starts_with("new");
         let Some(r) = self.state.sys.rumor(newest).map_err(io_err)? else { return Ok(()) };
+        // New: over the board's picture, if it has one (RUMORART).
+        if self.rumor_art_one(&r).await? {
+            return Ok(());
+        }
         let s = crate::strings::substitute(self.strings().get("RumorShow"), &[&defuse(&r.text)]);
         self.newline();
         self.show_line(&s).await
@@ -143,20 +147,16 @@ impl Session {
     /// at a time, with the prompts after at `~PR` (else under the space).
     /// False, having shown nothing, without the screen or its markers.
     async fn rumor_art(&mut self, list: &[Rumor], sysop: bool) -> io::Result<bool> {
-        if self.plain() || self.find_text_file("RUMORART").is_none() {
-            return Ok(false);
-        }
-        let w = waves([("RC", list.len().to_string())]);
         let mut i = 0;
         loop {
-            if !self.show_file_with("RUMORART", &w).await? {
-                return Ok(false);
-            }
-            let (Some(&(x0, y0, _)), Some(&(x1, y1, _))) = (self.positions.get(b"TL"), self.positions.get(b"BR")) else {
-                self.clear_screen();
-                return Ok(false);
+            let Some((x0, y0, x1, y1, prompt)) = self.rumor_art_screen(list.len()).await? else {
+                if i == 0 {
+                    return Ok(false);
+                }
+                // (The screen went between pages: the rest as a list.)
+                self.rumor_rows(&list[i..], sysop).await?;
+                return Ok(true);
             };
-            let prompt = self.positions.get(b"PR").map_or((x0, y1 + 1), |&(x, y, _)| (x, y));
             let width = usize::from(x1.saturating_sub(x0) + 1).max(12);
             let mut y = y0;
             while let Some(r) = list.get(i) {
@@ -190,6 +190,40 @@ impl Session {
                 return Ok(true);
             }
         }
+    }
+
+    /// RUMORART with one rumor in its space (`RS`, at logon), what
+    /// follows at `~PR`. False, having shown nothing, as `rumor_art`.
+    async fn rumor_art_one(&mut self, r: &Rumor) -> io::Result<bool> {
+        let Some((x0, y0, x1, y1, prompt)) = self.rumor_art_screen(1).await? else { return Ok(false) };
+        let width = usize::from(x1.saturating_sub(x0) + 1).max(12);
+        // In the middle of the space, not lost at its top.
+        let lines = wrap_shown(&r.text, width);
+        let top = y0 + (y1 + 1 - y0).saturating_sub(lines.len() as u16) / 2;
+        for (y, l) in (top..=y1).zip(lines) {
+            self.screen.goto(x0, y);
+            self.show(&format!("|U1{}", defuse(&l))).await?;
+        }
+        self.screen.goto(prompt.0, prompt.1);
+        Ok(true)
+    }
+
+    /// RUMORART shown: its space (`~TL`, `~BR`) and where the prompts go
+    /// (`~PR`, else under the space); None, with nothing left on the
+    /// screen, if the board hasn't it or its markers.
+    async fn rumor_art_screen(&mut self, count: usize) -> io::Result<Option<(u16, u16, u16, u16, (u16, u16))>> {
+        if self.plain() || self.find_text_file("RUMORART").is_none() {
+            return Ok(None);
+        }
+        if !self.show_file_with("RUMORART", &waves([("RC", count.to_string())])).await? {
+            return Ok(None);
+        }
+        let (Some(&(x0, y0, _)), Some(&(x1, y1, _))) = (self.positions.get(b"TL"), self.positions.get(b"BR")) else {
+            self.clear_screen();
+            return Ok(None);
+        };
+        let prompt = self.positions.get(b"PR").map_or((x0, y1 + 1), |&(x, y, _)| (x, y));
+        Ok(Some((x0, y0, x1, y1, prompt)))
     }
 
     fn rumor_waves(&self, r: &Rumor, n: usize, sysop: bool, au: bool) -> Waves {

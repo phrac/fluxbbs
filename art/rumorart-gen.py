@@ -1,14 +1,17 @@
 """RUMORART.ANS: the rumors over a picture, if the board's art/local.py
 has a RUMOR_ART; the stock set has none (the rumors list as a list).
 
-    RUMOR_ART = {'art': 'valley-girl.ans', 'backdrop': '46', 'from': 36, 'shift': 8}
+    RUMOR_ART = {'art': 'valley-girl.ans', 'backdrop': '46', 'from': 36, 'shift': 8,
+                 'font': ('TOWNSMLX.TDF', 'Town Small P', 'rumors')}
 
 The picture's backdrop (cells on that background, blank or drawn in its
 own color) is blacked out left of the figure, row by row: the figure is
 the first other cell at or past column `from` (from 0), drawn `shift`
 columns further right for more room (its right edge cut). The rumors go
 in the black, between `~TL` and `~BR`, with the prompts at `~PR`; the
-board wraps them to fit (rumors.rs). Run from text/ (make.py does).
+board wraps them to fit (rumors.rs). With a 'font' (file, face, word;
+the file from the board's fonts/ or art/fonts/), the word heads the
+space in it, else a title line ('title'). Run from text/ (make.py does).
 """
 import os
 import sys
@@ -35,6 +38,15 @@ def fade(t, accent):
     return out
 
 
+def mainmenu():
+    """mainmenu-gen.py, for its TheDraw fonts."""
+    import importlib.util
+    sp = importlib.util.spec_from_file_location('mm', os.path.join(HERE, 'mainmenu-gen.py'))
+    mm = importlib.util.module_from_spec(sp)
+    sp.loader.exec_module(mm)
+    return mm
+
+
 def build(spec):
     grid = ansgrid.parse(open(boardname.art(spec['art']), 'rb').read())
     back, start = spec.get('backdrop', '46'), spec.get('from', 36)
@@ -54,11 +66,23 @@ def build(spec):
     for r in range(rows):
         out += E + f'{r + 1};1H' + E + '0m' + ' ' * (edge[r] + shift)
         out += ansgrid.line(grid, r, edge[r], 78 - shift, edge[r] + shift + 1, r + 1).decode('cp437')
-    # The title and the rules round the space.
+    # The heading (a word in a font, or a title line) and the rules
+    # round the space.
     w = right - 1
-    title = spec.get('title', 'rumor has it')
-    out += E + '1;2H' + DG + '─[ ' + fade(title, accent) + DG + ' ]' + '─' * max(0, w - len(title) - 5)
-    out += E + '2;2H' + E + '0m' + '~TL'
+    top = 2
+    if spec.get('font'):
+        file, face, word = spec['font']
+        own = os.path.join(boardname.BOARD, 'fonts', file)
+        logo = mainmenu().tdf_logo(own if os.path.isfile(own) else file, face, word, 2).decode('cp437')
+        rows_ = logo.split('\r\n')[:-1]
+        for i, row in enumerate(rows_):
+            out += E + f'{i + 1};1H' + E + '0m' + row + E + '0m'
+        out += E + f'{len(rows_) + 1};2H' + DG + '─' * w
+        top = len(rows_) + 2
+    else:
+        title = spec.get('title', 'rumor has it')
+        out += E + '1;2H' + DG + '─[ ' + fade(title, accent) + DG + ' ]' + '─' * max(0, w - len(title) - 5)
+    out += E + f'{top};2H' + E + '0m' + '~TL'
     out += E + f'{rows - 3};{right}H' + E + '0m' + '~BR'
     out += E + f'{rows - 2};2H' + DG + '─' * w
     out += E + f'{rows - 1};2H' + E + '0m' + '~PR'
