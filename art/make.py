@@ -31,6 +31,7 @@ SCREENS = [
     ('../menus/MATRIX.toml', ['matrix-menu-gen.py']),
     ('MSGGUIDE.ANS', ['msgguide-gen.py']),
     ('MSGNEWS.ANS', ['msgguide-gen.py', 'news']),
+    ('NEWUSER.ANS', ['newuser-gen.py']),
     ('NODECHAT.ANS', ['nodechat-gen.py', 'screen']),
     ('POINTS.ANS', ['points-gen.py']),
     (None, ['rumorart-gen.py']),
