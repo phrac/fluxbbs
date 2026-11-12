@@ -40,9 +40,8 @@ off = " \u001b[0;1;30m(\u001b[0;1;31mr\u001b[0;1;30m) \u001b[38;2;255;255;255mr\
 
 [[command]]
 keys = "Q"
-command = "-^"
-param = "MAIN"
+command = "-\\"
 desc = "Quit menu"
-help = "Exit the automessage menu, return to main"
+help = "Back to the menu you came from"
 on = "\u001b[0;30;41m (\u001b[0;1;37;41mq\u001b[0;30;41m) \u001b[0;1;37;41mquit                           \u001b[0m"
 off = " \u001b[0;1;30m(\u001b[0;1;31mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;142mu\u001b[38;2;227;57;57mi\u001b[38;2;170;0;0mt                           \u001b[0m"

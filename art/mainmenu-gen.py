@@ -86,6 +86,9 @@ CHANGED = {
     # n on more is the news (NW), written by the board's AI from several
     # outlets; feedback (n) stays on the main menu.
     ('more', 'n'): {'command': 'NW', 'param': '', 'acs': '', 'desc': 'News', 'help': "Today's headlines, each written from several outlets"},
+    # q on the automessage menu goes back where it came from (the more
+    # menu), not always to the main menu as stock.
+    ('automsg', 'q'): {'command': '-\\', 'param': '', 'desc': 'Quit menu', 'help': 'Back to the menu you came from'},
     # q on more quits to the main menu, as q does on the other menus;
     # QWK mail moves to w (who's on is on the main menu).
     ('more', 'q'): {'command': '-\\', 'param': 'MAIN', 'acs': '', 'desc': 'Quit', 'help': 'Back to the main menu'},
