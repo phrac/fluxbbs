@@ -353,6 +353,11 @@ prompt itself (e.g. `MHUBBOT`).
       [markers](#top-lists-and-achievements))
 - [x] `ACHVTOP` / `ACHVMID` / `ACHVBOT`: your achievements (`UA`;
       [markers](#top-lists-and-achievements))
+- [ ] `RUMORART`: the rumors over a picture (`RL`; optional): `~TL` and
+      `~BR` the corners of the space the rumors are wrapped into, a page
+      at a time, `~PR` where the prompts go. Without it, the RUMOR list
+      screens. `art/rumorart-gen.py` makes one from a picture
+      (`RUMOR_ART` in a board's `art/local.py`)
 - [x] `AUTOSIG`: auto-signature menu
 - [x] `BBSLIST`: BBS list menu
 - [ ] `BBSTOP` / `BBSMID` / `BBSBOT`: BBS list ([markers](#bbs-list))

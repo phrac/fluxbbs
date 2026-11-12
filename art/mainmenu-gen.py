@@ -36,7 +36,7 @@ MENUS = {
  # from the main menu too (hidden there).
  'more': ('more', [('read', [('n', 'news'), ('r', 'rumors'), ('!', 'automsg')]),
        ('the board', [('%', 'new user voting'), ('i', 'infoforms'), ('^', 'top lists'), ('&', 'achievements')]),
-       ('yours', [('q', 'qwk mail'), ('t', 'time bank'), ('<', 'back')])]),
+       ('yours', [('w', 'qwk mail'), ('t', 'time bank'), ('q', 'quit')])]),
  'file': ('file menu', [('areas', [('a', 'change area'), ('j', 'join conference'), ('[', 'previous area'), (']', 'next area'), ('#', 'jump to area #')]),
        ('find', [('l', 'browse files'), ('f', 'search files'), ('h', 'hot files'), ('n', 'newscan'), ('s', 'set newscan date'), ('e', 'scan select')]),
        ('transfer', [('d', 'download'), ('u', 'upload'), ('+', 'flag for batch'), ('b', 'batch edit'), ('q', 'quit')])]),
@@ -71,7 +71,7 @@ MENUS = {
 # 'recolor' ({from: to} DOS colors, e.g. a silver face in cyan) or 'fade'
 # ((top rgb, bottom rgb): the face's white and gray become that 24-bit fade
 # down the rows, the gray darker). A space in the word is a two-column gap.
-LOGOS = {'main': (('tdf', 'AMNESIAX.TDF', 'Amnesia Purp', boardname.NAME, 0), '35'), 'more': (('tdf', 'NEUROSIX.TDF', 'Neurosis 1 P', 'more', 0), '35'), 'file': (('tdf', 'GRNSHT.TDF', 'GReeNSHiT!', boardname.NAME, 0), '32'), 'message': (('tdf', 'METALIX2.TDF', 'Metalix2', boardname.NAME, 0, {'spacing': 2, 'fade': ((200, 200, 200), (85, 255, 255))}), '36'),
+LOGOS = {'main': (('tdf', 'AMNESIAX.TDF', 'Amnesia Purp', boardname.NAME, 0), '35'), 'more': (('tdf', 'AMNESIAX.TDF', 'Amnesia Purp', 'morestf', 0), '35'), 'file': (('tdf', 'GRNSHT.TDF', 'GReeNSHiT!', boardname.NAME, 0), '32'), 'message': (('tdf', 'METALIX2.TDF', 'Metalix2', boardname.NAME, 0, {'spacing': 2, 'fade': ((200, 200, 200), (85, 255, 255))}), '36'),
          'door': (('tdf', 'DAMNEDX.TDF', 'Damned Red', boardname.NAME, 0, {'spacing': 0}), '31'),
          'tarot': (None, '35')}
 
@@ -86,6 +86,10 @@ CHANGED = {
     # n on more is the news (NW), written by the board's AI from several
     # outlets; feedback (n) stays on the main menu.
     ('more', 'n'): {'command': 'NW', 'param': '', 'acs': '', 'desc': 'News', 'help': "Today's headlines, each written from several outlets"},
+    # q on more quits to the main menu, as q does on the other menus;
+    # QWK mail moves to w (who's on is on the main menu).
+    ('more', 'q'): {'command': '-\\', 'param': 'MAIN', 'acs': '', 'desc': 'Quit', 'help': 'Back to the main menu'},
+    ('more', 'w'): {'command': '-/', 'param': 'QWKMAIL', 'acs': 's50', 'desc': 'QWKmail menu', 'help': 'The offline mail menu: QWK packets for your mail reader'},
     # m goes straight to the boards (MH), not through SCANMSG.
     ('main', 'm'): {'command': 'MH', 'param': '', 'desc': 'Message boards', 'help': 'The message boards: read, post, vote and comment'},
     # c is the casino, not the classic menu's KOMBAT.BAT.
@@ -126,7 +130,8 @@ ADDED = {('message', 'h'): {'keys': 'H', 'command': '-F', 'param': 'MSGGUIDE', '
 }
 # Options a menu gains off the bar (their keys work; the screen says so):
 # the doors menu's s, its full scoreboard, and r, the reading room.
-HIDDEN_ADDED = {'door': [{'keys': 'S', 'command': '-F', 'param': 'DOORSTAT', 'desc': 'Scoreboard', 'help': 'Who played what, when and for how long', 'hidden': True},
+HIDDEN_ADDED = {'more': [{'keys': '<', 'command': '-\\', 'param': 'MAIN', 'desc': 'Back', 'help': 'Back to the main menu', 'hidden': True}],
+                'door': [{'keys': 'S', 'command': '-F', 'param': 'DOORSTAT', 'desc': 'Scoreboard', 'help': 'Who played what, when and for how long', 'hidden': True},
                          {'keys': 'R', 'command': 'AB', 'param': '', 'desc': 'Reading room', 'help': "A shelf of textfiles by the fire, on a new theme every day", 'hidden': True}]}
 DROP_REST = {'door', 'more'}
 # Menus with no stock menu of their own: whose options they take, and
@@ -589,7 +594,7 @@ def more_strip(ink, left, w):
     row's right border is drawn at its column, whatever the values."""
     right = len(left) + w
     rows = [('headline', WH + '{62%NH'),
-            ('automsg', WH + '{40%AT' + DG + ' · ' + GR + 'by ' + WH + '{17%AU'),
+            ('automsg', WH + '{42%AT' + '  ' + GR + '{18%AU'),
             ('rumor', GR + '{62%RL'),
             ('you', WH + '%TB' + GR + ' minutes in the time bank')]
     out = [left + ink.box_top('lately', w)]

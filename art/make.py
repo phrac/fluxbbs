@@ -33,6 +33,7 @@ SCREENS = [
     ('MSGNEWS.ANS', ['msgguide-gen.py', 'news']),
     ('NODECHAT.ANS', ['nodechat-gen.py', 'screen']),
     ('POINTS.ANS', ['points-gen.py']),
+    (None, ['rumorart-gen.py']),
     ('TELNET.ANS', ['telnet-gen.py']),
     (None, ['sixel-gen.py']),
     (None, ['prelogon-gen.py']),

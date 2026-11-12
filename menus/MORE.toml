@@ -11,13 +11,13 @@ type = "lightbar"
 
 [[effect]]
 kind = "random"
-rows = [1, 8]
+rows = [1, 6]
 every = 10.0
 delay = 2.0
 
 [[effect]]
 kind = "ripple"
-rows = [9, 15]
+rows = [7, 13]
 every = 10.0
 delay = 6.0
 
@@ -83,14 +83,14 @@ on = "\u001b[0;30;45m (\u001b[0;1;37;45m&\u001b[0;30;45m) \u001b[0;1;37;45machie
 off = " \u001b[0;1;30m(\u001b[0;1;35m&\u001b[0;1;30m) \u001b[38;2;255;255;255ma\u001b[38;2;255;224;255mc\u001b[38;2;255;193;255mh\u001b[38;2;255;162;255mi\u001b[38;2;255;131;255me\u001b[38;2;255;100;255mv\u001b[38;2;247;77;247me\u001b[38;2;232;62;232mm\u001b[38;2;216;46;216me\u001b[38;2;201;31;201mn\u001b[38;2;185;15;185mt\u001b[38;2;170;0;170ms      \u001b[0m"
 
 [[command]]
-keys = "Q"
+keys = "W"
 command = "-/"
 param = "QWKMAIL"
 acs = "s50"
 desc = "QWKmail menu"
-help = "Goto the offline mail menu"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45mq\u001b[0;30;45m) \u001b[0;1;37;45mqwk mail          \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;206;255mw\u001b[38;2;255;158;255mk \u001b[38;2;243;73;243mm\u001b[38;2;219;49;219ma\u001b[38;2;194;24;194mi\u001b[38;2;170;0;170ml          \u001b[0m"
+help = "The offline mail menu: QWK packets for your mail reader"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mw\u001b[0;30;45m) \u001b[0;1;37;45mqwk mail          \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mw\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;206;255mw\u001b[38;2;255;158;255mk \u001b[38;2;243;73;243mm\u001b[38;2;219;49;219ma\u001b[38;2;194;24;194mi\u001b[38;2;170;0;170ml          \u001b[0m"
 
 [[command]]
 keys = "T"
@@ -103,10 +103,18 @@ on = "\u001b[0;30;45m (\u001b[0;1;37;45mt\u001b[0;30;45m) \u001b[0;1;37;45mtime 
 off = " \u001b[0;1;30m(\u001b[0;1;35mt\u001b[0;1;30m) \u001b[38;2;255;255;255mt\u001b[38;2;255;212;255mi\u001b[38;2;255;170;255mm\u001b[38;2;255;128;255me \u001b[38;2;234;64;234mb\u001b[38;2;212;42;212ma\u001b[38;2;191;21;191mn\u001b[38;2;170;0;170mk         \u001b[0m"
 
 [[command]]
+keys = "Q"
+command = "-\\"
+param = "MAIN"
+desc = "Quit"
+help = "Back to the main menu"
+on = "\u001b[0;30;45m (\u001b[0;1;37;45mq\u001b[0;30;45m) \u001b[0;1;37;45mquit              \u001b[0m"
+off = " \u001b[0;1;30m(\u001b[0;1;35mq\u001b[0;1;30m) \u001b[38;2;255;255;255mq\u001b[38;2;255;142;255mu\u001b[38;2;227;57;227mi\u001b[38;2;170;0;170mt              \u001b[0m"
+
+[[command]]
 keys = "<"
 command = "-\\"
 param = "MAIN"
 desc = "Back"
 help = "Back to the main menu"
-on = "\u001b[0;30;45m (\u001b[0;1;37;45m<\u001b[0;30;45m) \u001b[0;1;37;45mback              \u001b[0m"
-off = " \u001b[0;1;30m(\u001b[0;1;35m<\u001b[0;1;30m) \u001b[38;2;255;255;255mb\u001b[38;2;255;142;255ma\u001b[38;2;227;57;227mc\u001b[38;2;170;0;170mk              \u001b[0m"
+hidden = true

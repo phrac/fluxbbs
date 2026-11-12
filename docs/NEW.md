@@ -726,7 +726,9 @@ All in [DOORS](DOORS.md).
 - Rumors, after ENiGMA½'s rumorz: callers add unsigned one-liners
   (`RA`, or from the list, `RL`: r on more...), one shows at logon (the
   `rumor` logon step, `RS`) and on any screen (`%RM` at random, `%RL`
-  the newest). SysOps see who wrote each and delete them in `RL`.
+  the newest). SysOps see who wrote each and delete them in `RL`. A
+  board can show them over a picture (`RUMORART`), wrapped into a space
+  its markers leave.
   ([FEATURES](FEATURES.md#rumors))
 - Feedback from the matrix (`>F`), after ENiGMA½'s pre-auth feedback:
   someone not logged in leaves the SysOp a note under any name, marked

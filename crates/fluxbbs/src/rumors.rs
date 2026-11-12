@@ -104,11 +104,15 @@ impl Session {
     pub async fn rumor_list(&mut self) -> io::Result<()> {
         let sysop = self.is_sysop();
         let list = self.state.sys.rumors().map_err(io_err)?;
+        let mut pictured = false;
         if list.is_empty() {
             self.newline();
             self.say_line("RumorNone").await?;
         } else {
-            self.rumor_rows(&list, sysop).await?;
+            pictured = self.rumor_art(&list, sysop).await?;
+            if !pictured {
+                self.rumor_rows(&list, sysop).await?;
+            }
         }
         if sysop && !list.is_empty() {
             let s = self.strings().fmt("RumorAskDelete", &[&list.len().to_string()]);
@@ -124,10 +128,68 @@ impl Session {
         if self.user.id != 0 {
             self.say("RumorAskAdd").await?;
             if self.yes_no(false).await? {
+                // Typing one takes the width: off the picture first.
+                if pictured {
+                    self.clear_screen();
+                }
                 self.rumor_add().await?;
             }
         }
         Ok(())
+    }
+
+    /// New: the rumors over a picture (RUMORART, if the board has one):
+    /// wrapped into the space between its `~TL` and `~BR` markers, a page
+    /// at a time, with the prompts after at `~PR` (else under the space).
+    /// False, having shown nothing, without the screen or its markers.
+    async fn rumor_art(&mut self, list: &[Rumor], sysop: bool) -> io::Result<bool> {
+        if self.plain() || self.find_text_file("RUMORART").is_none() {
+            return Ok(false);
+        }
+        let w = waves([("RC", list.len().to_string())]);
+        let mut i = 0;
+        loop {
+            if !self.show_file_with("RUMORART", &w).await? {
+                return Ok(false);
+            }
+            let (Some(&(x0, y0, _)), Some(&(x1, y1, _))) = (self.positions.get(b"TL"), self.positions.get(b"BR")) else {
+                self.clear_screen();
+                return Ok(false);
+            };
+            let prompt = self.positions.get(b"PR").map_or((x0, y1 + 1), |&(x, y, _)| (x, y));
+            let width = usize::from(x1.saturating_sub(x0) + 1).max(12);
+            let mut y = y0;
+            while let Some(r) = list.get(i) {
+                let mut lines: Vec<String> = wrap_shown(&r.text, width - 4)
+                    .iter()
+                    .enumerate()
+                    .map(|(j, l)| if j == 0 { format!("|U3{} |U1{}", resize(&(i + 1).to_string(), 3), defuse(l)) } else { format!("|U1    {}", defuse(l)) })
+                    .collect();
+                if sysop {
+                    lines.push(format!("|U5    {}, {}", lit(&r.handle), self.local(r.at).format("%m/%d/%y %H:%M")));
+                }
+                // A rumor too long for an empty page is cut, not skipped.
+                let room = usize::from(y1 + 1 - y);
+                if lines.len() > room && y > y0 {
+                    break;
+                }
+                for l in lines.iter().take(room) {
+                    self.screen.goto(x0, y);
+                    self.show(l).await?;
+                    y += 1;
+                }
+                i += 1;
+            }
+            self.screen.goto(prompt.0, prompt.1);
+            if i >= list.len() {
+                return Ok(true);
+            }
+            self.say("RumorMore").await?;
+            if !self.yes_no(true).await? {
+                self.screen.goto(prompt.0, prompt.1);
+                return Ok(true);
+            }
+        }
     }
 
     fn rumor_waves(&self, r: &Rumor, n: usize, sysop: bool, au: bool) -> Waves {
@@ -181,9 +243,47 @@ impl Session {
     }
 }
 
+/// Text with colour codes in lines of at most `width` columns on screen,
+/// at spaces where it can (a longer word is cut).
+fn wrap_shown(text: &str, width: usize) -> Vec<String> {
+    use fluxbbs_term::codes::{squish, width as shown};
+    let width = width.max(1);
+    let mut out: Vec<String> = Vec::new();
+    let mut line = String::new();
+    for word in text.split_whitespace() {
+        let mut rest = word.to_string();
+        while shown(&rest) > width {
+            if !line.is_empty() {
+                out.push(std::mem::take(&mut line));
+            }
+            let head = squish(&rest, width);
+            rest = rest[head.len()..].to_string();
+            out.push(head);
+        }
+        if !line.is_empty() && shown(&line) + 1 + shown(&rest) > width {
+            out.push(std::mem::take(&mut line));
+        }
+        if !line.is_empty() {
+            line.push(' ');
+        }
+        line.push_str(&rest);
+    }
+    if !line.is_empty() {
+        out.push(line);
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wrapped_with_colours() {
+        assert_eq!(wrap_shown("the |12sysop|07 runs three boards", 12), ["the |12sysop|07", "runs three", "boards"]);
+        assert_eq!(wrap_shown("http://example.com/x", 8), ["http://e", "xample.c", "om/x"]);
+        assert!(wrap_shown("   ", 5).is_empty());
+    }
 
     #[test]
     fn typed_lines_are_cleaned() {
