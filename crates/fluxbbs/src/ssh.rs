@@ -400,6 +400,13 @@ impl russh::server::Handler for Connection {
             session::run(state, Box::new(ch.into_stream()), caller).await;
             let _ = handle.eof(channel).await;
             let _ = handle.close(channel).await;
+            // New: and the connection goes with the session. Closing the
+            // channel alone left it open for as long as the client liked
+            // (ten minutes of silence, or for ever with a keepalive),
+            // counted against nobody: a caller turned away at the door
+            // too, who could hold every descriptor the board has. What's
+            // still to be sent goes first.
+            let _ = handle.disconnect(russh::Disconnect::ByApplication, String::new(), String::new()).await;
         });
         Ok(())
     }

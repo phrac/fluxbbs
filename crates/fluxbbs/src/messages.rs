@@ -1737,7 +1737,8 @@ pub(crate) fn flow_to(lines: &[String], width: usize, hard: bool) -> Vec<String>
     // Words carried to the next line, with the lead they had.
     let mut carry: Option<(String, String)> = None;
     let mut fenced = false;
-    let cut = |lead: &str, text: &str| -> (String, Option<String>) {
+    // What fits, and what goes on to the next line with its lead.
+    let cut = |lead: &str, text: &str| -> (String, Option<(String, String)>) {
         let lead_len = lead.chars().count();
         // A lead too deep to leave room: hard, the whole line is cut at the
         // width as it is; else twenty columns at least for the words.
@@ -1746,7 +1747,12 @@ pub(crate) fn flow_to(lines: &[String], width: usize, hard: bool) -> Vec<String>
             if all.len() <= width {
                 return (all.into_iter().collect(), None);
             }
-            return (all[..width].iter().collect(), Some(all[width..].iter().collect::<String>().trim().to_string()).filter(|r| !r.is_empty()).map(|r| r.to_string()));
+            let rest = all[width..].iter().collect::<String>().trim().to_string();
+            // Under ten columns for the words (as `keep`), the rest goes
+            // on without the lead: one as wide as the line would come
+            // round again whole, for ever.
+            let next = if lead_len + 10 > width { String::new() } else { lead.to_string() };
+            return (all[..width].iter().collect(), (!rest.is_empty()).then_some((next, rest)));
         }
         let room = width.saturating_sub(lead_len).max(20);
         let chars: Vec<char> = text.chars().collect();
@@ -1762,7 +1768,7 @@ pub(crate) fn flow_to(lines: &[String], width: usize, hard: bool) -> Vec<String>
         };
         let fits: String = chars[..at].iter().collect();
         let rest: String = chars[at..].iter().collect::<String>().trim().to_string();
-        (format!("{lead}{}", fits.trim_end()), (!rest.is_empty()).then_some(rest))
+        (format!("{lead}{}", fits.trim_end()), (!rest.is_empty()).then_some((lead.to_string(), rest)))
     };
     // A line kept as it is, but (hard) no wider than the width: cut into
     // pieces, a quote's lead on each.
@@ -1786,7 +1792,7 @@ pub(crate) fn flow_to(lines: &[String], width: usize, hard: bool) -> Vec<String>
         while let Some((lead, words)) = carry.take() {
             let (fits, over) = cut(&lead, &words);
             out.push(fits);
-            *carry = over.map(|w| (lead, w));
+            *carry = over;
         }
     };
     for l in lines {
@@ -1820,7 +1826,7 @@ pub(crate) fn flow_to(lines: &[String], width: usize, hard: bool) -> Vec<String>
         }
         let (fits, over) = cut(&lead, &text);
         out.push(fits);
-        carry = over.map(|w| (lead, w));
+        carry = over;
     }
     flush(&mut out, &mut carry);
     out
@@ -1986,6 +1992,14 @@ mod tests {
         let sym = vec![format!("> {}", "-=".repeat(50))];
         let out = flow_to(&sym, 79, true);
         assert!(out.len() == 2 && out.iter().all(|x| x.starts_with("> ") && x.chars().count() <= 79), "{out:#?}");
+        // A lead as wide as the line (a `>` and a line of spaces, or
+        // nothing but `>`s) ends: this went round for ever.
+        for wide in [format!("> {}x", " ".repeat(78)), format!("{} words here", ">".repeat(85)), format!("{}> {}", ">".repeat(72), "word ".repeat(40))] {
+            let out = flow_to(std::slice::from_ref(&wide), 79, true);
+            assert!(out.len() < 20 && out.iter().all(|x| x.chars().count() <= 79), "{out:#?}");
+            let kept = |t: &[String]| t.concat().chars().filter(|c| *c != ' ' && *c != '>').collect::<String>();
+            assert_eq!(kept(&out), kept(std::slice::from_ref(&wide)));
+        }
     }
 
     #[test]

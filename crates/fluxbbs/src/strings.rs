@@ -90,13 +90,34 @@ impl Strings {
     }
 }
 
+/// `%S1`, `%s2`... in `s` replaced by `args`, in one pass: what's put in
+/// is never read again, so a value that holds a tag itself (a subject of
+/// `%s2`) stays as it is. Replacing tag by tag put the next value inside
+/// that one, marks and all, and its [`fluxbbs_term::lit`] section ended
+/// early: the rest of a caller's text ran as codes.
 pub fn substitute(s: &str, args: &[&str]) -> String {
-    let mut out = s.to_string();
-    for (i, a) in args.iter().enumerate() {
-        for tag in [format!("%S{}", i + 1), format!("%s{}", i + 1)] {
-            out = out.replace(&tag, a);
+    let b = s.as_bytes();
+    let mut out = String::with_capacity(s.len());
+    let (mut i, mut from) = (0, 0);
+    while i < b.len() {
+        if b[i] == b'%' && matches!(b.get(i + 1), Some(b'S' | b's')) && b.get(i + 2).is_some_and(|d| (b'1'..=b'9').contains(d)) {
+            // The longest number that names an argument.
+            let digits = b[i + 2..].iter().take(2).take_while(|d| d.is_ascii_digit()).count();
+            let hit = (1..=digits).rev().find_map(|n| {
+                let k: usize = s[i + 2..i + 2 + n].parse().ok()?;
+                (k <= args.len()).then_some((n, k))
+            });
+            if let Some((n, k)) = hit {
+                out.push_str(&s[from..i]);
+                out.push_str(args[k - 1]);
+                i += 2 + n;
+                from = i;
+                continue;
+            }
         }
+        i += 1;
     }
+    out.push_str(&s[from..]);
     out
 }
 
@@ -167,5 +188,21 @@ mod tests {
     #[test]
     fn substitutes_both_cases() {
         assert_eq!(substitute("%S1 and %s2", &["a", "b"]), "a and b");
+        assert_eq!(substitute("%S3%s0%S12 100%S", &["a", "b"]), "%S3%s0a2 100%S");
+        let ten: Vec<String> = (1..=10).map(|n| format!("<{n}>")).collect();
+        assert_eq!(substitute("%S10%s1", &ten.iter().map(String::as_str).collect::<Vec<_>>()), "<10><1>");
+    }
+
+    #[test]
+    fn a_value_holding_a_tag_is_not_substituted_again() {
+        use fluxbbs_term::{Source, Token, tokenize_str};
+        assert_eq!(substitute("%S1 by %S2", &["x%s2%S1", "y%S1"]), "x%s2%S1 by y%S1");
+        // A subject naming the next value's tag: its own codes stay text.
+        let strings = Strings::load(Path::new("no-such-strings.toml")).unwrap();
+        let s = strings.fmt("NewPostNotice", &["Area", "x%s2|CS|PA|DS@01%RN", "Someone"]);
+        let got = tokenize_str(&s, Source::String);
+        assert!(got.iter().all(|t| matches!(t, Token::Text(_)) || matches!(t, Token::Ctrl(c) if c.is_colour())), "{got:?}");
+        let shown: Vec<u8> = got.iter().filter_map(|t| if let Token::Text(b) = t { Some(b.clone()) } else { None }).flatten().collect();
+        assert!(String::from_utf8_lossy(&shown).contains("x%s2|CS|PA|DS@01%RN by Someone"), "{got:?}");
     }
 }

@@ -128,14 +128,34 @@ fn from_row(r: &Row) -> rusqlite::Result<FileRec> {
 /// DOS-style wildcard match (`*`, `?`), case-insensitive. A pattern
 /// without a dot also matches any extension.
 pub fn wildcard(pattern: &str, name: &str) -> bool {
+    // One pass, going back only to the last `*` (to let it take one more
+    // character): trying every split of every `*` took a pattern of
+    // twenty of them a second a name, and three times that for each two
+    // more.
     fn m(p: &[char], n: &[char]) -> bool {
-        match (p.first(), n.first()) {
-            (None, None) => true,
-            (Some('*'), _) => m(&p[1..], n) || (!n.is_empty() && m(p, &n[1..])),
-            (Some('?'), Some(_)) => m(&p[1..], &n[1..]),
-            (Some(a), Some(b)) => a.eq_ignore_ascii_case(b) && m(&p[1..], &n[1..]),
-            _ => false,
+        let (mut pi, mut ni) = (0, 0);
+        let mut star: Option<(usize, usize)> = None;
+        while ni < n.len() {
+            match p.get(pi) {
+                Some('*') => {
+                    star = Some((pi, ni));
+                    pi += 1;
+                }
+                Some(&c) if c == '?' || c.eq_ignore_ascii_case(&n[ni]) => {
+                    pi += 1;
+                    ni += 1;
+                }
+                _ => match star {
+                    Some((sp, sn)) => {
+                        star = Some((sp, sn + 1));
+                        pi = sp + 1;
+                        ni = sn + 1;
+                    }
+                    None => return false,
+                },
+            }
         }
+        p[pi..].iter().all(|&c| c == '*')
     }
     let n: Vec<char> = name.chars().collect();
     let p: Vec<char> = pattern.chars().collect();
@@ -1172,5 +1192,11 @@ mod tests {
         assert!(wildcard("*", "anything.txt"));
         assert!(!wildcard("*.ARJ", "IQ26.ZIP"));
         assert!(!wildcard("IQ2", "IQ26.ZIP"));
+        assert!(wildcard("*26*z?p", "IQ26.ZIP") && wildcard("i*q*2*6", "IQ26.ZIP") && wildcard("**", ""));
+        assert!(wildcard("*a*ab", "aaab.") && wildcard("*.Z*P", "A.ZAP.ZIP") && !wildcard("?", "") && !wildcard("*.ZI", "A.ZIP"));
+        // A run of stars that can't match is one pass, not every split.
+        let at = std::time::Instant::now();
+        assert!(!wildcard(&format!("{}^", "*".repeat(60)), "PHRACK01.ZIP"));
+        assert!(at.elapsed() < std::time::Duration::from_secs(1));
     }
 }

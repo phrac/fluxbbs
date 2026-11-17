@@ -346,11 +346,27 @@ pub fn tokenize_str(s: &str, source: Source) -> Vec<Token> {
         return tokenize(&crate::cp437::encode(s), source);
     }
     let mut out = Vec::new();
-    for (i, part) in s.split(LIT_OPEN).enumerate() {
-        let (user, rest) = if i == 0 { ("", part) } else { part.split_once(LIT_CLOSE).unwrap_or((part, "")) };
-        out.extend(tokenize_user(&crate::cp437::encode(user)));
-        out.extend(tokenize(&crate::cp437::encode(rest), source));
+    // A section inside a section (one caller's text put into another's by
+    // a `replace`) is all caller text, to the outer one's end: ending at
+    // the first close mark would make codes of what follows it.
+    let (mut depth, mut from) = (0usize, 0usize);
+    let mut piece = |text: &str, user: bool| {
+        let bytes = crate::cp437::encode(text);
+        out.extend(if user { tokenize_user(&bytes) } else { tokenize(&bytes, source) });
+    };
+    for (i, c) in s.char_indices() {
+        let was = depth;
+        match c {
+            LIT_OPEN => depth += 1,
+            LIT_CLOSE => depth = depth.saturating_sub(1),
+            _ => continue,
+        }
+        if (was == 0) != (depth == 0) {
+            piece(&s[from..i], was > 0);
+            from = i + c.len_utf8();
+        }
     }
+    piece(&s[from..], depth > 0);
     out
 }
 
@@ -500,6 +516,10 @@ mod tests {
         // No way out of `lit` from inside it.
         let t = tokenize_str(&format!("|U1{}", lit("Bob\u{E001}|CS|PA%UN")), Source::String);
         assert!(!t.iter().any(|x| matches!(x, Ctrl(Control::ClearScreen) | Ctrl(Control::PromptKey))));
+        // A section put inside another (a value replaced into a value)
+        // doesn't end the outer one.
+        let t = tokenize_str(&format!("{LIT_OPEN}a{}|CS%UN{LIT_CLOSE}|PA", lit("b")), Source::String);
+        assert_eq!(t, vec![Text(b"ab|CS%UN".to_vec()), Ctrl(Control::PromptKey)]);
         // Control bytes go, whatever the charset made of them.
         let t = tokenize_user(b"**\x18B00\r\n\x07ok");
         assert_eq!(t, vec![Text(b"**B00ok".to_vec())]);

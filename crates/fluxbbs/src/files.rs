@@ -759,7 +759,16 @@ impl Session {
         let temp = self.state.config().resolve(&self.state.config().paths.temp).join(format!("text{}", self.node.number()));
         let _ = std::fs::remove_dir_all(&temp);
         let got = self.receive_files(&proto, &temp).await?;
-        let lines = got.first().and_then(|p| std::fs::read(p).ok()).map(|b| text_lines(&b));
+        // New: no more of it than a message holds, however much was sent
+        // (an upload may be `[files] max_upload_bytes`, and a line with
+        // an escape in it is kept whole).
+        let lines = got.first().and_then(|p| {
+            use std::io::Read;
+            let mut b = Vec::new();
+            std::fs::File::open(p).ok()?.take(TEXT_UPLOAD_MAX as u64 + 1).read_to_end(&mut b).ok()?;
+            cut_text_upload(&mut b, TEXT_UPLOAD_MAX);
+            Some(text_lines(&b))
+        });
         let _ = std::fs::remove_dir_all(&temp);
         Ok(lines.filter(|l| !l.is_empty()))
     }
@@ -2332,6 +2341,23 @@ fn fmt_secs(s: u64) -> String {
     format!("{}:{:02}", s / 60, s % 60)
 }
 
+/// New: the most of an uploaded message that's read: room for 500 lines
+/// of ANSI, colours and all.
+pub(crate) const TEXT_UPLOAD_MAX: usize = 256 * 1024;
+
+/// An uploaded message longer than `max` bytes, cut to its last whole
+/// line within them (or, all one line, before its last escape, so half a
+/// sequence isn't left at the end).
+fn cut_text_upload(b: &mut Vec<u8>, max: usize) {
+    if b.len() <= max {
+        return;
+    }
+    b.truncate(max);
+    if let Some(end) = b.iter().rposition(|&c| c == b'\r' || c == b'\n').or_else(|| b.iter().rposition(|&c| c == 0x1b)) {
+        b.truncate(end);
+    }
+}
+
 /// Lines of an uploaded text file: UTF-8 or CP437, tabs expanded, long
 /// lines wrapped to the message width, at most 500 lines. New: lines may
 /// end CR LF, LF or (as messages' do) CR alone, and a line with ANSI in it
@@ -2540,6 +2566,17 @@ mod tests {
         sauced.extend(b"SAUCE00");
         sauced.extend(b"flux/bbs ad".iter().copied().chain(std::iter::repeat(b' ')).take(121));
         assert_eq!(text_lines(&sauced), ["ad"]);
+        // More than a message holds: cut at a line's end, or before the
+        // last escape of one long line.
+        let mut big = b"one\r\ntwo\r\nthree".to_vec();
+        cut_text_upload(&mut big, 12);
+        assert_eq!(big, b"one\r\ntwo\r");
+        let mut big = b"\x1b[1mxx\x1b[0".to_vec();
+        cut_text_upload(&mut big, 8);
+        assert_eq!(big, b"\x1b[1mxx");
+        let mut small = b"as it is".to_vec();
+        cut_text_upload(&mut small, 8);
+        assert_eq!(small, b"as it is");
     }
 
     #[test]
