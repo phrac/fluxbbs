@@ -160,7 +160,11 @@ pub fn expand(cmd: &str, archive: &Path, files: &[&str]) -> String {
 /// Run an archiver command in `dir`, giving up after a minute. Returns
 /// whether it succeeded, and what it printed.
 pub async fn run(cmd: &str, dir: &Path) -> std::io::Result<(bool, Vec<u8>)> {
-    let child = tokio::process::Command::new("sh")
+    use tokio::io::AsyncReadExt;
+    /// New: the most of what it prints that's kept (a listing); one that
+    /// prints more is stopped, where all of it used to be held in memory.
+    const MAX_OUT: u64 = 4 << 20;
+    let mut child = tokio::process::Command::new("sh")
         .arg("-c")
         .arg(cmd)
         .current_dir(dir)
@@ -169,11 +173,20 @@ pub async fn run(cmd: &str, dir: &Path) -> std::io::Result<(bool, Vec<u8>)> {
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true)
         .spawn()?;
-    match tokio::time::timeout(Duration::from_secs(60), child.wait_with_output()).await {
-        Ok(out) => {
-            let out = out?;
-            Ok((out.status.success(), out.stdout))
+    let mut stdout = child.stdout.take();
+    // Either way out early, `child` is dropped, which stops the tool.
+    let work = async {
+        let mut out = Vec::new();
+        if let Some(o) = stdout.as_mut() {
+            o.take(MAX_OUT + 1).read_to_end(&mut out).await?;
         }
+        if out.len() as u64 > MAX_OUT {
+            return Err(std::io::Error::other("archiver printed too much"));
+        }
+        Ok((child.wait().await?.success(), out))
+    };
+    match tokio::time::timeout(Duration::from_secs(60), work).await {
+        Ok(done) => done,
         Err(_) => Err(std::io::Error::new(std::io::ErrorKind::TimedOut, "archiver took too long")),
     }
 }

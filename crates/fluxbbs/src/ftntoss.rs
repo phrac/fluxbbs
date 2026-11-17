@@ -32,6 +32,11 @@ pub struct Tossed {
     pub files: u32,
 }
 
+/// The largest inbound file (a packet, a bundle, or a packet in one)
+/// that's read, and the largest message that's tossed.
+const MAX_INBOUND: u64 = 64 << 20;
+const MAX_MSG_TEXT: usize = 1 << 20;
+
 /// Why a packet wasn't tossed whole.
 enum Fault {
     /// Something about the packet: it goes to `bad`, to be tossed again
@@ -243,6 +248,15 @@ fn toss_dir(state: &BbsState, dir: &Path, nets: &[(FtnNetwork, Addr, Addr)], t: 
         if name.starts_with('.') || !(packet || bundle_name(&lower) || lower.ends_with(".zip")) {
             continue;
         }
+        // New: mail is a few MB at most; a file far past that (the mailer
+        // takes up to 256 MB) isn't read into memory to find out.
+        if std::fs::metadata(&path).is_ok_and(|m| m.len() > MAX_INBOUND) {
+            tracing::warn!("ftn: {name}: over {} MB; kept in bad", MAX_INBOUND >> 20);
+            std::fs::create_dir_all(&bad)?;
+            std::fs::rename(&path, free_name(&bad, &name))?;
+            t.bad += 1;
+            continue;
+        }
         let data = match std::fs::read(&path) {
             Ok(d) => d,
             Err(e) => {
@@ -298,7 +312,7 @@ fn toss_bundle(state: &BbsState, data: &[u8], nets: &[(FtnNetwork, Addr, Addr)],
         }
         // A bundle is a few MB; one that unpacks to far more is refused.
         let mut pkt = Vec::new();
-        std::io::Read::read_to_end(&mut std::io::Read::take(&mut f, 64 << 20), &mut pkt).map_err(|e| bad(&e))?;
+        std::io::Read::read_to_end(&mut std::io::Read::take(&mut f, MAX_INBOUND), &mut pkt).map_err(|e| bad(&e))?;
         match toss_packet(state, &pkt, nets, t) {
             Ok(()) => {}
             Err(Fault::Bad(why)) => problems.push(format!("{name}: {why}")),
@@ -344,6 +358,13 @@ fn toss_packet(state: &BbsState, data: &[u8], nets: &[(FtnNetwork, Addr, Addr)],
     let mut misrouted = Vec::new();
     let mut problems = Vec::new();
     for m in &pkt.msgs {
+        // New: a message past any a person wrote isn't put in the base
+        // (every reader of its area would load it): kept in bad.
+        if m.text.len() > MAX_MSG_TEXT {
+            problems.push(format!("a message of {} KB from {:?} (over {} KB)", m.text.len() >> 10, m.from, MAX_MSG_TEXT >> 10));
+            misrouted.push(m.clone());
+            continue;
+        }
         let parts = ftn::split_text(&m.text);
         match &parts.area {
             Some(tag) => {

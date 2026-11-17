@@ -1112,7 +1112,7 @@ impl Session {
         out.extend(b"q");
         ink(&mut out, [130, 140, 160], st.truecolor);
         out.extend(b"]uit  ");
-        out.extend(fluxbbs_term::cp437::encode(note));
+        out.extend(fluxbbs_term::Screen::text_bytes(note));
         out.extend(b"\x1b[0m");
         self.screen.write_bytes(&out);
     }

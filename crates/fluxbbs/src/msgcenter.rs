@@ -71,15 +71,28 @@ pub fn threads(msgs: &[Message]) -> Vec<Thread> {
     }
     let mut orphans: Vec<usize> = (0..msgs.len()).filter(|&i| parent[i].is_none() && topics[i].0 && !topics[i].1.is_empty()).collect();
     orphans.sort_by_key(|&i| (msgs[i].posted, i));
-    let root_of = |mut j: usize, parent: &[Option<usize>]| {
-        while let Some(p) = parent[j] {
-            j = p;
+    // Each one's way up, shortened as it's walked: a long run of replies
+    // each put under the last had every later one walk the whole chain,
+    // for every earlier post on its topic.
+    let mut up: Vec<usize> = parent.iter().enumerate().map(|(i, p)| p.unwrap_or(i)).collect();
+    fn root_of(up: &mut [usize], mut j: usize) -> usize {
+        let mut root = j;
+        // No further than there are posts: stored reply links can't be
+        // trusted not to go round.
+        for _ in 0..up.len() {
+            if up[root] == root {
+                break;
+            }
+            root = up[root];
         }
-        j
-    };
+        while up[j] != root && up[j] != j {
+            j = std::mem::replace(&mut up[j], root);
+        }
+        root
+    }
     for i in orphans {
         let when = |j: &&usize| (msgs[**j].posted, **j);
-        let earlier: Vec<usize> = on[topics[i].1.as_str()].iter().copied().filter(|&j| msgs[j].posted < msgs[i].posted && root_of(j, &parent) != i).collect();
+        let earlier: Vec<usize> = on[topics[i].1.as_str()].iter().copied().filter(|&j| msgs[j].posted < msgs[i].posted && root_of(&mut up, j) != i).collect();
         let pick = earlier
             .iter()
             .filter(|&&j| msgs[j].from.name.eq_ignore_ascii_case(&msgs[i].to.name))
@@ -88,6 +101,7 @@ pub fn threads(msgs: &[Message]) -> Vec<Thread> {
             .or_else(|| earlier.iter().min_by_key(when));
         if let Some(&p) = pick {
             parent[i] = Some(p);
+            up[i] = p;
         }
     }
     let mut kids: HashMap<usize, Vec<usize>> = HashMap::new();
@@ -253,6 +267,22 @@ impl Session {
         })
     }
 
+    /// New: [`Self::area_view`] without the messages' text (`lines`
+    /// empty), for figures: how many, how many new, who posted last.
+    pub(crate) fn area_headers(&self, a: &AreaRef) -> io::Result<AreaView> {
+        let msgs = self.state.msgs.headers(a.key()).map_err(io_err)?.into_iter().filter(|m| self.ok_to_read(a, m)).collect();
+        Ok(AreaView {
+            msgs,
+            lastread: self.state.msgs.lastread(self.user.id, a.key()).map_err(io_err)?,
+            seen: self.state.msgs.seen(self.user.id, a.key()).map_err(io_err)?,
+        })
+    }
+
+    /// How many of an area's messages are new to the caller.
+    pub(crate) fn area_new_count(&self, a: &AreaRef) -> io::Result<usize> {
+        Ok(self.area_headers(a)?.new_count())
+    }
+
     /// A message has been read: mark it, and move lastread past every
     /// message now read in a row after it.
     pub(crate) fn mark_read(&self, a: &AreaRef, m: &Message) -> io::Result<()> {
@@ -284,7 +314,7 @@ impl Session {
     /// New: catch up on an area, everything in it marked read. How many
     /// posts were new.
     pub(crate) fn catch_up(&self, a: &AreaRef) -> io::Result<usize> {
-        let new = self.area_view(a)?.new_count();
+        let new = self.area_new_count(a)?;
         let last = self.state.msgs.count(a.key()).map_err(io_err)?;
         self.state.msgs.advance_lastread(self.user.id, a.key(), last).map_err(io_err)?;
         self.state.msgs.forget_seen(self.user.id, a.key(), last).map_err(io_err)?;
@@ -360,7 +390,7 @@ impl Session {
             let keys: Vec<String> = areas.iter().filter(|(_, a)| !a.is_email()).map(|(_, a)| a.key().to_string()).collect();
             let since = crate::clock::now().naive_local() - chrono::Duration::days(30);
             let base = self.state.msgs.stats(&keys, since).unwrap_or_default();
-            let unread = self.scanned_areas().iter().filter_map(|(_, a)| self.area_view(a).ok()).map(|v| v.new_count()).sum();
+            let unread = self.scanned_areas().iter().filter_map(|(_, a)| self.area_new_count(a).ok()).sum();
             let names = areas.iter().map(|(_, a)| (a.key().to_ascii_uppercase(), a.area.name.clone())).collect();
             let s = std::sync::Arc::new(MsgFigures { base, unread, names });
             *self.msg_stats.borrow_mut() = Some((std::time::Instant::now(), changes, s.clone()));
@@ -434,7 +464,7 @@ impl Session {
             let tree: Vec<(u32, usize)> = self.state.areas().tree().into_iter().filter(|(n, _)| readable.iter().any(|(_, a)| a.num == *n)).collect();
             let mut stats: HashMap<u32, Board> = HashMap::new();
             for (_, a) in &readable {
-                let v = self.area_view(a)?;
+                let v = self.area_headers(a)?;
                 let last = v.msgs.last();
                 stats.insert(
                     a.num,
@@ -1257,7 +1287,7 @@ impl Session {
         }
         let (mut posts, mut areas) = (0, 0);
         for (_, a) in self.scanned_areas() {
-            let n = self.area_view(&a)?.new_count();
+            let n = self.area_new_count(&a)?;
             if n > 0 {
                 posts += n;
                 areas += 1;
@@ -2317,6 +2347,21 @@ mod tests {
         assert_eq!(t[0].msgs, vec![(10, 0), (11, 1)]);
         let msgs = vec![msg(9, 1, 0, 1), msg(10, 2, 12, 2), msg(11, 3, 10, 3), msg(12, 4, 11, 4)];
         assert_eq!(threads(&msgs).iter().map(|t| t.msgs.len()).sum::<usize>(), 4);
+        // A long run of "Re:"s with no parent named, each under the one
+        // before: every post still there, and soon.
+        let run: Vec<Message> = (1..=3000u32)
+            .map(|n| {
+                let mut m = msg(n as i64, n, 0, 1);
+                m.subject = "Re: the same thing".into();
+                m.posted += chrono::Duration::seconds(n as i64);
+                m.from.name = format!("u{n}");
+                m.to.name = format!("u{}", n - 1);
+                m
+            })
+            .collect();
+        let at = std::time::Instant::now();
+        assert_eq!(threads(&run).iter().map(|t| t.msgs.len()).sum::<usize>(), 3000);
+        assert!(at.elapsed() < std::time::Duration::from_secs(20), "{:?}", at.elapsed());
     }
 
     #[test]

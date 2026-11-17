@@ -546,7 +546,17 @@ fn build(state: &BbsState, started: &str) -> anyhow::Result<Status> {
     let mut open = Vec::new();
     for a in &areas.areas {
         messages += state.msgs.count(&a.file)?;
-        if public(state, &a.acs) && a.password.is_empty() && !echoes.contains(&a.file.to_ascii_uppercase()) {
+    }
+    // A sub-area is as open as everything above it (as on the board, and
+    // as `public_fareas` has it for files): its own ACS alone showed the
+    // posts of an open board inside a closed one.
+    let mut ok_at: Vec<bool> = Vec::new();
+    for (n, depth) in areas.tree() {
+        let Some(a) = areas.get(n) else { continue };
+        ok_at.truncate(depth);
+        let ok = ok_at.last().copied().unwrap_or(true) && public(state, &a.acs) && a.password.is_empty();
+        ok_at.push(ok);
+        if ok && !echoes.contains(&a.file.to_ascii_uppercase()) {
             open.push(a.file.clone());
         }
     }

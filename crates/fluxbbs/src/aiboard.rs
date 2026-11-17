@@ -149,7 +149,17 @@ impl Session {
     fn ai_message_areas(&self) -> String {
         let areas = self.state.areas();
         let mut out = String::from("Message areas:\n");
-        for a in areas.areas.iter().filter(|a| self.acs(&a.acs)) {
+        // Those the caller could open: a sub-area needs the access of
+        // everything above it too.
+        let mut ok_at: Vec<bool> = Vec::new();
+        for (num, depth) in areas.tree() {
+            let Some(a) = areas.get(num) else { continue };
+            ok_at.truncate(depth);
+            let ok = ok_at.last().copied().unwrap_or(true) && self.acs(&a.acs);
+            ok_at.push(ok);
+            if !ok {
+                continue;
+            }
             let n = self.state.msgs.count(&a.file).unwrap_or(0);
             out.push_str(&format!("{}: {n} messages\n", a.name));
         }

@@ -47,6 +47,10 @@ pub enum Status {
 /// The most input kept waiting for a program that isn't reading it.
 pub const INPUT_MAX: usize = 64 << 10;
 
+/// The most output for the caller held before [`Machine::run`] hands
+/// back to the host.
+const MAX_OUTPUT: usize = 1 << 20;
+
 /// Devices and the OS layer: everything the CPU talks to.
 pub struct System {
     pub uart: Uart,
@@ -375,6 +379,12 @@ impl Machine {
             if self.sys.blocked {
                 self.sys.blocked = false;
                 return Status::Idle;
+            }
+            // New: with this much waiting for the caller the host takes
+            // it before more is written (a program writing 64 KB a call
+            // could queue hundreds of MB in one run of its budget).
+            if self.sys.output.len() > MAX_OUTPUT {
+                return Status::Running;
             }
             if self.cpu.instructions >= self.next_tick {
                 self.next_tick += TICK_INSTRUCTIONS;

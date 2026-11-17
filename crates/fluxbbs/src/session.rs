@@ -686,7 +686,7 @@ impl Session {
     }
 
     pub fn is_sysop(&self) -> bool {
-        self.acs(&self.state.config().acs.sysop.clone())
+        self.acs(self.state.config().acs.sysop_acs())
     }
 
     /// `acsOk`: does the current user pass an ACS expression?

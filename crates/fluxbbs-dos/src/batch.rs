@@ -12,6 +12,12 @@ const MAX_DEPTH: usize = 32;
 /// Built-in lines run between two programs, at most: past it the batch
 /// file is going round with nothing to do (`:a` `goto a`).
 const MAX_STEPS: usize = 10_000;
+/// The longest line run, once its `%1`s are filled in (DOS's is 127
+/// characters), and the biggest batch file read. An `IF` runs its
+/// command as a line of its own, each inside the last: a line of a
+/// megabyte of them went so deep it took the whole board down.
+const MAX_LINE: usize = 1024;
+const MAX_FILE: u64 = 1 << 20;
 
 struct Frame {
     lines: Vec<String>,
@@ -55,6 +61,9 @@ impl Batch {
         if prog.to_ascii_uppercase().ends_with(".BAT") {
             // Found like a program: the current directory, then C:\.
             let (host, _) = m.sys.dos.find_program(&prog).ok_or_else(|| format!("{prog}: not found"))?;
+            if std::fs::metadata(&host).is_ok_and(|f| f.len() > MAX_FILE) {
+                return Err(format!("{prog}: too big for a batch file"));
+            }
             let text = std::fs::read(&host).map_err(|e| format!("{}: {e}", host.display()))?;
             let text = String::from_utf8_lossy(&text).into_owned();
             let lines = text.lines().map(|l| l.trim_end_matches('\r').to_string()).collect();
@@ -117,7 +126,7 @@ impl Batch {
             };
             frame.pc += 1;
             let line = Self::expand(&raw, &frame.args, "");
-            let mut line = line.trim().to_string();
+            let mut line: String = line.trim().chars().take(MAX_LINE).collect();
             if line.starts_with('@') {
                 line = line[1..].trim().to_string();
             } else if self.echo && !line.is_empty() && !line.starts_with(':') {
@@ -277,6 +286,17 @@ mod tests {
         assert!(b.next(&mut m).is_err());
         let mut b = Batch::new(&mut m, "D.BAT").unwrap();
         assert_eq!(b.next(&mut m).unwrap(), None, "1: is an invalid drive, not a crash");
+        std::fs::remove_dir_all(&dir).unwrap();
+    }
+
+    #[test]
+    fn a_line_of_ifs_is_cut_not_followed_down() {
+        // Four files (the directory is named by the count). IF in IF a
+        // hundred thousand deep overflowed the stack.
+        let deep = format!("@{}echo x\r\n", "if a==a ".repeat(100_000));
+        let (mut m, dir) = machine(&[("DEEP.BAT", &deep), ("X1", ""), ("X2", ""), ("X3", "")]);
+        let mut b = Batch::new(&mut m, "DEEP.BAT").unwrap();
+        assert_eq!(b.next(&mut m).unwrap(), None);
         std::fs::remove_dir_all(&dir).unwrap();
     }
 }

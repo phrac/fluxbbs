@@ -103,6 +103,9 @@ All in [SYSOP](SYSOP.md#keeping-bots-out).
   `permanent_knocks`: a bot), lasts until the SysOp lifts it.
 - Allow and deny lists (addresses, prefixes, ranges).
 - A pre-login idle limit.
+- A limit on messages a day for each caller (`[messages]
+  posts_per_day`, 100 to start, 0 for none; posts, email and QWK
+  replies together; co-SysOps have none).
 - A security log. SysOps hear at logon about failures since their last
   call.
 

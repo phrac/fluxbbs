@@ -1504,7 +1504,7 @@ impl Session {
             room -= n;
             for (text, c) in piece {
                 ink(&mut out, c, st.truecolor);
-                out.extend(fluxbbs_term::cp437::encode(&text));
+                out.extend(fluxbbs_term::Screen::text_bytes(&text));
             }
         }
         out.extend(b"\x1b[0m");
@@ -1606,7 +1606,7 @@ impl Session {
                 let left = format!("  \u{2666} the reading room \u{00B7} {}", place.to_lowercase());
                 let left: String = left.chars().take(78 - page.len() - 2).collect();
                 ink(&mut out, [176, 132, 84], tc);
-                out.extend(fluxbbs_term::cp437::encode(&left));
+                out.extend(fluxbbs_term::Screen::text_bytes(&left));
                 let gap = 80 - left.chars().count() - page.len() - 2;
                 out.extend(std::iter::repeat_n(b' ', gap));
                 ink(&mut out, GILT, tc);
@@ -1622,7 +1622,7 @@ impl Session {
                 out.push(0xB5);
                 ink(&mut out, [255, 222, 140], tc);
                 out.push(b' ');
-                out.extend(fluxbbs_term::cp437::encode(&t));
+                out.extend(fluxbbs_term::Screen::text_bytes(&t));
                 out.push(b' ');
                 ink(&mut out, [150, 104, 56], tc);
                 out.push(0xC6);
@@ -1732,6 +1732,9 @@ impl Session {
         let kept = self.state.sys.script_get(STORE, &key).ok().flatten();
         let text = match kept {
             Some(t) => Ok(t),
+            // A new one is the AI's work: for those who may use it, and
+            // counted against their day as a message is.
+            None if !self.library_ai_ok(who, tc).await? => return Ok(()),
             None => {
                 let head = self.lib_text("LibraryAiReading", &[&who.to_lowercase()]);
                 self.reader_card(&head, &[], "", tc);
@@ -1769,6 +1772,28 @@ impl Session {
         Ok(())
     }
 
+    /// May the caller have the AI do something new here: `[ai] acs`, and
+    /// the day's limit, which this counts against (as tarot's readings
+    /// do)? If not, a card says why and waits for a key.
+    #[cfg(feature = "ai")]
+    async fn library_ai_ok(&mut self, who: &str, tc: bool) -> io::Result<bool> {
+        let (acs, limit) = {
+            let cfg = self.state.config();
+            (cfg.ai.acs.clone(), cfg.ai.daily_limit)
+        };
+        let why = if !self.acs(&acs) {
+            self.lib_text("LibraryAiNoAccess", &[&who.to_lowercase()])
+        } else if !self.ai_count(limit) {
+            self.lib_text("LibraryAiLimit", &[&limit.to_string()])
+        } else {
+            return Ok(true);
+        };
+        let foot = self.lib_text("LibraryCardBack", &[]);
+        self.reader_card(&why, &[], &foot, tc);
+        self.read_key().await?;
+        Ok(false)
+    }
+
     /// Discussing a book with the AI (new): the caller asks, it answers
     /// from the text, the talk scrolling on the page. Enter alone, or
     /// `ASK_MOST` questions, ends it.
@@ -1794,6 +1819,9 @@ impl Session {
             let Some(q) = self.read_question(&label, rows, tc).await? else { return Ok(()) };
             let q = crate::editor::strip_colours(&q).trim().to_string();
             if q.is_empty() || self.hangup {
+                return Ok(());
+            }
+            if !self.library_ai_ok(who, tc).await? {
                 return Ok(());
             }
             talk.push((false, q.clone()));
@@ -1832,7 +1860,7 @@ impl Session {
                 paint(&mut out, [232, 190, 110], [86, 34, 26], tc);
                 let l = lines.get(k).map(String::as_str).unwrap_or("");
                 // 79 wide: the last row's last column would scroll some terminals.
-                out.extend(fluxbbs_term::cp437::encode(&format!(" {l:<78}")));
+                out.extend(fluxbbs_term::Screen::text_bytes(&format!(" {l:<78}")));
             }
             // The cursor after the last character typed.
             let last = lines.len().clamp(1, ASK_ROWS);
@@ -1892,7 +1920,7 @@ impl Session {
             let (text, fg) = lines.get(skip + k).cloned().unwrap_or_default();
             paint(&mut out, fg, [38, 28, 20], tc);
             let t: String = text.chars().take(80).collect();
-            out.extend(fluxbbs_term::cp437::encode(&format!("{t:<80}")));
+            out.extend(fluxbbs_term::Screen::text_bytes(&format!("{t:<80}")));
         }
         out.extend(b"\x1b[0m");
         self.screen.write_bytes(&out);
@@ -1936,7 +1964,7 @@ impl Session {
             out.extend(format!("\x1b[{};{}H", top + i, col).as_bytes());
             paint(&mut out, *fg, CARD, tc);
             let t: String = format!("  {text}").chars().take(WIDTH).collect();
-            out.extend(fluxbbs_term::cp437::encode(&format!("{t:<WIDTH$}")));
+            out.extend(fluxbbs_term::Screen::text_bytes(&format!("{t:<WIDTH$}")));
         }
         out.extend(b"\x1b[0m");
         self.screen.write_bytes(&out);

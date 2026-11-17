@@ -142,6 +142,7 @@ pub async fn complete(cfg: &Ai, system: &str, prompt: &str) -> anyhow::Result<St
 #[cfg(feature = "ai")]
 pub async fn complete_with_web(cfg: &Ai, system: &str, prompt: &str) -> anyhow::Result<String> {
     const ROUNDS: usize = 3;
+    const CALLS: usize = 4;
     if !cfg.web_search {
         return complete(cfg, system, prompt).await;
     }
@@ -193,10 +194,13 @@ pub async fn complete_with_web(cfg: &Ai, system: &str, prompt: &str) -> anyhow::
             return Ok(text);
         }
         messages.push(json!({"role": "assistant", "content": msg["content"].as_str().unwrap_or(""), "tool_calls": calls}));
-        for c in &calls {
+        for (i, c) in calls.iter().enumerate() {
             let name = c["function"]["name"].as_str().unwrap_or_default();
             let args = serde_json::from_str::<Value>(c["function"]["arguments"].as_str().unwrap_or("{}")).unwrap_or_default();
             let result = match name {
+                // New: so many a round and no more, however many it asks
+                // for (each is a search or a page fetched from here).
+                _ if i >= CALLS => format!("Not run: at most {CALLS} tools at once."),
                 "web_search" => {
                     let q = args["query"].as_str().unwrap_or_default();
                     tracing::info!("ai: search {q:?}");

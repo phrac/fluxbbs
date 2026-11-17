@@ -767,7 +767,8 @@ impl Session {
         };
         // Marked private where that isn't allowed: refused, not posted in
         // public (in an echo area it would go out to the network).
-        if !allowed || r.lines.is_empty() || (r.private && !email && !self.private_ok(&a)) {
+        // New: nor past the day's limit on messages.
+        if !allowed || r.lines.is_empty() || (r.private && !email && !self.private_ok(&a)) || self.post_limit_reached().is_some() {
             return Ok(false);
         }
         // A reply to a message in the packet joins its thread, and goes to

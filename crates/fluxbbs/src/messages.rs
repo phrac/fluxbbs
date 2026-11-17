@@ -100,7 +100,7 @@ impl Session {
     }
 
     pub(crate) fn is_cosysop(&self) -> bool {
-        self.acs(&self.state.config().acs.cosysop.clone())
+        self.acs(self.state.config().acs.cosysop_acs())
     }
 
     /// `maOKtoRead`.
@@ -905,6 +905,19 @@ impl Session {
 
     // ---- posting --------------------------------------------------------
 
+    /// New: has the caller written `[messages] posts_per_day` messages
+    /// today (the limit, if so)? Nothing kept one account from filling
+    /// every board, by hand or a QWK packet at a time.
+    pub(crate) fn post_limit_reached(&self) -> Option<u32> {
+        let limit = self.state.config().messages.posts_per_day;
+        if limit == 0 || self.is_cosysop() {
+            return None;
+        }
+        let today = crate::clock::now().naive_local().date().and_hms_opt(0, 0, 0)?;
+        // If the count can't be had, the post isn't held up for it.
+        (self.state.msgs.written_since(self.user.id, today).unwrap_or(0) >= limit).then_some(limit)
+    }
+
     /// `maPostMessage`: write a new message or a reply. Returns its number.
     pub async fn post(&mut self, a: &AreaRef, to: &str, subject: &str, reply: Option<&Message>) -> io::Result<Option<u32>> {
         let mcfg = &self.state.config().messages;
@@ -918,6 +931,12 @@ impl Session {
         // New: banned from it by its moderator.
         if !a.is_email() && self.banned_from(a) {
             self.say_line("BoardBanned").await?;
+            self.newline();
+            return Ok(None);
+        }
+        if let Some(limit) = self.post_limit_reached() {
+            let s = self.strings().fmt("MsgPostLimit", &[&limit.to_string()]);
+            self.show_line(&s).await?;
             self.newline();
             return Ok(None);
         }

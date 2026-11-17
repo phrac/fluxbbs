@@ -478,6 +478,27 @@ impl MsgBase {
         Ok(rows)
     }
 
+    /// New: how many messages a user has written since `since` (deleted
+    /// ones too: taking a post back doesn't give it back).
+    pub fn written_since(&self, user_id: u32, since: NaiveDateTime) -> anyhow::Result<u32> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        Ok(db.query_row("SELECT COUNT(*) FROM messages WHERE from_id = ?1 AND posted >= ?2", params![user_id, since], |r| r.get(0))?)
+    }
+
+    /// New: every message in an area without its text (`lines` empty),
+    /// for counting what's new: reading every body in, for every area,
+    /// each time anything changed, was most of that work.
+    pub fn headers(&self, area: &str) -> anyhow::Result<Vec<Message>> {
+        let db = self.db.lock().unwrap_or_else(|e| e.into_inner());
+        let mut stmt = db.prepare(
+            "SELECT id, area, num, from_id, from_alias, from_real, from_name, from_note, to_id, to_alias, to_real, to_name, to_note,
+                    subject, posted, deleted, private, anonymous, replies, sig_pos, '' AS body, tag, reply_to
+             FROM messages WHERE area = ?1 ORDER BY num",
+        )?;
+        let rows = stmt.query_map(params![area], from_row)?.collect::<Result<_, _>>()?;
+        Ok(rows)
+    }
+
     /// Add a message, numbering it after the area's last (or keeping
     /// `m.num` if set, for imports).
     pub fn add(&self, m: &mut Message) -> anyhow::Result<()> {
@@ -1590,6 +1611,24 @@ mod tests {
             tag: 0,
             reply_to: 0,
             lines: text.split('\n').map(String::from).collect(),
+        }
+    }
+
+    #[test]
+    fn the_days_messages_are_counted_and_headers_have_no_text() {
+        let mb = MsgBase::open_memory().unwrap();
+        let day = |d: u32, h: u32| chrono::NaiveDate::from_ymd_opt(2026, 10, d).unwrap().and_hms_opt(h, 0, 0).unwrap();
+        for (d, h, who) in [(16, 23, 1), (17, 0, 1), (17, 12, 1), (17, 13, 2)] {
+            let mut m = msg("GEN", "All", "some\ntext");
+            (m.posted, m.from.user_id) = (day(d, h), who);
+            mb.add(&mut m).unwrap();
+        }
+        assert_eq!((mb.written_since(1, day(17, 0)).unwrap(), mb.written_since(2, day(17, 0)).unwrap(), mb.written_since(3, day(17, 0)).unwrap()), (2, 1, 0));
+        let (all, heads) = (mb.all("GEN").unwrap(), mb.headers("GEN").unwrap());
+        assert_eq!(heads.len(), 4);
+        for (a, h) in all.iter().zip(&heads) {
+            assert!(h.lines.is_empty() && a.lines.len() == 2);
+            assert_eq!((a.id, a.num, &a.subject, a.posted, a.from.user_id, &a.to.name), (h.id, h.num, &h.subject, h.posted, h.from.user_id, &h.to.name));
         }
     }
 

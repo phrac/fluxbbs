@@ -540,6 +540,9 @@ impl Out {
 
 struct Render {
     links: Vec<String>,
+    /// Where each is in `links` (a page of links, each looked for in the
+    /// list, was slow).
+    link_at: std::collections::HashMap<String, usize>,
     tables: usize,
     lists: usize,
     /// Lists and quotes indenting what's being drawn.
@@ -564,6 +567,11 @@ fn indent(lines: Vec<Line>, first: Line, next: Line) -> Vec<Line> {
 }
 
 fn center(lines: Vec<Line>, width: usize) -> Vec<Line> {
+    // A table cell being measured has no width to center in yet: padding
+    // every line to half of `UNWRAPPED` made gigabytes of a small page.
+    if width >= UNWRAPPED {
+        return lines;
+    }
     lines
         .into_iter()
         .map(|l| {
@@ -648,10 +656,11 @@ impl Render {
     }
 
     fn link(&mut self, href: &str) -> usize {
-        match self.links.iter().position(|l| l == href) {
-            Some(n) => n + 1,
+        match self.link_at.get(href) {
+            Some(n) => *n,
             None => {
                 self.links.push(href.to_string());
+                self.link_at.insert(href.to_string(), self.links.len());
                 self.links.len()
             }
         }
@@ -1044,7 +1053,7 @@ impl Render {
 /// A page's lines, `width` wide (but for what can't be wrapped).
 pub fn render(src: &str, width: usize) -> Vec<Line> {
     let (root, title) = parse(src);
-    let mut r = Render { links: Vec::new(), tables: 0, lists: 0, indents: 0 };
+    let mut r = Render { links: Vec::new(), link_at: Default::default(), tables: 0, lists: 0, indents: 0 };
     let mut out = Out::new(width, false);
     r.kids(&root, &mut out, Style::default());
     out.flush(false);

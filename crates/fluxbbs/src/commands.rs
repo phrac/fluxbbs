@@ -587,6 +587,12 @@ impl Session {
             });
             *self.user_base.borrow_mut() = Some(db);
             tracing::info!("{}: account changed elsewhere, read again", self.user.handle);
+            // New: deleted while on, the call ends (it went on, with all
+            // the account could do, until they hung up).
+            if self.user.deleted {
+                tracing::info!("{}: account deleted, hanging up", self.user.handle);
+                self.hangup = true;
+            }
             let what = account_changes(&original, &edited, &self.strings());
             if !what.is_empty() {
                 told.push(what);

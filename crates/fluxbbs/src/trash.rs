@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use chrono::NaiveDateTime;
-use fluxbbs_term::Slot;
+use fluxbbs_term::{Slot, lit};
 use fluxbbs_term::codes::resize;
 
 use crate::BbsState;
@@ -84,8 +84,8 @@ impl Session {
                     i + 1,
                     resize(&t.area, 8),
                     t.num,
-                    resize(&strip_colours(&t.from), 13),
-                    resize(&strip_colours(&t.subject), 24),
+                    lit(&resize(&strip_colours(&t.from), 13)),
+                    lit(&resize(&strip_colours(&t.subject), 24)),
                     resize(&when, 11),
                     left
                 );
@@ -134,7 +134,7 @@ impl Session {
                 "V" => {
                     if let Some(m) = self.state.msgs.by_id(t.id).map_err(io::Error::other)? {
                         let mut lines = 1u16;
-                        self.show_line(&format!("|U4{} |U1» |U3{}", strip_colours(&m.from.name), strip_colours(&m.subject))).await?;
+                        self.show_line(&format!("|U4{} |U1» |U3{}", lit(&strip_colours(&m.from.name)), lit(&strip_colours(&m.subject)))).await?;
                         for l in &m.lines {
                             self.set_slot(Slot::TextHi);
                             self.write_with_controls(&crate::editor::printable(&strip_colours(l)));

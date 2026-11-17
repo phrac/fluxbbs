@@ -112,7 +112,9 @@ impl Shared {
         let end = start.saturating_add(len);
         table(|t| {
             let locks = t.locks.entry(self.path.clone()).or_default();
-            if len == 0 || locks.iter().any(|l| l.start < end && start < l.end) {
+            // So many on a file and no more (SHARE's own table was a few
+            // dozen): each is remembered until it's undone.
+            if len == 0 || locks.len() >= 4096 || locks.iter().any(|l| l.start < end && start < l.end) {
                 return Err(ERR_LOCK);
             }
             locks.push(Lock { owner, open: self.id, start, end });

@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 
 use chrono::NaiveDate;
 
-use fluxbbs_term::Slot;
+use fluxbbs_term::{Slot, lit};
 use fluxbbs_term::codes::{resize, squish};
 
 use crate::filebase::FileRec;
@@ -51,8 +51,10 @@ pub struct Sauce {
 }
 
 fn field(b: &[u8]) -> String {
-    let s = fluxbbs_term::cp437::decode(b);
-    s.trim_end_matches(['\0', ' ']).trim().to_string()
+    // No control bytes: CP437 has pictures for them, which go back to
+    // the terminal as the bytes they were.
+    let s = fluxbbs_term::cp437::decode(&b.iter().copied().filter(|&c| c >= 0x20 && c != 0x7f).collect::<Vec<_>>());
+    s.trim().to_string()
 }
 
 pub fn parse_sauce(data: &[u8]) -> Option<Sauce> {
@@ -277,7 +279,7 @@ fn read_limited(src: &Src, max: u64) -> io::Result<Vec<u8>> {
 
 /// A ZIP entry's name as listed: made safe, `/` between folders.
 fn zip_shown_name<R: Read>(f: &zip::read::ZipFile<'_, R>) -> Option<String> {
-    f.enclosed_name().map(|p| p.to_string_lossy().replace('\\', "/"))
+    f.enclosed_name().map(|p| crate::editor::printable(&p.to_string_lossy().replace('\\', "/")).into_owned())
 }
 
 /// Up to `max` bytes of a piece, written to `out` as they're read.
@@ -824,7 +826,7 @@ impl Session {
                 // A SysOp gets the whole file editor; a co-SysOp, the description.
                 Pick::Edit(i) => {
                     path.last_mut().expect("root").2 = i;
-                    let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
+                    let cosysop = self.acs(self.state.config().acs.cosysop_acs());
                     if let Some((n, f)) = items.get(i).and_then(record).cloned().filter(|_| cosysop) {
                         self.screen.set_color(fluxbbs_term::Color::DEFAULT);
                         self.clear_screen();
@@ -1095,7 +1097,7 @@ impl Session {
     /// choice, or a key its first letter.
     async fn gallery_pick(&mut self, screen: &str, place: &str, items: &[Item], start: usize, speed: &mut u32, opts: PickOpts) -> io::Result<Pick> {
         // New: info and edit, as the file lister has them; edit for a co-SysOp and up.
-        let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
+        let cosysop = self.acs(self.state.config().acs.cosysop_acs());
         let mut menu = MenuBar {
             items: &["open", "play", "modem", "sort", "get", "info", "vote", "edit", "find", "back"],
             off: vec![false, false, false, false, false, false, false, !cosysop, !opts.search, false],
@@ -1536,7 +1538,7 @@ impl Session {
                     .await
                     .map_err(io::Error::other)?;
                     if let Err(e) = made {
-                        return self.archive_note(&format!("|U6{name}|U5: |U4Couldn't read it ({e})|U5.")).await.map(|_| None);
+                        return self.archive_note(&format!("|U6{}|U5: |U4Couldn't read it ({e})|U5.", lit(name))).await.map(|_| None);
                     }
                 }
                 out
@@ -1557,7 +1559,7 @@ impl Session {
     async fn gallery_file(&mut self, name: &str, src: &Src, area: &str) -> io::Result<Option<char>> {
         let data = match read_piece(src) {
             Ok(d) => d,
-            Err(e) => return self.archive_note(&format!("|U6{name}|U5: |U4Couldn't read it ({e})|U5.")).await.map(|_| None),
+            Err(e) => return self.archive_note(&format!("|U6{}|U5: |U4Couldn't read it ({e})|U5.", lit(name))).await.map(|_| None),
         };
         let text = crate::upscan::text_part(&data);
         if !crate::upscan::looks_like_text(text) {
@@ -1582,7 +1584,7 @@ impl Session {
         let src = best.as_ref().unwrap_or(src);
         let data = match read_piece(src) {
             Ok(d) => d,
-            Err(e) => return self.show_line(&format!("|U0{name}: {e}")).await.map(|_| None),
+            Err(e) => return self.show_line(&format!("|U0{}: {e}", lit(name))).await.map(|_| None),
         };
         let text = crate::upscan::text_part(&data);
         let utf8 = std::str::from_utf8(text).is_ok_and(|t| !t.is_ascii());
@@ -1852,7 +1854,7 @@ impl Session {
                 let (src, to) = (src.clone(), out.clone());
                 if let Err(e) = tokio::task::spawn_blocking(move || extract_piece(&src, &to, cap)).await.map_err(io::Error::other)? {
                     let _ = std::fs::remove_dir_all(&temp);
-                    return self.archive_note(&format!("|U6{name}|U5: |U4Couldn't read it ({e})|U5.")).await;
+                    return self.archive_note(&format!("|U6{}|U5: |U4Couldn't read it ({e})|U5.", lit(name))).await;
                 }
                 out
             }
@@ -1905,25 +1907,26 @@ fn gallery_info(item: Option<&Item>, speed: u32) -> String {
         Some(Item::Art { rec: Some((_, f)), .. }) => {
             let date = f.uploaded.map(|d| d.format("%Y-%m-%d").to_string()).unwrap_or_default();
             let dls = if f.downloads == 1 { "1 download".to_string() } else { format!("{} downloads", f.downloads) };
-            format!("|U3{} |U5- |U1{} |U5- |U1up by |U3{}|U1 {date} |U5- |U1{dls}", squish(&f.name, 30), crate::files::short_size(f.size), squish(&f.uploader, 16))
+            format!("|U3{} |U5- |U1{} |U5- |U1up by |U3{}|U1 {date} |U5- |U1{dls}", lit(&squish(&f.name, 30)), crate::files::short_size(f.size), lit(&squish(&f.uploader, 16)))
         }
         Some(Item::Art { name, size, .. }) if !is_art(name) => {
             let what = if is_image(name) { "|U3enter|U1 shows it" } else { "|U3enter|U1 views, |U3d|U1 downloads" };
-            format!("|U3{} |U5- |U1{} |U5- |U1{} |U5- {what}", squish(name, 40), crate::files::short_size(*size), kind_word(name))
+            format!("|U3{} |U5- |U1{} |U5- |U1{} |U5- {what}", lit(&squish(name, 40)), crate::files::short_size(*size), kind_word(name))
         }
         Some(Item::Art { name, size, sauce, .. }) => {
             let s = sauce.clone().unwrap_or_default();
-            let mut line = if s.title.is_empty() { name.clone() } else { s.title.clone() };
+            // The names are a stranger's (an archive's, a SAUCE record's).
+            let mut line = lit(if s.title.is_empty() { name } else { &s.title });
             if !byline(&s).is_empty() {
-                line.push_str(&format!(" |U5by |U3{}", byline(&s)));
+                line.push_str(&format!(" |U5by |U3{}", lit(&byline(&s))));
             }
             if !s.date.is_empty() {
-                line.push_str(&format!(" |U5({})", s.date));
+                line.push_str(&format!(" |U5({})", lit(&s.date)));
             }
             format!("|U3{} |U5- |U1{} |U5- |U1play at |U3{speed}", squish(&line, 52), crate::files::short_size(*size))
         }
-        Some(Item::Folder { name, pack: true, .. }) => format!("|U3{name} |U5- |U1a pack; |U3enter|U1 opens it"),
-        Some(Item::Folder { name, .. }) => format!("|U3{name} |U5- |U1a folder; |U3enter|U1 opens it"),
+        Some(Item::Folder { name, pack: true, .. }) => format!("|U3{} |U5- |U1a pack; |U3enter|U1 opens it", lit(name)),
+        Some(Item::Folder { name, .. }) => format!("|U3{} |U5- |U1a folder; |U3enter|U1 opens it", lit(name)),
         None => String::new(),
     }
 }

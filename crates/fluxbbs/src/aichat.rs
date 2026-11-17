@@ -302,6 +302,9 @@ pub(crate) async fn read_page(url: &str) -> Result<String, String> {
     let html = String::from_utf8_lossy(&body);
     let mut text = String::new();
     let mut rest: &str = &html;
+    // In lower case once, for finding where a block ends (the same
+    // length: only ASCII changes), not once for every block.
+    let lowered = html.to_ascii_lowercase();
     // Drop script and style blocks before stripping tags.
     while let Some(i) = rest.find('<') {
         text.push_str(&rest[..i]);
@@ -309,7 +312,7 @@ pub(crate) async fn read_page(url: &str) -> Result<String, String> {
         let lower: String = rest.chars().take(8).collect::<String>().to_ascii_lowercase();
         let close = if lower.starts_with("<script") { Some("</script>") } else if lower.starts_with("<style") { Some("</style>") } else { None };
         match close {
-            Some(end) => match rest.to_ascii_lowercase().find(end) {
+            Some(end) => match lowered[html.len() - rest.len()..].find(end) {
                 Some(j) => rest = &rest[j + end.len()..],
                 None => rest = "",
             },

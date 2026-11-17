@@ -644,7 +644,7 @@ impl Session {
             Some(fail("FaDLaccessDenied", vec![f.name.clone()]))
         } else if !self.farea_dir(&a.area).join(&f.name).is_file() {
             Some(fail("FaFileNotThere", vec![f.name.clone()]))
-        } else if !f.valid && !self.acs(&self.state.config().acs.cosysop.clone()) {
+        } else if !f.valid && !self.acs(self.state.config().acs.cosysop_acs()) {
             Some(fail("FaFileNotValid", vec![f.name.clone()]))
         } else if (self.minutes_left() as u64 * 60).saturating_sub(add.0) < self.xfer_secs(f.size) {
             Some(fail("FaNoTimeForDL", vec![f.name.clone()]))
@@ -1279,7 +1279,7 @@ impl Session {
         }
         // A SysOp's edits change the files under the list.
         let mut files = listed.to_vec();
-        let cosysop = self.acs(&self.state.config().acs.cosysop.clone());
+        let cosysop = self.acs(self.state.config().acs.cosysop_acs());
         let mut list = MenuBar {
             items: &["next", "previous", "flag", "download", "view", "info", "edit", "help", "skip", "quit"],
             off: vec![false, false, false, false, false, false, !cosysop, false, !skip_ok, false],
@@ -1778,8 +1778,15 @@ impl Session {
         let path = self.farea_dir(&a.area).join(&f.name);
         // New: a record whose file is gone says so, rather than ending the call.
         if !path.is_file() {
-            let msg = self.strings().get("FileNotOnDisk").replace("%F", &f.name);
+            let msg = self.strings().get("FileNotOnDisk").replace("%F", &lit(&f.name));
             self.show_line(&msg).await?;
+            return self.prompt_key().await;
+        }
+        // New: a file nobody has validated is the co-SysOps' to look at,
+        // as it is to download (and as the browser leaves it out): a view
+        // showed an upload before anyone had passed it.
+        if !f.valid && !self.acs(self.state.config().acs.cosysop_acs()) {
+            self.say_line("FaFileNotValid").await?;
             return self.prompt_key().await;
         }
         // Don't carry the lister's bar colour into a fresh screen.
@@ -1848,6 +1855,13 @@ impl Session {
                 let got: Vec<PathBuf> = std::fs::read_dir(&dir).ok()?.filter_map(Result::ok).map(|e| e.path()).collect();
                 names.iter().find_map(|want| {
                     let p = got.iter().find(|p| p.file_name().is_some_and(|n| n.to_string_lossy().eq_ignore_ascii_case(want)))?;
+                    // New: a file, not a link the archive held: one to the
+                    // board's host key or config would have had it read
+                    // into the description, for everyone to see.
+                    if !std::fs::symlink_metadata(p).is_ok_and(|m| m.file_type().is_file()) {
+                        tracing::warn!("{}: {} in the archive isn't a plain file, left unread", path.display(), want);
+                        return None;
+                    }
                     let mut raw = Vec::new();
                     io::Read::read_to_end(&mut io::Read::take(std::fs::File::open(p).ok()?, MAX_DESC_READ), &mut raw).ok()?;
                     let lines = parse_description(&raw);
@@ -1868,7 +1882,7 @@ impl Session {
     async fn view_with_archiver(&mut self, path: &Path, name: &str) -> io::Result<()> {
         let arc = self.state.archivers().for_file(path).cloned().filter(|a| !a.list.is_empty());
         let Some(arc) = arc else {
-            return self.show_line(&format!("|U6{name}|U5: |U4Can't view that kind of file|U5.")).await;
+            return self.show_line(&format!("|U6{}|U5: |U4Can't view that kind of file|U5.", lit(name))).await;
         };
         let dir = self.archive_scratch()?;
         let cmd = crate::extprog::expand(&arc.list, &std::path::absolute(path)?, &[]);

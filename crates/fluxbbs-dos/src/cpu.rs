@@ -847,6 +847,12 @@ impl Cpu {
         let mut p = Prefix { seg: None, lock: false, rep: Rep::None, op32: false, ad32: false };
         let op = loop {
             let b = self.fetch8(mem);
+            // An instruction too long has faulted already: nothing more is
+            // read (a segment of nothing but prefixes went round for
+            // ever), and the fault below undoes it.
+            if self.fault.get().is_some() {
+                break 0x90;
+            }
             match b {
                 0x26 => p.seg = Some(ES),
                 0x2E => p.seg = Some(CS),

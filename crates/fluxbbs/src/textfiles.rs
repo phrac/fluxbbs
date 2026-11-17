@@ -681,7 +681,7 @@ pub fn import(config_path: &Path, dir: Option<&Path>, acs: Option<&str>, downloa
     let acs = acs.map(str::to_string).or_else(|| tpl.as_ref().map(|a| a.acs.clone())).unwrap_or_else(|| "s25".into());
     let download_acs = download_acs.map(str::to_string).or_else(|| tpl.as_ref().map(|a| a.download_acs.clone())).unwrap_or_else(|| "s50".into());
     let sponsor = sponsor.map(str::to_string).or_else(|| tpl.as_ref().map(|a| a.sponsor.clone())).unwrap_or_else(|| "SysOp".into());
-    let upload_acs = config.acs.sysop.clone();
+    let upload_acs = config.acs.sysop_acs().to_string();
     // Area paths are relative to the config file where they can be.
     let root_dir = std::path::absolute(config_path)?.parent().map(Path::to_path_buf).unwrap_or_default();
     let abs = std::path::absolute(&dir)?;

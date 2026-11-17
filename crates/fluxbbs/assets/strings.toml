@@ -1262,3 +1262,9 @@ NewsEditionUnread = " · %S1 unread"
 NewsTopHead = "the readers' picks"
 NewsMarkedRead = "|U4Every story here is marked read|U5."
 RumorMore = "|U1More rumors|U2? "
+# The reading room's AI, for a caller without `[ai] acs` (%S1 its name)
+# or past the day's limit (%S1 the limit).
+LibraryAiNoAccess = "%S1 only answers those the sysop lets ask"
+LibraryAiLimit = "that's your %S1 for today, ai chat and all; come back tomorrow"
+# The day's limit on messages reached (`[messages] posts_per_day`, %S1).
+MsgPostLimit = "|U4That's your |U3%S1|U4 messages for today|U5; |U4come back tomorrow|U5."

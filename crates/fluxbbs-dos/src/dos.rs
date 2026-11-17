@@ -270,7 +270,7 @@ impl Dos {
             if kind != b'M' || out.len() > 1024 {
                 break;
             }
-            seg = seg + 1 + size;
+            seg = seg.wrapping_add(1).wrapping_add(size);
         }
         out
     }
@@ -306,10 +306,15 @@ impl Dos {
             if kind != b'M' {
                 break;
             }
-            let next = seg + 1 + size;
+            // A chain the program has written over can point back on
+            // itself, or past the end of memory: the walk stops there,
+            // where it went round for ever (each step goes forward, or
+            // makes this block bigger).
+            let Some(next) = seg.checked_add(1).and_then(|s| s.checked_add(size)) else { break };
             let (nkind, nowner, nsize) = Self::mcb(mem, next);
             if owner == 0 && nowner == 0 {
-                Self::write_mcb(mem, seg, nkind, 0, size + 1 + nsize, b"");
+                let Some(both) = size.checked_add(1).and_then(|s| s.checked_add(nsize)) else { break };
+                Self::write_mcb(mem, seg, nkind, 0, both, b"");
                 continue;
             }
             seg = next;
@@ -521,6 +526,10 @@ impl Dos {
         let (host, dos_path) = self.find_program(program).ok_or_else(|| err(ERR_FILE_NOT_FOUND, format!("{program}: not found")))?;
         if dos_path.to_ascii_uppercase().ends_with(".BAT") {
             return Err(err(ERR_FILE_NOT_FOUND, format!("{program}: batch files aren't run from inside a program")));
+        }
+        // No program is this big (overlays and all): not read to find out.
+        if std::fs::metadata(&host).is_ok_and(|f| f.len() > 64 << 20) {
+            return Err(err(ERR_FILE_NOT_FOUND, format!("{}: too big to be a program", host.display())));
         }
         let image = std::fs::read(&host).map_err(|e| err(ERR_FILE_NOT_FOUND, format!("{}: {e}", host.display())))?;
         // Checked before anything changes: a short or broken header is
@@ -1564,6 +1573,12 @@ fn files_by_name(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory, ah: u8) {
                 entries.sort_by(|a, b| a.name.cmp(&b.name));
             }
             let key = linear(sys.dos.dta.0, sys.dos.dta.1 as u32);
+            // A search is kept by where its DTA is, until it runs out: a
+            // program starting one at every address there is (never
+            // finishing any) had each kept. So many, and the old go.
+            if sys.dos.searches.len() >= 256 && !sys.dos.searches.contains_key(&key) {
+                sys.dos.searches.clear();
+            }
             sys.dos.searches.insert(key, Search { entries, next: 0 });
             find_next(sys, cpu, mem);
         }

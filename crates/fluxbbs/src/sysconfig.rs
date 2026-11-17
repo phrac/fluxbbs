@@ -388,6 +388,7 @@ fn sections() -> Vec<(&'static str, bool, Vec<Setting>)> {
             set('Q', "New user area", 8, "Storage key of the message area new callers start in (blank = the first).", Text(|c| &mut c.messages.new_user_area, TEXT.max(8))),
             set('R', "Keep deleted days", 4, "Days a deleted post stays in the trash, restorable, before it's gone for good (0 = forever).", Num(|c| c.messages.keep_deleted_days as u64, |c, v| c.messages.keep_deleted_days = v as u32, 0, 9999)),
             set('S', "Netmail ACS", 20, "ACS to send netmail (email to name@zone:net/node) out over an FTN network. Never bots.", Text(|c| &mut c.messages.acs_netmail, ACS)),
+            set('T', "Posts a day", 4, "Most messages (posts, email, QWK replies) a caller may write a day (0 = no limit; co-SysOps have none).", Num(|c| c.messages.posts_per_day as u64, |c, v| c.messages.posts_per_day = v as u32, 0, 9999)),
         ]),
         ("Attachments and Uploaded Messages", false, vec![
             set('A', "Public attach ACS", 20, "ACS to attach a file to a public message.", Text(|c| &mut c.messages.acs_attach_public, ACS)),

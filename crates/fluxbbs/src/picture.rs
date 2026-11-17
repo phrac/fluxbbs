@@ -94,7 +94,7 @@ fn frame_of(img: &RgbaImage, tw: u32, th: u32, delay_ms: u64) -> Frame {
 /// Decode a picture into frames that fit `cols` by `rows` cells, or say
 /// why not.
 pub fn load(data: &[u8], cols: usize, rows: usize, lim: Limits) -> Result<Picture, String> {
-    decode(data, lim, |w, h, _| fit(w, h, cols, rows))
+    decode(data, lim, |w, h, _| fit(w, h, cols, rows), |_| {})
 }
 
 const SIXEL_SIDE: u32 = 2048;
@@ -107,18 +107,33 @@ pub fn load_sixel(data: &[u8], pw: u32, ph: u32, lim: Limits) -> Result<Picture,
     // At most SIXEL_SIDE a side and SIXEL_ZOOM times the picture: the
     // cell size and rows come from the caller's terminal.
     let (pw, ph) = (pw.clamp(1, SIXEL_SIDE), ph.clamp(1, SIXEL_SIDE));
-    let mut p = decode(data, lim, |w, h, gif| {
-        let zoom = if gif { 1 } else { SIXEL_ZOOM };
-        fit_pixels(w, h, pw.min(w.saturating_mul(zoom)), ph.min(h.saturating_mul(zoom)))
-    })?;
-    let colors = if p.frames.len() > 1 { 64 } else { 256 };
-    for f in &mut p.frames {
-        f.sixel = sixel(&std::mem::take(&mut f.px), f.w, f.h, colors);
+    const ANIMATED: usize = 64;
+    let in_sixels = |f: &mut Frame, colors: usize| f.sixel = sixel(&std::mem::take(&mut f.px), f.w, f.h, colors);
+    let mut p = decode(
+        data,
+        lim,
+        |w, h, gif| {
+            let zoom = if gif { 1 } else { SIXEL_ZOOM };
+            fit_pixels(w, h, pw.min(w.saturating_mul(zoom)), ph.min(h.saturating_mul(zoom)))
+        },
+        // An animation's frames go to sixels as they're decoded (from the
+        // second on, which shows it is one): every frame's pixels held
+        // till the end was the best part of a gigabyte for a big one.
+        |frames| {
+            if frames.len() >= 2 {
+                for f in frames.iter_mut().filter(|f| f.sixel.is_empty()) {
+                    in_sixels(f, ANIMATED);
+                }
+            }
+        },
+    )?;
+    for f in p.frames.iter_mut().filter(|f| f.sixel.is_empty()) {
+        in_sixels(f, 256);
     }
     Ok(p)
 }
 
-fn decode(data: &[u8], lim: Limits, size: impl Fn(u32, u32, bool) -> (u32, u32)) -> Result<Picture, String> {
+fn decode(data: &[u8], lim: Limits, size: impl Fn(u32, u32, bool) -> (u32, u32), mut each: impl FnMut(&mut Vec<Frame>)) -> Result<Picture, String> {
     if lim.max_bytes > 0 && data.len() as u64 > lim.max_bytes {
         return Err(format!("larger than {} bytes", lim.max_bytes));
     }
@@ -176,6 +191,7 @@ fn decode(data: &[u8], lim: Limits, size: impl Fn(u32, u32, bool) -> (u32, u32))
             // Browsers treat the tiny delays some GIFs carry as 100ms.
             let ms = if ms <= 10 { 100 } else { ms };
             frames.push(frame_of(f.buffer(), tw, th, ms));
+            each(&mut frames);
         }
         if frames.is_empty() {
             return Err("no frames".into());

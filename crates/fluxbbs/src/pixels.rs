@@ -128,7 +128,7 @@ impl Canvas {
     /// Text cells over the pixels, from cell (`col`, `row`), 0-based.
     pub fn label(&mut self, col: usize, row: usize, s: &str, fg: Rgb, bg: Option<Rgb>) {
         let cols = self.w;
-        for (i, b) in fluxbbs_term::cp437::encode(s).into_iter().enumerate() {
+        for (i, b) in fluxbbs_term::Screen::text_bytes(s).into_iter().enumerate() {
             if col + i < cols && row < self.h / 2 {
                 self.text[row * cols + col + i] = Some(Glyph { ch: b, fg, bg });
             }

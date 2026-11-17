@@ -594,6 +594,14 @@ impl Screen {
         if let [b'[', body @ .., b'm'] = seq {
             return self.sgr(body);
         }
+        // New: what starts a string for the terminal (OSC, DCS, APC, PM,
+        // SOS: a title, the clipboard, a download) or resets it isn't
+        // passed on from text, where a file's name or an AI's answer may
+        // have put it: without its ESC the rest shows as it's written.
+        // The board's own (links, sixels, questions) go out untracked.
+        if matches!(seq, [b']' | b'P' | b'_' | b'^' | b'X' | b'c']) {
+            return;
+        }
         self.raw(b"\x1b");
         self.raw(seq);
         let [b'[', body @ .., fin] = seq else { return };
@@ -980,6 +988,18 @@ mod tests {
         s.take_output();
         s.write_text("a\u{2190}[2J\u{2022}\u{266a}\u{25d9}\x07\x1b]0;x\u{2191}b");
         assert_eq!(s.take_output(), b"a[2J\xf9]0;xb".to_vec());
+    }
+
+    #[test]
+    fn strings_for_the_terminal_are_not_passed_on() {
+        // A clipboard write, a DCS and a reset in what's shown: their
+        // escapes go, colours and cursor moves stay.
+        let mut s = Screen::new(Charset::Cp437, 25);
+        s.take_output();
+        s.write_bytes(b"a\x1b]52;c;eA==\x07\x1b[5Cb\x1bPq\x1b_x\x1b^y\x1bXz\x1bc.");
+        let out = s.take_output();
+        assert!(!out.windows(2).any(|w| w[0] == 0x1b && w[1] != b'['), "{:?}", String::from_utf8_lossy(&out));
+        assert!(out.starts_with(b"a52;c;eA==\x07\x1b[5Cb"), "{:?}", String::from_utf8_lossy(&out));
     }
 
     #[test]

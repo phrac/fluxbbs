@@ -43,8 +43,14 @@ pub fn int16(sys: &mut System, cpu: &mut Cpu, mem: &mut Memory) -> After {
         0x02 | 0x12 => cpu.set_ax(mem.read16(BDA + 0x17) & 0xFF),
         0x03 => {}
         0x05 => {
-            sys.keys.push_back(cpu.cx());
-            cpu.set_al(0);
+            // The BIOS's buffer holds 15 keys and says when it's full
+            // (AL=1); ours holds more, not all a program can stuff in.
+            if sys.keys.len() < 256 {
+                sys.keys.push_back(cpu.cx());
+                cpu.set_al(0);
+            } else {
+                cpu.set_al(1);
+            }
         }
         0x09 => cpu.set_al(0x0F),
         _ => {}

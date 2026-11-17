@@ -159,7 +159,7 @@ impl Session {
         let mut areas: Vec<&(u32, AreaRef)> = areas.iter().collect();
         areas.sort_by_key(|(_, a)| tree.iter().position(|(n, _)| *n == a.num).unwrap_or(usize::MAX));
         for (label, a) in areas {
-            let v = self.area_view(a)?;
+            let v = self.area_headers(a)?;
             let new = v.new_count();
             total_new += new;
             // Sub-boards indented under their folders.

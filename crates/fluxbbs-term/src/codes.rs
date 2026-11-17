@@ -387,6 +387,9 @@ pub fn squish(s: &str, len: usize) -> String {
             continue;
         }
         if shown == len {
+            // Cut inside a `lit` section, its end mark is kept: without
+            // it the rest of the prompt would be the caller's text too.
+            out.extend(c[i..].iter().filter(|&&x| x == LIT_OPEN || x == LIT_CLOSE));
             break;
         }
         out.push(c[i]);
@@ -509,6 +512,7 @@ mod tests {
         assert_eq!(squish("|12Ano|04nymous", 5), "|12Ano|04ny");
         assert_eq!(resize("|12Hi", 4), "|12Hi  ");
         assert_eq!(width("|12Hi|CS"), 5);
+        assert_eq!(squish(&format!("{}|U1", lit("abcdef")), 3), lit("abc"));
     }
 
     #[test]

@@ -1655,6 +1655,9 @@ pub struct Messages {
     /// New: days a deleted post stays in the trash, restorable, before
     /// it's gone for good (0: kept).
     pub keep_deleted_days: u32,
+    /// New: the most messages (posts, email, QWK replies) a caller may
+    /// write a day; 0 no limit. Co-SysOps have none.
+    pub posts_per_day: u32,
     /// New: may write netmail (email to `name@zone:net/node`) out over a
     /// network the board is a node of; never a bot.
     pub acs_netmail: String,
@@ -1694,6 +1697,7 @@ impl Default for Messages {
             burn_points: 25,
             new_user_area: String::new(),
             keep_deleted_days: 30,
+            posts_per_day: 100,
         }
     }
 }
@@ -2020,6 +2024,19 @@ impl Default for Terminal {
 impl Default for Acs {
     fn default() -> Self {
         Self { sysop: "s255".into(), cosysop: "s250".into() }
+    }
+}
+
+impl Acs {
+    /// The SysOp's ACS as it's checked. Left blank it's the stock one: a
+    /// blank ACS passes everyone, which here made every caller a SysOp.
+    pub fn sysop_acs(&self) -> &str {
+        if self.sysop.trim().is_empty() { "s255" } else { &self.sysop }
+    }
+
+    /// The co-SysOps', likewise.
+    pub fn cosysop_acs(&self) -> &str {
+        if self.cosysop.trim().is_empty() { "s250" } else { &self.cosysop }
     }
 }
 

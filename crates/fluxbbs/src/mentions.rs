@@ -62,7 +62,7 @@ pub fn may_read(state: &BbsState, u: &User, area: &MsgArea) -> bool {
 
 /// May `u` mention a group (`@all`...)? Co-SysOps and up.
 pub fn may_group(state: &BbsState, u: &User) -> bool {
-    acs::check(&state.config().acs.cosysop, &env_for(state, u))
+    acs::check(state.config().acs.cosysop_acs(), &env_for(state, u))
 }
 
 /// Who a group mention in `area` reaches (not the poster), or none for

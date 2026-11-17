@@ -1069,7 +1069,7 @@ impl Session {
             sex: u.sex,
             sl: u.sl,
             sysop: self.is_sysop(),
-            cosysop: self.acs(&cfg.acs.cosysop),
+            cosysop: self.acs(cfg.acs.cosysop_acs()),
             ansi: true,
             expert: u.expert,
             page_length: u.page_length,
